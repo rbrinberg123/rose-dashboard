@@ -83,25 +83,29 @@ def parse_dt(value: Optional[str]) -> Optional[datetime]:
 # Users — built incrementally from any systemuser lookup encountered
 # -----------------------------------------------------------------------------
 
-def collect_users(rows: List[dict], extra_lookup_fields: List[str]) -> Dict[str, str]:
+def collect_users(rows: List[dict], extra_lookup_fields: List[str] = None) -> Dict[str, str]:
     """
-    Walk every row and collect (user_id, display_name) for any lookup field
-    that resolves to systemuser.
-
-    Returns: dict of {user_id: display_name}
+    Walk every row and collect (user_id, display_name) for ANY lookup field
+    that resolves to systemuser. Captures users even if their FormattedValue
+    is missing (deactivated users) by using '<Unknown User>' as the name.
     """
     users: Dict[str, str] = {}
     for row in rows:
-        for field in extra_lookup_fields:
-            if not field.startswith("_"):
+        for key in row.keys():
+            if not (key.startswith("_") and key.endswith("_value")):
                 continue
-            if lookup_target(row, field) == "systemuser":
-                uid = lookup_id(row, field)
-                name = lookup_name(row, field)
-                if uid and name:
-                    users[uid] = name
+            target_key = f"{key}@Microsoft.Dynamics.CRM.lookuplogicalname"
+            if row.get(target_key) != "systemuser":
+                continue
+            uid = row.get(key)
+            if not uid:
+                continue
+            name = row.get(f"{key}@OData.Community.Display.V1.FormattedValue") or "<Unknown User>"
+            # Don't overwrite a real name with a fallback; only set if not already set or upgrading from fallback
+            existing = users.get(uid)
+            if existing is None or existing == "<Unknown User>":
+                users[uid] = name
     return users
-
 
 # -----------------------------------------------------------------------------
 # Row mappers — one per table
