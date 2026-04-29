@@ -1,0 +1,94 @@
+"use client"
+
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import {
+  Briefcase,
+  Users,
+  MessageSquare,
+  CalendarClock,
+  FileText,
+  TrendingUp,
+  Settings2,
+  DollarSign,
+  Receipt,
+  PiggyBank,
+  ShieldAlert,
+  AlertTriangle,
+  ClipboardList,
+} from "lucide-react"
+import { cn } from "@/lib/utils"
+
+type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
+
+const dashboards: NavItem[] = [
+  { href: "/portfolio", label: "Client Portfolio", icon: Briefcase },
+  { href: "/analysts", label: "Analyst Activity", icon: Users },
+  { href: "/feedback", label: "Feedback Discipline", icon: MessageSquare },
+  { href: "/pipeline", label: "Pipeline (Next 30 Days)", icon: CalendarClock },
+  { href: "/renewals", label: "Contract Renewals", icon: FileText },
+  { href: "/margin", label: "Margin by Client", icon: TrendingUp },
+]
+
+const admin: NavItem[] = [
+  { href: "/cost-assumptions", label: "Cost Assumptions", icon: Settings2 },
+  { href: "/salary-schedule", label: "Salary Schedule", icon: DollarSign },
+  { href: "/direct-costs", label: "Direct Costs", icon: Receipt },
+  { href: "/quarterly-overhead", label: "Quarterly Overhead", icon: PiggyBank },
+  { href: "/overhead-overrides", label: "Overhead Overrides", icon: ShieldAlert },
+  { href: "/revenue-overrides", label: "Revenue Overrides", icon: ClipboardList },
+  { href: "/exceptions", label: "Exception Report", icon: AlertTriangle },
+]
+
+function Section({ title, items, current }: { title: string; items: NavItem[]; current: string }) {
+  return (
+    <div className="px-3 py-2">
+      <h2 className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {title}
+      </h2>
+      <ul className="space-y-0.5">
+        {items.map(({ href, label, icon: Icon }) => {
+          const active = current === href || current.startsWith(href + "/")
+          return (
+            <li key={href}>
+              <Link
+                href={href}
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                  active
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+                )}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className="truncate">{label}</span>
+              </Link>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+export function Sidebar() {
+  const pathname = usePathname() || "/"
+  return (
+    <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
+      <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
+        <div className="flex size-7 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground text-sm font-bold">
+          R
+        </div>
+        <span className="font-semibold text-sidebar-foreground">Rose &amp; Co.</span>
+      </div>
+      <nav className="flex-1 overflow-y-auto py-2">
+        <Section title="Dashboards" items={dashboards} current={pathname} />
+        <div className="my-2 mx-3 border-t border-sidebar-border/60" />
+        <Section title="Admin" items={admin} current={pathname} />
+      </nav>
+      <div className="border-t border-sidebar-border px-4 py-3 text-xs text-muted-foreground">
+        v0.1 · Internal
+      </div>
+    </aside>
+  )
+}
