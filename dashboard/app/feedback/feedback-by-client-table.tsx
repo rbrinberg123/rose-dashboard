@@ -219,7 +219,9 @@ export function FeedbackByClientTable({ rows }: { rows: FeedbackByClientRow[] })
             {table.getRowModel().rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32 text-center text-sm text-muted-foreground">
-                  No rows match the current filters.
+                  {rows.length === 0
+                    ? "No feedback data for any client yet."
+                    : "No rows match the current filters."}
                 </TableCell>
               </TableRow>
             ) : (

@@ -215,7 +215,9 @@ export function FeedbackByAnalystTable({ rows }: { rows: FeedbackByAnalystRow[] 
             {table.getRowModel().rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32 text-center text-sm text-muted-foreground">
-                  No rows match the current filters.
+                  {rows.length === 0
+                    ? "No feedback data for any analyst yet."
+                    : "No rows match the current filters."}
                 </TableCell>
               </TableRow>
             ) : (

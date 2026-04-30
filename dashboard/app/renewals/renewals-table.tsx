@@ -215,7 +215,9 @@ export function RenewalsTable({ rows }: { rows: ContractRenewalRow[] }) {
             {table.getRowModel().rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32 text-center text-sm text-muted-foreground">
-                  No contracts match the current filters.
+                  {rows.length === 0
+                    ? "No active contracts on the renewal calendar."
+                    : "No contracts match the current filters."}
                 </TableCell>
               </TableRow>
             ) : (

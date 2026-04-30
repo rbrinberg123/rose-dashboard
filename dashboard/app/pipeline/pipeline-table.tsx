@@ -263,7 +263,9 @@ export function PipelineTable({ rows }: { rows: Pipeline30dRow[] }) {
             {table.getRowModel().rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32 text-center text-sm text-muted-foreground">
-                  No meetings match the current filters.
+                  {rows.length === 0
+                    ? "No meetings scheduled in the next 30 days."
+                    : "No meetings match the current filters."}
                 </TableCell>
               </TableRow>
             ) : (
