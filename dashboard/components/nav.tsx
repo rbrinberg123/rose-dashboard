@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   ClipboardList,
   Menu,
+  LogOut,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -28,6 +29,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import { signOutAction } from "@/app/auth/actions"
 
 type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
 
@@ -114,7 +116,7 @@ function Brand() {
   )
 }
 
-export function Sidebar() {
+export function Sidebar({ userEmail }: { userEmail?: string | null }) {
   const pathname = usePathname() || "/"
   const [mobileOpen, setMobileOpen] = React.useState(false)
 
@@ -122,6 +124,12 @@ export function Sidebar() {
   React.useEffect(() => {
     setMobileOpen(false)
   }, [pathname])
+
+  // Hide the entire shell on auth-flow pages so /login and /auth/callback
+  // render edge-to-edge.
+  if (pathname === "/login" || pathname.startsWith("/auth/")) {
+    return null
+  }
 
   return (
     <>
@@ -144,6 +152,11 @@ export function Sidebar() {
             <nav className="flex-1 overflow-y-auto py-2">
               <NavContents pathname={pathname} onNavigate={() => setMobileOpen(false)} />
             </nav>
+            {userEmail ? (
+              <div className="border-t border-sidebar-border p-3">
+                <UserPanel email={userEmail} />
+              </div>
+            ) : null}
           </SheetContent>
         </Sheet>
         <Brand />
@@ -157,10 +170,38 @@ export function Sidebar() {
         <nav className="flex-1 overflow-y-auto py-2">
           <NavContents pathname={pathname} />
         </nav>
-        <div className="border-t border-sidebar-border px-4 py-3 text-xs text-muted-foreground">
-          v0.1 · Internal
-        </div>
+        {userEmail ? (
+          <div className="border-t border-sidebar-border px-3 py-3">
+            <UserPanel email={userEmail} />
+          </div>
+        ) : (
+          <div className="border-t border-sidebar-border px-4 py-3 text-xs text-muted-foreground">
+            v0.1 · Internal
+          </div>
+        )}
       </aside>
     </>
+  )
+}
+
+function UserPanel({ email }: { email: string }) {
+  return (
+    <div className="space-y-2">
+      <div className="px-2 text-xs text-muted-foreground" title={email}>
+        Signed in as
+        <div className="truncate text-sidebar-foreground">{email}</div>
+      </div>
+      <form action={signOutAction}>
+        <Button
+          type="submit"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-sidebar-foreground/80 hover:text-sidebar-foreground"
+        >
+          <LogOut className="size-4" />
+          Sign out
+        </Button>
+      </form>
+    </div>
   )
 }
