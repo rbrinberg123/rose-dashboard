@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type { ClientDirectCostRow, AccountOption, UserOption } from "@/lib/types"
@@ -5,6 +6,8 @@ import { DirectCostForm } from "./direct-cost-form"
 import { DirectCostsTable } from "./direct-costs-table"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Direct Costs" }
 
 export default async function DirectCostsPage() {
   const sb = getSupabaseServer()

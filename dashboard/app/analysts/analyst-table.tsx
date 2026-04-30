@@ -241,7 +241,9 @@ export function AnalystTable({ rows }: { rows: AnalystActivityRow[] }) {
             {table.getRowModel().rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32 text-center text-sm text-muted-foreground">
-                  No analysts match the current filters.
+                  {rows.length === 0
+                    ? "No analyst activity recorded for the selected period."
+                    : "No analysts match the current filters."}
                 </TableCell>
               </TableRow>
             ) : (

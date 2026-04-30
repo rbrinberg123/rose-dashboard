@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type { ClientPortfolioRow } from "@/lib/types"
@@ -7,6 +8,8 @@ import { PortfolioTable } from "./portfolio-table"
 // Always fetch fresh from Supabase; the views recompute on every read and we
 // don't want stale margin numbers hanging around in the static cache.
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Client Portfolio" }
 
 export default async function ClientPortfolioPage() {
   const sb = getSupabaseServer()

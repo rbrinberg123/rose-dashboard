@@ -1,9 +1,12 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type { AnalystActivityRow } from "@/lib/types"
 import { AnalystView } from "./analyst-view"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Analyst Activity" }
 
 export default async function AnalystActivityPage() {
   const sb = getSupabaseServer()

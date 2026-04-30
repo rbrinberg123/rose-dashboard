@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getSupabaseServer } from "@/lib/supabase"
@@ -12,6 +13,8 @@ import { FeedbackByClientTable } from "./feedback-by-client-table"
 import { FeedbackByAnalystTable } from "./feedback-by-analyst-table"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Feedback Discipline" }
 
 export default async function FeedbackDisciplinePage() {
   const sb = getSupabaseServer()

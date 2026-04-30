@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type {
@@ -8,6 +9,8 @@ import type {
 import { OverheadOverridesTable } from "./overhead-overrides-table"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Overhead Overrides" }
 
 export default async function OverheadOverridesPage() {
   const sb = getSupabaseServer()

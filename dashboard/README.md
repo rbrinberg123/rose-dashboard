@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Rose & Co. Dashboard
 
-## Getting Started
+Internal management dashboard for Rose & Company. Single-page Next.js
+(App Router) app that reads from Supabase via server components and
+renders six analytics dashboards plus seven admin pages.
 
-First, run the development server:
+The Next.js app lives in this `dashboard/` subdirectory. The repo root
+also contains the SQL views/migrations that back the dashboard.
+
+## Stack
+
+- Next.js 16 (App Router, React 19, Turbopack)
+- Tailwind v4 + shadcn/ui (base-ui primitives)
+- TanStack Table for data grids
+- Recharts for charts
+- Supabase (`@supabase/supabase-js`) — server-side only with the
+  service-role key. The browser never sees Supabase credentials.
+
+## Run locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd dashboard
+cp .env.example .env.local      # then fill in the two values below
+npm install
+npm run dev                      # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Environment variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Both are required server-side (no `NEXT_PUBLIC_*` prefixes — these
+must never be shipped to the browser):
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Var                          | Where it comes from                              |
+| ---------------------------- | ------------------------------------------------ |
+| `SUPABASE_URL`               | Supabase → Settings → API → Project URL          |
+| `SUPABASE_SERVICE_ROLE_KEY`  | Supabase → Settings → API → `service_role` key   |
 
-## Learn More
+The factory in [lib/supabase.ts](lib/supabase.ts) throws at first call
+if either is missing.
 
-To learn more about Next.js, take a look at the following resources:
+### Useful scripts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run dev      # local dev server
+npm run build    # production build (used by CI / Vercel)
+npm run start    # serve the production build locally
+npm run lint     # eslint
+node scripts/smoke.mjs   # row-count sanity check across all views
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## How the deploy works
 
-## Deploy on Vercel
+The app deploys to Vercel via GitHub integration. Every push to
+`main` triggers a production deploy; PR branches get preview URLs.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Vercel project configuration:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Root directory:** `dashboard` (the Next.js app is a subdirectory)
+- **Framework preset:** Next.js (auto-detected)
+- **Build command:** `npm run build` (default)
+- **Output directory:** `.next` (default)
+- **Node version:** Vercel reads `engines.node` from `package.json` (pinned to `>=20.x`)
+
+The two Supabase env vars above must be set in Vercel under
+**Project Settings → Environment Variables** for the Production (and
+Preview, if desired) environments.
+
+### Production URL
+
+To be filled in after the first deploy completes — visible at the top
+of the Vercel project dashboard.
+
+## Architecture notes
+
+- All Supabase reads happen in server components (`page.tsx`) using
+  `getSupabaseServer()`. Pages are marked `dynamic = "force-dynamic"`
+  because the underlying views recompute on every read.
+- Mutations live in `actions.ts` files (server actions) per route.
+- Each route has its own `loading.tsx` (skeleton) and `error.tsx`
+  (retry boundary) for consistent UX during slow queries or failures.
+- The sidebar collapses to a hamburger sheet below `md` so the app
+  works on phones and narrow laptop windows.

@@ -265,7 +265,9 @@ export function MarginTable({ rows }: { rows: ClientQuarterlyPnlRow[] }) {
             {table.getRowModel().rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32 text-center text-sm text-muted-foreground">
-                  No clients match the current filters.
+                  {rows.length === 0
+                    ? "No P&L data available yet."
+                    : "No clients match the current filters."}
                 </TableCell>
               </TableRow>
             ) : (

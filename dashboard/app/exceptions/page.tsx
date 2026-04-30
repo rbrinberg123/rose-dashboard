@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { loadExceptionData } from "./data"
 import { ExceptionSummaryStrip } from "./summary-strip"
@@ -8,6 +9,8 @@ import { OverheadOverrunSection } from "./overhead-overrun-section"
 import { NullMeetingTypeSection } from "./null-meeting-type-section"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Exception Report" }
 
 export default async function ExceptionsPage() {
   const data = await loadExceptionData()

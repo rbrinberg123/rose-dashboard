@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type { Pipeline30dRow } from "@/lib/types"
@@ -5,6 +6,8 @@ import { PipelineKpis } from "./pipeline-kpis"
 import { PipelineTable } from "./pipeline-table"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Pipeline (Next 30 Days)" }
 
 export default async function PipelinePage() {
   const sb = getSupabaseServer()

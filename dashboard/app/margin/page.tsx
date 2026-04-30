@@ -1,9 +1,12 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type { ClientQuarterlyPnlRow } from "@/lib/types"
 import { MarginView } from "./margin-view"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Margin by Client" }
 
 export default async function MarginPage() {
   const sb = getSupabaseServer()

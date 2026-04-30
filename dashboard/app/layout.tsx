@@ -15,7 +15,10 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "Rose & Co. Dashboard",
+  title: {
+    default: "Rose & Co. Dashboard",
+    template: "%s · Rose & Co. Dashboard",
+  },
   description: "Internal management dashboard for Rose & Company",
 }
 
@@ -28,7 +31,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-background text-foreground">
-        <div className="flex min-h-screen">
+        <div className="flex min-h-screen flex-col md:flex-row">
           <Sidebar />
           <main className="flex-1 overflow-x-hidden">{children}</main>
         </div>

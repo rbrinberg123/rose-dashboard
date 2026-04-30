@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type { RevenueOverrideRow, AccountOption } from "@/lib/types"
@@ -5,6 +6,8 @@ import { RevenueOverrideForm } from "./revenue-override-form"
 import { RevenueOverridesTable } from "./revenue-overrides-table"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Revenue Overrides" }
 
 export default async function RevenueOverridesPage() {
   const sb = getSupabaseServer()
