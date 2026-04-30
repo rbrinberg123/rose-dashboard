@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout *)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" add dashboard/package.json dashboard/package-lock.json dashboard/lib/supabase/browser.ts dashboard/lib/supabase/server.ts dashboard/lib/supabase/proxy.ts dashboard/lib/auth-allowlist.ts)",
+      "Bash(git -C C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard commit -m ' *)",
+      "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" add dashboard/app/login/ dashboard/app/auth/)",
+      "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" add dashboard/proxy.ts)",
+      "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" add dashboard/app/layout.tsx dashboard/components/nav.tsx)",
+      "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" add dashboard/.env.example dashboard/README.md)",
+      "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" log --oneline -7)",
+      "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" status)"
+    ]
+  }
+}
