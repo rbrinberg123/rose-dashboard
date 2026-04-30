@@ -6,6 +6,102 @@
  * shape, then update this file.
  */
 
+export type AnalystActivityRow = {
+  user_id: string
+  display_name: string | null
+  period_year: number
+  period_quarter: number
+  meetings_booked: number
+  meetings_hosted: number
+  meetings_in_person_hosted: number
+  meetings_virtual_hosted: number
+  meetings_cancelled_booked: number
+  meetings_cancelled_hosted: number
+  feedback_collected_hosted: number
+  feedback_collection_rate: number | null
+  total_labor_cost_attributed: number
+}
+
+export type FeedbackOverallRow = {
+  period_year: number
+  period_quarter: number
+  total_meetings: number
+  meetings_with_feedback: number
+  feedback_rate: number | null
+}
+
+export type FeedbackByClientRow = {
+  client_account_id: string
+  client_account_name: string | null
+  period_year: number
+  period_quarter: number
+  total_meetings: number
+  meetings_with_feedback: number
+  feedback_rate: number | null
+}
+
+export type FeedbackByAnalystRow = {
+  user_id: string
+  display_name: string | null
+  period_year: number
+  period_quarter: number
+  total_hosted: number
+  hosted_with_feedback: number
+  feedback_rate: number | null
+}
+
+export type Pipeline30dRow = {
+  meeting_id: string
+  meeting_date: string
+  client_account_id: string | null
+  client_account_name: string | null
+  institution_name: string | null
+  investor_text: string | null
+  host_id: string | null
+  host_name: string | null
+  booker_id: string | null
+  booker_name: string | null
+  is_in_person: boolean | null
+  meeting_type_label: string | null
+  group_meeting: boolean | null
+  meeting_status_label: string | null
+  days_until: number
+}
+
+export type ContractRenewalRow = {
+  contract_id: string
+  client_account_id: string | null
+  client_account_name: string | null
+  contract_status_label: string | null
+  contract_renewal_date: string
+  days_to_renewal: number
+  renewal_notice_date: string | null
+  days_to_notice: number | null
+  quarterly_retainer: number | null
+  auto_renew: boolean | null
+  renew: boolean | null
+  contract_termination_date: string | null
+  renewal_urgency: "overdue" | "urgent" | "soon" | "future"
+}
+
+export type ClientQuarterlyPnlRow = {
+  client_account_id: string
+  client_account_name: string | null
+  period_year: number
+  period_quarter: number
+  revenue: number
+  contract_revenue: number
+  revenue_adjustment: number
+  meeting_labor_cost: number
+  meeting_count: number
+  direct_cost: number
+  overhead_share: number
+  margin: number
+  margin_pct: number | null
+  has_missing_salary: boolean
+  has_no_overhead_alloc: boolean
+}
+
 export type ClientPortfolioRow = {
   account_id: string
   name: string
