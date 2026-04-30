@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type { ContractRenewalRow } from "@/lib/types"
@@ -5,6 +6,8 @@ import { RenewalsKpis } from "./renewals-kpis"
 import { RenewalsTable } from "./renewals-table"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Contract Renewals" }
 
 export default async function RenewalsPage() {
   const sb = getSupabaseServer()

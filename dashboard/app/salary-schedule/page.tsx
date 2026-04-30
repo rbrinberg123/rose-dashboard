@@ -1,9 +1,12 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type { CostAssumptionsRow, SalaryScheduleRow, UserOption } from "@/lib/types"
 import { SalaryScheduleTable } from "./salary-schedule-table"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Salary Schedule" }
 
 export default async function SalarySchedulePage() {
   const sb = getSupabaseServer()

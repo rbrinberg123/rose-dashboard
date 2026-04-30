@@ -1,9 +1,12 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type { OverheadPeriodRow } from "@/lib/types"
 import { OverheadPeriodsTable } from "./overhead-periods-table"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Quarterly Overhead" }
 
 export default async function QuarterlyOverheadPage() {
   const sb = getSupabaseServer()

@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -16,8 +17,17 @@ import {
   ShieldAlert,
   AlertTriangle,
   ClipboardList,
+  Menu,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 
 type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
 
@@ -40,7 +50,17 @@ const admin: NavItem[] = [
   { href: "/exceptions", label: "Exception Report", icon: AlertTriangle },
 ]
 
-function Section({ title, items, current }: { title: string; items: NavItem[]; current: string }) {
+function Section({
+  title,
+  items,
+  current,
+  onNavigate,
+}: {
+  title: string
+  items: NavItem[]
+  current: string
+  onNavigate?: () => void
+}) {
   return (
     <div className="px-3 py-2">
       <h2 className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -53,10 +73,12 @@ function Section({ title, items, current }: { title: string; items: NavItem[]; c
             <li key={href}>
               <Link
                 href={href}
+                onClick={onNavigate}
+                aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
                   active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium ring-1 ring-sidebar-border"
                     : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
                 )}
               >
@@ -71,24 +93,74 @@ function Section({ title, items, current }: { title: string; items: NavItem[]; c
   )
 }
 
+function NavContents({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+  return (
+    <>
+      <Section title="Dashboards" items={dashboards} current={pathname} onNavigate={onNavigate} />
+      <div className="my-2 mx-3 border-t border-sidebar-border/60" />
+      <Section title="Admin" items={admin} current={pathname} onNavigate={onNavigate} />
+    </>
+  )
+}
+
+function Brand() {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex size-7 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground text-sm font-bold">
+        R
+      </div>
+      <span className="font-semibold text-sidebar-foreground">Rose &amp; Co.</span>
+    </div>
+  )
+}
+
 export function Sidebar() {
   const pathname = usePathname() || "/"
+  const [mobileOpen, setMobileOpen] = React.useState(false)
+
+  // Close the mobile sheet on route change.
+  React.useEffect(() => {
+    setMobileOpen(false)
+  }, [pathname])
+
   return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
-      <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
-        <div className="flex size-7 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground text-sm font-bold">
-          R
+    <>
+      {/* Mobile top bar — visible below md */}
+      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-sidebar-border bg-sidebar px-3 md:hidden">
+        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+          <SheetTrigger
+            render={
+              <Button variant="ghost" size="icon-sm" aria-label="Open navigation" />
+            }
+          >
+            <Menu className="size-5" />
+          </SheetTrigger>
+          <SheetContent side="left" className="w-72 bg-sidebar p-0">
+            <SheetHeader className="border-b border-sidebar-border">
+              <SheetTitle className="flex items-center gap-2">
+                <Brand />
+              </SheetTitle>
+            </SheetHeader>
+            <nav className="flex-1 overflow-y-auto py-2">
+              <NavContents pathname={pathname} onNavigate={() => setMobileOpen(false)} />
+            </nav>
+          </SheetContent>
+        </Sheet>
+        <Brand />
+      </header>
+
+      {/* Desktop sidebar — visible at md+ */}
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
+        <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
+          <Brand />
         </div>
-        <span className="font-semibold text-sidebar-foreground">Rose &amp; Co.</span>
-      </div>
-      <nav className="flex-1 overflow-y-auto py-2">
-        <Section title="Dashboards" items={dashboards} current={pathname} />
-        <div className="my-2 mx-3 border-t border-sidebar-border/60" />
-        <Section title="Admin" items={admin} current={pathname} />
-      </nav>
-      <div className="border-t border-sidebar-border px-4 py-3 text-xs text-muted-foreground">
-        v0.1 · Internal
-      </div>
-    </aside>
+        <nav className="flex-1 overflow-y-auto py-2">
+          <NavContents pathname={pathname} />
+        </nav>
+        <div className="border-t border-sidebar-border px-4 py-3 text-xs text-muted-foreground">
+          v0.1 · Internal
+        </div>
+      </aside>
+    </>
   )
 }

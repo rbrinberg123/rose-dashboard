@@ -1,9 +1,12 @@
+import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type { CostAssumptionsRow } from "@/lib/types"
 import { CostAssumptionsForm } from "./cost-assumptions-form"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Cost Assumptions" }
 
 export default async function CostAssumptionsPage() {
   const sb = getSupabaseServer()
