@@ -1,12 +1,38 @@
-import { PageShell, PlaceholderBody } from "@/components/page-shell"
+import { PageShell } from "@/components/page-shell"
+import { getSupabaseServer } from "@/lib/supabase"
+import type { Pipeline30dRow } from "@/lib/types"
+import { PipelineKpis } from "./pipeline-kpis"
+import { PipelineTable } from "./pipeline-table"
 
-export default function PipelinePage() {
+export const dynamic = "force-dynamic"
+
+export default async function PipelinePage() {
+  const sb = getSupabaseServer()
+  const { data, error } = await sb
+    .from("v_pipeline_30d")
+    .select("*")
+    .order("meeting_date", { ascending: true })
+
+  if (error) {
+    return (
+      <PageShell title="Pipeline (Next 30 Days)" description="Upcoming meetings by client and event">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          <div className="font-medium text-destructive">Could not load v_pipeline_30d</div>
+          <div className="mt-1 text-muted-foreground">{error.message}</div>
+        </div>
+      </PageShell>
+    )
+  }
+
+  const rows = (data ?? []) as Pipeline30dRow[]
+
   return (
     <PageShell
       title="Pipeline (Next 30 Days)"
-      description="Upcoming meetings by client and event"
+      description={`${rows.length.toLocaleString()} meetings on the books`}
     >
-      <PlaceholderBody what="Pipeline view (v_pipeline_30d)" />
+      <PipelineKpis rows={rows} />
+      <PipelineTable rows={rows} />
     </PageShell>
   )
 }
