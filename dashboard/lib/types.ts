@@ -6,6 +6,102 @@
  * shape, then update this file.
  */
 
+// -----------------------------------------------------------------------------
+// Rose-owned table rows (admin pages write to these). Keep aligned with
+// sql/02_rose_owned_tables.sql.
+// -----------------------------------------------------------------------------
+
+export type CostAssumptionsRow = {
+  id: number
+  work_hours_per_year: number
+  booker_hours_per_meeting_base: number
+  host_hours_per_meeting_base: number
+  in_person_multiplier: number
+  default_benefits_multiplier: number
+  updated_at: string
+}
+
+export type SalaryScheduleRow = {
+  id: number
+  user_id: string
+  effective_from: string
+  effective_to: string | null
+  annual_salary: number
+  annual_bonus: number
+  benefits_multiplier: number
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ClientDirectCostRow = {
+  id: number
+  client_account_id: string
+  cost_date: string
+  amount: number
+  category: "T&E" | "Event Fee" | "Sponsorship" | "External Research" | "Other"
+  description: string | null
+  created_by_user_id: string | null
+  created_at: string
+}
+
+export const DIRECT_COST_CATEGORIES = [
+  "T&E",
+  "Event Fee",
+  "Sponsorship",
+  "External Research",
+  "Other",
+] as const
+
+export type OverheadPeriodRow = {
+  id: number
+  period_year: number
+  period_quarter: number
+  total_overhead_amount: number
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type OverheadOverrideRow = {
+  id: number
+  client_account_id: string
+  period_year: number
+  period_quarter: number
+  fixed_amount: number | null
+  percent_of_total: number | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type RevenueOverrideRow = {
+  id: number
+  client_account_id: string
+  period_year: number
+  period_quarter: number
+  adjustment_amount: number
+  reason: string
+  created_at: string
+}
+
+/** Minimal account record for client-picker dropdowns. */
+export type AccountOption = {
+  account_id: string
+  name: string
+  ticker_symbol: string | null
+}
+
+/** Minimal user record for the Salary Schedule user-picker dropdown. */
+export type UserOption = {
+  user_id: string
+  display_name: string | null
+}
+
+// -----------------------------------------------------------------------------
+// View row types
+// -----------------------------------------------------------------------------
+
 export type AnalystActivityRow = {
   user_id: string
   display_name: string | null
