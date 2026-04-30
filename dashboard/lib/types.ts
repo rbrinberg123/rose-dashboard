@@ -7,6 +7,56 @@
  */
 
 // -----------------------------------------------------------------------------
+// Read-only rows surfaced by the Exception Report. Each shape is shaped to
+// the section it powers, not to a single underlying view — see
+// app/exceptions/data.ts for how they're built.
+// -----------------------------------------------------------------------------
+
+export type MissingPersonRow = {
+  meeting_id: string
+  meeting_date: string
+  client_account_name: string | null
+  institution_name: string | null
+  /** "booker", "host", or "both" — derived in data.ts. */
+  missing: "booker" | "host" | "both"
+}
+
+export type MissingSalaryRow = {
+  /** Synthesised key (meeting_id + role) so each missing-salary side gets its own row. */
+  key: string
+  meeting_id: string
+  meeting_date: string
+  user_id: string | null
+  user_name: string | null
+  role: "booker" | "host"
+  client_account_name: string | null
+  estimated_cost_loss: number
+}
+
+export type NoOverheadAllocRow = {
+  client_account_id: string
+  client_account_name: string | null
+  current_quarter_revenue: number
+  current_quarter_margin: number
+}
+
+export type OverheadOverrunRow = {
+  period_year: number
+  period_quarter: number
+  total_pot: number
+  overrides_total: number
+  overrun_amount: number
+}
+
+export type NullMeetingTypeRow = {
+  meeting_id: string
+  meeting_date: string
+  client_account_name: string | null
+  host_name: string | null
+  booker_name: string | null
+}
+
+// -----------------------------------------------------------------------------
 // Rose-owned table rows (admin pages write to these). Keep aligned with
 // sql/02_rose_owned_tables.sql.
 // -----------------------------------------------------------------------------
