@@ -1,8 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { AnalystKpis } from "./analyst-kpis"
-import { AnalystTable } from "./analyst-table"
+import { ProductivityKpis } from "./productivity-kpis"
+import { ProductivityTable } from "./productivity-table"
 import {
   QuarterSelector,
   currentQuarter,
@@ -16,7 +16,7 @@ import type { AnalystActivityRow } from "@/lib/types"
  * selector can drive both. The page does one server-side fetch for all rows
  * and we filter in-memory here.
  */
-export function AnalystView({ rows }: { rows: AnalystActivityRow[] }) {
+export function ProductivityView({ rows }: { rows: AnalystActivityRow[] }) {
   const quarterOptions = React.useMemo(() => {
     const seen = new Map<string, QuarterKey>()
     for (const r of rows) {
@@ -45,8 +45,8 @@ export function AnalystView({ rows }: { rows: AnalystActivityRow[] }) {
         <span className="text-sm text-muted-foreground">Period</span>
         <QuarterSelector value={selected} options={quarterOptions} onChange={setSelected} />
       </div>
-      <AnalystKpis rows={filtered} />
-      <AnalystTable rows={filtered} />
+      <ProductivityKpis rows={filtered} />
+      <ProductivityTable rows={filtered} />
     </>
   )
 }

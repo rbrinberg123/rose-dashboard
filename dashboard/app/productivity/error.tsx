@@ -2,7 +2,7 @@
 
 import { ErrorState } from "@/components/error-state"
 
-export default function AnalystsError({
+export default function ProductivityError({
   error,
   reset,
 }: {
@@ -11,7 +11,7 @@ export default function AnalystsError({
 }) {
   return (
     <ErrorState
-      title="Analyst Activity"
+      title="Productivity"
       description="Productivity by user, by quarter"
       error={error}
       reset={reset}

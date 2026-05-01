@@ -11,7 +11,11 @@
       "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" add dashboard/app/layout.tsx dashboard/components/nav.tsx)",
       "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" add dashboard/.env.example dashboard/README.md)",
       "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" log --oneline -7)",
-      "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" status)"
+      "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" status)",
+      "Bash(git mv *)",
+      "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" branch --show-current)",
+      "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" log main --oneline -8)",
+      "Bash(git -C \"C:/Users/RobertBrinberg/Documents/GitHub/rose-dashboard\" show --stat f5c01b7)"
     ]
   }
 }
