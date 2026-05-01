@@ -10,7 +10,7 @@ import type { AnalystActivityRow } from "@/lib/types"
  * meetings, computed from the filtered set rather than reading
  * v_feedback_overall — keeps it consistent with what the table shows.
  */
-export function AnalystKpis({ rows }: { rows: AnalystActivityRow[] }) {
+export function ProductivityKpis({ rows }: { rows: AnalystActivityRow[] }) {
   const analysts = rows.length
   const totalMeetings = rows.reduce((s, r) => s + (r.meetings_hosted ?? 0), 0)
   const totalFeedback = rows.reduce((s, r) => s + (r.feedback_collected_hosted ?? 0), 0)

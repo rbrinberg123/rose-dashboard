@@ -159,7 +159,7 @@ const columns: ColumnDef<AnalystActivityRow>[] = [
   },
 ]
 
-export function AnalystTable({ rows }: { rows: AnalystActivityRow[] }) {
+export function ProductivityTable({ rows }: { rows: AnalystActivityRow[] }) {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: "meetings_hosted", desc: true }])
   const [filter, setFilter] = React.useState<GlobalFilter>({ search: "", analyst: ALL })
 

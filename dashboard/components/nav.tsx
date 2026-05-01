@@ -35,7 +35,7 @@ type NavItem = { href: string; label: string; icon: React.ComponentType<{ classN
 
 const dashboards: NavItem[] = [
   { href: "/portfolio", label: "Client Portfolio", icon: Briefcase },
-  { href: "/analysts", label: "Analyst Activity", icon: Users },
+  { href: "/productivity", label: "Productivity", icon: Users },
   { href: "/feedback", label: "Feedback Discipline", icon: MessageSquare },
   { href: "/pipeline", label: "Pipeline (Next 30 Days)", icon: CalendarClock },
   { href: "/renewals", label: "Contract Renewals", icon: FileText },

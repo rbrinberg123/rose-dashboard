@@ -2,13 +2,13 @@ import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type { AnalystActivityRow } from "@/lib/types"
-import { AnalystView } from "./analyst-view"
+import { ProductivityView } from "./productivity-view"
 
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = { title: "Analyst Activity" }
+export const metadata: Metadata = { title: "Productivity" }
 
-export default async function AnalystActivityPage() {
+export default async function ProductivityPage() {
   const sb = getSupabaseServer()
   const { data, error } = await sb
     .from("v_analyst_activity")
@@ -19,7 +19,7 @@ export default async function AnalystActivityPage() {
 
   if (error) {
     return (
-      <PageShell title="Analyst Activity" description="Productivity by user, by quarter">
+      <PageShell title="Productivity" description="Productivity by user, by quarter">
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
           <div className="font-medium text-destructive">Could not load v_analyst_activity</div>
           <div className="mt-1 text-muted-foreground">{error.message}</div>
@@ -32,10 +32,10 @@ export default async function AnalystActivityPage() {
 
   return (
     <PageShell
-      title="Analyst Activity"
+      title="Productivity"
       description="Productivity by user, by quarter"
     >
-      <AnalystView rows={rows} />
+      <ProductivityView rows={rows} />
     </PageShell>
   )
 }
