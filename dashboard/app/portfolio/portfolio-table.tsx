@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { MarginBadge } from "@/components/margin-badge"
 import { cn } from "@/lib/utils"
 import { formatCurrency, formatDate } from "@/lib/format"
@@ -118,7 +119,14 @@ const columns: ColumnDef<ClientPortfolioRow>[] = [
     header: ({ column }) => (
       <SortHeader label="Status" isSorted={column.getIsSorted()} onClick={() => column.toggleSorting()} />
     ),
-    cell: ({ row }) => trim(row.original.client_status_label) || "—",
+    cell: ({ row }) => {
+      const status = trim(row.original.client_status_label)
+      if (status === "Current")
+        return <Badge className="bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200">Current</Badge>
+      if (status === "Past")
+        return <Badge className="bg-rose-100 text-rose-900 dark:bg-rose-900/30 dark:text-rose-200">Past</Badge>
+      return "—"
+    },
   },
   {
     id: "sector_label",
