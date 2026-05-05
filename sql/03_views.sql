@@ -409,7 +409,11 @@ SELECT
   a.sector_label,
   a.exchange_label,
   a.hq_country_name,
-  a.client_status_label,
+  CASE a.status_code
+    WHEN 1 THEN 'Current'
+    WHEN 2 THEN 'Past'
+    ELSE NULL
+  END AS client_status_label,
   a.market_cap_b,
   a.state_label AS account_state,
 
