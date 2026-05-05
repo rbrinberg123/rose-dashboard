@@ -227,7 +227,7 @@ const columns: ColumnDef<ClientPortfolioRow>[] = [
 
 export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: "name", desc: false }])
-  const [filter, setFilter] = React.useState<GlobalFilter>({ search: "", status: ALL, sector: ALL })
+  const [filter, setFilter] = React.useState<GlobalFilter>({ search: "", status: "Current", sector: ALL })
 
   // Distinct dropdown values, computed once from the row set.
   const { statuses, sectors } = React.useMemo(() => {
