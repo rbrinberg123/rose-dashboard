@@ -287,3 +287,8 @@ export type ClientStatisticsRow = {
   annualized_retainer_revenue: number
   avg_annualized_retainer: number | null
 }
+
+export type ClientStatsBucketRow = {
+  bucket: string
+  count: number
+}
