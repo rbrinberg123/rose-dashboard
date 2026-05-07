@@ -15,6 +15,7 @@ DROP VIEW IF EXISTS public.v_analyst_activity CASCADE;
 DROP VIEW IF EXISTS public.v_client_portfolio CASCADE;
 DROP VIEW IF EXISTS public.v_client_quarterly_pnl CASCADE;
 DROP VIEW IF EXISTS public.v_meeting_costs CASCADE;
+DROP VIEW IF EXISTS public.v_productivity_detail_summary CASCADE;
 
 
 -- -----------------------------------------------------------------------------
@@ -674,3 +675,91 @@ SELECT
   COALESCE((SELECT SUM(quarterly_retainer * 4) FROM active_contracts), 0)::numeric AS annualized_retainer_revenue,
   (COALESCE((SELECT SUM(quarterly_retainer * 4) FROM active_contracts), 0)::numeric
     / NULLIF((SELECT COUNT(*) FROM active_accounts), 0)) AS avg_annualized_retainer;
+
+
+-- -----------------------------------------------------------------------------
+-- v_productivity_detail_summary
+-- One row per user with any meeting activity in the trailing 12 months OR
+-- who is a sales lead on any active account. Powers the per-person
+-- Productivity Detail dashboard.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_productivity_detail_summary AS
+WITH user_universe AS (
+  SELECT DISTINCT booker_id AS user_id
+  FROM public.meetings
+  WHERE booker_id IS NOT NULL
+    AND meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+  UNION
+  SELECT DISTINCT host_id
+  FROM public.meetings
+  WHERE host_id IS NOT NULL
+    AND meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+  UNION
+  SELECT DISTINCT u.user_id
+  FROM public.users u
+  JOIN public.accounts a ON a.sales_lead_primary_name = u.display_name
+  WHERE a.state_label = 'Active'
+),
+meeting_stats AS (
+  SELECT
+    uu.user_id,
+    COUNT(*) FILTER (
+      WHERE m.booker_id = uu.user_id
+        AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_status_label != 'Cancelled'
+    )::int AS meetings_scheduled_12m,
+    COUNT(*) FILTER (
+      WHERE m.host_id = uu.user_id
+        AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_status_label != 'Cancelled'
+    )::int AS meetings_hosted_12m,
+    COUNT(*) FILTER (
+      WHERE m.host_id = uu.user_id
+        AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_status_label != 'Cancelled'
+        AND m.is_in_person = true
+    )::int AS meetings_in_person_12m,
+    COUNT(*) FILTER (
+      WHERE m.host_id = uu.user_id
+        AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_status_label != 'Cancelled'
+        AND m.feedback_status_label = 'Closed - All in'
+    )::int AS feedback_collected_12m
+  FROM user_universe uu
+  LEFT JOIN public.meetings m
+    ON (m.booker_id = uu.user_id OR m.host_id = uu.user_id)
+  GROUP BY uu.user_id
+),
+sales_lead_stats AS (
+  SELECT
+    u.user_id,
+    COUNT(DISTINCT a.account_id)::int AS active_clients_as_sales_lead,
+    COALESCE(SUM(c.quarterly_retainer * 4), 0)::numeric AS sales_lead_book_annualized
+  FROM public.users u
+  JOIN public.accounts a ON a.sales_lead_primary_name = u.display_name
+  JOIN public.contracts c
+    ON c.client_account_id = a.account_id
+    AND c.state_code = 0
+    AND (c.contract_termination_date IS NULL OR c.contract_termination_date > CURRENT_DATE)
+  WHERE a.state_label = 'Active'
+  GROUP BY u.user_id
+)
+SELECT
+  uu.user_id,
+  u.display_name,
+  COALESCE(ms.meetings_scheduled_12m, 0) AS meetings_scheduled_12m,
+  COALESCE(ms.meetings_hosted_12m, 0) AS meetings_hosted_12m,
+  COALESCE(ms.meetings_in_person_12m, 0) AS meetings_in_person_12m,
+  COALESCE(ms.feedback_collected_12m, 0) AS feedback_collected_12m,
+  CASE
+    WHEN COALESCE(ms.meetings_hosted_12m, 0) = 0 THEN NULL
+    ELSE ms.feedback_collected_12m::numeric / ms.meetings_hosted_12m
+  END AS feedback_collection_rate_12m,
+  COALESCE(sls.active_clients_as_sales_lead, 0) AS active_clients_as_sales_lead,
+  COALESCE(sls.sales_lead_book_annualized, 0) AS sales_lead_book_annualized
+FROM user_universe uu
+JOIN public.users u ON u.user_id = uu.user_id
+LEFT JOIN meeting_stats ms ON ms.user_id = uu.user_id
+LEFT JOIN sales_lead_stats sls ON sls.user_id = uu.user_id
+WHERE u.display_name IS NOT NULL
+  AND u.display_name != 'CRM Administration';

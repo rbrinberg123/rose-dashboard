@@ -292,3 +292,14 @@ export type ClientStatsBucketRow = {
   bucket: string
   count: number
 }
+
+export type ProductivityDetailRow = {
+  display_name: string
+  meetings_scheduled_12m: number
+  meetings_hosted_12m: number
+  meetings_in_person_12m: number
+  feedback_collected_12m: number
+  feedback_collection_rate_12m: number | null
+  active_clients_as_sales_lead: number
+  sales_lead_book_annualized: number
+}
