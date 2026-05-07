@@ -281,3 +281,9 @@ export type ClientPortfolioRow = {
   current_quarter_margin: number | null
   current_quarter_margin_pct: number | null
 }
+
+export type ClientStatisticsRow = {
+  active_account_count: number
+  annualized_retainer_revenue: number
+  avg_annualized_retainer: number | null
+}

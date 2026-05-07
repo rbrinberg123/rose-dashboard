@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
+  BarChart3,
   Briefcase,
   Users,
   MessageSquare,
@@ -34,6 +35,7 @@ import { signOutAction } from "@/app/auth/actions"
 type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
 
 const dashboards: NavItem[] = [
+  { href: "/client-statistics", label: "Client Statistics", icon: BarChart3 },
   { href: "/portfolio", label: "Client Portfolio", icon: Briefcase },
   { href: "/productivity", label: "Productivity", icon: Users },
   { href: "/feedback", label: "Feedback Discipline", icon: MessageSquare },

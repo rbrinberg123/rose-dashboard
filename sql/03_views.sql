@@ -5,6 +5,7 @@
 -- Run after 01_mirror_tables.sql and 02_rose_owned_tables.sql.
 -- =============================================================================
 
+DROP VIEW IF EXISTS public.v_client_statistics CASCADE;
 DROP VIEW IF EXISTS public.v_pipeline_30d CASCADE;
 DROP VIEW IF EXISTS public.v_contract_renewals CASCADE;
 DROP VIEW IF EXISTS public.v_feedback_overall CASCADE;
@@ -649,3 +650,27 @@ FROM public.contracts c
 WHERE c.state_code = 0
   AND c.contract_renewal_date IS NOT NULL
 ORDER BY c.contract_renewal_date;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_statistics
+-- Three top-line numbers for the Client Statistics dashboard. Returns one row.
+-- -----------------------------------------------------------------------------
+CREATE VIEW public.v_client_statistics AS
+WITH active_accounts AS (
+  SELECT account_id
+  FROM public.accounts
+  WHERE state_label = 'Active'
+),
+active_contracts AS (
+  SELECT c.quarterly_retainer
+  FROM public.contracts c
+  JOIN active_accounts aa ON aa.account_id = c.client_account_id
+  WHERE c.state_code = 0
+    AND (c.contract_termination_date IS NULL OR c.contract_termination_date > CURRENT_DATE)
+)
+SELECT
+  (SELECT COUNT(*) FROM active_accounts)::int AS active_account_count,
+  COALESCE((SELECT SUM(quarterly_retainer * 4) FROM active_contracts), 0)::numeric AS annualized_retainer_revenue,
+  (COALESCE((SELECT SUM(quarterly_retainer * 4) FROM active_contracts), 0)::numeric
+    / NULLIF((SELECT COUNT(*) FROM active_accounts), 0)) AS avg_annualized_retainer;
