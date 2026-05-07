@@ -17,6 +17,7 @@ DROP VIEW IF EXISTS public.v_client_quarterly_pnl CASCADE;
 DROP VIEW IF EXISTS public.v_meeting_costs CASCADE;
 DROP VIEW IF EXISTS public.v_productivity_detail_summary CASCADE;
 DROP VIEW IF EXISTS public.v_analyst_monthly_activity CASCADE;
+DROP VIEW IF EXISTS public.v_contract_management CASCADE;
 
 
 -- -----------------------------------------------------------------------------
@@ -829,3 +830,73 @@ LEFT JOIN public.meetings m
   AND EXTRACT(MONTH FROM m.meeting_date)::int = mu.period_month
   AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
 GROUP BY mu.display_name, mu.period_year, mu.period_month;
+
+
+-- -----------------------------------------------------------------------------
+-- v_contract_management
+-- One row per active client account (~101 rows). Each row shows the latest
+-- active contract for that client (by initial_term_end DESC), if any. If the
+-- client has no active contract the row still appears with NULL contract
+-- fields and has_active_contract = false.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_contract_management AS
+WITH contract_counts AS (
+  SELECT
+    client_account_id,
+    COUNT(*)::int AS total_contract_count,
+    BOOL_OR(state_code = 0
+            AND (contract_termination_date IS NULL
+                 OR contract_termination_date > CURRENT_DATE))
+      AS has_active_contract
+  FROM public.contracts
+  WHERE client_account_id IS NOT NULL
+  GROUP BY client_account_id
+),
+ranked_active AS (
+  SELECT
+    c.contract_id,
+    c.client_account_id,
+    c.contract_start_date,
+    c.initial_term_length_label,
+    c.initial_term_end,
+    c.renewal_notice_date,
+    c.renewal_check_in_date,
+    c.auto_renew,
+    c.quarterly_retainer,
+    c.contract_status_label,
+    ROW_NUMBER() OVER (
+      PARTITION BY c.client_account_id
+      ORDER BY c.initial_term_end DESC NULLS LAST
+    ) AS rn
+  FROM public.contracts c
+  WHERE c.state_code = 0
+    AND (c.contract_termination_date IS NULL
+         OR c.contract_termination_date > CURRENT_DATE)
+),
+latest_active AS (
+  SELECT * FROM ranked_active WHERE rn = 1
+)
+SELECT
+  a.account_id,
+  a.name AS client_name,
+  COALESCE(cc.total_contract_count, 0) AS total_contract_count,
+  COALESCE(cc.has_active_contract, FALSE) AS has_active_contract,
+
+  la.contract_id,
+  la.contract_start_date,
+  la.initial_term_length_label,
+  la.initial_term_end,
+  CASE WHEN la.initial_term_end IS NOT NULL
+       THEN (la.initial_term_end - CURRENT_DATE)::int
+       ELSE NULL END AS days_to_expiry,
+  la.renewal_notice_date,
+  la.renewal_check_in_date,
+  la.auto_renew,
+  la.quarterly_retainer,
+  la.contract_status_label
+
+FROM public.accounts a
+LEFT JOIN contract_counts cc ON cc.client_account_id = a.account_id
+LEFT JOIN latest_active la   ON la.client_account_id = a.account_id
+WHERE a.state_label = 'Active'
+ORDER BY (days_to_expiry IS NULL), days_to_expiry ASC NULLS LAST, client_name ASC;

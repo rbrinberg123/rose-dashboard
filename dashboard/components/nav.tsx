@@ -43,6 +43,7 @@ const dashboards: NavItem[] = [
   { href: "/feedback", label: "Feedback Discipline", icon: MessageSquare },
   { href: "/pipeline", label: "Pipeline (Next 30 Days)", icon: CalendarClock },
   { href: "/renewals", label: "Contract Renewals", icon: FileText },
+  { href: "/contract-management", label: "Contract Management", icon: FileText },
   { href: "/margin", label: "Margin by Client", icon: TrendingUp },
 ]
 

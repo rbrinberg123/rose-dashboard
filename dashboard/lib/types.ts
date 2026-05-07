@@ -316,3 +316,20 @@ export type AnalystMonthlyActivityRow = {
   feedback_collected: number
   feedback_collection_rate: number | null
 }
+
+export type ContractManagementRow = {
+  account_id: string
+  client_name: string
+  total_contract_count: number
+  has_active_contract: boolean
+  contract_id: string | null
+  contract_start_date: string | null
+  initial_term_length_label: string | null
+  initial_term_end: string | null
+  days_to_expiry: number | null
+  renewal_notice_date: string | null
+  renewal_check_in_date: string | null
+  auto_renew: boolean | null
+  quarterly_retainer: number | null
+  contract_status_label: string | null
+}
