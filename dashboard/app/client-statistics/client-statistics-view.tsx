@@ -169,9 +169,10 @@ export function ClientStatisticsView({
                     <LabelList
                       dataKey="count"
                       position="right"
-                      formatter={(value: number) => {
-                        const pct = regionTotal > 0 ? Math.round((value / regionTotal) * 100) : 0
-                        return `${value} (${pct}%)`
+                      formatter={(value) => {
+			const numValue = Number(value) || 0                        
+			const pct = regionTotal > 0 ? Math.round((numValue / regionTotal) * 100) : 0
+                        return `${numValue} (${pct}%)`
                       }}
                       style={{ fontSize: 12, fill: "var(--foreground)" }}
                     />
