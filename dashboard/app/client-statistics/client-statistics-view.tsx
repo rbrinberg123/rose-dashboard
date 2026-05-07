@@ -1,31 +1,40 @@
 "use client"
 
 import {
-  Bar,
-  BarChart,
   Cell,
-  LabelList,
   Pie,
   PieChart,
   ResponsiveContainer,
   Tooltip,
-  XAxis,
-  YAxis,
 } from "recharts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatCurrency } from "@/lib/format"
 import type { ClientStatisticsRow, ClientStatsBucketRow } from "@/lib/types"
 
-const PIE_COLORS = [
-  "#2563eb", // blue-600
-  "#16a34a", // green-600
-  "#ca8a04", // yellow-600
-  "#ea580c", // orange-600
-  "#dc2626", // red-600
-  "#94a3b8", // slate-400
+const NAVY = "#1E2858"
+const TEAL = "#00B8B8"
+
+const CHART_PALETTE = [
+  "#1E2858", // deep navy
+  "#3D4A8C", // mid navy
+  "#00B8B8", // teal
+  "#7DD9D9", // light teal
+  "#C4E8E8", // lightest teal/gray
 ]
 
-const SECTOR_TOP_N = 8
+// Largest count gets the deepest navy; smaller counts step through to the lightest color.
+function rankColors(data: ClientStatsBucketRow[]): string[] {
+  const ranked = data
+    .map((d, i) => ({ i, count: d.count }))
+    .sort((a, b) => b.count - a.count)
+  const out: string[] = new Array(data.length)
+  ranked.forEach((entry, rank) => {
+    out[entry.i] = CHART_PALETTE[Math.min(rank, CHART_PALETTE.length - 1)]
+  })
+  return out
+}
+
+const SECTOR_TOP_N = 6
 
 export function ClientStatisticsView({
   row,
@@ -56,10 +65,11 @@ export function ClientStatisticsView({
     },
   ]
 
+  const marketCapTotal = marketCap.reduce((s, r) => s + r.count, 0)
   const regionTotal = region.reduce((s, r) => s + r.count, 0)
 
-  // Sector: count desc, Unknown last; collapse the long tail into "Other (N)"
-  // so the card height stays stable regardless of how many sectors there are.
+  // Sector: count desc, Unknown last; show the top SECTOR_TOP_N as full rows
+  // and roll the long tail into a single muted footer line below the rows.
   const sortedSector = [...sector].sort((a, b) => {
     const aUnknown = a.bucket === "Unknown"
     const bUnknown = b.bucket === "Unknown"
@@ -68,26 +78,31 @@ export function ClientStatisticsView({
   })
   const sectorTop = sortedSector.slice(0, SECTOR_TOP_N)
   const sectorRest = sortedSector.slice(SECTOR_TOP_N)
-  const sectorDisplay: ClientStatsBucketRow[] =
-    sectorRest.length > 0
-      ? [
-          ...sectorTop,
-          {
-            bucket: `Other (${sectorRest.length})`,
-            count: sectorRest.reduce((s, r) => s + r.count, 0),
-          },
-        ]
-      : sectorTop
-  const sectorTotal = sectorDisplay.reduce((s, r) => s + r.count, 0)
+  const sectorRestCount = sectorRest.reduce((s, r) => s + r.count, 0)
+  const sectorTotal = sortedSector.reduce((s, r) => s + r.count, 0)
+
+  const marketCapColors = rankColors(marketCap)
+  const regionColors = rankColors(region)
+  const sectorColors = rankColors(sectorTop)
 
   return (
     <>
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {kpis.map((k) => (
-          <Card key={k.label}>
+        {kpis.map((k, idx) => (
+          <Card key={k.label} className="rounded-lg bg-slate-50">
             <CardHeader className="pb-2">
-              <CardDescription>{k.label}</CardDescription>
-              <CardTitle className="text-2xl tabular-nums">{k.value}</CardTitle>
+              <CardTitle
+                className="text-4xl font-semibold tracking-tight tabular-nums"
+                style={{ color: idx === 2 ? TEAL : NAVY }}
+              >
+                {k.value}
+              </CardTitle>
+              <CardDescription
+                className="text-sm font-medium"
+                style={{ color: NAVY }}
+              >
+                {k.label}
+              </CardDescription>
             </CardHeader>
             <CardContent className="pt-0">
               <p className="text-xs text-muted-foreground">{k.hint}</p>
@@ -96,13 +111,28 @@ export function ClientStatisticsView({
         ))}
       </div>
 
+      <div className="my-6 flex items-center gap-3">
+        <span
+          className="shrink-0 text-base font-medium"
+          style={{ color: NAVY }}
+        >
+          Distribution of Client Mix
+        </span>
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
+      </div>
+
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle>Clients by Market Cap</CardTitle>
+            <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
+              Clients by Market Cap
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Share of active accounts
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-72 w-full">
+            <div className="relative h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -111,13 +141,11 @@ export function ClientStatisticsView({
                     nameKey="bucket"
                     cx="50%"
                     cy="50%"
-                    outerRadius={70}
-                    label={({ name, percent }) =>
-                      `${name} ${Math.round(((percent ?? 0) as number) * 100)}%`
-                    }
+                    innerRadius={60}
+                    outerRadius={90}
                   >
                     {marketCap.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      <Cell key={i} fill={marketCapColors[i]} />
                     ))}
                   </Pie>
                   <Tooltip
@@ -131,103 +159,137 @@ export function ClientStatisticsView({
                   />
                 </PieChart>
               </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <div
+                  className="text-3xl font-semibold leading-none tabular-nums"
+                  style={{ color: NAVY }}
+                >
+                  {marketCapTotal.toLocaleString()}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">accounts</div>
+              </div>
             </div>
+            <ul className="mt-4 space-y-2">
+              {marketCap.map((m, i) => {
+                const pct =
+                  marketCapTotal > 0
+                    ? Math.round((m.count / marketCapTotal) * 100)
+                    : 0
+                return (
+                  <li
+                    key={m.bucket}
+                    className="flex items-center gap-2 text-xs"
+                  >
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-sm"
+                      style={{ backgroundColor: marketCapColors[i] }}
+                      aria-hidden="true"
+                    />
+                    <span
+                      className="flex-1 truncate"
+                      style={{ color: NAVY }}
+                    >
+                      {m.bucket}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {m.count} ({pct}%)
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle>Clients by Region</CardTitle>
+            <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
+              Clients by Region
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Active accounts by region
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={region}
-                  layout="vertical"
-                  margin={{ top: 8, right: 56, bottom: 8, left: 8 }}
-                >
-                  <XAxis type="number" hide />
-                  <YAxis
-                    type="category"
-                    dataKey="bucket"
-                    width={70}
-                    tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--card)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      fontSize: 12,
-                    }}
-                    formatter={(v) => Number(v).toLocaleString()}
-                  />
-                  <Bar dataKey="count" fill="var(--primary)" radius={[0, 4, 4, 0]}>
-                    <LabelList
-                      dataKey="count"
-                      position="right"
-                      formatter={(value) => {
-			const numValue = Number(value) || 0                        
-			const pct = regionTotal > 0 ? Math.round((numValue / regionTotal) * 100) : 0
-                        return `${numValue} (${pct}%)`
-                      }}
-                      style={{ fontSize: 12, fill: "var(--foreground)" }}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <ul className="space-y-3">
+              {region.map((r, i) => {
+                const pct =
+                  regionTotal > 0
+                    ? Math.round((r.count / regionTotal) * 100)
+                    : 0
+                return (
+                  <li key={r.bucket} className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium" style={{ color: NAVY }}>
+                        {r.bucket}
+                      </span>
+                      <span className="tabular-nums text-muted-foreground">
+                        {r.count} ({pct}%)
+                      </span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${pct}%`,
+                          backgroundColor: regionColors[i],
+                        }}
+                      />
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle>Clients by Sector</CardTitle>
+            <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
+              Clients by Sector
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Active accounts by sector
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={sectorDisplay}
-                  layout="vertical"
-                  margin={{ top: 8, right: 56, bottom: 8, left: 8 }}
-                >
-                  <XAxis type="number" hide />
-                  <YAxis
-                    type="category"
-                    dataKey="bucket"
-                    width={120}
-                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--card)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      fontSize: 12,
-                    }}
-                    formatter={(v) => Number(v).toLocaleString()}
-                  />
-                  <Bar dataKey="count" fill="var(--primary)" radius={[0, 4, 4, 0]}>
-                    <LabelList
-                      dataKey="count"
-                      position="right"
-                      formatter={(value) => {
-     			const numValue = Number(value) || 0
-    			 const pct = sectorTotal > 0 ? Math.round((numValue / sectorTotal) * 100) : 0
-    			 return `${numValue} (${pct}%)`
-                      }}
-                      style={{ fontSize: 12, fill: "var(--foreground)" }}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <ul className="space-y-3">
+              {sectorTop.map((s, i) => {
+                const pct =
+                  sectorTotal > 0
+                    ? Math.round((s.count / sectorTotal) * 100)
+                    : 0
+                return (
+                  <li key={s.bucket} className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span
+                        className="truncate font-medium"
+                        style={{ color: NAVY }}
+                      >
+                        {s.bucket}
+                      </span>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                        {s.count} ({pct}%)
+                      </span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${pct}%`,
+                          backgroundColor: sectorColors[i],
+                        }}
+                      />
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+            {sectorRest.length > 0 && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                + {sectorRest.length} more sectors ({sectorRestCount} accounts)
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
