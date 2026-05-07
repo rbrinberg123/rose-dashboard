@@ -127,7 +127,7 @@ export function ClientStatisticsView({
                       borderRadius: 6,
                       fontSize: 12,
                     }}
-                    formatter={(v: number) => v.toLocaleString()}
+                    formatter={(v) => Number(v).toLocaleString()}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -163,7 +163,7 @@ export function ClientStatisticsView({
                       borderRadius: 6,
                       fontSize: 12,
                     }}
-                    formatter={(v: number) => v.toLocaleString()}
+                    formatter={(v) => Number(v).toLocaleString()}
                   />
                   <Bar dataKey="count" fill="var(--primary)" radius={[0, 4, 4, 0]}>
                     <LabelList
@@ -210,7 +210,7 @@ export function ClientStatisticsView({
                       borderRadius: 6,
                       fontSize: 12,
                     }}
-                    formatter={(v: number) => v.toLocaleString()}
+                    formatter={(v) => Number(v).toLocaleString()}
                   />
                   <Bar dataKey="count" fill="var(--primary)" radius={[0, 4, 4, 0]}>
                     <LabelList
