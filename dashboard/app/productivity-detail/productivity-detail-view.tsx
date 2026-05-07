@@ -1,12 +1,47 @@
 "use client"
 
 import * as React from "react"
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 import { ChevronLeft, ChevronRight } from "lucide-react"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { formatCurrency } from "@/lib/format"
-import type { ProductivityDetailRow } from "@/lib/types"
+import type {
+  AnalystMonthlyActivityRow,
+  ProductivityDetailRow,
+} from "@/lib/types"
 
 const NAVY = "#1E2858"
 const TEAL = "#00B8B8"
+const TICK_FILL = "#64748B"
+const GRID_STROKE = "#E5E7EB"
+
+const MONTH_NAMES = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+]
+
+function formatMonthLabel(periodLabel: string): string {
+  const [yyyy, mm] = periodLabel.split("-")
+  const monthIdx = Number.parseInt(mm, 10) - 1
+  if (monthIdx < 0 || monthIdx > 11) return periodLabel
+  return `${MONTH_NAMES[monthIdx]} ${yyyy.slice(2)}`
+}
 
 function formatCompactDollars(value: number): string {
   if (!Number.isFinite(value) || value === 0) return "$0"
@@ -16,8 +51,35 @@ function formatCompactDollars(value: number): string {
   return formatCurrency(value)
 }
 
-export function ProductivityDetailView({ rows }: { rows: ProductivityDetailRow[] }) {
+export function ProductivityDetailView({
+  rows,
+  monthlyRows,
+}: {
+  rows: ProductivityDetailRow[]
+  monthlyRows: AnalystMonthlyActivityRow[]
+}) {
   const [selectedId, setSelectedId] = React.useState<string | undefined>(rows[0]?.display_name)
+
+  const chartData = React.useMemo(
+    () =>
+      selectedId
+        ? monthlyRows
+            .filter((r) => r.display_name === selectedId)
+            .map((r) => ({
+              period_label: r.period_label,
+              month_label: formatMonthLabel(r.period_label),
+              meetings_scheduled: r.meetings_scheduled,
+              meetings_hosted: r.meetings_hosted,
+              meetings_in_person: r.meetings_in_person,
+              meetings_virtual: r.meetings_virtual,
+              feedback_pct:
+                r.feedback_collection_rate == null
+                  ? null
+                  : r.feedback_collection_rate * 100,
+            }))
+        : [],
+    [monthlyRows, selectedId],
+  )
 
   if (rows.length === 0) {
     return (
@@ -57,11 +119,14 @@ export function ProductivityDetailView({ rows }: { rows: ProductivityDetailRow[]
     value: string
     hint: string
     valueColor?: string
+    labelColor?: string
   }> = [
     {
       label: "Scheduled",
       value: selected.meetings_scheduled_12m.toLocaleString(),
       hint: "As booker",
+      valueColor: "#0154A6",
+      labelColor: "#0154A6",
     },
     {
       label: "Hosted",
@@ -151,7 +216,7 @@ export function ProductivityDetailView({ rows }: { rows: ProductivityDetailRow[]
             </div>
             <div
               className="mt-1 text-xs font-medium"
-              style={{ color: NAVY }}
+              style={{ color: t.labelColor ?? NAVY }}
             >
               {t.label}
             </div>
@@ -172,8 +237,172 @@ export function ProductivityDetailView({ rows }: { rows: ProductivityDetailRow[]
         <span className="h-px flex-1 bg-border" aria-hidden="true" />
       </div>
 
-      <div className="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground">
-        Charts coming in Phase 2
+      <div className="grid grid-cols-1 gap-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
+              Meetings Scheduled
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Booked by this person
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={110}>
+              <BarChart data={chartData} margin={{ top: 24, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
+                <XAxis
+                  dataKey="month_label"
+                  tick={{ fill: TICK_FILL, fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={{ stroke: GRID_STROKE }}
+                />
+                <YAxis
+                  tick={{ fill: TICK_FILL, fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={{ stroke: GRID_STROKE }}
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--card)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    fontSize: 12,
+                  }}
+                  formatter={(value) => Number(value || 0).toLocaleString()}
+                />
+                <Bar dataKey="meetings_scheduled" fill="#0154A6">
+                  <LabelList
+                    dataKey="meetings_scheduled"
+                    position="top"
+                    fontSize={11}
+                    fill={NAVY}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
+              Meetings Hosted
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Split: virtual vs. in-person
+            </CardDescription>
+            <CardAction>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="flex items-center gap-1">
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-sm"
+                    style={{ backgroundColor: NAVY }}
+                    aria-hidden="true"
+                  />
+                  <span className="text-muted-foreground">Virtual</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-sm"
+                    style={{ backgroundColor: TEAL }}
+                    aria-hidden="true"
+                  />
+                  <span className="text-muted-foreground">In-person</span>
+                </span>
+              </div>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={110}>
+              <BarChart data={chartData} margin={{ top: 24, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
+                <XAxis
+                  dataKey="month_label"
+                  tick={{ fill: TICK_FILL, fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={{ stroke: GRID_STROKE }}
+                />
+                <YAxis
+                  tick={{ fill: TICK_FILL, fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={{ stroke: GRID_STROKE }}
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--card)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    fontSize: 12,
+                  }}
+                  formatter={(value) => Number(value || 0).toLocaleString()}
+                />
+                <Bar dataKey="meetings_virtual" stackId="hosted" fill={NAVY} />
+                <Bar dataKey="meetings_in_person" stackId="hosted" fill={TEAL}>
+                  <LabelList
+                    dataKey="meetings_hosted"
+                    position="top"
+                    fontSize={11}
+                    fill={NAVY}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
+              Feedback Collection
+            </CardTitle>
+            <CardDescription className="text-xs">
+              % of hosted meetings with feedback collected
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={110}>
+              <BarChart data={chartData} margin={{ top: 24, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
+                <XAxis
+                  dataKey="month_label"
+                  tick={{ fill: TICK_FILL, fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={{ stroke: GRID_STROKE }}
+                />
+                <YAxis
+                  domain={[0, 100]}
+                  tick={{ fill: TICK_FILL, fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={{ stroke: GRID_STROKE }}
+                  tickFormatter={(value) => `${Number(value || 0)}%`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--card)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    fontSize: 12,
+                  }}
+                  formatter={(value) => `${Math.round(Number(value || 0))}%`}
+                />
+                <Bar dataKey="feedback_pct" fill={TEAL}>
+                  <LabelList
+                    dataKey="feedback_pct"
+                    position="top"
+                    fontSize={11}
+                    fill={NAVY}
+                    formatter={(value) =>
+                      value == null ? "" : `${Math.round(Number(value))}%`
+                    }
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
       </div>
     </>
   )

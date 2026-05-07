@@ -303,3 +303,16 @@ export type ProductivityDetailRow = {
   active_clients_as_sales_lead: number
   sales_lead_book_annualized: number
 }
+
+export type AnalystMonthlyActivityRow = {
+  display_name: string
+  period_year: number
+  period_month: number
+  period_label: string
+  meetings_scheduled: number
+  meetings_hosted: number
+  meetings_in_person: number
+  meetings_virtual: number
+  feedback_collected: number
+  feedback_collection_rate: number | null
+}

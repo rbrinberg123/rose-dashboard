@@ -16,6 +16,7 @@ DROP VIEW IF EXISTS public.v_client_portfolio CASCADE;
 DROP VIEW IF EXISTS public.v_client_quarterly_pnl CASCADE;
 DROP VIEW IF EXISTS public.v_meeting_costs CASCADE;
 DROP VIEW IF EXISTS public.v_productivity_detail_summary CASCADE;
+DROP VIEW IF EXISTS public.v_analyst_monthly_activity CASCADE;
 
 
 -- -----------------------------------------------------------------------------
@@ -763,3 +764,68 @@ LEFT JOIN meeting_stats ms ON ms.user_id = uu.user_id
 LEFT JOIN sales_lead_stats sls ON sls.user_id = uu.user_id
 WHERE u.display_name IS NOT NULL
   AND u.display_name != 'CRM Administration';
+
+
+-- -----------------------------------------------------------------------------
+-- v_analyst_monthly_activity
+-- One row per (display_name, year, month) for the trailing 12 months.
+-- Powers the monthly bar charts on the Productivity Detail page.
+-- Aggregates by display_name (not user_id) so duplicate user records collapse.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_analyst_monthly_activity AS
+WITH user_ids_by_name AS (
+  SELECT
+    display_name,
+    array_agg(user_id) AS user_ids
+  FROM public.users
+  WHERE display_name IS NOT NULL
+    AND display_name != 'CRM Administration'
+    AND display_name NOT LIKE '#%'
+  GROUP BY display_name
+),
+month_universe AS (
+  SELECT DISTINCT
+    n.display_name,
+    EXTRACT(YEAR FROM m.meeting_date)::int AS period_year,
+    EXTRACT(MONTH FROM m.meeting_date)::int AS period_month
+  FROM public.meetings m
+  JOIN user_ids_by_name n
+    ON m.booker_id = ANY(n.user_ids) OR m.host_id = ANY(n.user_ids)
+  WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+)
+SELECT
+  mu.display_name,
+  mu.period_year,
+  mu.period_month,
+  to_char(make_date(mu.period_year, mu.period_month, 1), 'YYYY-MM') AS period_label,
+  COUNT(*) FILTER (
+    WHERE m.booker_id = ANY(n.user_ids)
+      AND m.meeting_status_label != 'Cancelled'
+  )::int AS meetings_scheduled,
+  COUNT(*) FILTER (WHERE m.host_id = ANY(n.user_ids))::int AS meetings_hosted,
+  COUNT(*) FILTER (
+    WHERE m.host_id = ANY(n.user_ids) AND m.is_in_person = true
+  )::int AS meetings_in_person,
+  COUNT(*) FILTER (
+    WHERE m.host_id = ANY(n.user_ids) AND m.is_in_person = false
+  )::int AS meetings_virtual,
+  COUNT(*) FILTER (
+    WHERE m.host_id = ANY(n.user_ids)
+      AND m.feedback_status_label = 'Closed - All in'
+  )::int AS feedback_collected,
+  CASE
+    WHEN COUNT(*) FILTER (WHERE m.host_id = ANY(n.user_ids)) = 0 THEN NULL
+    ELSE COUNT(*) FILTER (
+      WHERE m.host_id = ANY(n.user_ids)
+        AND m.feedback_status_label = 'Closed - All in'
+    )::numeric
+       / COUNT(*) FILTER (WHERE m.host_id = ANY(n.user_ids))
+  END AS feedback_collection_rate
+FROM month_universe mu
+JOIN user_ids_by_name n ON n.display_name = mu.display_name
+LEFT JOIN public.meetings m
+  ON (m.booker_id = ANY(n.user_ids) OR m.host_id = ANY(n.user_ids))
+  AND EXTRACT(YEAR FROM m.meeting_date)::int = mu.period_year
+  AND EXTRACT(MONTH FROM m.meeting_date)::int = mu.period_month
+  AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+GROUP BY mu.display_name, mu.period_year, mu.period_month;
