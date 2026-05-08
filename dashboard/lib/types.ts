@@ -398,3 +398,87 @@ export type ClientDetailRecentMeetingRow = {
   is_in_person: boolean | null
   feedback_status_label: string | null
 }
+
+export type InstitutionSummaryRow = {
+  institution_id: string | null
+  institution_name: string
+  lifetime_meetings: number
+  ltm_meetings: number
+  prior_12mo_meetings: number
+  unique_clients_lifetime: number
+  unique_people_lifetime: number
+  first_met: string | null
+  last_met: string | null
+  is_active: boolean
+  is_cold: boolean
+  is_heavy_hitter: boolean
+}
+
+export type InstitutionDetailSummaryRow = {
+  institution_id: string | null
+  institution_name: string
+  lifetime_meetings: number
+  ltm_meetings: number
+  prior_12mo_meetings: number
+  ltm_meetings_delta: number
+  lifetime_clients: number
+  ltm_clients: number
+  lifetime_people: number
+  ltm_people: number
+  ltm_feedback_collected: number
+  ltm_feedback_total_closed: number
+  ltm_feedback_rate: number | null
+  first_met: string | null
+  last_met: string | null
+  last_met_client_name: string | null
+  last_met_host_name: string | null
+}
+
+export type InstitutionDetailQuarterlyRow = {
+  institution_id: string | null
+  period_year: number
+  period_quarter: number
+  period_label: string
+  live_count: number
+  virtual_count: number
+  total: number
+}
+
+export type InstitutionDetailTopClientRow = {
+  institution_id: string | null
+  rank: number
+  client_account_id: string
+  client_account_name: string | null
+  lifetime_count: number
+  ltm_count: number
+  last_met: string | null
+}
+
+export type InstitutionDetailStyleRow = {
+  institution_id: string | null
+  dimension_type: "market_cap" | "sector" | "region"
+  bucket_label: string
+  bucket_order: number
+  client_count: number
+}
+
+export type InstitutionDetailTopHostRow = {
+  institution_id: string | null
+  host_name: string
+  host_id: string | null
+  ltm_count: number
+  last_met: string | null
+}
+
+export type InstitutionDetailRecentMeetingRow = {
+  institution_id: string | null
+  meeting_id: string
+  meeting_date: string
+  client_account_id: string | null
+  client_account_name: string | null
+  investor_text: string | null
+  host_name: string | null
+  host_id: string | null
+  meeting_type_label: string | null
+  is_in_person: boolean | null
+}

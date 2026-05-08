@@ -24,6 +24,13 @@ DROP VIEW IF EXISTS public.v_client_detail_top_institutions CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_reach_depth CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_top_hosts CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_recent_meetings CASCADE;
+DROP VIEW IF EXISTS public.v_institution_summary CASCADE;
+DROP VIEW IF EXISTS public.v_institution_detail_summary CASCADE;
+DROP VIEW IF EXISTS public.v_institution_detail_quarterly CASCADE;
+DROP VIEW IF EXISTS public.v_institution_detail_top_clients CASCADE;
+DROP VIEW IF EXISTS public.v_institution_detail_style CASCADE;
+DROP VIEW IF EXISTS public.v_institution_detail_top_hosts CASCADE;
+DROP VIEW IF EXISTS public.v_institution_detail_recent_meetings CASCADE;
 
 
 -- -----------------------------------------------------------------------------
@@ -1188,5 +1195,460 @@ SELECT
   meeting_type_label,
   is_in_person,
   feedback_status_label
+FROM ranked
+WHERE rn <= 8;
+
+
+-- -----------------------------------------------------------------------------
+-- v_institution_summary
+-- One row per distinct institution (by name) that has any confirmed meetings.
+-- Powers the Institution Summary table at /institutions.
+-- Every aggregation filters meeting_status_label = 'Confirmed'.
+-- institution_id is picked from the most recent meeting for that name
+-- (Postgres has no MIN() aggregate for the uuid type).
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_institution_summary AS
+WITH agg AS (
+  SELECT
+    m.institution_name,
+    (array_agg(m.institution_id ORDER BY m.meeting_date DESC NULLS LAST))[1]
+      AS institution_id,
+    COUNT(*)::int AS lifetime_meetings,
+    COUNT(*) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_meetings,
+    COUNT(*) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '24 months'
+        AND m.meeting_date <  CURRENT_DATE - INTERVAL '12 months'
+    )::int AS prior_12mo_meetings,
+    COUNT(DISTINCT m.client_account_id)::int AS unique_clients_lifetime,
+    COUNT(DISTINCT NULLIF(COALESCE(m.investor_text, ''), ''))::int
+      AS unique_people_lifetime,
+    MIN(m.meeting_date)::date AS first_met,
+    MAX(m.meeting_date)::date AS last_met
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+  GROUP BY m.institution_name
+)
+SELECT
+  institution_id,
+  institution_name,
+  lifetime_meetings,
+  ltm_meetings,
+  prior_12mo_meetings,
+  unique_clients_lifetime,
+  unique_people_lifetime,
+  first_met,
+  last_met,
+  (last_met >= CURRENT_DATE - INTERVAL '12 months') AS is_active,
+  (last_met <  CURRENT_DATE - INTERVAL '24 months') AS is_cold,
+  (lifetime_meetings >= 10) AS is_heavy_hitter
+FROM agg
+ORDER BY lifetime_meetings DESC, institution_name ASC;
+
+
+-- -----------------------------------------------------------------------------
+-- v_institution_detail_summary
+-- One row per institution. KPI tiles + dropdown rows on the Institution
+-- Detail page. last_met_client_name / last_met_host_name come from the
+-- single most-recent confirmed meeting for that institution.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_institution_detail_summary AS
+WITH agg AS (
+  SELECT
+    m.institution_name,
+    (array_agg(m.institution_id ORDER BY m.meeting_date DESC NULLS LAST))[1]
+      AS institution_id,
+    COUNT(*)::int AS lifetime_meetings,
+    COUNT(*) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_meetings,
+    COUNT(*) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '24 months'
+        AND m.meeting_date <  CURRENT_DATE - INTERVAL '12 months'
+    )::int AS prior_12mo_meetings,
+    COUNT(DISTINCT m.client_account_id)::int AS lifetime_clients,
+    COUNT(DISTINCT m.client_account_id) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_clients,
+    COUNT(DISTINCT NULLIF(COALESCE(m.investor_text, ''), ''))::int
+      AS lifetime_people,
+    COUNT(DISTINCT NULLIF(COALESCE(m.investor_text, ''), '')) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_people,
+    COUNT(*) FILTER (
+      WHERE m.feedback_status_label = 'Closed - All in'
+        AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_feedback_collected,
+    COUNT(*) FILTER (
+      WHERE m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
+        AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_feedback_total_closed,
+    MIN(m.meeting_date)::date AS first_met,
+    MAX(m.meeting_date)::date AS last_met
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+  GROUP BY m.institution_name
+),
+ranked_recent AS (
+  SELECT
+    m.institution_name,
+    m.client_account_name,
+    m.host_name,
+    ROW_NUMBER() OVER (
+      PARTITION BY m.institution_name
+      ORDER BY m.meeting_date DESC
+    ) AS rn
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+),
+last_met_info AS (
+  SELECT
+    institution_name,
+    client_account_name AS last_met_client_name,
+    host_name           AS last_met_host_name
+  FROM ranked_recent
+  WHERE rn = 1
+)
+SELECT
+  a.institution_id,
+  a.institution_name,
+  a.lifetime_meetings,
+  a.ltm_meetings,
+  a.prior_12mo_meetings,
+  (a.ltm_meetings - a.prior_12mo_meetings)::int AS ltm_meetings_delta,
+  a.lifetime_clients,
+  a.ltm_clients,
+  a.lifetime_people,
+  a.ltm_people,
+  a.ltm_feedback_collected,
+  a.ltm_feedback_total_closed,
+  CASE
+    WHEN a.ltm_feedback_total_closed = 0 THEN NULL
+    ELSE a.ltm_feedback_collected::numeric
+         / NULLIF(a.ltm_feedback_total_closed, 0)
+  END AS ltm_feedback_rate,
+  a.first_met,
+  a.last_met,
+  l.last_met_client_name,
+  l.last_met_host_name
+FROM agg a
+LEFT JOIN last_met_info l ON l.institution_name = a.institution_name;
+
+
+-- -----------------------------------------------------------------------------
+-- v_institution_detail_quarterly
+-- Last 8 quarters of confirmed meetings per institution, split by
+-- live (in-person) vs virtual.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_institution_detail_quarterly AS
+WITH inst_id AS (
+  SELECT
+    m.institution_name,
+    (array_agg(m.institution_id ORDER BY m.meeting_date DESC NULLS LAST))[1]
+      AS institution_id
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+  GROUP BY m.institution_name
+)
+SELECT
+  i.institution_id,
+  EXTRACT(YEAR FROM m.meeting_date)::int AS period_year,
+  EXTRACT(QUARTER FROM m.meeting_date)::int AS period_quarter,
+  EXTRACT(YEAR FROM m.meeting_date)::int::text
+    || ' Q'
+    || EXTRACT(QUARTER FROM m.meeting_date)::int::text
+    AS period_label,
+  COUNT(*) FILTER (WHERE m.is_in_person = true)::int  AS live_count,
+  COUNT(*) FILTER (WHERE m.is_in_person = false)::int AS virtual_count,
+  COUNT(*)::int AS total
+FROM public.meetings m
+JOIN inst_id i ON i.institution_name = m.institution_name
+WHERE m.meeting_status_label = 'Confirmed'
+  AND m.institution_name IS NOT NULL
+  AND m.meeting_date >= date_trunc('quarter', CURRENT_DATE) - INTERVAL '21 months'
+GROUP BY i.institution_id, 2, 3, 4;
+
+
+-- -----------------------------------------------------------------------------
+-- v_institution_detail_top_clients
+-- Top 10 Rose & Co clients per institution by lifetime confirmed meeting count.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_institution_detail_top_clients AS
+WITH inst_id AS (
+  SELECT
+    m.institution_name,
+    (array_agg(m.institution_id ORDER BY m.meeting_date DESC NULLS LAST))[1]
+      AS institution_id
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+  GROUP BY m.institution_name
+),
+client_counts AS (
+  SELECT
+    i.institution_id,
+    m.client_account_id,
+    MAX(m.client_account_name) AS client_account_name,
+    COUNT(*)::int AS lifetime_count,
+    COUNT(*) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_count,
+    MAX(m.meeting_date)::date AS last_met
+  FROM public.meetings m
+  JOIN inst_id i ON i.institution_name = m.institution_name
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+    AND m.client_account_id IS NOT NULL
+  GROUP BY i.institution_id, m.client_account_id
+),
+ranked AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (
+      PARTITION BY institution_id
+      ORDER BY lifetime_count DESC, last_met DESC
+    ) AS rank
+  FROM client_counts
+)
+SELECT
+  institution_id,
+  rank::int AS rank,
+  client_account_id,
+  client_account_name,
+  lifetime_count,
+  ltm_count,
+  last_met
+FROM ranked
+WHERE rank <= 10;
+
+
+-- -----------------------------------------------------------------------------
+-- v_institution_detail_style
+-- For each institution: distinct Rose & Co clients met, broken down by
+-- market-cap bucket, sector, and region. One row per
+-- (institution_id, dimension_type, bucket_label).
+-- Each client is counted once per institution regardless of meeting count.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_institution_detail_style AS
+WITH inst_id AS (
+  SELECT
+    m.institution_name,
+    (array_agg(m.institution_id ORDER BY m.meeting_date DESC NULLS LAST))[1]
+      AS institution_id
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+  GROUP BY m.institution_name
+),
+inst_clients AS (
+  SELECT DISTINCT
+    i.institution_id,
+    m.client_account_id
+  FROM public.meetings m
+  JOIN inst_id i ON i.institution_name = m.institution_name
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+    AND m.client_account_id IS NOT NULL
+),
+joined AS (
+  SELECT
+    ic.institution_id,
+    ic.client_account_id,
+    a.market_cap_b,
+    a.sector_label,
+    a.hq_country_name
+  FROM inst_clients ic
+  LEFT JOIN public.accounts a ON a.account_id = ic.client_account_id
+),
+market_cap_rows AS (
+  SELECT
+    institution_id,
+    'market_cap'::text AS dimension_type,
+    CASE
+      WHEN market_cap_b IS NULL THEN 'Micro'
+      WHEN market_cap_b >= 200  THEN 'Mega'
+      WHEN market_cap_b >= 10   THEN 'Large'
+      WHEN market_cap_b >= 2    THEN 'Mid'
+      WHEN market_cap_b >= 0.3  THEN 'Small'
+      ELSE 'Micro'
+    END AS bucket_label,
+    CASE
+      WHEN market_cap_b IS NULL THEN 5
+      WHEN market_cap_b >= 200  THEN 1
+      WHEN market_cap_b >= 10   THEN 2
+      WHEN market_cap_b >= 2    THEN 3
+      WHEN market_cap_b >= 0.3  THEN 4
+      ELSE 5
+    END AS bucket_order,
+    COUNT(*)::int AS client_count
+  FROM joined
+  GROUP BY institution_id, 3, 4
+),
+sector_rows_raw AS (
+  SELECT
+    institution_id,
+    'sector'::text AS dimension_type,
+    COALESCE(sector_label, 'Unknown') AS bucket_label,
+    COUNT(*)::int AS client_count
+  FROM joined
+  GROUP BY institution_id, 3
+),
+sector_rows AS (
+  SELECT
+    institution_id,
+    dimension_type,
+    bucket_label,
+    ROW_NUMBER() OVER (
+      PARTITION BY institution_id
+      ORDER BY client_count DESC, bucket_label ASC
+    )::int AS bucket_order,
+    client_count
+  FROM sector_rows_raw
+),
+region_rows AS (
+  SELECT
+    institution_id,
+    'region'::text AS dimension_type,
+    CASE
+      WHEN hq_country_name IN (
+        'United States','Canada','Mexico','Bermuda',
+        'Brazil','Argentina','Chile','Colombia','Peru',
+        'Venezuela','Ecuador','Bolivia','Uruguay','Paraguay',
+        'Costa Rica','Panama','Guatemala','Honduras','Nicaragua',
+        'El Salvador','Cuba','Dominican Republic','Puerto Rico'
+      ) THEN 'Americas'
+      WHEN hq_country_name IN (
+        'Australia','Japan','Singapore','China','Hong Kong',
+        'India','South Korea','New Zealand','Taiwan'
+      ) THEN 'APAC'
+      ELSE 'EMEA'
+    END AS bucket_label,
+    CASE
+      WHEN hq_country_name IN (
+        'United States','Canada','Mexico','Bermuda',
+        'Brazil','Argentina','Chile','Colombia','Peru',
+        'Venezuela','Ecuador','Bolivia','Uruguay','Paraguay',
+        'Costa Rica','Panama','Guatemala','Honduras','Nicaragua',
+        'El Salvador','Cuba','Dominican Republic','Puerto Rico'
+      ) THEN 1
+      WHEN hq_country_name IN (
+        'Australia','Japan','Singapore','China','Hong Kong',
+        'India','South Korea','New Zealand','Taiwan'
+      ) THEN 3
+      ELSE 2
+    END AS bucket_order,
+    COUNT(*)::int AS client_count
+  FROM joined
+  GROUP BY institution_id, 3, 4
+)
+SELECT institution_id, dimension_type, bucket_label, bucket_order, client_count
+FROM market_cap_rows
+UNION ALL
+SELECT institution_id, dimension_type, bucket_label, bucket_order, client_count
+FROM sector_rows
+UNION ALL
+SELECT institution_id, dimension_type, bucket_label, bucket_order, client_count
+FROM region_rows;
+
+
+-- -----------------------------------------------------------------------------
+-- v_institution_detail_top_hosts
+-- Top 5 hosts per institution in the trailing 12 months,
+-- excluding 'CRM Administration' and NULL host_name.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_institution_detail_top_hosts AS
+WITH inst_id AS (
+  SELECT
+    m.institution_name,
+    (array_agg(m.institution_id ORDER BY m.meeting_date DESC NULLS LAST))[1]
+      AS institution_id
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+  GROUP BY m.institution_name
+),
+host_counts AS (
+  SELECT
+    i.institution_id,
+    m.host_name,
+    (array_agg(m.host_id ORDER BY m.meeting_date DESC NULLS LAST))[1]
+      AS host_id,
+    COUNT(*)::int AS ltm_count,
+    MAX(m.meeting_date)::date AS last_met
+  FROM public.meetings m
+  JOIN inst_id i ON i.institution_name = m.institution_name
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+    AND m.host_name IS NOT NULL
+    AND m.host_name <> 'CRM Administration'
+    AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+  GROUP BY i.institution_id, m.host_name
+),
+ranked AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (
+      PARTITION BY institution_id
+      ORDER BY ltm_count DESC, last_met DESC
+    ) AS rn
+  FROM host_counts
+)
+SELECT institution_id, host_name, host_id, ltm_count, last_met
+FROM ranked
+WHERE rn <= 5;
+
+
+-- -----------------------------------------------------------------------------
+-- v_institution_detail_recent_meetings
+-- Last 8 confirmed meetings per institution, most recent first.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_institution_detail_recent_meetings AS
+WITH inst_id AS (
+  SELECT
+    m.institution_name,
+    (array_agg(m.institution_id ORDER BY m.meeting_date DESC NULLS LAST))[1]
+      AS institution_id
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+  GROUP BY m.institution_name
+),
+ranked AS (
+  SELECT
+    i.institution_id,
+    m.meeting_id,
+    m.meeting_date,
+    m.client_account_id,
+    m.client_account_name,
+    m.investor_text,
+    m.host_name,
+    m.host_id,
+    m.meeting_type_label,
+    m.is_in_person,
+    ROW_NUMBER() OVER (
+      PARTITION BY i.institution_id
+      ORDER BY m.meeting_date DESC
+    ) AS rn
+  FROM public.meetings m
+  JOIN inst_id i ON i.institution_name = m.institution_name
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+)
+SELECT
+  institution_id,
+  meeting_id,
+  meeting_date,
+  client_account_id,
+  client_account_name,
+  investor_text,
+  host_name,
+  host_id,
+  meeting_type_label,
+  is_in_person
 FROM ranked
 WHERE rn <= 8;

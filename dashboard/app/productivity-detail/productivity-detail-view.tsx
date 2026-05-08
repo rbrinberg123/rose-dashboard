@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   Bar,
   BarChart,
@@ -58,7 +59,30 @@ export function ProductivityDetailView({
   rows: ProductivityDetailRow[]
   monthlyRows: AnalystMonthlyActivityRow[]
 }) {
-  const [selectedId, setSelectedId] = React.useState<string | undefined>(rows[0]?.display_name)
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const requestedName = searchParams.get("display_name") ?? undefined
+  const matchedName = requestedName
+    ? rows.find((r) => r.display_name === requestedName)?.display_name
+    : undefined
+  const initialName = matchedName ?? rows[0]?.display_name
+  const [selectedId, setSelectedId] = React.useState<string | undefined>(initialName)
+
+  // Keep state in sync if the URL changes (e.g. user follows a deep-link
+  // from another page) without a full reload.
+  React.useEffect(() => {
+    if (matchedName && matchedName !== selectedId) {
+      setSelectedId(matchedName)
+    }
+  }, [matchedName, selectedId])
+
+  const goTo = React.useCallback(
+    (name: string) => {
+      setSelectedId(name)
+      router.push(`/productivity-detail?display_name=${encodeURIComponent(name)}`)
+    },
+    [router],
+  )
 
   const chartData = React.useMemo(
     () =>
@@ -97,11 +121,11 @@ export function ProductivityDetailView({
 
   const goPrev = () => {
     const next = (selectedIndex - 1 + rows.length) % rows.length
-    setSelectedId(rows[next].display_name)
+    goTo(rows[next].display_name)
   }
   const goNext = () => {
     const next = (selectedIndex + 1) % rows.length
-    setSelectedId(rows[next].display_name)
+    goTo(rows[next].display_name)
   }
 
   const inPersonPct =
@@ -181,7 +205,7 @@ export function ProductivityDetailView({
           </button>
           <select
             value={selected.display_name}
-            onChange={(e) => setSelectedId(e.target.value)}
+            onChange={(e) => goTo(e.target.value)}
             className="h-9 min-w-[200px] rounded-md border border-border bg-card px-2 text-sm"
             aria-label="Select person"
           >

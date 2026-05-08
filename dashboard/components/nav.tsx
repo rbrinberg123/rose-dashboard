@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 import {
   BarChart3,
   Briefcase,
+  Building2,
   User,
   User2,
   Users,
@@ -40,6 +41,7 @@ const dashboards: NavItem[] = [
   { href: "/client-statistics", label: "Client Statistics", icon: BarChart3 },
   { href: "/portfolio", label: "Client Portfolio", icon: Briefcase },
   { href: "/client-detail", label: "Client Detail", icon: User2 },
+  { href: "/institutions", label: "Institutions", icon: Building2 },
   { href: "/productivity", label: "Productivity", icon: Users },
   { href: "/productivity-detail", label: "Productivity Detail", icon: User },
   { href: "/feedback", label: "Feedback Discipline", icon: MessageSquare },
