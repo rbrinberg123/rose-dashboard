@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import {
   flexRender,
   getCoreRowModel,
@@ -106,7 +107,13 @@ const columns: ColumnDef<ClientPortfolioRow>[] = [
     ),
     cell: ({ row }) => (
       <div className="min-w-0">
-        <div className="truncate font-medium text-foreground">{row.original.name}</div>
+        <Link
+          href={`/client-detail?account_id=${row.original.account_id}`}
+          className="truncate font-medium hover:underline"
+          style={{ color: "#1E2858" }}
+        >
+          {row.original.name}
+        </Link>
         {row.original.ticker_symbol ? (
           <div className="truncate text-xs text-muted-foreground">{row.original.ticker_symbol}</div>
         ) : null}

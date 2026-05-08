@@ -7,6 +7,7 @@ import {
   BarChart3,
   Briefcase,
   User,
+  User2,
   Users,
   MessageSquare,
   CalendarClock,
@@ -38,6 +39,7 @@ type NavItem = { href: string; label: string; icon: React.ComponentType<{ classN
 const dashboards: NavItem[] = [
   { href: "/client-statistics", label: "Client Statistics", icon: BarChart3 },
   { href: "/portfolio", label: "Client Portfolio", icon: Briefcase },
+  { href: "/client-detail", label: "Client Detail", icon: User2 },
   { href: "/productivity", label: "Productivity", icon: Users },
   { href: "/productivity-detail", label: "Productivity Detail", icon: User },
   { href: "/feedback", label: "Feedback Discipline", icon: MessageSquare },

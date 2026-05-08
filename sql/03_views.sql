@@ -18,6 +18,12 @@ DROP VIEW IF EXISTS public.v_meeting_costs CASCADE;
 DROP VIEW IF EXISTS public.v_productivity_detail_summary CASCADE;
 DROP VIEW IF EXISTS public.v_analyst_monthly_activity CASCADE;
 DROP VIEW IF EXISTS public.v_contract_management CASCADE;
+DROP VIEW IF EXISTS public.v_client_detail_summary CASCADE;
+DROP VIEW IF EXISTS public.v_client_detail_quarterly CASCADE;
+DROP VIEW IF EXISTS public.v_client_detail_top_institutions CASCADE;
+DROP VIEW IF EXISTS public.v_client_detail_reach_depth CASCADE;
+DROP VIEW IF EXISTS public.v_client_detail_top_hosts CASCADE;
+DROP VIEW IF EXISTS public.v_client_detail_recent_meetings CASCADE;
 
 
 -- -----------------------------------------------------------------------------
@@ -900,3 +906,287 @@ LEFT JOIN contract_counts cc ON cc.client_account_id = a.account_id
 LEFT JOIN latest_active la   ON la.client_account_id = a.account_id
 WHERE a.state_label = 'Active'
 ORDER BY (days_to_expiry IS NULL), days_to_expiry ASC NULLS LAST, client_name ASC;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_detail_summary
+-- One row per active client. KPI tiles + dropdown rows on the Client Detail
+-- page. Every meeting aggregation filters meeting_status_label = 'Confirmed'.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_detail_summary AS
+WITH active_clients AS (
+  SELECT account_id, name AS client_name, sales_lead_primary_name
+  FROM public.accounts
+  WHERE state_label = 'Active'
+),
+meeting_agg AS (
+  SELECT
+    m.client_account_id AS account_id,
+    COUNT(*)::int AS lifetime_meetings,
+    COUNT(*) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_meetings,
+    COUNT(*) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '24 months'
+        AND m.meeting_date <  CURRENT_DATE - INTERVAL '12 months'
+    )::int AS prior_12mo_meetings,
+    COUNT(DISTINCT m.institution_name) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_unique_institutions,
+    COUNT(DISTINCT NULLIF(COALESCE(m.investor_text, ''), '')) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_unique_investors,
+    COUNT(*) FILTER (
+      WHERE m.feedback_status_label = 'Closed - All in'
+        AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_feedback_collected,
+    COUNT(*) FILTER (
+      WHERE m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
+        AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_feedback_total_closed,
+    MIN(m.meeting_date)::date AS client_since
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.client_account_id IS NOT NULL
+  GROUP BY m.client_account_id
+),
+ranked_active_contract AS (
+  SELECT
+    c.client_account_id,
+    c.quarterly_retainer,
+    c.initial_term_end,
+    ROW_NUMBER() OVER (
+      PARTITION BY c.client_account_id
+      ORDER BY c.initial_term_end DESC NULLS LAST
+    ) AS rn
+  FROM public.contracts c
+  WHERE c.state_code = 0
+    AND (c.contract_termination_date IS NULL
+         OR c.contract_termination_date > CURRENT_DATE)
+),
+latest_active_contract AS (
+  SELECT * FROM ranked_active_contract WHERE rn = 1
+),
+contract_totals AS (
+  SELECT
+    c.client_account_id,
+    SUM(c.quarterly_retainer * 4)::numeric AS annualized_retainer
+  FROM public.contracts c
+  WHERE c.state_code = 0
+    AND (c.contract_termination_date IS NULL
+         OR c.contract_termination_date > CURRENT_DATE)
+  GROUP BY c.client_account_id
+)
+SELECT
+  ac.account_id,
+  ac.client_name,
+  COALESCE(ma.lifetime_meetings, 0) AS lifetime_meetings,
+  COALESCE(ma.ltm_meetings, 0) AS ltm_meetings,
+  COALESCE(ma.prior_12mo_meetings, 0) AS prior_12mo_meetings,
+  (COALESCE(ma.ltm_meetings, 0) - COALESCE(ma.prior_12mo_meetings, 0))::int
+    AS ltm_meetings_delta,
+  COALESCE(ma.ltm_unique_institutions, 0) AS ltm_unique_institutions,
+  COALESCE(ma.ltm_unique_investors, 0) AS ltm_unique_investors,
+  COALESCE(ma.ltm_feedback_collected, 0) AS ltm_feedback_collected,
+  COALESCE(ma.ltm_feedback_total_closed, 0) AS ltm_feedback_total_closed,
+  CASE
+    WHEN COALESCE(ma.ltm_feedback_total_closed, 0) = 0 THEN NULL
+    ELSE ma.ltm_feedback_collected::numeric / NULLIF(ma.ltm_feedback_total_closed, 0)
+  END AS ltm_feedback_rate,
+  ma.client_since,
+  ac.sales_lead_primary_name AS sales_lead_name,
+  COALESCE(ct.annualized_retainer, 0)::numeric AS annualized_retainer,
+  CASE
+    WHEN COALESCE(ma.ltm_meetings, 0) = 0 THEN NULL
+    ELSE COALESCE(ct.annualized_retainer, 0)::numeric / NULLIF(ma.ltm_meetings, 0)
+  END AS dollars_per_meeting_ltm,
+  lac.initial_term_end AS latest_term_end,
+  CASE
+    WHEN lac.initial_term_end IS NULL THEN NULL
+    ELSE (lac.initial_term_end - CURRENT_DATE)::int
+  END AS days_to_renewal
+FROM active_clients ac
+LEFT JOIN meeting_agg ma           ON ma.account_id = ac.account_id
+LEFT JOIN latest_active_contract lac ON lac.client_account_id = ac.account_id
+LEFT JOIN contract_totals ct       ON ct.client_account_id = ac.account_id;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_detail_quarterly
+-- Last 8 quarters of confirmed meetings per active client, split by
+-- live (in-person) vs virtual.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_detail_quarterly AS
+SELECT
+  m.client_account_id AS account_id,
+  EXTRACT(YEAR FROM m.meeting_date)::int AS period_year,
+  EXTRACT(QUARTER FROM m.meeting_date)::int AS period_quarter,
+  EXTRACT(YEAR FROM m.meeting_date)::int::text
+    || ' Q'
+    || EXTRACT(QUARTER FROM m.meeting_date)::int::text
+    AS period_label,
+  COUNT(*) FILTER (WHERE m.is_in_person = true)::int AS live_count,
+  COUNT(*) FILTER (WHERE m.is_in_person = false)::int AS virtual_count,
+  COUNT(*)::int AS total
+FROM public.meetings m
+WHERE m.meeting_status_label = 'Confirmed'
+  AND m.client_account_id IS NOT NULL
+  AND m.meeting_date >= date_trunc('quarter', CURRENT_DATE) - INTERVAL '21 months'
+GROUP BY 1, 2, 3, 4;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_detail_top_institutions
+-- Top 20 institutions per client by lifetime confirmed meeting count.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_detail_top_institutions AS
+WITH inst_counts AS (
+  SELECT
+    m.client_account_id AS account_id,
+    m.institution_name,
+    COUNT(*)::int AS lifetime_count,
+    COUNT(*) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_count,
+    MIN(m.meeting_date)::date AS first_met,
+    MAX(m.meeting_date)::date AS last_met
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.client_account_id IS NOT NULL
+    AND m.institution_name IS NOT NULL
+  GROUP BY m.client_account_id, m.institution_name
+),
+ranked AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (
+      PARTITION BY account_id
+      ORDER BY lifetime_count DESC, last_met DESC
+    ) AS rank
+  FROM inst_counts
+)
+SELECT
+  account_id,
+  rank::int AS rank,
+  institution_name,
+  lifetime_count,
+  ltm_count,
+  first_met,
+  last_met
+FROM ranked
+WHERE rank <= 20;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_detail_reach_depth
+-- Institution depth distribution per client. Bucketed by lifetime confirmed
+-- meeting count. Buckets: 1, 2-3, 4-5, 6-10, 10+ meetings.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_detail_reach_depth AS
+WITH inst_counts AS (
+  SELECT
+    m.client_account_id AS account_id,
+    m.institution_name,
+    COUNT(*) AS meeting_count
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.client_account_id IS NOT NULL
+    AND m.institution_name IS NOT NULL
+  GROUP BY m.client_account_id, m.institution_name
+),
+bucketed AS (
+  SELECT
+    account_id,
+    CASE
+      WHEN meeting_count = 1 THEN '1 meeting'
+      WHEN meeting_count BETWEEN 2 AND 3 THEN '2-3 meetings'
+      WHEN meeting_count BETWEEN 4 AND 5 THEN '4-5 meetings'
+      WHEN meeting_count BETWEEN 6 AND 10 THEN '6-10 meetings'
+      ELSE '10+ meetings'
+    END AS bucket_label,
+    CASE
+      WHEN meeting_count = 1 THEN 1
+      WHEN meeting_count BETWEEN 2 AND 3 THEN 2
+      WHEN meeting_count BETWEEN 4 AND 5 THEN 3
+      WHEN meeting_count BETWEEN 6 AND 10 THEN 4
+      ELSE 5
+    END AS bucket_order
+  FROM inst_counts
+)
+SELECT
+  account_id,
+  bucket_label,
+  bucket_order,
+  COUNT(*)::int AS institution_count
+FROM bucketed
+GROUP BY account_id, bucket_label, bucket_order;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_detail_top_hosts
+-- Top 5 hosts per client in the trailing 12 months, excluding the
+-- 'CRM Administration' service-account host.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_detail_top_hosts AS
+WITH host_counts AS (
+  SELECT
+    m.client_account_id AS account_id,
+    m.host_name,
+    COUNT(*)::int AS ltm_count,
+    MAX(m.meeting_date)::date AS last_met
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.client_account_id IS NOT NULL
+    AND m.host_name IS NOT NULL
+    AND m.host_name <> 'CRM Administration'
+    AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+  GROUP BY m.client_account_id, m.host_name
+),
+ranked AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (
+      PARTITION BY account_id
+      ORDER BY ltm_count DESC, last_met DESC
+    ) AS rn
+  FROM host_counts
+)
+SELECT account_id, host_name, ltm_count, last_met
+FROM ranked
+WHERE rn <= 5;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_detail_recent_meetings
+-- Last 8 confirmed meetings per client, most recent first.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_detail_recent_meetings AS
+WITH ranked AS (
+  SELECT
+    m.client_account_id AS account_id,
+    m.meeting_id,
+    m.meeting_date,
+    m.institution_name,
+    m.host_name,
+    m.meeting_type_label,
+    m.is_in_person,
+    m.feedback_status_label,
+    ROW_NUMBER() OVER (
+      PARTITION BY m.client_account_id
+      ORDER BY m.meeting_date DESC
+    ) AS rn
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.client_account_id IS NOT NULL
+)
+SELECT
+  account_id,
+  meeting_id,
+  meeting_date,
+  institution_name,
+  host_name,
+  meeting_type_label,
+  is_in_person,
+  feedback_status_label
+FROM ranked
+WHERE rn <= 8;

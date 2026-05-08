@@ -333,3 +333,68 @@ export type ContractManagementRow = {
   quarterly_retainer: number | null
   contract_status_label: string | null
 }
+
+export type ClientDetailSummaryRow = {
+  account_id: string
+  client_name: string
+  lifetime_meetings: number
+  ltm_meetings: number
+  prior_12mo_meetings: number
+  ltm_meetings_delta: number
+  ltm_unique_institutions: number
+  ltm_unique_investors: number
+  ltm_feedback_collected: number
+  ltm_feedback_total_closed: number
+  ltm_feedback_rate: number | null
+  client_since: string | null
+  sales_lead_name: string | null
+  annualized_retainer: number
+  dollars_per_meeting_ltm: number | null
+  latest_term_end: string | null
+  days_to_renewal: number | null
+}
+
+export type ClientDetailQuarterlyRow = {
+  account_id: string
+  period_year: number
+  period_quarter: number
+  period_label: string
+  live_count: number
+  virtual_count: number
+  total: number
+}
+
+export type ClientDetailTopInstitutionRow = {
+  account_id: string
+  rank: number
+  institution_name: string
+  lifetime_count: number
+  ltm_count: number
+  first_met: string | null
+  last_met: string | null
+}
+
+export type ClientDetailReachDepthRow = {
+  account_id: string
+  bucket_label: string
+  bucket_order: number
+  institution_count: number
+}
+
+export type ClientDetailTopHostRow = {
+  account_id: string
+  host_name: string
+  ltm_count: number
+  last_met: string | null
+}
+
+export type ClientDetailRecentMeetingRow = {
+  account_id: string
+  meeting_id: string
+  meeting_date: string
+  institution_name: string | null
+  host_name: string | null
+  meeting_type_label: string | null
+  is_in_person: boolean | null
+  feedback_status_label: string | null
+}
