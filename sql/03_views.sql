@@ -1051,6 +1051,8 @@ WITH inst_counts AS (
   SELECT
     m.client_account_id AS account_id,
     m.institution_name,
+    (array_agg(m.institution_id ORDER BY m.meeting_date DESC NULLS LAST))[1]
+      AS institution_id,
     COUNT(*)::int AS lifetime_count,
     COUNT(*) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
@@ -1079,7 +1081,8 @@ SELECT
   lifetime_count,
   ltm_count,
   first_met,
-  last_met
+  last_met,
+  institution_id
 FROM ranked
 WHERE rank <= 20;
 
@@ -1173,6 +1176,7 @@ WITH ranked AS (
     m.client_account_id AS account_id,
     m.meeting_id,
     m.meeting_date,
+    m.institution_id,
     m.institution_name,
     m.host_name,
     m.meeting_type_label,
@@ -1194,7 +1198,8 @@ SELECT
   host_name,
   meeting_type_label,
   is_in_person,
-  feedback_status_label
+  feedback_status_label,
+  institution_id
 FROM ranked
 WHERE rn <= 8;
 

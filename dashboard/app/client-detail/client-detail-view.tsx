@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { format, parseISO } from "date-fns"
 import {
@@ -435,8 +436,19 @@ export function ClientDetailView({
                       {rows.map((row) => (
                         <tr key={`${row.account_id}-${row.rank}`} className="border-b last:border-b-0">
                           <td className="px-2 py-2 text-muted-foreground tabular-nums">{row.rank}</td>
-                          <td className="px-2 py-2 font-medium" style={{ color: NAVY_DEEP }}>
-                            {row.institution_name}
+                          <td className="px-2 py-2">
+                            {row.institution_id ? (
+                              <Link
+                                href={`/institution-detail?institution_id=${row.institution_id}`}
+                                className="hover:underline text-[#1E2858] font-medium"
+                              >
+                                {row.institution_name}
+                              </Link>
+                            ) : (
+                              <span className="font-medium" style={{ color: NAVY_DEEP }}>
+                                {row.institution_name}
+                              </span>
+                            )}
                           </td>
                           <td className="px-2 py-2 text-right tabular-nums">
                             {row.lifetime_count.toLocaleString()}
@@ -526,9 +538,12 @@ export function ClientDetailView({
                   key={h.host_name}
                   className="flex items-baseline justify-between border-b last:border-b-0 py-1.5"
                 >
-                  <span className="font-medium" style={{ color: NAVY_DEEP }}>
+                  <Link
+                    href={`/productivity-detail?display_name=${encodeURIComponent(h.host_name)}`}
+                    className="hover:underline text-[#1E2858] font-medium"
+                  >
                     {h.host_name}
-                  </span>
+                  </Link>
                   <span className="text-xs text-muted-foreground tabular-nums">
                     {h.ltm_count.toLocaleString()} meetings · last {formatShortDate(h.last_met)}
                   </span>
@@ -601,11 +616,31 @@ export function ClientDetailView({
                     <td className="px-2 py-2 tabular-nums">
                       {formatLongDate(m.meeting_date)}
                     </td>
-                    <td className="px-2 py-2 font-medium" style={{ color: NAVY_DEEP }}>
-                      {m.institution_name ?? "—"}
+                    <td className="px-2 py-2">
+                      {m.institution_id && m.institution_name ? (
+                        <Link
+                          href={`/institution-detail?institution_id=${m.institution_id}`}
+                          className="hover:underline text-[#1E2858] font-medium"
+                        >
+                          {m.institution_name}
+                        </Link>
+                      ) : (
+                        <span className="font-medium" style={{ color: NAVY_DEEP }}>
+                          {m.institution_name ?? "—"}
+                        </span>
+                      )}
                     </td>
                     <td className="px-2 py-2 text-muted-foreground">
-                      {m.host_name ?? "—"}
+                      {m.host_name ? (
+                        <Link
+                          href={`/productivity-detail?display_name=${encodeURIComponent(m.host_name)}`}
+                          className="hover:underline text-[#1E2858] font-medium"
+                        >
+                          {m.host_name}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="px-2 py-2">
                       <span

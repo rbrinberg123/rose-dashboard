@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import {
   flexRender,
   getCoreRowModel,
@@ -69,7 +70,18 @@ const columns: ColumnDef<AnalystActivityRow>[] = [
       <SortHeader label="Analyst" isSorted={column.getIsSorted()} onClick={() => column.toggleSorting()} />
     ),
     cell: ({ row }) => (
-      <div className="font-medium text-foreground">{row.original.display_name ?? "—"}</div>
+      <div>
+        {row.original.display_name ? (
+          <Link
+            href={`/productivity-detail?display_name=${encodeURIComponent(row.original.display_name)}`}
+            className="hover:underline text-[#1E2858] font-medium"
+          >
+            {row.original.display_name}
+          </Link>
+        ) : (
+          <span className="font-medium text-foreground">—</span>
+        )}
+      </div>
     ),
   },
   {

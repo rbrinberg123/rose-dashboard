@@ -367,6 +367,7 @@ export type ClientDetailQuarterlyRow = {
 export type ClientDetailTopInstitutionRow = {
   account_id: string
   rank: number
+  institution_id: string | null
   institution_name: string
   lifetime_count: number
   ltm_count: number
@@ -392,6 +393,7 @@ export type ClientDetailRecentMeetingRow = {
   account_id: string
   meeting_id: string
   meeting_date: string
+  institution_id: string | null
   institution_name: string | null
   host_name: string | null
   meeting_type_label: string | null
