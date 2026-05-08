@@ -367,107 +367,94 @@ LEFT JOIN quarter_meeting_pool qmp USING (period_year, period_quarter);
 
 -- -----------------------------------------------------------------------------
 -- v_client_portfolio
--- One row per client. Powers the portfolio overview dashboard.
+-- One row per active client. Powers the Client Portfolio page.
+--
+-- Activity counts come from public.meetings filtered to
+--   meeting_status_label = 'Confirmed'
+-- so cancellations and other non-confirmed states never inflate the numbers.
 -- -----------------------------------------------------------------------------
-CREATE VIEW public.v_client_portfolio AS
-WITH
+CREATE OR REPLACE VIEW public.v_client_portfolio AS
+WITH meeting_agg AS (
+  SELECT
+    client_account_id,
+    COUNT(*) FILTER (
+      WHERE meeting_date >= CURRENT_DATE - interval '365 days'
+        AND meeting_date <= CURRENT_DATE
+    ) AS meetings_last_365d,
+    COUNT(*) FILTER (
+      WHERE meeting_date >= CURRENT_DATE - interval '90 days'
+        AND meeting_date <= CURRENT_DATE
+    ) AS meetings_last_90d,
+    COUNT(DISTINCT institution_name) FILTER (
+      WHERE meeting_date >= CURRENT_DATE - interval '365 days'
+        AND meeting_date <= CURRENT_DATE
+        AND institution_name IS NOT NULL
+    ) AS unique_institutions_last_365d,
+    MAX(meeting_date) FILTER (WHERE meeting_date <= CURRENT_DATE) AS last_meeting_date
+  FROM public.meetings
+  WHERE meeting_status_label = 'Confirmed'
+  GROUP BY client_account_id
+),
 recent_contract AS (
   SELECT DISTINCT ON (client_account_id)
     client_account_id,
-    contract_status_label,
-    quarterly_retainer,
-    contract_renewal_date,
-    contract_termination_date,
-    auto_renew,
-    renew
+    quarterly_retainer
   FROM public.contracts
   WHERE state_code = 0
   ORDER BY client_account_id, contract_start_date DESC
-),
-meeting_counts AS (
-  SELECT
-    client_account_id,
-    COUNT(*) FILTER (WHERE meeting_date >= CURRENT_DATE - interval '90 days'
-                       AND meeting_date <= CURRENT_DATE) AS meetings_last_90d,
-    COUNT(*) FILTER (WHERE meeting_date >= CURRENT_DATE
-                       AND meeting_date <= CURRENT_DATE + interval '30 days') AS meetings_next_30d,
-    MAX(meeting_date) FILTER (WHERE meeting_date <= CURRENT_DATE) AS last_meeting_date
-  FROM public.meetings
-  WHERE meeting_status_label != 'Cancelled' OR meeting_status_label IS NULL
-  GROUP BY client_account_id
-),
-recent_note AS (
-  SELECT DISTINCT ON (client_account_id)
-    client_account_id,
-    note_date AS last_note_date,
-    status_text AS last_note_status,
-    primary_risk_driver AS last_note_risk
-  FROM public.client_notes
-  ORDER BY client_account_id, note_date DESC
-),
-current_period AS (
-  SELECT
-    EXTRACT(YEAR FROM CURRENT_DATE)::int AS yr,
-    EXTRACT(QUARTER FROM CURRENT_DATE)::int AS qtr
-),
-current_pnl AS (
-  SELECT
-    pnl.client_account_id,
-    pnl.revenue AS current_quarter_revenue,
-    pnl.margin AS current_quarter_margin,
-    pnl.margin_pct AS current_quarter_margin_pct
-  FROM public.v_client_quarterly_pnl pnl, current_period cp
-  WHERE pnl.period_year = cp.yr AND pnl.period_quarter = cp.qtr
 )
 SELECT
   a.account_id,
   a.name,
   a.ticker_symbol,
-  a.sector_label,
-  a.exchange_label,
-  a.hq_country_name,
-  CASE a.status_code
-    WHEN 1 THEN 'Current'
-    WHEN 2 THEN 'Past'
-    ELSE NULL
-  END AS client_status_label,
-  a.market_cap_b,
-  a.state_label AS account_state,
-
   a.sales_lead_primary_name,
-  a.associate_name,
-  a.targeting_name,
-  a.feedback_report_name,
 
-  rc.contract_status_label,
+  a.market_cap_b,
+  CASE
+    WHEN a.market_cap_b IS NULL          THEN 'Micro'
+    WHEN a.market_cap_b >= 200           THEN 'Mega'
+    WHEN a.market_cap_b >= 10            THEN 'Large'
+    WHEN a.market_cap_b >= 2             THEN 'Mid'
+    WHEN a.market_cap_b >= 0.3           THEN 'Small'
+    ELSE                                       'Micro'
+  END AS market_cap_label,
+
+  a.hq_country_name,
+  CASE
+    WHEN a.hq_country_name IN (
+      'United States','USA','US','Canada','Mexico','Bermuda','Brazil','Argentina',
+      'Chile','Colombia','Peru','Venezuela','Ecuador','Bolivia','Uruguay','Paraguay',
+      'Costa Rica','Panama','Guatemala','Honduras','Nicaragua','El Salvador','Cuba',
+      'Dominican Republic','Puerto Rico'
+    ) THEN 'Americas'
+    WHEN a.hq_country_name IN (
+      'Australia','Japan','Singapore','China','Hong Kong','India','South Korea',
+      'New Zealand','Taiwan'
+    ) THEN 'APAC'
+    ELSE 'EMEA'
+  END AS region_label,
+
+  a.sector_label,
+
   rc.quarterly_retainer,
-  rc.contract_renewal_date,
-  rc.contract_termination_date,
-  CASE WHEN rc.contract_renewal_date IS NOT NULL
-       THEN (rc.contract_renewal_date - CURRENT_DATE)::int
-       ELSE NULL END AS days_to_renewal,
-  rc.auto_renew,
-  rc.renew,
+  CASE WHEN rc.quarterly_retainer IS NOT NULL
+       THEN rc.quarterly_retainer * 4
+       ELSE NULL END AS annualized_retainer,
 
-  COALESCE(mc.meetings_last_90d, 0) AS meetings_last_90d,
-  COALESCE(mc.meetings_next_30d, 0) AS meetings_next_30d,
-  mc.last_meeting_date,
-  a.last_touchpoint_date,
-  a.next_event_date,
+  COALESCE(ma.meetings_last_365d, 0)::int          AS meetings_last_365d,
+  COALESCE(ma.meetings_last_90d, 0)::int           AS meetings_last_90d,
+  COALESCE(ma.unique_institutions_last_365d, 0)::int AS unique_institutions_last_365d,
+  ma.last_meeting_date::date                       AS last_meeting_date,
 
-  rn.last_note_date,
-  rn.last_note_status,
-  rn.last_note_risk,
+  a.last_event_date::date       AS last_event_date,
+  a.last_touchpoint_date::date  AS last_note_date,
 
-  cp.current_quarter_revenue,
-  cp.current_quarter_margin,
-  cp.current_quarter_margin_pct
+  a.state_label AS account_state
 
 FROM public.accounts a
+LEFT JOIN meeting_agg ma ON ma.client_account_id = a.account_id
 LEFT JOIN recent_contract rc ON rc.client_account_id = a.account_id
-LEFT JOIN meeting_counts mc ON mc.client_account_id = a.account_id
-LEFT JOIN recent_note rn ON rn.client_account_id = a.account_id
-LEFT JOIN current_pnl cp ON cp.client_account_id = a.account_id;
+WHERE a.state_label = 'Active';
 
 
 -- -----------------------------------------------------------------------------

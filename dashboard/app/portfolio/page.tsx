@@ -2,7 +2,6 @@ import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type { ClientPortfolioRow } from "@/lib/types"
-import { PortfolioKpis } from "./portfolio-kpis"
 import { PortfolioTable } from "./portfolio-table"
 
 // Always fetch fresh from Supabase; the views recompute on every read and we
@@ -36,7 +35,6 @@ export default async function ClientPortfolioPage() {
       title="Client Portfolio"
       description={`${rows.length.toLocaleString()} clients — health at a glance`}
     >
-      <PortfolioKpis rows={rows} />
       <PortfolioTable rows={rows} />
     </PageShell>
   )

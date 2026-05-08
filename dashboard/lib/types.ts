@@ -252,34 +252,21 @@ export type ClientPortfolioRow = {
   account_id: string
   name: string
   ticker_symbol: string | null
-  sector_label: string | null
-  exchange_label: string | null
-  hq_country_name: string | null
-  client_status_label: string | null
-  market_cap_b: number | null
-  account_state: string | null
   sales_lead_primary_name: string | null
-  associate_name: string | null
-  targeting_name: string | null
-  feedback_report_name: string | null
-  contract_status_label: string | null
+  market_cap_b: number | null
+  market_cap_label: string | null
+  hq_country_name: string | null
+  region_label: string | null
+  sector_label: string | null
   quarterly_retainer: number | null
-  contract_renewal_date: string | null
-  contract_termination_date: string | null
-  days_to_renewal: number | null
-  auto_renew: boolean | null
-  renew: boolean | null
+  annualized_retainer: number | null
+  meetings_last_365d: number | null
   meetings_last_90d: number | null
-  meetings_next_30d: number | null
+  unique_institutions_last_365d: number | null
   last_meeting_date: string | null
-  last_touchpoint_date: string | null
-  next_event_date: string | null
+  last_event_date: string | null
   last_note_date: string | null
-  last_note_status: string | null
-  last_note_risk: string | null
-  current_quarter_revenue: number | null
-  current_quarter_margin: number | null
-  current_quarter_margin_pct: number | null
+  account_state: string | null
 }
 
 export type ClientStatisticsRow = {

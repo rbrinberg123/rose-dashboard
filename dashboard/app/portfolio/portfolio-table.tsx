@@ -2,17 +2,8 @@
 
 import * as React from "react"
 import Link from "next/link"
-import {
-  flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getSortedRowModel,
-  useReactTable,
-  type ColumnDef,
-  type SortingState,
-  type FilterFn,
-} from "@tanstack/react-table"
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, X } from "lucide-react"
+import { format, parseISO } from "date-fns"
+import { ArrowUpDown, ArrowUp, ArrowDown, Search } from "lucide-react"
 
 import {
   Table,
@@ -23,332 +14,647 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { MarginBadge } from "@/components/margin-badge"
 import { cn } from "@/lib/utils"
-import { formatCurrency, formatDate } from "@/lib/format"
 import type { ClientPortfolioRow } from "@/lib/types"
 
 const ALL = "__all__"
 
-/**
- * Multi-field filter state lives in TanStack's columnFilters, but for cross-
- * column composition (name OR ticker matches search; status equals; sector
- * equals) we use a single global filter function instead.
- */
-type GlobalFilter = {
-  search: string
-  status: string // "" or ALL = no filter
-  sector: string
+const MARKET_CAP_OPTIONS = ["Mega", "Large", "Mid", "Small", "Micro"] as const
+const REGION_OPTIONS = ["Americas", "EMEA", "APAC"] as const
+
+const STALE_BG = "#FEEBC8"
+const STALE_FG = "#B7791F"
+const COLD_BG = "#FED7D7"
+const COLD_FG = "#C53030"
+const NAVY = "#1E2858"
+const GREEN = "#2D7A2D"
+const RED = "#C53030"
+
+type SortKey =
+  | "name"
+  | "ticker_symbol"
+  | "market_cap_label"
+  | "region_label"
+  | "sector_label"
+  | "annualized_retainer"
+  | "meetings_last_365d"
+  | "unique_institutions_last_365d"
+  | "meetings_last_90d"
+  | "last_meeting_date"
+  | "last_event_date"
+  | "last_note_date"
+
+type SortDir = "asc" | "desc"
+
+function safeParseDate(value: string | null | undefined): Date | null {
+  if (!value) return null
+  const d = typeof value === "string" ? parseISO(value) : value
+  if (!d || Number.isNaN(d.getTime())) return null
+  return d
 }
 
-const globalFilterFn: FilterFn<ClientPortfolioRow> = (row, _columnId, filter: GlobalFilter) => {
-  const r = row.original
-  if (filter.search) {
-    const q = filter.search.toLowerCase()
-    const hay = `${r.name ?? ""} ${r.ticker_symbol ?? ""}`.toLowerCase()
-    if (!hay.includes(q)) return false
-  }
-  if (filter.status && filter.status !== ALL) {
-    if ((r.client_status_label ?? "") !== filter.status) return false
-  }
-  if (filter.sector && filter.sector !== ALL) {
-    if ((r.sector_label ?? "") !== filter.sector) return false
-  }
-  return true
+function formatShortDate(value: string | null | undefined): string {
+  const d = safeParseDate(value)
+  return d ? format(d, "MM/dd/yy") : "—"
 }
 
-function trim(s: string | null | undefined): string {
-  return (s ?? "").trim()
+function formatCompactDollars(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—"
+  const abs = Math.abs(value)
+  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000) return `$${(value / 1_000).toFixed(1)}K`
+  return `$${Math.round(value).toLocaleString()}`
+}
+
+function daysSince(value: string | null | undefined): number | null {
+  const d = safeParseDate(value)
+  if (!d) return null
+  return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+function ActivityPill({ kind }: { kind: "stale" | "cold" }) {
+  const isStale = kind === "stale"
+  return (
+    <span
+      style={{
+        backgroundColor: isStale ? STALE_BG : COLD_BG,
+        color: isStale ? STALE_FG : COLD_FG,
+        padding: "1px 6px",
+        borderRadius: "10px",
+        fontSize: "9px",
+        fontWeight: 500,
+      }}
+    >
+      {isStale ? "Stale" : "Cold"}
+    </span>
+  )
+}
+
+function DateCell({ value }: { value: string | null | undefined }) {
+  if (!value) return <>—</>
+  const days = daysSince(value)
+  let pill: React.ReactNode = null
+  if (days != null) {
+    if (days >= 90) pill = <ActivityPill kind="cold" />
+    else if (days >= 30) pill = <ActivityPill kind="stale" />
+  }
+  return (
+    <div className="whitespace-nowrap">
+      <div>{formatShortDate(value)}</div>
+      {pill && <div style={{ marginTop: 3 }}>{pill}</div>}
+    </div>
+  )
 }
 
 function SortHeader({
   label,
-  isSorted,
-  onClick,
+  sortKey,
+  currentKey,
+  currentDir,
+  onSort,
   align = "left",
 }: {
   label: string
-  isSorted: false | "asc" | "desc"
-  onClick: () => void
-  align?: "left" | "right"
+  sortKey: SortKey
+  currentKey: SortKey
+  currentDir: SortDir
+  onSort: (k: SortKey) => void
+  align?: "left" | "right" | "center"
 }) {
-  const Icon = isSorted === "asc" ? ArrowUp : isSorted === "desc" ? ArrowDown : ArrowUpDown
+  const isActive = currentKey === sortKey
+  const Icon = isActive ? (currentDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => onSort(sortKey)}
       className={cn(
         "inline-flex w-full items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground",
         align === "right" && "justify-end",
+        align === "center" && "justify-center",
       )}
     >
-      {align === "left" && <span>{label}</span>}
-      <Icon className={cn("size-3 shrink-0", isSorted ? "text-foreground" : "text-muted-foreground/60")} />
-      {align === "right" && <span>{label}</span>}
+      {align === "right" ? (
+        <>
+          <Icon className={cn("size-3 shrink-0", isActive ? "text-foreground" : "text-muted-foreground/60")} />
+          <span>{label}</span>
+        </>
+      ) : (
+        <>
+          <span>{label}</span>
+          <Icon className={cn("size-3 shrink-0", isActive ? "text-foreground" : "text-muted-foreground/60")} />
+        </>
+      )}
     </button>
   )
 }
 
-const columns: ColumnDef<ClientPortfolioRow>[] = [
-  {
-    id: "name",
-    accessorKey: "name",
-    header: ({ column }) => (
-      <SortHeader label="Client" isSorted={column.getIsSorted()} onClick={() => column.toggleSorting()} />
-    ),
-    cell: ({ row }) => (
-      <div className="min-w-0">
-        <Link
-          href={`/client-detail?account_id=${row.original.account_id}`}
-          className="truncate font-medium hover:underline"
-          style={{ color: "#1E2858" }}
-        >
-          {row.original.name}
-        </Link>
-        {row.original.ticker_symbol ? (
-          <div className="truncate text-xs text-muted-foreground">{row.original.ticker_symbol}</div>
-        ) : null}
-      </div>
-    ),
-  },
-  {
-    id: "client_status_label",
-    accessorKey: "client_status_label",
-    header: ({ column }) => (
-      <SortHeader label="Status" isSorted={column.getIsSorted()} onClick={() => column.toggleSorting()} />
-    ),
-    cell: ({ row }) => {
-      const status = trim(row.original.client_status_label)
-      if (status === "Current")
-        return <Badge className="bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200">Current</Badge>
-      if (status === "Past")
-        return <Badge className="bg-rose-100 text-rose-900 dark:bg-rose-900/30 dark:text-rose-200">Past</Badge>
-      return "—"
-    },
-  },
-  {
-    id: "sector_label",
-    accessorKey: "sector_label",
-    header: ({ column }) => (
-      <SortHeader label="Sector" isSorted={column.getIsSorted()} onClick={() => column.toggleSorting()} />
-    ),
-    cell: ({ row }) => trim(row.original.sector_label) || "—",
-  },
-  {
-    id: "sales_lead_primary_name",
-    accessorKey: "sales_lead_primary_name",
-    header: ({ column }) => (
-      <SortHeader label="Sales lead" isSorted={column.getIsSorted()} onClick={() => column.toggleSorting()} />
-    ),
-    cell: ({ row }) => trim(row.original.sales_lead_primary_name) || "—",
-  },
-  {
-    id: "last_meeting_date",
-    accessorKey: "last_meeting_date",
-    sortingFn: "datetime",
-    header: ({ column }) => (
-      <SortHeader label="Last meeting" isSorted={column.getIsSorted()} onClick={() => column.toggleSorting()} />
-    ),
-    cell: ({ row }) => formatDate(row.original.last_meeting_date),
-  },
-  {
-    id: "next_event_date",
-    accessorKey: "next_event_date",
-    sortingFn: "datetime",
-    header: ({ column }) => (
-      <SortHeader label="Next event" isSorted={column.getIsSorted()} onClick={() => column.toggleSorting()} />
-    ),
-    cell: ({ row }) => formatDate(row.original.next_event_date),
-  },
-  {
-    id: "last_note",
-    accessorFn: (r) => r.last_note_date ?? "",
-    sortingFn: "datetime",
-    header: ({ column }) => (
-      <SortHeader label="Last note" isSorted={column.getIsSorted()} onClick={() => column.toggleSorting()} />
-    ),
-    cell: ({ row }) => {
-      const r = row.original
-      if (!r.last_note_date) return "—"
-      return (
-        <div className="min-w-0">
-          <div>{formatDate(r.last_note_date)}</div>
-          <div className="truncate text-xs text-muted-foreground">{trim(r.last_note_status) || "—"}</div>
-        </div>
-      )
-    },
-  },
-  {
-    id: "current_quarter_revenue",
-    accessorKey: "current_quarter_revenue",
-    sortingFn: "basic",
-    header: ({ column }) => (
-      <SortHeader label="Q rev" isSorted={column.getIsSorted()} onClick={() => column.toggleSorting()} align="right" />
-    ),
-    cell: ({ row }) => (
-      <div className="text-right tabular-nums">{formatCurrency(row.original.current_quarter_revenue)}</div>
-    ),
-  },
-  {
-    id: "current_quarter_margin",
-    accessorKey: "current_quarter_margin",
-    sortingFn: "basic",
-    header: ({ column }) => (
-      <SortHeader label="Q margin" isSorted={column.getIsSorted()} onClick={() => column.toggleSorting()} align="right" />
-    ),
-    cell: ({ row }) => (
-      <div className="text-right tabular-nums">{formatCurrency(row.original.current_quarter_margin)}</div>
-    ),
-  },
-  {
-    id: "current_quarter_margin_pct",
-    accessorKey: "current_quarter_margin_pct",
-    sortingFn: (a, b) => {
-      // Nulls sort last regardless of direction.
-      const av = a.original.current_quarter_margin_pct
-      const bv = b.original.current_quarter_margin_pct
-      if (av == null && bv == null) return 0
-      if (av == null) return 1
-      if (bv == null) return -1
-      return av - bv
-    },
-    header: ({ column }) => (
-      <SortHeader label="Margin %" isSorted={column.getIsSorted()} onClick={() => column.toggleSorting()} align="right" />
-    ),
-    cell: ({ row }) => (
-      <div className="flex justify-end">
-        <MarginBadge value={row.original.current_quarter_margin_pct} />
-      </div>
-    ),
-  },
-]
+function compareValues(
+  a: string | number | null | undefined,
+  b: string | number | null | undefined,
+  dir: SortDir,
+): number {
+  const aNull = a == null || a === ""
+  const bNull = b == null || b === ""
+  if (aNull && bNull) return 0
+  if (aNull) return 1 // nulls always last
+  if (bNull) return -1
+  if (typeof a === "number" && typeof b === "number") {
+    return dir === "asc" ? a - b : b - a
+  }
+  const av = String(a).toLowerCase()
+  const bv = String(b).toLowerCase()
+  if (av < bv) return dir === "asc" ? -1 : 1
+  if (av > bv) return dir === "asc" ? 1 : -1
+  return 0
+}
 
 export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
-  const [sorting, setSorting] = React.useState<SortingState>([{ id: "name", desc: false }])
-  const [filter, setFilter] = React.useState<GlobalFilter>({ search: "", status: "Current", sector: ALL })
+  const [sortKey, setSortKey] = React.useState<SortKey>("name")
+  const [sortDir, setSortDir] = React.useState<SortDir>("asc")
+  const [search, setSearch] = React.useState("")
+  const [marketCap, setMarketCap] = React.useState<string>(ALL)
+  const [region, setRegion] = React.useState<string>(ALL)
+  const [sector, setSector] = React.useState<string>(ALL)
+  const [salesLead, setSalesLead] = React.useState<string>(ALL)
+  const [staleMeetings, setStaleMeetings] = React.useState(false)
+  const [coldMeetings, setColdMeetings] = React.useState(false)
+  const [blankMeetings, setBlankMeetings] = React.useState(false)
+  const [staleEvents, setStaleEvents] = React.useState(false)
+  const [coldEvents, setColdEvents] = React.useState(false)
+  const [blankEvents, setBlankEvents] = React.useState(false)
+  const [staleNotes, setStaleNotes] = React.useState(false)
+  const [coldNotes, setColdNotes] = React.useState(false)
+  const [blankNotes, setBlankNotes] = React.useState(false)
 
-  // Distinct dropdown values, computed once from the row set.
-  const { statuses, sectors } = React.useMemo(() => {
-    const s = new Set<string>()
-    const sec = new Set<string>()
-    for (const r of rows) {
-      if (r.client_status_label) s.add(r.client_status_label)
-      if (r.sector_label) sec.add(r.sector_label)
-    }
-    return {
-      statuses: [...s].sort(),
-      sectors: [...sec].sort(),
-    }
+  const sectors = React.useMemo(() => {
+    const set = new Set<string>()
+    for (const r of rows) if (r.sector_label) set.add(r.sector_label)
+    return [...set].sort()
   }, [rows])
 
-  const table = useReactTable({
-    data: rows,
-    columns,
-    state: { sorting, globalFilter: filter },
-    onSortingChange: setSorting,
-    onGlobalFilterChange: (next) => setFilter(next as GlobalFilter),
-    globalFilterFn,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-  })
+  const salesLeads = React.useMemo(() => {
+    const set = new Set<string>()
+    for (const r of rows) if (r.sales_lead_primary_name) set.add(r.sales_lead_primary_name)
+    return [...set].sort()
+  }, [rows])
 
-  const visibleCount = table.getFilteredRowModel().rows.length
-  const hasFilters = filter.search || filter.status !== ALL || filter.sector !== ALL
+  const filteredRows = React.useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const matchCategory = (
+      value: string | null | undefined,
+      stale: boolean,
+      cold: boolean,
+      blank: boolean,
+    ): boolean => {
+      if (!stale && !cold && !blank) return true
+      const v = daysSince(value)
+      if (stale && v != null && v >= 30 && v < 90) return true
+      if (cold && v != null && v >= 90) return true
+      if (blank && value == null) return true
+      return false
+    }
+    return rows.filter((r) => {
+      if (marketCap !== ALL && (r.market_cap_label ?? "") !== marketCap) return false
+      if (region !== ALL && (r.region_label ?? "") !== region) return false
+      if (sector !== ALL && (r.sector_label ?? "") !== sector) return false
+      if (salesLead !== ALL && (r.sales_lead_primary_name ?? "") !== salesLead) return false
+      if (!matchCategory(r.last_meeting_date, staleMeetings, coldMeetings, blankMeetings)) return false
+      if (!matchCategory(r.last_event_date, staleEvents, coldEvents, blankEvents)) return false
+      if (!matchCategory(r.last_note_date, staleNotes, coldNotes, blankNotes)) return false
+      if (q) {
+        const name = (r.name ?? "").toLowerCase()
+        const ticker = (r.ticker_symbol ?? "").toLowerCase()
+        if (!name.includes(q) && !ticker.includes(q)) return false
+      }
+      return true
+    })
+  }, [
+    rows,
+    search,
+    marketCap,
+    region,
+    sector,
+    salesLead,
+    staleMeetings,
+    coldMeetings,
+    blankMeetings,
+    staleEvents,
+    coldEvents,
+    blankEvents,
+    staleNotes,
+    coldNotes,
+    blankNotes,
+  ])
+
+  const sortedRows = React.useMemo(() => {
+    const arr = [...filteredRows]
+    arr.sort((a, b) => compareValues(a[sortKey] as never, b[sortKey] as never, sortDir))
+    return arr
+  }, [filteredRows, sortKey, sortDir])
+
+  function handleSort(k: SortKey) {
+    if (k === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    } else {
+      setSortKey(k)
+      setSortDir("asc")
+    }
+  }
+
+  function handleReset() {
+    setMarketCap(ALL)
+    setRegion(ALL)
+    setSector(ALL)
+    setSalesLead(ALL)
+    setSearch("")
+    setStaleMeetings(false)
+    setColdMeetings(false)
+    setBlankMeetings(false)
+    setStaleEvents(false)
+    setColdEvents(false)
+    setBlankEvents(false)
+    setStaleNotes(false)
+    setColdNotes(false)
+    setBlankNotes(false)
+  }
 
   return (
     <div className="space-y-3">
+      {/* Activity flag legend */}
+      <div
+        className="flex flex-wrap items-center gap-2 text-muted-foreground"
+        style={{ fontSize: "11px" }}
+      >
+        <span>Activity flags:</span>
+        <span
+          style={{
+            backgroundColor: STALE_BG,
+            color: STALE_FG,
+            padding: "1px 6px",
+            borderRadius: "10px",
+            fontSize: "9px",
+            fontWeight: 500,
+          }}
+        >
+          Stale
+        </span>
+        <span>30-90 days since</span>
+        <span
+          style={{
+            backgroundColor: COLD_BG,
+            color: COLD_FG,
+            padding: "1px 6px",
+            borderRadius: "10px",
+            fontSize: "9px",
+            fontWeight: 500,
+          }}
+        >
+          Cold
+        </span>
+        <span>90+ days since</span>
+      </div>
+
+      {/* Filter row */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-56 max-w-sm">
+        <select
+          value={marketCap}
+          onChange={(e) => setMarketCap(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+        >
+          <option value={ALL}>All market caps</option>
+          {MARKET_CAP_OPTIONS.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={region}
+          onChange={(e) => setRegion(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+        >
+          <option value={ALL}>All regions</option>
+          {REGION_OPTIONS.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={sector}
+          onChange={(e) => setSector(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+        >
+          <option value={ALL}>All sectors</option>
+          {sectors.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={salesLead}
+          onChange={(e) => setSalesLead(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+        >
+          <option value={ALL}>Sales Lead (all)</option>
+          {salesLeads.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+
+        <button
+          type="button"
+          onClick={handleReset}
+          className="h-9 cursor-pointer text-muted-foreground"
+          style={{
+            padding: "6px 14px",
+            border: "0.5px solid #ccc",
+            backgroundColor: "white",
+          }}
+        >
+          Reset
+        </button>
+
+        <div className="relative ml-auto w-64">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            value={filter.search}
-            onChange={(e) => setFilter((f) => ({ ...f, search: e.target.value }))}
-            placeholder="Search by name or ticker"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name..."
             className="pl-8"
           />
         </div>
+      </div>
 
-        <Select value={filter.status} onValueChange={(v) => setFilter((f) => ({ ...f, status: v ?? ALL }))}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All statuses</SelectItem>
-            {statuses.map((s) => (
-              <SelectItem key={s} value={s}>{s}</SelectItem>
+      {/* Activity flag toggles */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground" style={{ fontSize: "11px" }}>
+          Activity flags:
+        </span>
+        {(
+          [
+            [
+              { label: "Stale meetings", active: staleMeetings, toggle: () => setStaleMeetings((v) => !v) },
+              { label: "Cold meetings", active: coldMeetings, toggle: () => setColdMeetings((v) => !v) },
+              { label: "Blank meetings", active: blankMeetings, toggle: () => setBlankMeetings((v) => !v) },
+            ],
+            [
+              { label: "Stale events", active: staleEvents, toggle: () => setStaleEvents((v) => !v) },
+              { label: "Cold events", active: coldEvents, toggle: () => setColdEvents((v) => !v) },
+              { label: "Blank events", active: blankEvents, toggle: () => setBlankEvents((v) => !v) },
+            ],
+            [
+              { label: "Stale notes", active: staleNotes, toggle: () => setStaleNotes((v) => !v) },
+              { label: "Cold notes", active: coldNotes, toggle: () => setColdNotes((v) => !v) },
+              { label: "Blank notes", active: blankNotes, toggle: () => setBlankNotes((v) => !v) },
+            ],
+          ] as const
+        ).map((group, gi) => (
+          <React.Fragment key={gi}>
+            {gi > 0 && (
+              <span
+                className="border-l h-5 mx-1"
+                style={{ borderColor: "var(--color-border-tertiary)" }}
+              />
+            )}
+            {group.map(({ label, active, toggle }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={toggle}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: "14px",
+                  fontSize: "11px",
+                  cursor: "pointer",
+                  fontWeight: active ? 500 : undefined,
+                  ...(active
+                    ? { border: "0.5px solid #C53030", backgroundColor: "#FED7D7", color: "#C53030" }
+                    : {
+                        borderWidth: "0.5px",
+                        borderStyle: "solid",
+                        borderColor: "var(--color-border-secondary)",
+                        backgroundColor: "white",
+                        color: "var(--color-text-primary)",
+                      }),
+                }}
+              >
+                {active ? `✓ ${label}` : label}
+              </button>
             ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={filter.sector} onValueChange={(v) => setFilter((f) => ({ ...f, sector: v ?? ALL }))}>
-          <SelectTrigger className="w-56">
-            <SelectValue placeholder="Sector" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All sectors</SelectItem>
-            {sectors.map((s) => (
-              <SelectItem key={s} value={s}>{s}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {hasFilters ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setFilter({ search: "", status: ALL, sector: ALL })}
-          >
-            <X /> Clear
-          </Button>
-        ) : null}
-
-        <div className="ml-auto text-xs text-muted-foreground tabular-nums">
-          {visibleCount.toLocaleString()} of {rows.length.toLocaleString()} clients
-        </div>
+          </React.Fragment>
+        ))}
       </div>
 
       <div className="rounded-lg border border-border bg-card">
         <Table>
           <TableHeader className="sticky top-0 z-10 bg-card">
-            {table.getHeaderGroups().map((hg) => (
-              <TableRow key={hg.id}>
-                {hg.headers.map((h) => (
-                  <TableHead key={h.id} className="px-3">
-                    {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
+            <TableRow>
+              <TableHead className="px-3">
+                <SortHeader label="Client" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              </TableHead>
+              <TableHead className="px-3">
+                <span className="text-xs font-medium text-muted-foreground">Sales Lead</span>
+              </TableHead>
+              <TableHead className="px-3">
+                <SortHeader label="Mkt Cap" sortKey="market_cap_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              </TableHead>
+              <TableHead className="px-3">
+                <SortHeader label="Region" sortKey="region_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              </TableHead>
+              <TableHead className="px-3">
+                <SortHeader label="Sector" sortKey="sector_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              </TableHead>
+              <TableHead className="px-3">
+                <SortHeader
+                  label="Annualized Ret."
+                  sortKey="annualized_retainer"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={handleSort}
+                  align="right"
+                />
+              </TableHead>
+              <TableHead className="px-3">
+                <SortHeader
+                  label="L12M Mtgs"
+                  sortKey="meetings_last_365d"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={handleSort}
+                  align="center"
+                />
+              </TableHead>
+              <TableHead className="px-3">
+                <SortHeader
+                  label="L12M Inst"
+                  sortKey="unique_institutions_last_365d"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={handleSort}
+                  align="center"
+                />
+              </TableHead>
+              <TableHead className="px-3">
+                <SortHeader
+                  label="L3M Mtgs"
+                  sortKey="meetings_last_90d"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={handleSort}
+                  align="center"
+                />
+              </TableHead>
+              <TableHead className="px-3">
+                <SortHeader
+                  label="Last Meeting"
+                  sortKey="last_meeting_date"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={handleSort}
+                />
+              </TableHead>
+              <TableHead className="px-3">
+                <SortHeader
+                  label="Last Event"
+                  sortKey="last_event_date"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={handleSort}
+                />
+              </TableHead>
+              <TableHead className="px-3">
+                <SortHeader
+                  label="Last Note"
+                  sortKey="last_note_date"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={handleSort}
+                />
+              </TableHead>
+            </TableRow>
           </TableHeader>
           <TableBody>
-            {table.getRowModel().rows.length === 0 ? (
+            {sortedRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-32 text-center text-sm text-muted-foreground">
-                  {rows.length === 0
-                    ? "No clients on record yet."
-                    : "No clients match the current filters."}
+                <TableCell colSpan={12} className="h-32 text-center text-sm text-muted-foreground">
+                  {rows.length === 0 ? "No clients on record yet." : "No clients match the current filters."}
                 </TableCell>
               </TableRow>
             ) : (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="px-3 align-top">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+              sortedRows.map((r) => {
+                const meetings365 = r.meetings_last_365d ?? 0
+                const meetings90 = r.meetings_last_90d ?? 0
+                let velocity: { glyph: string; color: string } | null = null
+                if (meetings365 > 0) {
+                  const projected = meetings90 * 4
+                  if (projected > meetings365) velocity = { glyph: "▲", color: GREEN }
+                  else if (projected < meetings365) velocity = { glyph: "▼", color: RED }
+                }
+
+                return (
+                  <TableRow key={r.account_id}>
+                    {/* Client */}
+                    <TableCell className="px-3 align-top">
+                      <div>
+                        <Link
+                          href={`/client-detail?account_id=${r.account_id}`}
+                          className="font-medium hover:underline"
+                          style={{ color: NAVY }}
+                        >
+                          {r.name}
+                        </Link>
+                      </div>
+                      <div
+                        className="text-muted-foreground"
+                        style={{ fontFamily: "monospace", fontSize: "10px", marginTop: 2 }}
+                      >
+                        {r.ticker_symbol ?? "—"}
+                      </div>
                     </TableCell>
-                  ))}
-                </TableRow>
-              ))
+
+                    {/* Sales Lead */}
+                    <TableCell className="px-3 align-top">
+                      {r.sales_lead_primary_name ? (
+                        <Link
+                          href={`/productivity-detail?display_name=${encodeURIComponent(r.sales_lead_primary_name)}`}
+                          className="hover:underline"
+                          style={{ color: NAVY }}
+                        >
+                          {r.sales_lead_primary_name}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+
+                    {/* Mkt Cap */}
+                    <TableCell className="px-3 align-top">{r.market_cap_label ?? "—"}</TableCell>
+
+                    {/* Region */}
+                    <TableCell className="px-3 align-top">
+                      <div>{r.hq_country_name ?? "—"}</div>
+                      <div
+                        className="text-muted-foreground"
+                        style={{ fontSize: "10px", marginTop: 2 }}
+                      >
+                        {r.region_label ?? "—"}
+                      </div>
+                    </TableCell>
+
+                    {/* Sector */}
+                    <TableCell
+                      className="px-3 align-top"
+                      style={{ maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      title={r.sector_label ?? ""}
+                    >
+                      {r.sector_label ?? "—"}
+                    </TableCell>
+
+                    {/* Annualized Retainer */}
+                    <TableCell className="px-3 align-top text-right tabular-nums">
+                      {formatCompactDollars(r.annualized_retainer)}
+                    </TableCell>
+
+                    {/* Mtgs L12M */}
+                    <TableCell className="px-3 align-top text-center tabular-nums">{meetings365}</TableCell>
+
+                    {/* Inst L12M */}
+                    <TableCell className="px-3 align-top text-center tabular-nums text-muted-foreground">
+                      {r.unique_institutions_last_365d ?? 0}
+                    </TableCell>
+
+                    {/* Mtgs L3M with velocity */}
+                    <TableCell className="px-3 align-top text-center tabular-nums">
+                      <span className="inline-flex items-center justify-center gap-1">
+                        {velocity && <span style={{ color: velocity.color }}>{velocity.glyph}</span>}
+                        <span>{meetings90}</span>
+                      </span>
+                    </TableCell>
+
+                    {/* Last Meeting */}
+                    <TableCell className="px-3 align-top">
+                      <DateCell value={r.last_meeting_date} />
+                    </TableCell>
+
+                    {/* Last Event */}
+                    <TableCell className="px-3 align-top">
+                      <DateCell value={r.last_event_date} />
+                    </TableCell>
+
+                    {/* Last Note */}
+                    <TableCell className="px-3 align-top">
+                      <DateCell value={r.last_note_date} />
+                    </TableCell>
+                  </TableRow>
+                )
+              })
             )}
           </TableBody>
         </Table>
