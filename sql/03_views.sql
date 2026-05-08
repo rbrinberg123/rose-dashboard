@@ -680,6 +680,132 @@ SELECT
 
 
 -- -----------------------------------------------------------------------------
+-- v_client_stats_by_market_cap
+-- One row per market-cap bucket on the Client Statistics donut chart. The
+-- bucket strings (Mega/Large/Mid/Small/Micro) are kept identical to the values
+-- that v_client_portfolio.market_cap_label produces, so clicking a slice on
+-- the stats page can navigate to /portfolio?market_cap=<bucket> and have the
+-- portfolio table's exact-match filter actually match. NULL market_cap_b is
+-- surfaced as its own 'Unknown' bucket — the chart shows it but the dashboard
+-- treats it as non-clickable so it never lands on an empty filtered page.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_stats_by_market_cap AS
+WITH bucketed AS (
+  SELECT
+    CASE
+      WHEN a.market_cap_b IS NULL          THEN 'Unknown'::text
+      WHEN a.market_cap_b >= 200::numeric  THEN 'Mega'::text
+      WHEN a.market_cap_b >= 10::numeric   THEN 'Large'::text
+      WHEN a.market_cap_b >= 2::numeric    THEN 'Mid'::text
+      WHEN a.market_cap_b >= 0.3           THEN 'Small'::text
+      ELSE                                      'Micro'::text
+    END AS bucket,
+    CASE
+      WHEN a.market_cap_b IS NULL          THEN 6
+      WHEN a.market_cap_b >= 200::numeric  THEN 1
+      WHEN a.market_cap_b >= 10::numeric   THEN 2
+      WHEN a.market_cap_b >= 2::numeric    THEN 3
+      WHEN a.market_cap_b >= 0.3           THEN 4
+      ELSE                                      5
+    END AS display_order
+  FROM public.accounts a
+  WHERE a.state_label = 'Active'
+)
+SELECT
+  bucket,
+  COUNT(*)::int AS count,
+  display_order
+FROM bucketed
+GROUP BY bucket, display_order
+ORDER BY display_order;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_stats_by_region
+-- One row per region bucket on the Client Statistics page. NULL or blank
+-- hq_country_name maps to 'Unknown'; any country not in the explicit lists
+-- below also maps to 'Unknown'. NB this differs from v_client_portfolio, which
+-- maps unknowns into 'EMEA' as a fallback — so 'Unknown' is currently
+-- non-clickable on the stats page (clicking it would land on an empty filter).
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_stats_by_region AS
+WITH active AS (
+  SELECT accounts.hq_country_name
+  FROM public.accounts
+  WHERE accounts.state_label = 'Active'::text
+),
+bucketed AS (
+  SELECT
+    CASE
+      WHEN active.hq_country_name IS NULL OR TRIM(BOTH FROM active.hq_country_name) = ''::text
+        THEN 'Unknown'::text
+      WHEN active.hq_country_name = ANY (ARRAY[
+        'United States'::text, 'Canada'::text, 'Mexico'::text, 'Brazil'::text,
+        'Argentina'::text, 'Chile'::text, 'Colombia'::text, 'Peru'::text
+      ]) THEN 'Americas'::text
+      WHEN active.hq_country_name = ANY (ARRAY[
+        'United Kingdom'::text, 'Germany'::text, 'France'::text, 'Italy'::text,
+        'Spain'::text, 'Netherlands'::text, 'Switzerland'::text, 'Sweden'::text,
+        'Norway'::text, 'Denmark'::text, 'Finland'::text, 'Ireland'::text,
+        'Belgium'::text, 'Austria'::text, 'Portugal'::text, 'Israel'::text,
+        'Saudi Arabia'::text, 'UAE'::text, 'South Africa'::text, 'Turkey'::text,
+        'Poland'::text
+      ]) THEN 'EMEA'::text
+      WHEN active.hq_country_name = ANY (ARRAY[
+        'Japan'::text, 'China'::text, 'Hong Kong'::text, 'Taiwan'::text,
+        'South Korea'::text, 'Australia'::text, 'New Zealand'::text,
+        'Singapore'::text, 'India'::text, 'Indonesia'::text, 'Malaysia'::text,
+        'Thailand'::text, 'Philippines'::text, 'Vietnam'::text
+      ]) THEN 'APAC'::text
+      ELSE 'Unknown'::text
+    END AS bucket
+  FROM active
+)
+SELECT
+  bucket,
+  COUNT(*)::int AS count,
+  CASE bucket
+    WHEN 'Americas'::text THEN 1
+    WHEN 'EMEA'::text     THEN 2
+    WHEN 'APAC'::text     THEN 3
+    WHEN 'Unknown'::text  THEN 4
+    ELSE NULL::int
+  END AS display_order
+FROM bucketed
+GROUP BY bucket
+ORDER BY (
+  CASE bucket
+    WHEN 'Americas'::text THEN 1
+    WHEN 'EMEA'::text     THEN 2
+    WHEN 'APAC'::text     THEN 3
+    WHEN 'Unknown'::text  THEN 4
+    ELSE NULL::int
+  END
+);
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_stats_by_sector
+-- One row per distinct sector_label across active accounts, count desc with
+-- 'Unknown' (NULL or blank label) sorted last. Sector strings are passed
+-- through unchanged so they exact-match v_client_portfolio.sector_label.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_stats_by_sector AS
+SELECT
+  COALESCE(NULLIF(TRIM(BOTH FROM sector_label), ''::text), 'Unknown'::text) AS bucket,
+  COUNT(*)::int AS count
+FROM public.accounts
+WHERE state_label = 'Active'::text
+GROUP BY (COALESCE(NULLIF(TRIM(BOTH FROM sector_label), ''::text), 'Unknown'::text))
+ORDER BY (
+  CASE
+    WHEN COALESCE(NULLIF(TRIM(BOTH FROM sector_label), ''::text), 'Unknown'::text) = 'Unknown'::text THEN 1
+    ELSE 0
+  END
+), (COUNT(*)) DESC;
+
+
+-- -----------------------------------------------------------------------------
 -- v_productivity_detail_summary
 -- One row per user with any meeting activity in the trailing 12 months OR
 -- who is a sales lead on any active account. Powers the per-person

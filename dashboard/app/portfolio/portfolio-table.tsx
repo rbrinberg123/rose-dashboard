@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { format, parseISO } from "date-fns"
 import { ArrowUpDown, ArrowUp, ArrowDown, Search } from "lucide-react"
 
@@ -169,12 +170,21 @@ function compareValues(
 }
 
 export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
+  const searchParams = useSearchParams()
+  // URL params are read once on mount only; filter changes are local-only and
+  // are not pushed back to the URL.
   const [sortKey, setSortKey] = React.useState<SortKey>("name")
   const [sortDir, setSortDir] = React.useState<SortDir>("asc")
   const [search, setSearch] = React.useState("")
-  const [marketCap, setMarketCap] = React.useState<string>(ALL)
-  const [region, setRegion] = React.useState<string>(ALL)
-  const [sector, setSector] = React.useState<string>(ALL)
+  const [marketCap, setMarketCap] = React.useState<string>(
+    () => searchParams.get("market_cap") ?? ALL,
+  )
+  const [region, setRegion] = React.useState<string>(
+    () => searchParams.get("region") ?? ALL,
+  )
+  const [sector, setSector] = React.useState<string>(
+    () => searchParams.get("sector") ?? ALL,
+  )
   const [salesLead, setSalesLead] = React.useState<string>(ALL)
   const [staleMeetings, setStaleMeetings] = React.useState(false)
   const [coldMeetings, setColdMeetings] = React.useState(false)

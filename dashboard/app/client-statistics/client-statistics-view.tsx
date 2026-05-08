@@ -1,5 +1,7 @@
 "use client"
 
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   Cell,
   Pie,
@@ -10,6 +12,10 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatCurrency } from "@/lib/format"
 import type { ClientStatisticsRow, ClientStatsBucketRow } from "@/lib/types"
+
+function portfolioHref(param: "market_cap" | "region" | "sector", bucket: string): string {
+  return `/portfolio?${param}=${encodeURIComponent(bucket)}`
+}
 
 const NAVY = "#1E2858"
 const TEAL = "#00B8B8"
@@ -47,6 +53,7 @@ export function ClientStatisticsView({
   region: ClientStatsBucketRow[]
   sector: ClientStatsBucketRow[]
 }) {
+  const router = useRouter()
   const kpis = [
     {
       label: "Active Accounts",
@@ -143,9 +150,19 @@ export function ClientStatisticsView({
                     cy="50%"
                     innerRadius={60}
                     outerRadius={90}
+                    onClick={(_, index) => {
+                      const bucket = marketCap[index]?.bucket
+                      if (bucket && bucket !== "Unknown") {
+                        router.push(portfolioHref("market_cap", bucket))
+                      }
+                    }}
                   >
-                    {marketCap.map((_, i) => (
-                      <Cell key={i} fill={marketCapColors[i]} />
+                    {marketCap.map((m, i) => (
+                      <Cell
+                        key={i}
+                        fill={marketCapColors[i]}
+                        style={{ cursor: m.bucket === "Unknown" ? "default" : "pointer" }}
+                      />
                     ))}
                   </Pie>
                   <Tooltip
@@ -169,17 +186,14 @@ export function ClientStatisticsView({
                 <div className="mt-1 text-xs text-muted-foreground">accounts</div>
               </div>
             </div>
-            <ul className="mt-4 space-y-2">
+            <ul className="mt-4 space-y-1">
               {marketCap.map((m, i) => {
                 const pct =
                   marketCapTotal > 0
                     ? Math.round((m.count / marketCapTotal) * 100)
                     : 0
-                return (
-                  <li
-                    key={m.bucket}
-                    className="flex items-center gap-2 text-xs"
-                  >
+                const inner = (
+                  <>
                     <span
                       className="h-3 w-3 shrink-0 rounded-sm"
                       style={{ backgroundColor: marketCapColors[i] }}
@@ -194,6 +208,22 @@ export function ClientStatisticsView({
                     <span className="shrink-0 tabular-nums text-muted-foreground">
                       {m.count} ({pct}%)
                     </span>
+                  </>
+                )
+                return (
+                  <li key={m.bucket}>
+                    {m.bucket === "Unknown" ? (
+                      <div className="flex items-center gap-2 rounded-sm px-1 py-1 text-xs">
+                        {inner}
+                      </div>
+                    ) : (
+                      <Link
+                        href={portfolioHref("market_cap", m.bucket)}
+                        className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 text-xs hover:bg-slate-100"
+                      >
+                        {inner}
+                      </Link>
+                    )}
                   </li>
                 )
               })}
@@ -211,31 +241,36 @@ export function ClientStatisticsView({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-3">
+            <ul className="space-y-2">
               {region.map((r, i) => {
                 const pct =
                   regionTotal > 0
                     ? Math.round((r.count / regionTotal) * 100)
                     : 0
                 return (
-                  <li key={r.bucket} className="flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium" style={{ color: NAVY }}>
-                        {r.bucket}
-                      </span>
-                      <span className="tabular-nums text-muted-foreground">
-                        {r.count} ({pct}%)
-                      </span>
-                    </div>
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${pct}%`,
-                          backgroundColor: regionColors[i],
-                        }}
-                      />
-                    </div>
+                  <li key={r.bucket}>
+                    <Link
+                      href={portfolioHref("region", r.bucket)}
+                      className="flex cursor-pointer flex-col gap-1.5 rounded-sm px-1 py-1 hover:bg-slate-100"
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-medium" style={{ color: NAVY }}>
+                          {r.bucket}
+                        </span>
+                        <span className="tabular-nums text-muted-foreground">
+                          {r.count} ({pct}%)
+                        </span>
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${pct}%`,
+                            backgroundColor: regionColors[i],
+                          }}
+                        />
+                      </div>
+                    </Link>
                   </li>
                 )
               })}
@@ -253,14 +288,14 @@ export function ClientStatisticsView({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-3">
+            <ul className="space-y-2">
               {sectorTop.map((s, i) => {
                 const pct =
                   sectorTotal > 0
                     ? Math.round((s.count / sectorTotal) * 100)
                     : 0
-                return (
-                  <li key={s.bucket} className="flex flex-col gap-1.5">
+                const inner = (
+                  <>
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <span
                         className="truncate font-medium"
@@ -281,6 +316,22 @@ export function ClientStatisticsView({
                         }}
                       />
                     </div>
+                  </>
+                )
+                return (
+                  <li key={s.bucket}>
+                    {s.bucket === "Unknown" ? (
+                      <div className="flex flex-col gap-1.5 rounded-sm px-1 py-1">
+                        {inner}
+                      </div>
+                    ) : (
+                      <Link
+                        href={portfolioHref("sector", s.bucket)}
+                        className="flex cursor-pointer flex-col gap-1.5 rounded-sm px-1 py-1 hover:bg-slate-100"
+                      >
+                        {inner}
+                      </Link>
+                    )}
                   </li>
                 )
               })}
