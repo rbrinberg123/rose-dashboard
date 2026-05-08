@@ -291,6 +291,14 @@ export type ProductivityDetailRow = {
   sales_lead_book_annualized: number
 }
 
+export type ProductivityDetailInstitutionRow = {
+  user_id: string
+  institution_name: string
+  institution_id: string | null
+  booked_count: number
+  hosted_count: number
+}
+
 export type AnalystMonthlyActivityRow = {
   display_name: string
   period_year: number

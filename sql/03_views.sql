@@ -17,6 +17,7 @@ DROP VIEW IF EXISTS public.v_client_quarterly_pnl CASCADE;
 DROP VIEW IF EXISTS public.v_meeting_costs CASCADE;
 DROP VIEW IF EXISTS public.v_productivity_detail_summary CASCADE;
 DROP VIEW IF EXISTS public.v_analyst_monthly_activity CASCADE;
+DROP VIEW IF EXISTS public.v_productivity_detail_institutions CASCADE;
 DROP VIEW IF EXISTS public.v_contract_management CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_summary CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_quarterly CASCADE;
@@ -956,6 +957,68 @@ LEFT JOIN public.meetings m
   AND EXTRACT(MONTH FROM m.meeting_date)::int = mu.period_month
   AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
 GROUP BY mu.display_name, mu.period_year, mu.period_month;
+
+
+-- -----------------------------------------------------------------------------
+-- v_productivity_detail_institutions
+-- One row per (user, investor institution) for the trailing 12 months.
+-- Powers the "Meetings by institution" tables on the Productivity Detail page.
+--   booked_count: meetings where booker_id = user_id, ALL statuses (the
+--                 booker did the setup work whether or not the meeting
+--                 ultimately happened).
+--   hosted_count: meetings where host_id = user_id, excluding 'Cancelled'
+--                 (matches the existing v_productivity_detail_summary
+--                 convention — cancelled meetings are not hosted).
+-- Institution rollup is by meetings.institution_name; institution_id is
+-- picked from the most recent meeting for that name (same pattern as
+-- v_institution_summary). Meetings with NULL institution_name are excluded.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_productivity_detail_institutions AS
+WITH recent_meetings AS (
+  SELECT
+    booker_id,
+    host_id,
+    meeting_status_label,
+    institution_id,
+    institution_name,
+    meeting_date
+  FROM public.meetings
+  WHERE meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    AND institution_name IS NOT NULL
+),
+booked AS (
+  SELECT
+    booker_id AS user_id,
+    institution_name,
+    (array_agg(institution_id ORDER BY meeting_date DESC NULLS LAST))[1]
+      AS institution_id,
+    COUNT(*)::int AS booked_count
+  FROM recent_meetings
+  WHERE booker_id IS NOT NULL
+  GROUP BY booker_id, institution_name
+),
+hosted AS (
+  SELECT
+    host_id AS user_id,
+    institution_name,
+    (array_agg(institution_id ORDER BY meeting_date DESC NULLS LAST))[1]
+      AS institution_id,
+    COUNT(*)::int AS hosted_count
+  FROM recent_meetings
+  WHERE host_id IS NOT NULL
+    AND meeting_status_label != 'Cancelled'
+  GROUP BY host_id, institution_name
+)
+SELECT
+  COALESCE(b.user_id, h.user_id)                   AS user_id,
+  COALESCE(b.institution_name, h.institution_name) AS institution_name,
+  COALESCE(b.institution_id, h.institution_id)     AS institution_id,
+  COALESCE(b.booked_count, 0)                      AS booked_count,
+  COALESCE(h.hosted_count, 0)                      AS hosted_count
+FROM booked b
+FULL OUTER JOIN hosted h
+  ON b.user_id          = h.user_id
+ AND b.institution_name = h.institution_name;
 
 
 -- -----------------------------------------------------------------------------

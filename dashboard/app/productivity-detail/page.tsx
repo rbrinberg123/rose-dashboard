@@ -3,7 +3,9 @@ import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type {
   AnalystMonthlyActivityRow,
+  ProductivityDetailInstitutionRow,
   ProductivityDetailRow,
+  UserOption,
 } from "@/lib/types"
 import { ProductivityDetailView } from "./productivity-detail-view"
 
@@ -14,7 +16,7 @@ export const metadata: Metadata = { title: "Productivity Detail" }
 export default async function ProductivityDetailPage() {
   const sb = getSupabaseServer()
 
-  const [summaryRes, monthlyRes] = await Promise.all([
+  const [summaryRes, monthlyRes, institutionsRes, usersRes] = await Promise.all([
     sb
       .from("v_productivity_detail_summary")
       .select("*")
@@ -25,9 +27,16 @@ export default async function ProductivityDetailPage() {
       .order("display_name")
       .order("period_year")
       .order("period_month"),
+    sb
+      .from("v_productivity_detail_institutions")
+      .select("*"),
+    sb
+      .from("users")
+      .select("user_id, display_name"),
   ])
 
-  const error = summaryRes.error ?? monthlyRes.error
+  const error =
+    summaryRes.error ?? monthlyRes.error ?? institutionsRes.error ?? usersRes.error
   if (error) {
     return (
       <PageShell title="Productivity Detail">
@@ -41,10 +50,17 @@ export default async function ProductivityDetailPage() {
 
   const rows = (summaryRes.data ?? []) as ProductivityDetailRow[]
   const monthlyRows = (monthlyRes.data ?? []) as AnalystMonthlyActivityRow[]
+  const institutionRows = (institutionsRes.data ?? []) as ProductivityDetailInstitutionRow[]
+  const userOptions = (usersRes.data ?? []) as UserOption[]
 
   return (
     <PageShell title="Productivity Detail">
-      <ProductivityDetailView rows={rows} monthlyRows={monthlyRows} />
+      <ProductivityDetailView
+        rows={rows}
+        monthlyRows={monthlyRows}
+        institutionRows={institutionRows}
+        userOptions={userOptions}
+      />
     </PageShell>
   )
 }

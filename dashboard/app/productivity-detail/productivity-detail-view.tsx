@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   Bar,
@@ -24,7 +25,9 @@ import {
 import { formatCurrency } from "@/lib/format"
 import type {
   AnalystMonthlyActivityRow,
+  ProductivityDetailInstitutionRow,
   ProductivityDetailRow,
+  UserOption,
 } from "@/lib/types"
 
 const NAVY = "#1E2858"
@@ -55,9 +58,13 @@ function formatCompactDollars(value: number): string {
 export function ProductivityDetailView({
   rows,
   monthlyRows,
+  institutionRows,
+  userOptions,
 }: {
   rows: ProductivityDetailRow[]
   monthlyRows: AnalystMonthlyActivityRow[]
+  institutionRows: ProductivityDetailInstitutionRow[]
+  userOptions: UserOption[]
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -82,6 +89,77 @@ export function ProductivityDetailView({
       router.push(`/productivity-detail?display_name=${encodeURIComponent(name)}`)
     },
     [router],
+  )
+
+  // A single display_name can map to more than one user_id in the users
+  // table (same convention v_analyst_monthly_activity uses). Build a
+  // name -> set-of-user-ids map so we can pull every matching row from
+  // v_productivity_detail_institutions.
+  const userIdsByName = React.useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    for (const u of userOptions) {
+      if (!u.display_name) continue
+      const set = map.get(u.display_name) ?? new Set<string>()
+      set.add(u.user_id)
+      map.set(u.display_name, set)
+    }
+    return map
+  }, [userOptions])
+
+  const selectedUserIds = React.useMemo(
+    () => (selectedId ? userIdsByName.get(selectedId) ?? new Set<string>() : new Set<string>()),
+    [selectedId, userIdsByName],
+  )
+
+  // Roll up institution rows for the selected person. If two user_id
+  // records share the same display_name, sum their per-institution counts.
+  const personInstitutions = React.useMemo(() => {
+    if (selectedUserIds.size === 0) return []
+    const acc = new Map<
+      string,
+      {
+        institution_id: string | null
+        institution_name: string
+        booked_count: number
+        hosted_count: number
+      }
+    >()
+    for (const r of institutionRows) {
+      if (!selectedUserIds.has(r.user_id)) continue
+      const key = r.institution_name
+      const existing = acc.get(key)
+      if (existing) {
+        existing.booked_count += r.booked_count
+        existing.hosted_count += r.hosted_count
+        // Prefer the first non-null institution_id we see.
+        if (existing.institution_id == null && r.institution_id != null) {
+          existing.institution_id = r.institution_id
+        }
+      } else {
+        acc.set(key, {
+          institution_id: r.institution_id,
+          institution_name: r.institution_name,
+          booked_count: r.booked_count,
+          hosted_count: r.hosted_count,
+        })
+      }
+    }
+    return Array.from(acc.values())
+  }, [institutionRows, selectedUserIds])
+
+  const bookedRows = React.useMemo(
+    () =>
+      personInstitutions
+        .filter((r) => r.booked_count > 0)
+        .sort((a, b) => b.booked_count - a.booked_count),
+    [personInstitutions],
+  )
+  const hostedRows = React.useMemo(
+    () =>
+      personInstitutions
+        .filter((r) => r.hosted_count > 0)
+        .sort((a, b) => b.hosted_count - a.hosted_count),
+    [personInstitutions],
   )
 
   const chartData = React.useMemo(
@@ -428,6 +506,125 @@ export function ProductivityDetailView({
           </CardContent>
         </Card>
       </div>
+
+      <div className="my-6 flex items-center gap-3">
+        <span
+          className="shrink-0 text-base font-medium"
+          style={{ color: NAVY }}
+        >
+          Meetings by Institution
+        </span>
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <InstitutionTable
+          title="Meetings booked"
+          description="Top 10 institutions, last 12 months"
+          rows={bookedRows}
+          countKey="booked_count"
+        />
+        <InstitutionTable
+          title="Meetings hosted"
+          description="Top 10 institutions, last 12 months"
+          rows={hostedRows}
+          countKey="hosted_count"
+        />
+      </div>
     </>
+  )
+}
+
+function InstitutionTable({
+  title,
+  description,
+  rows,
+  countKey,
+}: {
+  title: string
+  description: string
+  rows: Array<{
+    institution_id: string | null
+    institution_name: string
+    booked_count: number
+    hosted_count: number
+  }>
+  countKey: "booked_count" | "hosted_count"
+}) {
+  const TOP_N = 10
+  const visible = rows.slice(0, TOP_N)
+  const overflow = Math.max(0, rows.length - TOP_N)
+  const total = rows.reduce((sum, r) => sum + r[countKey], 0)
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
+          {title}
+        </CardTitle>
+        <CardDescription className="text-xs">{description}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <div className="py-4 text-sm text-muted-foreground">
+            No meetings in the last 12 months.
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-xs text-muted-foreground">
+                <th className="px-2 py-2 text-left font-medium">Institution</th>
+                <th className="px-2 py-2 text-right font-medium">Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((row) => (
+                <tr key={row.institution_name} className="border-b last:border-b-0">
+                  <td className="px-2 py-2">
+                    {row.institution_id ? (
+                      <Link
+                        href={`/institution-detail?institution_id=${row.institution_id}`}
+                        className="font-medium hover:underline"
+                        style={{ color: NAVY }}
+                      >
+                        {row.institution_name}
+                      </Link>
+                    ) : (
+                      <span className="font-medium" style={{ color: NAVY }}>
+                        {row.institution_name}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {row[countKey].toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td
+                  className="px-2 pt-2 text-xs font-medium"
+                  style={{ color: NAVY }}
+                >
+                  Total (all)
+                </td>
+                <td
+                  className="px-2 pt-2 text-right text-xs font-medium tabular-nums"
+                  style={{ color: NAVY }}
+                >
+                  {total.toLocaleString()}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        )}
+        {overflow > 0 && (
+          <div className="mt-2 px-2 text-xs italic text-muted-foreground">
+            + {overflow.toLocaleString()} more institution{overflow === 1 ? "" : "s"}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
