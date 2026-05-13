@@ -58,6 +58,11 @@ function aggregate(rows: ProductivityPersonMeetingRow[]): ProductivityAggregateR
     booked: number
     laborCost: number
     hostKeyed: Map<string, HostFlags>
+    /** (client_account_id, meeting_date) keys for group-meeting host rows
+     *  whose attributed_cost has already been counted for this user. A group
+     *  meeting with N attendees emits N host rows each carrying the full host
+     *  cost; we want that cost in once, not N times. */
+    groupHostCostSeen: Set<string>
   }
 
   const byUser = new Map<string, Acc>()
@@ -71,13 +76,29 @@ function aggregate(rows: ProductivityPersonMeetingRow[]): ProductivityAggregateR
         booked: 0,
         laborCost: 0,
         hostKeyed: new Map(),
+        groupHostCostSeen: new Set(),
       }
       byUser.set(r.user_id, acc)
     }
     if (acc.display_name == null && r.display_name != null) {
       acc.display_name = r.display_name
     }
-    acc.laborCost += Number(r.attributed_cost ?? 0)
+
+    // Labor-cost accumulation.
+    // - booker rows: always add (no dedup, group or not).
+    // - host rows on non-group meetings: always add.
+    // - host rows on group meetings: add once per (client_account_id,
+    //   meeting_date); drop subsequent attendee duplicates. Applies regardless
+    //   of meeting status so cancelled group meetings dedup the same way.
+    if (r.role === "host" && r.group_meeting) {
+      const costKey = `${r.client_account_id ?? "NULL"}|${r.meeting_date}`
+      if (!acc.groupHostCostSeen.has(costKey)) {
+        acc.groupHostCostSeen.add(costKey)
+        acc.laborCost += Number(r.attributed_cost ?? 0)
+      }
+    } else {
+      acc.laborCost += Number(r.attributed_cost ?? 0)
+    }
 
     if (r.role === "booker") {
       acc.booked += 1

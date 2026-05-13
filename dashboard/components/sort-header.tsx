@@ -12,17 +12,20 @@ export function SortHeader({
   isSorted,
   onClick,
   align = "left",
+  title,
 }: {
   label: string
   isSorted: false | "asc" | "desc"
   onClick: () => void
   align?: "left" | "right"
+  title?: string
 }) {
   const Icon = isSorted === "asc" ? ArrowUp : isSorted === "desc" ? ArrowDown : ArrowUpDown
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={cn(
         "inline-flex w-full items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground",
         align === "right" && "justify-end",
