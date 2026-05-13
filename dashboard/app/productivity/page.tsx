@@ -124,27 +124,59 @@ export default async function ProductivityPage({
   }
 
   const sb = getSupabaseServer()
-  const { data, error } = await sb
-    .from("v_productivity_person_meeting")
-    .select("*")
-    .gte("meeting_date", from)
-    .lte("meeting_date", to)
-    .range(0, 99999)
+  // Supabase / PostgREST caps a single response at db-max-rows (1,000 by
+  // default on Supabase Cloud). v_productivity_person_meeting returns up to
+  // ~2 rows per meeting, so a year's range easily exceeds the cap. Paginate
+  // to make sure we get every row regardless of the project's setting.
+  const PAGE_SIZE = 1000
+  const personMeetingRows: ProductivityPersonMeetingRow[] = []
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await sb
+      .from("v_productivity_person_meeting")
+      .select("*")
+      .gte("meeting_date", from)
+      .lte("meeting_date", to)
+      .order("meeting_id", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1)
 
-  if (error) {
-    return (
-      <PageShell title="Productivity" description="Activity by person over a date range">
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
-          <div className="font-medium text-destructive">
-            Could not load v_productivity_person_meeting
+    if (error) {
+      return (
+        <PageShell title="Productivity" description="Activity by person over a date range">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+            <div className="font-medium text-destructive">
+              Could not load v_productivity_person_meeting
+            </div>
+            <div className="mt-1 text-muted-foreground">{error.message}</div>
           </div>
-          <div className="mt-1 text-muted-foreground">{error.message}</div>
-        </div>
-      </PageShell>
+        </PageShell>
+      )
+    }
+
+    const page = (data ?? []) as ProductivityPersonMeetingRow[]
+    personMeetingRows.push(...page)
+    if (page.length < PAGE_SIZE) break
+  }
+
+  // Temporary diagnostic — shows up in the dev-server terminal. Lets us
+  // confirm pagination is doing its job and that the data shape matches
+  // what aggregate() expects. Remove once the page is verified working.
+  if (process.env.NODE_ENV !== "production") {
+    let bookerRows = 0
+    let hostRows = 0
+    let hostConfirmed = 0
+    for (const r of personMeetingRows) {
+      if (r.role === "booker") bookerRows += 1
+      else if (r.role === "host") {
+        hostRows += 1
+        if (r.meeting_status_label === "Confirmed") hostConfirmed += 1
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.log(
+      `[productivity] ${from}..${to} total=${personMeetingRows.length} booker=${bookerRows} host=${hostRows} host_confirmed=${hostConfirmed} sample=${JSON.stringify(personMeetingRows[0] ?? null)}`,
     )
   }
 
-  const personMeetingRows = (data ?? []) as ProductivityPersonMeetingRow[]
   const rows = aggregate(personMeetingRows)
 
   return (
