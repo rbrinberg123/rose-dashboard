@@ -68,6 +68,8 @@ export type CostAssumptionsRow = {
   host_hours_per_meeting_base: number
   in_person_multiplier: number
   default_benefits_multiplier: number
+  primary_manager_hours_monthly: number
+  secondary_manager_hours_monthly: number
   updated_at: string
 }
 

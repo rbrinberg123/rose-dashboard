@@ -28,6 +28,8 @@ const formSchema = z.object({
   host_hours_per_meeting_base: z.number({ message: "Required" }).nonnegative("Cannot be negative"),
   in_person_multiplier: z.number({ message: "Required" }).positive("Must be greater than zero"),
   default_benefits_multiplier: z.number({ message: "Required" }).positive("Must be greater than zero"),
+  primary_manager_hours_monthly: z.number({ message: "Required" }).nonnegative("Cannot be negative"),
+  secondary_manager_hours_monthly: z.number({ message: "Required" }).nonnegative("Cannot be negative"),
 })
 
 type FormValues = z.infer<typeof formSchema>
@@ -41,6 +43,8 @@ export function CostAssumptionsForm({ row }: { row: CostAssumptionsRow }) {
       host_hours_per_meeting_base: Number(row.host_hours_per_meeting_base),
       in_person_multiplier: Number(row.in_person_multiplier),
       default_benefits_multiplier: Number(row.default_benefits_multiplier),
+      primary_manager_hours_monthly: Number(row.primary_manager_hours_monthly),
+      secondary_manager_hours_monthly: Number(row.secondary_manager_hours_monthly),
     },
   })
 
@@ -106,8 +110,13 @@ export function CostAssumptionsForm({ row }: { row: CostAssumptionsRow }) {
             </div>
 
             <div className="grid gap-5 sm:grid-cols-2">
-              <NumberInputField name="in_person_multiplier" label="In-person multiplier" description="Applied to host hours only when the meeting is in person. Booker effort is the same regardless of format." step="0.05" min="0.01" form={form} />
+              <NumberInputField name="in_person_multiplier" label="In-person multiplier" description="Applied to host hours when meeting is in person." step="0.05" min="0.01" form={form} />
               <NumberInputField name="default_benefits_multiplier" label="Default benefits multiplier" description="Suggested value for new salary rows. Each row stores its own." step="0.01" min="0.01" form={form} />
+            </div>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <NumberInputField name="primary_manager_hours_monthly" label="Primary Account Manager Hours (Monthly)" description="Average hours spent on account management." step="0.05" min="0" form={form} />
+              <NumberInputField name="secondary_manager_hours_monthly" label="Secondary Account Manager Hours (Monthly)" description="Average hours spent on account management." step="0.05" min="0" form={form} />
             </div>
 
             <div className="flex items-center gap-3 pt-2">
