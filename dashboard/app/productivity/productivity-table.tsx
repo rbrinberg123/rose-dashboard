@@ -68,6 +68,40 @@ const columns: ColumnDef<ProductivityAggregateRow>[] = [
     ),
   },
   {
+    id: "primary_manager_count",
+    accessorKey: "primary_manager_count",
+    header: ({ column }) => (
+      <SortHeader
+        label="Primary Manager"
+        isSorted={column.getIsSorted()}
+        onClick={() => column.toggleSorting()}
+        align="right"
+      />
+    ),
+    cell: ({ row }) => (
+      <div className="text-right tabular-nums">
+        {row.original.primary_manager_count.toLocaleString()}
+      </div>
+    ),
+  },
+  {
+    id: "secondary_manager_count",
+    accessorKey: "secondary_manager_count",
+    header: ({ column }) => (
+      <SortHeader
+        label="Secondary Manager"
+        isSorted={column.getIsSorted()}
+        onClick={() => column.toggleSorting()}
+        align="right"
+      />
+    ),
+    cell: ({ row }) => (
+      <div className="text-right tabular-nums">
+        {row.original.secondary_manager_count.toLocaleString()}
+      </div>
+    ),
+  },
+  {
     id: "booked",
     accessorKey: "booked",
     header: ({ column }) => (

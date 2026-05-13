@@ -25,6 +25,10 @@ CREATE TABLE public.cost_assumptions (
   host_hours_per_meeting_base     numeric NOT NULL DEFAULT 1.5,
   in_person_multiplier            numeric NOT NULL DEFAULT 2.0,
   default_benefits_multiplier     numeric NOT NULL DEFAULT 1.15,
+  primary_manager_hours_monthly   numeric NOT NULL DEFAULT 4
+    CHECK (primary_manager_hours_monthly >= 0),
+  secondary_manager_hours_monthly numeric NOT NULL DEFAULT 2
+    CHECK (secondary_manager_hours_monthly >= 0),
   updated_at                      timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT cost_assumptions_singleton CHECK (id = 1)
 );

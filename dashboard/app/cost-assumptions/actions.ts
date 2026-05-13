@@ -16,6 +16,8 @@ const updateSchema = z.object({
   host_hours_per_meeting_base: z.number().nonnegative(),
   in_person_multiplier: z.number().positive(),
   default_benefits_multiplier: z.number().positive(),
+  primary_manager_hours_monthly: z.number().nonnegative(),
+  secondary_manager_hours_monthly: z.number().nonnegative(),
 })
 
 export type CostAssumptionsInput = z.infer<typeof updateSchema>
