@@ -2,7 +2,9 @@ import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type {
+  CostAssumptionsRow,
   ProductivityAggregateRow,
+  ProductivityPersonManagerStatsRow,
   ProductivityPersonMeetingRow,
 } from "@/lib/types"
 import { ProductivityView } from "./productivity-view"
@@ -12,6 +14,10 @@ export const dynamic = "force-dynamic"
 export const metadata: Metadata = { title: "Productivity" }
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
+
+// User ID for Alyse Saliba — used for the dev-only debug print so we can
+// verify the manager-cost formula against the worked example in the spec.
+const ALYSE_USER_ID = "21dece0e-62a6-ed11-aad1-0022482a4e0c"
 
 function isValidYmd(s: string): boolean {
   if (!YMD.test(s)) return false
@@ -28,6 +34,20 @@ function defaultRange(): { from: string; to: string } {
   const start = new Date(today)
   start.setUTCDate(start.getUTCDate() - 365)
   return { from: ymdUtc(start), to: ymdUtc(today) }
+}
+
+/** Inclusive day count between two YYYY-MM-DD strings (UTC). */
+function inclusiveDays(from: string, to: string): number {
+  const f = new Date(`${from}T00:00:00Z`).getTime()
+  const t = new Date(`${to}T00:00:00Z`).getTime()
+  return Math.round((t - f) / 86_400_000) + 1
+}
+
+type SalaryActiveRow = {
+  user_id: string
+  annual_salary: number | string
+  annual_bonus: number | string
+  benefits_multiplier: number | string
 }
 
 function aggregate(rows: ProductivityPersonMeetingRow[]): ProductivityAggregateRow[] {
@@ -114,6 +134,8 @@ function aggregate(rows: ProductivityPersonMeetingRow[]): ProductivityAggregateR
     out.push({
       user_id: acc.user_id,
       display_name: acc.display_name,
+      primary_manager_count: 0,
+      secondary_manager_count: 0,
       booked: acc.booked,
       hosted,
       in_person_hosted: inPerson,
@@ -178,6 +200,93 @@ export default async function ProductivityPage({
     if (page.length < PAGE_SIZE) break
   }
 
+  const [costRes, statsRes, salaryRes] = await Promise.all([
+    sb.from("cost_assumptions").select("*").eq("id", 1).maybeSingle(),
+    sb.from("v_productivity_person_manager_stats").select("*"),
+    sb
+      .from("salary_schedule")
+      .select("user_id, annual_salary, annual_bonus, benefits_multiplier")
+      .lte("effective_from", to)
+      .or(`effective_to.is.null,effective_to.gte.${to}`),
+  ])
+
+  const cost = (costRes.data ?? null) as CostAssumptionsRow | null
+  const stats = (statsRes.data ?? []) as ProductivityPersonManagerStatsRow[]
+  const activeSalary = (salaryRes.data ?? []) as SalaryActiveRow[]
+
+  const workHoursPerYear = Number(cost?.work_hours_per_year ?? 0)
+  const primaryHoursMonthly = Number(cost?.primary_manager_hours_monthly ?? 0)
+  const secondaryHoursMonthly = Number(cost?.secondary_manager_hours_monthly ?? 0)
+  const monthsInRange = inclusiveDays(from, to) / 30.4
+
+  // Loaded hourly rate for each user whose currently-active salary record
+  // (the one whose period contains `to`) we just pulled. Users without a row
+  // here get manager cost = 0, matching how missing-salary is treated in
+  // v_meeting_costs / v_productivity_person_meeting.
+  const hourlyByUser = new Map<string, number>()
+  if (workHoursPerYear > 0) {
+    for (const r of activeSalary) {
+      const salary = Number(r.annual_salary)
+      const bonus = Number(r.annual_bonus)
+      const benefits = Number(r.benefits_multiplier)
+      const loaded = (salary + bonus) * benefits
+      hourlyByUser.set(r.user_id, loaded / workHoursPerYear)
+    }
+  }
+
+  type ManagerInfo = {
+    display_name: string | null
+    primary_count: number
+    secondary_count: number
+    manager_cost: number
+  }
+  const managerByUser = new Map<string, ManagerInfo>()
+  for (const s of stats) {
+    const hourly = hourlyByUser.get(s.user_id) ?? 0
+    const primaryCost =
+      Number(s.primary_manager_account_count) * primaryHoursMonthly * monthsInRange * hourly
+    const secondaryCost =
+      Number(s.secondary_manager_account_count) * secondaryHoursMonthly * monthsInRange * hourly
+    managerByUser.set(s.user_id, {
+      display_name: s.display_name,
+      primary_count: Number(s.primary_manager_account_count),
+      secondary_count: Number(s.secondary_manager_account_count),
+      manager_cost: primaryCost + secondaryCost,
+    })
+  }
+
+  const rows = aggregate(personMeetingRows)
+  const seen = new Set(rows.map((r) => r.user_id))
+  for (const r of rows) {
+    const info = managerByUser.get(r.user_id)
+    if (!info) continue
+    r.primary_manager_count = info.primary_count
+    r.secondary_manager_count = info.secondary_count
+    r.labor_cost += info.manager_cost
+    if (r.display_name == null && info.display_name != null) {
+      r.display_name = info.display_name
+    }
+  }
+  // Surface manager-only users (no meeting activity in range, but real
+  // manager cost) so their cost isn't hidden.
+  for (const [user_id, info] of managerByUser.entries()) {
+    if (seen.has(user_id)) continue
+    if (info.manager_cost === 0 && info.primary_count === 0 && info.secondary_count === 0) continue
+    rows.push({
+      user_id,
+      display_name: info.display_name,
+      primary_manager_count: info.primary_count,
+      secondary_manager_count: info.secondary_count,
+      booked: 0,
+      hosted: 0,
+      in_person_hosted: 0,
+      virtual_hosted: 0,
+      feedback: 0,
+      feedback_rate: null,
+      labor_cost: info.manager_cost,
+    })
+  }
+
   // Temporary diagnostic — shows up in the dev-server terminal. Lets us
   // confirm pagination is doing its job and that the data shape matches
   // what aggregate() expects. Remove once the page is verified working.
@@ -196,9 +305,17 @@ export default async function ProductivityPage({
     console.log(
       `[productivity] ${from}..${to} total=${personMeetingRows.length} booker=${bookerRows} host=${hostRows} host_confirmed=${hostConfirmed} sample=${JSON.stringify(personMeetingRows[0] ?? null)}`,
     )
-  }
 
-  const rows = aggregate(personMeetingRows)
+    // Worked-example check for Alyse Saliba — intermediate values for the
+    // manager-cost formula. Remove once verified.
+    const alyseInfo = managerByUser.get(ALYSE_USER_ID)
+    const alyseHourly = hourlyByUser.get(ALYSE_USER_ID)
+    const alyseRow = rows.find((r) => r.user_id === ALYSE_USER_ID)
+    // eslint-disable-next-line no-console
+    console.log(
+      `[productivity:alyse] months_in_range=${monthsInRange.toFixed(4)} loaded_hourly_rate=${alyseHourly?.toFixed(2) ?? "n/a"} primary_count=${alyseInfo?.primary_count ?? 0} secondary_count=${alyseInfo?.secondary_count ?? 0} primary_cost=${(((alyseInfo?.primary_count ?? 0) * primaryHoursMonthly * monthsInRange * (alyseHourly ?? 0)).toFixed(2))} secondary_cost=${(((alyseInfo?.secondary_count ?? 0) * secondaryHoursMonthly * monthsInRange * (alyseHourly ?? 0)).toFixed(2))} manager_cost_total=${alyseInfo?.manager_cost.toFixed(2) ?? "0"} labor_cost_with_manager=${alyseRow?.labor_cost.toFixed(2) ?? "n/a"}`,
+    )
+  }
 
   return (
     <PageShell title="Productivity" description="Activity by person over a date range">

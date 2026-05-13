@@ -12,7 +12,8 @@
 --   work hours per year = 2000
 INSERT INTO public.cost_assumptions
   (id, work_hours_per_year, booker_hours_per_meeting_base,
-   host_hours_per_meeting_base, in_person_multiplier, default_benefits_multiplier)
+   host_hours_per_meeting_base, in_person_multiplier, default_benefits_multiplier,
+   primary_manager_hours_monthly, secondary_manager_hours_monthly)
 VALUES
-  (1, 2000, 0.5, 1.5, 2.0, 1.15)
+  (1, 2000, 0.5, 1.5, 2.0, 1.15, 4, 2)
 ON CONFLICT (id) DO NOTHING;

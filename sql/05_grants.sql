@@ -49,6 +49,7 @@ GRANT SELECT ON public.v_feedback_overall     TO service_role;
 GRANT SELECT ON public.v_pipeline_30d         TO service_role;
 GRANT SELECT ON public.v_contract_renewals    TO service_role;
 GRANT SELECT ON public.v_productivity_person_meeting TO service_role;
+GRANT SELECT ON public.v_productivity_person_manager_stats TO service_role;
 
 -- Future-proofing: any new tables/views/sequences created in `public` by the
 -- role running this script will automatically grant service_role what it

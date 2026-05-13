@@ -68,6 +68,8 @@ export type CostAssumptionsRow = {
   host_hours_per_meeting_base: number
   in_person_multiplier: number
   default_benefits_multiplier: number
+  primary_manager_hours_monthly: number
+  secondary_manager_hours_monthly: number
   updated_at: string
 }
 
@@ -185,6 +187,8 @@ export type ProductivityPersonMeetingRow = {
 export type ProductivityAggregateRow = {
   user_id: string
   display_name: string | null
+  primary_manager_count: number
+  secondary_manager_count: number
   booked: number
   hosted: number
   in_person_hosted: number
@@ -192,6 +196,13 @@ export type ProductivityAggregateRow = {
   feedback: number
   feedback_rate: number | null
   labor_cost: number
+}
+
+export type ProductivityPersonManagerStatsRow = {
+  user_id: string
+  display_name: string | null
+  primary_manager_account_count: number
+  secondary_manager_account_count: number
 }
 
 export type FeedbackOverallRow = {
