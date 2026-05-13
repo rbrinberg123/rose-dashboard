@@ -12,7 +12,7 @@ export default function ProductivityError({
   return (
     <ErrorState
       title="Productivity"
-      description="Productivity by user, by quarter"
+      description="Activity by person over a date range"
       error={error}
       reset={reset}
     />

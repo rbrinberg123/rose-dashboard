@@ -32,6 +32,7 @@ DROP VIEW IF EXISTS public.v_institution_detail_top_clients CASCADE;
 DROP VIEW IF EXISTS public.v_institution_detail_style CASCADE;
 DROP VIEW IF EXISTS public.v_institution_detail_top_hosts CASCADE;
 DROP VIEW IF EXISTS public.v_institution_detail_recent_meetings CASCADE;
+DROP VIEW IF EXISTS public.v_productivity_person_meeting CASCADE;
 
 
 -- -----------------------------------------------------------------------------
@@ -1833,3 +1834,98 @@ SELECT
   is_in_person
 FROM ranked
 WHERE rn <= 8;
+
+
+-- -----------------------------------------------------------------------------
+-- v_productivity_person_meeting
+-- One row per (user, meeting, role). Each meeting contributes up to two rows
+-- per person-role pair: one for the booker (if any) and one for the host (if
+-- any). Powers the Productivity page, which filters by an arbitrary date range
+-- and aggregates in the application layer.
+--
+-- The attributed_cost field uses the same cost model as v_meeting_costs:
+--   loaded_annual = (salary + bonus) * benefits_multiplier
+--   hourly        = loaded_annual / work_hours_per_year
+--   hours         = booker_hours_per_meeting_base when role='booker'
+--                   host_hours_per_meeting_base   when role='host'
+--   multiplier    = in_person_multiplier if is_in_person else 1.0
+--   attributed_cost = hourly * hours * multiplier
+-- with the salary_schedule record active on the meeting's date. Missing salary
+-- records yield 0 (matches v_meeting_costs).
+-- -----------------------------------------------------------------------------
+CREATE VIEW public.v_productivity_person_meeting AS
+WITH params AS (
+  SELECT * FROM public.cost_assumptions WHERE id = 1
+),
+booker_attribution AS (
+  SELECT
+    m.meeting_id,
+    m.booker_id                                          AS user_id,
+    'booker'::text                                       AS role,
+    m.meeting_date::date                                 AS meeting_date,
+    m.client_account_id,
+    m.is_in_person,
+    m.meeting_status_label,
+    m.feedback_status_label,
+    COALESCE(m.group_meeting, false)                     AS group_meeting,
+    COALESCE(
+      ((s.annual_salary + s.annual_bonus) * s.benefits_multiplier
+        / NULLIF(p.work_hours_per_year, 0))
+      * p.booker_hours_per_meeting_base
+      * (CASE WHEN m.is_in_person THEN p.in_person_multiplier ELSE 1.0 END),
+      0
+    )                                                    AS attributed_cost
+  FROM public.meetings m
+  CROSS JOIN params p
+  LEFT JOIN public.salary_schedule s
+    ON s.user_id = m.booker_id
+    AND m.meeting_date::date >= s.effective_from
+    AND m.meeting_date::date <= COALESCE(s.effective_to, DATE '9999-12-31')
+  WHERE m.booker_id   IS NOT NULL
+    AND m.meeting_date IS NOT NULL
+),
+host_attribution AS (
+  SELECT
+    m.meeting_id,
+    m.host_id                                            AS user_id,
+    'host'::text                                         AS role,
+    m.meeting_date::date                                 AS meeting_date,
+    m.client_account_id,
+    m.is_in_person,
+    m.meeting_status_label,
+    m.feedback_status_label,
+    COALESCE(m.group_meeting, false)                     AS group_meeting,
+    COALESCE(
+      ((s.annual_salary + s.annual_bonus) * s.benefits_multiplier
+        / NULLIF(p.work_hours_per_year, 0))
+      * p.host_hours_per_meeting_base
+      * (CASE WHEN m.is_in_person THEN p.in_person_multiplier ELSE 1.0 END),
+      0
+    )                                                    AS attributed_cost
+  FROM public.meetings m
+  CROSS JOIN params p
+  LEFT JOIN public.salary_schedule s
+    ON s.user_id = m.host_id
+    AND m.meeting_date::date >= s.effective_from
+    AND m.meeting_date::date <= COALESCE(s.effective_to, DATE '9999-12-31')
+  WHERE m.host_id     IS NOT NULL
+    AND m.meeting_date IS NOT NULL
+)
+SELECT
+  pm.user_id,
+  u.display_name,
+  pm.meeting_id,
+  pm.meeting_date,
+  pm.role,
+  pm.client_account_id,
+  pm.is_in_person,
+  pm.meeting_status_label,
+  pm.feedback_status_label,
+  pm.group_meeting,
+  pm.attributed_cost
+FROM (
+  SELECT * FROM booker_attribution
+  UNION ALL
+  SELECT * FROM host_attribution
+) pm
+LEFT JOIN public.users u ON u.user_id = pm.user_id;

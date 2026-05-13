@@ -168,6 +168,32 @@ export type AnalystActivityRow = {
   total_labor_cost_attributed: number
 }
 
+export type ProductivityPersonMeetingRow = {
+  user_id: string
+  display_name: string | null
+  meeting_id: string
+  meeting_date: string
+  role: "booker" | "host"
+  client_account_id: string | null
+  is_in_person: boolean
+  meeting_status_label: string | null
+  feedback_status_label: string | null
+  group_meeting: boolean
+  attributed_cost: number
+}
+
+export type ProductivityAggregateRow = {
+  user_id: string
+  display_name: string | null
+  booked: number
+  hosted: number
+  in_person_hosted: number
+  virtual_hosted: number
+  feedback: number
+  feedback_rate: number | null
+  labor_cost: number
+}
+
 export type FeedbackOverallRow = {
   period_year: number
   period_quarter: number

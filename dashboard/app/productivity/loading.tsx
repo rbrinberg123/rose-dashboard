@@ -4,9 +4,9 @@ export default function Loading() {
   return (
     <TablePageSkeleton
       title="Productivity"
-      description="Productivity by user, by quarter"
-      kpis={4}
-      columns={9}
+      description="Activity by person over a date range"
+      kpis={0}
+      columns={8}
       rows={10}
     />
   )

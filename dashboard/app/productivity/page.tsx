@@ -1,41 +1,155 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
-import type { AnalystActivityRow } from "@/lib/types"
+import type {
+  ProductivityAggregateRow,
+  ProductivityPersonMeetingRow,
+} from "@/lib/types"
 import { ProductivityView } from "./productivity-view"
 
 export const dynamic = "force-dynamic"
 
 export const metadata: Metadata = { title: "Productivity" }
 
-export default async function ProductivityPage() {
+const YMD = /^\d{4}-\d{2}-\d{2}$/
+
+function isValidYmd(s: string): boolean {
+  if (!YMD.test(s)) return false
+  const d = new Date(`${s}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && s === d.toISOString().slice(0, 10)
+}
+
+function ymdUtc(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+function defaultRange(): { from: string; to: string } {
+  const today = new Date()
+  const start = new Date(today)
+  start.setUTCDate(start.getUTCDate() - 365)
+  return { from: ymdUtc(start), to: ymdUtc(today) }
+}
+
+function aggregate(rows: ProductivityPersonMeetingRow[]): ProductivityAggregateRow[] {
+  type HostFlags = { in_person: boolean; feedback: boolean }
+  type Acc = {
+    user_id: string
+    display_name: string | null
+    booked: number
+    laborCost: number
+    hostKeyed: Map<string, HostFlags>
+  }
+
+  const byUser = new Map<string, Acc>()
+
+  for (const r of rows) {
+    let acc = byUser.get(r.user_id)
+    if (!acc) {
+      acc = {
+        user_id: r.user_id,
+        display_name: r.display_name,
+        booked: 0,
+        laborCost: 0,
+        hostKeyed: new Map(),
+      }
+      byUser.set(r.user_id, acc)
+    }
+    if (acc.display_name == null && r.display_name != null) {
+      acc.display_name = r.display_name
+    }
+    acc.laborCost += Number(r.attributed_cost ?? 0)
+
+    if (r.role === "booker") {
+      acc.booked += 1
+      continue
+    }
+
+    if (r.meeting_status_label !== "Confirmed") continue
+
+    const key = r.group_meeting
+      ? `g|${r.client_account_id ?? "NULL"}|${r.meeting_date}`
+      : `m|${r.meeting_id}`
+    const existing = acc.hostKeyed.get(key)
+    const isFeedback = r.feedback_status_label === "Closed - All in"
+    if (existing) {
+      // Collapse: keep first row's in_person, OR feedback (any closed counts).
+      if (isFeedback) existing.feedback = true
+    } else {
+      acc.hostKeyed.set(key, { in_person: r.is_in_person, feedback: isFeedback })
+    }
+  }
+
+  const out: ProductivityAggregateRow[] = []
+  for (const acc of byUser.values()) {
+    let inPerson = 0
+    let virtual = 0
+    let feedback = 0
+    for (const v of acc.hostKeyed.values()) {
+      if (v.in_person) inPerson += 1
+      else virtual += 1
+      if (v.feedback) feedback += 1
+    }
+    const hosted = acc.hostKeyed.size
+    out.push({
+      user_id: acc.user_id,
+      display_name: acc.display_name,
+      booked: acc.booked,
+      hosted,
+      in_person_hosted: inPerson,
+      virtual_hosted: virtual,
+      feedback,
+      feedback_rate: hosted > 0 ? feedback / hosted : null,
+      labor_cost: acc.laborCost,
+    })
+  }
+  return out
+}
+
+export default async function ProductivityPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string }>
+}) {
+  const sp = await searchParams
+  const def = defaultRange()
+  const rawFrom = typeof sp.from === "string" ? sp.from : ""
+  const rawTo = typeof sp.to === "string" ? sp.to : ""
+  let from = isValidYmd(rawFrom) ? rawFrom : def.from
+  let to = isValidYmd(rawTo) ? rawTo : def.to
+  if (from > to) {
+    // Reorder rather than discard so a shared link with swapped dates still works.
+    const tmp = from
+    from = to
+    to = tmp
+  }
+
   const sb = getSupabaseServer()
   const { data, error } = await sb
-    .from("v_analyst_activity")
+    .from("v_productivity_person_meeting")
     .select("*")
-    .order("period_year", { ascending: false })
-    .order("period_quarter", { ascending: false })
-    .order("display_name", { ascending: true })
+    .gte("meeting_date", from)
+    .lte("meeting_date", to)
+    .range(0, 99999)
 
   if (error) {
     return (
-      <PageShell title="Productivity" description="Productivity by user, by quarter">
+      <PageShell title="Productivity" description="Activity by person over a date range">
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
-          <div className="font-medium text-destructive">Could not load v_analyst_activity</div>
+          <div className="font-medium text-destructive">
+            Could not load v_productivity_person_meeting
+          </div>
           <div className="mt-1 text-muted-foreground">{error.message}</div>
         </div>
       </PageShell>
     )
   }
 
-  const rows = (data ?? []) as AnalystActivityRow[]
+  const personMeetingRows = (data ?? []) as ProductivityPersonMeetingRow[]
+  const rows = aggregate(personMeetingRows)
 
   return (
-    <PageShell
-      title="Productivity"
-      description="Productivity by user, by quarter"
-    >
-      <ProductivityView rows={rows} />
+    <PageShell title="Productivity" description="Activity by person over a date range">
+      <ProductivityView from={from} to={to} rows={rows} />
     </PageShell>
   )
 }
