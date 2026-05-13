@@ -7,7 +7,7 @@ import { getSupabaseServer } from "@/lib/supabase"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 
 const baseRow = z.object({
-  user_id: z.string().uuid("Pick a user"),
+  user_id: z.guid("Pick a user"),
   effective_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick an effective-from date"),
   effective_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").nullable(),
   annual_salary: z.number().nonnegative("Cannot be negative"),
@@ -64,7 +64,7 @@ export async function deleteSalary(id: number): Promise<ActionResult> {
 }
 
 const raiseSchema = z.object({
-  user_id: z.string().uuid("Pick a user"),
+  user_id: z.guid("Pick a user"),
   effective_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the raise date"),
   annual_salary: z.number().nonnegative(),
   annual_bonus: z.number().nonnegative().default(0),

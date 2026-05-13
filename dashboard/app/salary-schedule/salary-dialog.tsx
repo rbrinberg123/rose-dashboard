@@ -31,7 +31,7 @@ import type { SalaryScheduleRow, UserOption, CostAssumptionsRow } from "@/lib/ty
 
 const formSchema = z
   .object({
-    user_id: z.string().uuid("Pick a user"),
+    user_id: z.guid("Pick a user"),
     effective_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick an effective-from date"),
     effective_to: z.string().nullable(),
     annual_salary: z.number({ message: "Required" }).nonnegative("Cannot be negative"),

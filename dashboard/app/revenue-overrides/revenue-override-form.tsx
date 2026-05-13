@@ -30,7 +30,7 @@ import { addRevenueOverride } from "./actions"
 import type { AccountOption } from "@/lib/types"
 
 const formSchema = z.object({
-  client_account_id: z.string().uuid("Pick a client"),
+  client_account_id: z.guid("Pick a client"),
   period_year: z.number({ message: "Required" }).int().min(2020),
   period_quarter: z.number({ message: "Required" }).int().min(1).max(4),
   adjustment_amount: z.number({ message: "Required" }).refine((v) => v !== 0, "Use positive or negative, not zero"),

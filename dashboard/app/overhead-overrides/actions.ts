@@ -9,7 +9,7 @@ import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 const upsertSchema = z
   .object({
     id: z.number().int().positive().optional(),
-    client_account_id: z.string().uuid(),
+    client_account_id: z.guid(),
     period_year: z.number().int().min(2020),
     period_quarter: z.number().int().min(1).max(4),
     fixed_amount: z.number().nonnegative().nullable(),

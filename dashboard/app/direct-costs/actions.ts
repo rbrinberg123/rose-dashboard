@@ -8,7 +8,7 @@ import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { DIRECT_COST_CATEGORIES } from "@/lib/types"
 
 const insertSchema = z.object({
-  client_account_id: z.string().uuid(),
+  client_account_id: z.guid(),
   cost_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD"),
   amount: z.number().nonnegative("Cannot be negative"),
   category: z.enum(DIRECT_COST_CATEGORIES),

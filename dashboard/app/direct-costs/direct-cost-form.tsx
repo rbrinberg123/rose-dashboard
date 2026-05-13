@@ -30,7 +30,7 @@ import { addDirectCost } from "./actions"
 import { DIRECT_COST_CATEGORIES, type AccountOption } from "@/lib/types"
 
 const formSchema = z.object({
-  client_account_id: z.string().uuid("Pick a client"),
+  client_account_id: z.guid("Pick a client"),
   cost_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date"),
   category: z.enum(DIRECT_COST_CATEGORIES, { message: "Pick a category" }),
   amount: z.number({ message: "Required" }).nonnegative("Cannot be negative"),

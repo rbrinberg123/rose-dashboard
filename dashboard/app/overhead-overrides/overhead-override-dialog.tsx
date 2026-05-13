@@ -45,7 +45,7 @@ import { formatCurrency, formatPercent, formatQuarter } from "@/lib/format"
 
 const formSchema = z
   .object({
-    client_account_id: z.string().uuid("Pick a client"),
+    client_account_id: z.guid("Pick a client"),
     period_year: z.number({ message: "Required" }).int().min(2020),
     period_quarter: z.number({ message: "Required" }).int().min(1).max(4),
     type: z.enum(["fixed", "percent"]),

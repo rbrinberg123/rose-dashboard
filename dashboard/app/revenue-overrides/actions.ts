@@ -11,7 +11,7 @@ import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
  * adjustment_amount is intentionally signed.
  */
 const insertSchema = z.object({
-  client_account_id: z.string().uuid(),
+  client_account_id: z.guid(),
   period_year: z.number().int().min(2020),
   period_quarter: z.number().int().min(1).max(4),
   adjustment_amount: z.number().refine((v) => v !== 0, "Use a positive or negative amount, not zero"),
