@@ -33,6 +33,7 @@ DROP VIEW IF EXISTS public.v_institution_detail_style CASCADE;
 DROP VIEW IF EXISTS public.v_institution_detail_top_hosts CASCADE;
 DROP VIEW IF EXISTS public.v_institution_detail_recent_meetings CASCADE;
 DROP VIEW IF EXISTS public.v_productivity_person_meeting CASCADE;
+DROP VIEW IF EXISTS public.v_productivity_person_manager_stats CASCADE;
 
 
 -- -----------------------------------------------------------------------------
@@ -1928,3 +1929,35 @@ FROM (
   SELECT * FROM host_attribution
 ) pm
 LEFT JOIN public.users u ON u.user_id = pm.user_id;
+
+
+-- -----------------------------------------------------------------------------
+-- v_productivity_person_manager_stats
+-- One row per user, with the current snapshot of how many client accounts they
+-- appear on as Primary Manager (sales_lead_primary_id) or Secondary Manager
+-- (secondary_manager_id). Counts are point-in-time — they reflect the current
+-- accounts table, not historical assignments. Includes every user from the
+-- users table (zero counts where unassigned) so a LEFT JOIN downstream cannot
+-- drop people who aren't currently managers.
+-- -----------------------------------------------------------------------------
+CREATE VIEW public.v_productivity_person_manager_stats AS
+WITH primary_counts AS (
+  SELECT sales_lead_primary_id AS user_id, COUNT(*)::int AS primary_count
+  FROM public.accounts
+  WHERE sales_lead_primary_id IS NOT NULL
+  GROUP BY sales_lead_primary_id
+),
+secondary_counts AS (
+  SELECT secondary_manager_id AS user_id, COUNT(*)::int AS secondary_count
+  FROM public.accounts
+  WHERE secondary_manager_id IS NOT NULL
+  GROUP BY secondary_manager_id
+)
+SELECT
+  u.user_id,
+  u.display_name,
+  COALESCE(pc.primary_count,   0) AS primary_manager_account_count,
+  COALESCE(sc.secondary_count, 0) AS secondary_manager_account_count
+FROM public.users u
+LEFT JOIN primary_counts   pc ON pc.user_id = u.user_id
+LEFT JOIN secondary_counts sc ON sc.user_id = u.user_id;
