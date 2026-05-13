@@ -175,6 +175,7 @@ const columns: ColumnDef<ProductivityAggregateRow>[] = [
         isSorted={column.getIsSorted()}
         onClick={() => column.toggleSorting()}
         align="right"
+        title="Includes management time, per-row booker time, and per-meeting host time (group meetings count once for host)."
       />
     ),
     cell: ({ row }) => (
