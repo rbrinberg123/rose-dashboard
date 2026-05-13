@@ -106,7 +106,7 @@ export function CostAssumptionsForm({ row }: { row: CostAssumptionsRow }) {
             </div>
 
             <div className="grid gap-5 sm:grid-cols-2">
-              <NumberInputField name="in_person_multiplier" label="In-person multiplier" description="Applied to both booker and host hours when meeting is in person." step="0.05" min="0.01" form={form} />
+              <NumberInputField name="in_person_multiplier" label="In-person multiplier" description="Applied to host hours only when the meeting is in person. Booker effort is the same regardless of format." step="0.05" min="0.01" form={form} />
               <NumberInputField name="default_benefits_multiplier" label="Default benefits multiplier" description="Suggested value for new salary rows. Each row stores its own." step="0.01" min="0.01" form={form} />
             </div>
 

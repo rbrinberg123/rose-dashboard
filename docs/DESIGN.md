@@ -358,7 +358,7 @@ A single-row table holding the cost-model parameters. Editable via admin UI.
 | work_hours_per_year | int | 2000 | salary divisor |
 | booker_hours_per_meeting_base | numeric | 0.5 | virtual booker hours |
 | host_hours_per_meeting_base | numeric | 1.5 | virtual host hours |
-| in_person_multiplier | numeric | 2.0 | applied to both booker and host hours |
+| in_person_multiplier | numeric | 2.0 | applied to host hours only when the meeting is in-person; booker effort is the same regardless of format |
 | updated_at | timestamptz | | |
 
 You said 2× for in-person; defaults match. All editable.
@@ -452,10 +452,14 @@ Logic:
     booker_hourly = booker_loaded / cost_assumptions.work_hours_per_year
     host_hourly   = host_loaded   / cost_assumptions.work_hours_per_year
 
-    multiplier = m.is_in_person ? cost_assumptions.in_person_multiplier : 1.0
+    host_multiplier = m.is_in_person ? cost_assumptions.in_person_multiplier : 1.0
 
-    booker_cost = booker_hourly * cost_assumptions.booker_hours_per_meeting_base * multiplier
-    host_cost   = host_hourly   * cost_assumptions.host_hours_per_meeting_base   * multiplier
+    # Booker work (scheduling, coordination) is the same effort whether the
+    # meeting ends up live or virtual, so no in-person premium on booker cost.
+    booker_cost = booker_hourly * cost_assumptions.booker_hours_per_meeting_base
+
+    # Host actually travels and attends, so the in-person premium applies here.
+    host_cost   = host_hourly   * cost_assumptions.host_hours_per_meeting_base   * host_multiplier
 
     meeting_cost = booker_cost + host_cost
 

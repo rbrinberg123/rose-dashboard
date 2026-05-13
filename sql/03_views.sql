@@ -43,9 +43,11 @@ DROP VIEW IF EXISTS public.v_productivity_person_meeting CASCADE;
 -- Cost formula:
 --   loaded_annual = (salary + bonus) * benefits_multiplier
 --   hourly        = loaded_annual / work_hours_per_year
---   multiplier    = 2.0 if in-person else 1.0
---   booker_cost   = booker_hourly * booker_hours_per_meeting_base * multiplier
---   host_cost     = host_hourly   * host_hours_per_meeting_base   * multiplier
+--   booker_cost   = booker_hourly * booker_hours_per_meeting_base
+--                   (no in-person premium — booking effort is the same
+--                    whether the meeting ends up live or virtual)
+--   host_cost     = host_hourly * host_hours_per_meeting_base
+--                   * (in_person_multiplier if is_in_person else 1.0)
 --   meeting_cost  = booker_cost + host_cost
 -- -----------------------------------------------------------------------------
 CREATE VIEW public.v_meeting_costs AS
@@ -91,20 +93,16 @@ SELECT
   EXTRACT(YEAR FROM m.meeting_date)::int AS period_year,
   EXTRACT(QUARTER FROM m.meeting_date)::int AS period_quarter,
 
-  -- Multiplier for in-person
-  CASE WHEN m.is_in_person THEN p.in_person_multiplier ELSE 1.0 END AS multiplier,
-
-  -- Booker cost
+  -- Booker cost — no in-person premium, booking effort is format-agnostic.
   CASE
     WHEN bs.annual_salary IS NULL THEN 0
     ELSE
       ((bs.annual_salary + bs.annual_bonus) * bs.benefits_multiplier
         / p.work_hours_per_year)
       * p.booker_hours_per_meeting_base
-      * (CASE WHEN m.is_in_person THEN p.in_person_multiplier ELSE 1.0 END)
   END AS booker_cost,
 
-  -- Host cost
+  -- Host cost — gets the in-person multiplier (travel + attendance).
   CASE
     WHEN hs.annual_salary IS NULL THEN 0
     ELSE
@@ -114,7 +112,8 @@ SELECT
       * (CASE WHEN m.is_in_person THEN p.in_person_multiplier ELSE 1.0 END)
   END AS host_cost,
 
-  -- Total meeting cost
+  -- Total meeting cost (booker + host, keeping the asymmetric multiplier
+  -- application in both inlined expressions).
   COALESCE(
     CASE
       WHEN bs.annual_salary IS NULL THEN 0
@@ -122,7 +121,6 @@ SELECT
         ((bs.annual_salary + bs.annual_bonus) * bs.benefits_multiplier
           / p.work_hours_per_year)
         * p.booker_hours_per_meeting_base
-        * (CASE WHEN m.is_in_person THEN p.in_person_multiplier ELSE 1.0 END)
     END, 0)
   +
   COALESCE(
@@ -1848,8 +1846,10 @@ WHERE rn <= 8;
 --   hourly        = loaded_annual / work_hours_per_year
 --   hours         = booker_hours_per_meeting_base when role='booker'
 --                   host_hours_per_meeting_base   when role='host'
---   multiplier    = in_person_multiplier if is_in_person else 1.0
---   attributed_cost = hourly * hours * multiplier
+--   When role='host' AND is_in_person, host hours are scaled by
+--   in_person_multiplier (travel + attendance premium). Booker work gets no
+--   in-person adjustment — booking effort is format-agnostic.
+--   attributed_cost = hourly * hours [* in_person_multiplier if host & live]
 -- with the salary_schedule record active on the meeting's date. Missing salary
 -- records yield 0 (matches v_meeting_costs).
 -- -----------------------------------------------------------------------------
@@ -1871,8 +1871,7 @@ booker_attribution AS (
     COALESCE(
       ((s.annual_salary + s.annual_bonus) * s.benefits_multiplier
         / NULLIF(p.work_hours_per_year, 0))
-      * p.booker_hours_per_meeting_base
-      * (CASE WHEN m.is_in_person THEN p.in_person_multiplier ELSE 1.0 END),
+      * p.booker_hours_per_meeting_base,
       0
     )                                                    AS attributed_cost
   FROM public.meetings m
