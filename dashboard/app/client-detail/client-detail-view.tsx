@@ -14,15 +14,17 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react"
 import { formatCurrency } from "@/lib/format"
 import type {
   ClientDetailQuarterlyRow,
   ClientDetailReachDepthRow,
   ClientDetailRecentMeetingRow,
+  ClientDetailRecentNoteRow,
   ClientDetailSummaryRow,
   ClientDetailTopHostRow,
   ClientDetailTopInstitutionRow,
+  ClientDetailTouchpointRow,
 } from "@/lib/types"
 
 // Brand palette — inline-styled where Tailwind classes don't cover the exact hex.
@@ -88,6 +90,8 @@ export function ClientDetailView({
   reachDepth,
   topHosts,
   recentMeetings,
+  recentNote,
+  touchpoints,
 }: {
   allClients: ClientDetailSummaryRow[]
   selected: ClientDetailSummaryRow
@@ -96,6 +100,8 @@ export function ClientDetailView({
   reachDepth: ClientDetailReachDepthRow[]
   topHosts: ClientDetailTopHostRow[]
   recentMeetings: ClientDetailRecentMeetingRow[]
+  recentNote: ClientDetailRecentNoteRow | null
+  touchpoints: ClientDetailTouchpointRow[]
 }) {
   const router = useRouter()
 
@@ -242,6 +248,18 @@ export function ClientDetailView({
     (reachRows.find((r) => r.order === 4)?.count ?? 0) +
     (reachRows.find((r) => r.order === 5)?.count ?? 0)
 
+  // ---------- Touchpoints: collapse to the single most recent, expand to 25 ----------
+  const TP_CAP = 25
+  const [tpExpanded, setTpExpanded] = React.useState(false)
+  const tpTotal = touchpoints.length
+  const tpVisible = tpExpanded
+    ? touchpoints.slice(0, TP_CAP)
+    : touchpoints.slice(0, 1)
+
+  // ---------- Note: deadline urgency (past or within 7 days) ----------
+  const deadlineUrgent =
+    recentNote?.days_to_deadline != null && recentNote.days_to_deadline <= 7
+
   // ---------- Render ----------
   return (
     <>
@@ -315,6 +333,178 @@ export function ClientDetailView({
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Client Touchpoints & Notes */}
+      <div className="my-6 flex items-center gap-3">
+        <span
+          className="shrink-0 text-base font-medium"
+          style={{ color: NAVY_DEEP }}
+        >
+          Client Touchpoints &amp; Notes
+        </span>
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
+      </div>
+
+      {/* Note + Touchpoints, side by side at lg+ (stacked below). min-w-0 lets
+          the touchpoints table shrink instead of blowing out its column. */}
+      <div className="mb-3 grid grid-cols-1 items-start gap-3 lg:grid-cols-2">
+        {/* Most Recent Client Note — only when a note exists */}
+        {recentNote && (
+          <div className="min-w-0 rounded-lg border bg-card p-4">
+            <div className="mb-3 flex items-baseline justify-between">
+              <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
+                Most Recent Client Note
+              </div>
+            <div className="text-xs text-muted-foreground">
+              {formatLongDate(recentNote.note_date)}
+            </div>
+          </div>
+          {(recentNote.status_text ||
+            recentNote.primary_risk_driver ||
+            recentNote.action_step) && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {recentNote.status_text && (
+                <span
+                  className="rounded-full px-2.5 py-1 text-xs font-medium"
+                  style={{ backgroundColor: GRAY_BG, color: NAVY_MID }}
+                >
+                  {recentNote.status_text}
+                </span>
+              )}
+              {recentNote.primary_risk_driver && (
+                <span
+                  className="rounded-full px-2.5 py-1 text-xs font-medium"
+                  style={{ backgroundColor: "#FAEEDA", color: "#854F0B" }}
+                >
+                  Primary risk: {recentNote.primary_risk_driver}
+                </span>
+              )}
+              {recentNote.action_step && (
+                <>
+                  <span className="h-4 w-px bg-border" aria-hidden="true" />
+                  <span className="whitespace-nowrap text-xs">
+                    <span className="text-muted-foreground">Action </span>
+                    <span style={{ color: NAVY_DEEP }}>
+                      {recentNote.action_step}
+                    </span>
+                  </span>
+                  <span className="whitespace-nowrap text-xs">
+                    <span className="text-muted-foreground">Owner </span>
+                    <span style={{ color: NAVY_DEEP }}>
+                      {recentNote.action_owner ?? "—"}
+                    </span>
+                  </span>
+                  <span className="whitespace-nowrap text-xs">
+                    <span className="text-muted-foreground">Due </span>
+                    <span
+                      className={deadlineUrgent ? "font-medium" : ""}
+                      style={{ color: deadlineUrgent ? RED : NAVY_DEEP }}
+                    >
+                      {formatShortDate(recentNote.action_deadline)}
+                    </span>
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+          {recentNote.notes_text && (
+            <p className="whitespace-pre-line text-sm text-foreground">
+              {recentNote.notes_text}
+            </p>
+          )}
+        </div>
+      )}
+
+        {/* Recent Touchpoints */}
+        <div className="min-w-0 rounded-lg border bg-card p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
+            Recent Touchpoints
+          </div>
+          {tpTotal > 1 && (
+            <button
+              type="button"
+              onClick={() => setTpExpanded((v) => !v)}
+              className="flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium hover:bg-accent"
+              style={{ color: NAVY_DEEP }}
+            >
+              {tpExpanded ? (
+                <>
+                  Show less
+                  <ChevronUp className="size-3.5" />
+                </>
+              ) : (
+                <>
+                  Show all {tpTotal.toLocaleString()}
+                  <ChevronDown className="size-3.5" />
+                </>
+              )}
+            </button>
+          )}
+        </div>
+        {tpTotal === 0 ? (
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            No touchpoints on record.
+          </div>
+        ) : (
+          <>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-xs text-muted-foreground">
+                  <th className="px-2 py-2 text-left font-medium">Date</th>
+                  <th className="px-2 py-2 text-left font-medium">Subject</th>
+                  <th className="px-2 py-2 text-left font-medium">Type</th>
+                  <th className="px-2 py-2 text-left font-medium">Dir.</th>
+                  <th className="px-2 py-2 text-right font-medium">Min</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tpVisible.map((t) => {
+                  const isOut = t.direction_code === true
+                  return (
+                    <tr key={t.touchpoint_id} className="border-b last:border-b-0">
+                      <td className="whitespace-nowrap px-2 py-2 tabular-nums">
+                        {formatLongDate(t.scheduled_start)}
+                      </td>
+                      <td className="px-2 py-2">{t.subject ?? "—"}</td>
+                      <td className="px-2 py-2">
+                        {t.touchpoint_type_label ? (
+                          <span
+                            className="inline-block rounded px-2 py-0.5 text-xs font-medium"
+                            style={{ backgroundColor: GRAY_BG, color: NAVY_DEEP }}
+                          >
+                            {t.touchpoint_type_label}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-2 py-2">
+                        <span
+                          className="inline-block rounded px-2 py-0.5 text-xs font-medium"
+                          style={
+                            isOut
+                              ? { backgroundColor: TEAL_LIGHTEST, color: NAVY_DEEP }
+                              : { backgroundColor: GRAY_BG, color: NAVY_MID }
+                          }
+                        >
+                          {isOut ? "Out" : "In"}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2 text-right tabular-nums">
+                        {t.actual_duration_minutes != null
+                          ? t.actual_duration_minutes.toLocaleString()
+                          : "—"}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </>
+        )}
+        </div>
       </div>
 
       {/* Section 3: Section divider */}

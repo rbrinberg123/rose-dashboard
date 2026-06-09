@@ -433,6 +433,46 @@ export type ClientDetailRecentMeetingRow = {
   feedback_status_label: string | null
 }
 
+export type ClientDetailActiveContractRow = {
+  account_id: string
+  contract_id: string
+  contract_url: string | null
+  contract_status_label: string | null
+  current_term_start: string | null
+  current_term_end: string | null
+  /** Effective renewal point = current_term_end (contract_renewal_date is unreliable for active contracts). */
+  renewal_date: string | null
+  days_to_renewal: number | null
+  auto_renew: boolean | null
+  auto_renew_length_label: string | null
+  notice_label: string | null
+  scope_label: string | null
+}
+
+export type ClientDetailRecentNoteRow = {
+  account_id: string
+  note_id: string
+  note_date: string | null
+  notes_text: string | null
+  status_text: string | null
+  primary_risk_driver: string | null
+  action_step: string | null
+  action_owner: string | null
+  action_deadline: string | null
+  /** action_deadline − current_date; negative when past. */
+  days_to_deadline: number | null
+}
+
+export type ClientDetailTouchpointRow = {
+  account_id: string
+  touchpoint_id: string
+  scheduled_start: string | null
+  subject: string | null
+  touchpoint_type_label: string | null
+  direction_code: boolean | null
+  actual_duration_minutes: number | null
+}
+
 export type InstitutionSummaryRow = {
   institution_id: string | null
   institution_name: string

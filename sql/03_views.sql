@@ -25,6 +25,9 @@ DROP VIEW IF EXISTS public.v_client_detail_top_institutions CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_reach_depth CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_top_hosts CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_recent_meetings CASCADE;
+DROP VIEW IF EXISTS public.v_client_detail_active_contract CASCADE;
+DROP VIEW IF EXISTS public.v_client_detail_recent_note CASCADE;
+DROP VIEW IF EXISTS public.v_client_detail_touchpoints CASCADE;
 DROP VIEW IF EXISTS public.v_institution_summary CASCADE;
 DROP VIEW IF EXISTS public.v_institution_detail_summary CASCADE;
 DROP VIEW IF EXISTS public.v_institution_detail_quarterly CASCADE;
@@ -1378,6 +1381,164 @@ SELECT
   institution_id
 FROM ranked
 WHERE rn <= 8;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_detail_active_contract
+-- The client's most recent ACTIVE contract (one row per client, or no row if
+-- the client has no active contract). Active = contract_status_label IN
+-- ('Initial Term', 'Renewal Term'); the other labels ('Contract Expired',
+-- 'Terminated') are inactive. Picks the row with the latest contract_start_date.
+--
+-- NOTE (data semantics, verified against real rows 2026-06):
+--   * contract_renewal_date is NULL for currently-active contracts (it is only
+--     backfilled once a term ends), so it is NOT used here. The forward-looking
+--     renewal point is the end of the CURRENT term, which is also what the
+--     KPI "Contract Renewal" tile uses.
+--   * Each renewal is stored as its own row whose contract_start_date /
+--     initial_term_end bound that term. For ~21% of clients the newest active
+--     row's initial_term_end is already in the past (an auto-renewed term with
+--     no fresh row), so current_term_end rolls the term length forward to the
+--     first anniversary >= today.
+--   * term length is parsed from initial_term_length_label ("12 Months" -> 12);
+--     contract_length_years is mostly NULL and only used as a fallback.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_detail_active_contract AS
+WITH ranked AS (
+  SELECT
+    c.*,
+    COALESCE(
+      NULLIF(regexp_replace(c.initial_term_length_label, '\D', '', 'g'), '')::int,
+      NULLIF(ROUND(c.contract_length_years * 12)::int, 0),
+      12
+    ) AS term_months,
+    ROW_NUMBER() OVER (
+      PARTITION BY c.client_account_id
+      ORDER BY c.contract_start_date DESC NULLS LAST
+    ) AS rn
+  FROM public.contracts c
+  WHERE c.contract_status_label IN ('Initial Term', 'Renewal Term')
+),
+chosen AS (
+  SELECT * FROM ranked WHERE rn = 1
+),
+with_term AS (
+  SELECT
+    ch.*,
+    -- First term anniversary >= today (rolls auto-renewed terms forward).
+    (
+      SELECT MIN(g.d)::date
+      FROM generate_series(
+        ch.initial_term_end::timestamp,
+        ch.initial_term_end::timestamp + INTERVAL '120 months',
+        (ch.term_months || ' months')::interval
+      ) AS g(d)
+      WHERE g.d >= CURRENT_DATE
+    ) AS current_term_end
+  FROM chosen ch
+)
+SELECT
+  wt.client_account_id AS account_id,
+  wt.contract_id,
+  wt.contract_url,
+  wt.contract_status_label,
+  CASE
+    WHEN wt.current_term_end IS NULL THEN NULL
+    ELSE (wt.current_term_end - (wt.term_months || ' months')::interval)::date
+  END AS current_term_start,
+  wt.current_term_end,
+  wt.current_term_end AS renewal_date,
+  CASE
+    WHEN wt.current_term_end IS NULL THEN NULL
+    ELSE (wt.current_term_end - CURRENT_DATE)::int
+  END AS days_to_renewal,
+  wt.auto_renew,
+  -- Compact renewal length: "1yr", "2yr", "6mo". NULL when term length unknown.
+  CASE
+    WHEN wt.initial_term_length_label IS NULL THEN NULL
+    WHEN wt.term_months % 12 = 0 THEN (wt.term_months / 12) || 'yr'
+    ELSE wt.term_months || 'mo'
+  END AS auto_renew_length_label,
+  -- Notice period: prefer the day count ("60d"); fall back to the period label.
+  CASE
+    WHEN wt.termination_notice_days_label ~ '^[0-9]+$'
+         AND wt.termination_notice_days_label::int > 0
+      THEN wt.termination_notice_days_label || 'd'
+    WHEN wt.termination_notice_label IS NOT NULL
+      THEN wt.termination_notice_label
+    ELSE NULL
+  END AS notice_label,
+  -- Strip the leading '*' some scope labels carry ("*Full Service").
+  NULLIF(regexp_replace(wt.scope_label, '^\*', ''), '') AS scope_label
+FROM with_term wt;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_detail_recent_note
+-- The client's most recent client_notes row (one row per client, or none).
+-- status_label is always 'Active' (the Dynamics record state, not a health
+-- status) so it is intentionally not surfaced. status_text / primary_risk_driver
+-- carry trailing newlines from the source, which are trimmed; a risk driver of
+-- 'None' (or blank) is normalised to NULL so the UI can omit the pill.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_detail_recent_note AS
+WITH ranked AS (
+  SELECT
+    n.client_account_id AS account_id,
+    n.note_id,
+    n.note_date,
+    btrim(n.notes_text) AS notes_text,
+    NULLIF(btrim(n.status_text), '') AS status_text,
+    CASE
+      WHEN lower(btrim(COALESCE(n.primary_risk_driver, ''))) IN ('', 'none') THEN NULL
+      ELSE btrim(n.primary_risk_driver)
+    END AS primary_risk_driver,
+    NULLIF(btrim(n.action_step), '') AS action_step,
+    NULLIF(btrim(n.action_owner), '') AS action_owner,
+    n.action_deadline,
+    ROW_NUMBER() OVER (
+      PARTITION BY n.client_account_id
+      ORDER BY n.note_date DESC, n.modified_on DESC NULLS LAST, n.created_on DESC NULLS LAST
+    ) AS rn
+  FROM public.client_notes n
+  WHERE n.client_account_id IS NOT NULL
+)
+SELECT
+  account_id,
+  note_id,
+  note_date,
+  notes_text,
+  status_text,
+  primary_risk_driver,
+  action_step,
+  action_owner,
+  action_deadline,
+  CASE
+    WHEN action_deadline IS NULL THEN NULL
+    ELSE (action_deadline - CURRENT_DATE)::int
+  END AS days_to_deadline
+FROM ranked
+WHERE rn = 1;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_detail_touchpoints
+-- All touchpoints (relabeled phone calls / emails / etc.) for a client, most
+-- recent first. owner_name is intentionally omitted: in the source it holds the
+-- client COMPANY name rather than a Rose & Co person, so it is not meaningful
+-- on a single-client page.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_detail_touchpoints AS
+SELECT
+  t.client_account_id AS account_id,
+  t.touchpoint_id,
+  t.scheduled_start,
+  t.subject,
+  t.touchpoint_type_label,
+  t.direction_code,
+  t.actual_duration_minutes
+FROM public.touchpoints t
+WHERE t.client_account_id IS NOT NULL;
 
 
 -- -----------------------------------------------------------------------------

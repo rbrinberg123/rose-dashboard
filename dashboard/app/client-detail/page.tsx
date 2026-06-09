@@ -5,9 +5,11 @@ import type {
   ClientDetailQuarterlyRow,
   ClientDetailReachDepthRow,
   ClientDetailRecentMeetingRow,
+  ClientDetailRecentNoteRow,
   ClientDetailSummaryRow,
   ClientDetailTopHostRow,
   ClientDetailTopInstitutionRow,
+  ClientDetailTouchpointRow,
 } from "@/lib/types"
 import { ClientDetailView } from "./client-detail-view"
 
@@ -56,8 +58,15 @@ export default async function ClientDetailPage({
     : undefined
   const selected = matched ?? summaryRows[0]
 
-  const [quarterlyRes, topInstRes, reachDepthRes, topHostsRes, recentRes] =
-    await Promise.all([
+  const [
+    quarterlyRes,
+    topInstRes,
+    reachDepthRes,
+    topHostsRes,
+    recentRes,
+    recentNoteRes,
+    touchpointsRes,
+  ] = await Promise.all([
       sb
         .from("v_client_detail_quarterly")
         .select("*")
@@ -85,6 +94,16 @@ export default async function ClientDetailPage({
         .select("*")
         .eq("account_id", selected.account_id)
         .order("meeting_date", { ascending: false }),
+      sb
+        .from("v_client_detail_recent_note")
+        .select("*")
+        .eq("account_id", selected.account_id)
+        .maybeSingle(),
+      sb
+        .from("v_client_detail_touchpoints")
+        .select("*")
+        .eq("account_id", selected.account_id)
+        .order("scheduled_start", { ascending: false, nullsFirst: false }),
     ])
 
   const firstError =
@@ -92,7 +111,9 @@ export default async function ClientDetailPage({
     topInstRes.error ??
     reachDepthRes.error ??
     topHostsRes.error ??
-    recentRes.error
+    recentRes.error ??
+    recentNoteRes.error ??
+    touchpointsRes.error
   if (firstError) {
     return (
       <PageShell title="Client Detail">
@@ -114,6 +135,8 @@ export default async function ClientDetailPage({
         reachDepth={(reachDepthRes.data ?? []) as ClientDetailReachDepthRow[]}
         topHosts={(topHostsRes.data ?? []) as ClientDetailTopHostRow[]}
         recentMeetings={(recentRes.data ?? []) as ClientDetailRecentMeetingRow[]}
+        recentNote={(recentNoteRes.data ?? null) as ClientDetailRecentNoteRow | null}
+        touchpoints={(touchpointsRes.data ?? []) as ClientDetailTouchpointRow[]}
       />
     </PageShell>
   )
