@@ -21,6 +21,7 @@ import {
   ShieldAlert,
   AlertTriangle,
   ClipboardList,
+  RefreshCw,
   Menu,
   LogOut,
 } from "lucide-react"
@@ -59,6 +60,7 @@ const admin: NavItem[] = [
   { href: "/overhead-overrides", label: "Overhead Overrides", icon: ShieldAlert },
   { href: "/revenue-overrides", label: "Revenue Overrides", icon: ClipboardList },
   { href: "/exceptions", label: "Exception Report", icon: AlertTriangle },
+  { href: "/admin/sync", label: "Sync Status", icon: RefreshCw },
 ]
 
 function Section({
