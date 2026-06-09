@@ -65,12 +65,12 @@ export async function proxy(request: NextRequest) {
  * Matcher: run proxy on everything EXCEPT
  *   - Next internals (_next/static, _next/image)
  *   - Public asset files at the URL root (favicon, robots, sitemap, etc.)
- *
- * API routes don't exist in this app today; if they're added later, add
- * `api` to the negative lookahead.
+ *   - API routes (`/api/*`) — these handle their own auth. The sync routes in
+ *     particular are called by Vercel Cron with a bearer token (no Supabase
+ *     session), so the proxy must not redirect them to /login.
  */
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:png|jpg|jpeg|svg|gif|webp|ico|css|js|map)$).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:png|jpg|jpeg|svg|gif|webp|ico|css|js|map)$).*)",
   ],
 }
