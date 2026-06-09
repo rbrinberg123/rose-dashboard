@@ -111,7 +111,7 @@ async function syncEntity(
         mapped.push(entity.map(raw, runStartedAt))
       } catch (err) {
         errorCount++
-        const id = String((raw as Record<string, unknown>)[`${entity.pk}`] ?? "")
+        const id = String((raw as Record<string, unknown>)[entity.dynamicsPk] ?? "")
         await logError(
           sb,
           runStartedAt,

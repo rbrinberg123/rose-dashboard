@@ -36,15 +36,17 @@ export type EntityConfig = {
   table: string
   /** Primary-key column / upsert conflict target. */
   pk: string
+  /** Raw Dynamics field name for the primary key (used for error logging). */
+  dynamicsPk: string
   /** Map a raw Dynamics row to a mirror-table row. */
   map: (row: Record<string, unknown>, runStartedAt: string) => Record<string, unknown>
 }
 
 export const ENTITIES: EntityConfig[] = [
-  { name: "accounts", entitySet: "accounts", table: "accounts", pk: "account_id", map: mapAccount },
-  { name: "systemusers", entitySet: "systemusers", table: "users", pk: "user_id", map: mapSystemUser },
-  { name: "meetings", entitySet: "bcs_meetings", table: "meetings", pk: "meeting_id", map: mapMeeting },
-  { name: "touchpoints", entitySet: "phonecalls", table: "touchpoints", pk: "touchpoint_id", map: mapTouchpoint },
-  { name: "client_notes", entitySet: "bcs_clientnotes", table: "client_notes", pk: "note_id", map: mapClientNote },
-  { name: "contracts", entitySet: "bcs_contracts", table: "contracts", pk: "contract_id", map: mapContract },
+  { name: "accounts", entitySet: "accounts", table: "accounts", pk: "account_id", dynamicsPk: "accountid", map: mapAccount },
+  { name: "systemusers", entitySet: "systemusers", table: "users", pk: "user_id", dynamicsPk: "systemuserid", map: mapSystemUser },
+  { name: "meetings", entitySet: "bcs_meetings", table: "meetings", pk: "meeting_id", dynamicsPk: "bcs_meetingid", map: mapMeeting },
+  { name: "touchpoints", entitySet: "phonecalls", table: "touchpoints", pk: "touchpoint_id", dynamicsPk: "activityid", map: mapTouchpoint },
+  { name: "client_notes", entitySet: "bcs_clientnotes", table: "client_notes", pk: "note_id", dynamicsPk: "bcs_clientnoteid", map: mapClientNote },
+  { name: "contracts", entitySet: "bcs_contracts", table: "contracts", pk: "contract_id", dynamicsPk: "bcs_contractid", map: mapContract },
 ]
