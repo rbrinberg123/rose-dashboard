@@ -2,7 +2,7 @@
 
 Internal management dashboard for Rose & Company. Single-page Next.js
 (App Router) app that reads from Supabase via server components and
-renders six analytics dashboards plus seven admin pages.
+renders the analytics dashboards plus the admin pages.
 
 The Next.js app lives in this `dashboard/` subdirectory. The repo root
 also contains the SQL views/migrations that back the dashboard.
@@ -23,7 +23,7 @@ also contains the SQL views/migrations that back the dashboard.
 
 ```bash
 cd dashboard
-cp .env.example .env.local      # then fill in all four values below
+cp .env.example .env.local      # then fill in the values (see tables below)
 npm install
 npm run dev                      # http://localhost:3000
 ```
@@ -45,6 +45,18 @@ The dashboard needs **four** env vars now: two for the data client
 prefix and must NEVER be imported into a Client Component. It bypasses
 RLS, which is what we want for the data client and what we definitely
 do not want for browser code.
+
+The nightly Dynamics sync (Phase 6a) needs **five more** server-only vars:
+
+| Var                  | Where it comes from                                              |
+| -------------------- | ---------------------------------------------------------------- |
+| `AZURE_TENANT_ID`    | Azure AD → app registration → Directory (tenant) ID              |
+| `AZURE_CLIENT_ID`    | Azure AD → app registration → Application (client) ID            |
+| `AZURE_CLIENT_SECRET`| Azure AD → app registration → Certificates & secrets            |
+| `DYNAMICS_BASE_URL`  | Dynamics env URL, no trailing slash (`https://clientcrm.crm.dynamics.com`) |
+| `CRON_SECRET`        | A long random value you generate (`openssl rand -hex 32`)        |
+
+See [Dynamics sync](#dynamics-sync-phase-6a) below for how these are used.
 
 ### Useful scripts
 
@@ -127,6 +139,97 @@ you want defense in depth, layer RLS on the views in a follow-up.
 | Redirect loop on /login                          | Browser blocking third-party cookies for the Supabase domain.                 |
 | Looks signed in then suddenly logged out         | `proxy.ts` matcher accidentally excludes a path it shouldn't.                 |
 
+## Dynamics sync (Phase 6a)
+
+The mirror tables (`accounts`, `meetings`, `touchpoints`, `client_notes`,
+`contracts`, `users`) are populated nightly from Dynamics 365 by an
+automated sync. This replaces the manual Python loader
+([`loader/load.py`](../loader/load.py)), which is **kept as a fallback** —
+both write identical row shapes, so either can run.
+
+### How it works
+
+1. **Schedule.** [`vercel.json`](vercel.json) defines a Vercel Cron job that
+   hits `GET /api/sync-dynamics` daily at **07:00 UTC** (~2–3 AM ET).
+2. **Auth to Dynamics.** The route mints a fresh OAuth2 token via Azure AD
+   client-credentials (cached in memory for its ~1h lifetime). No bearer
+   tokens are stored in env vars — only the client id/secret.
+3. **Incremental pull.** For each entity, the sync reads its
+   `last_synced_at` from `sync_runs` and queries Dynamics with
+   `$filter=modifiedon gt {timestamp}`. The first-ever run for an entity
+   (no `sync_runs` row) is a full pull. After a successful run the watermark
+   advances to the run's start time.
+4. **Upsert.** Rows are mapped ([`lib/sync/mappers.ts`](lib/sync/mappers.ts))
+   and upserted in batches on each table's primary key. A batch that fails
+   is retried row-by-row so one bad record doesn't sink the other 499.
+5. **Resilience.** Network/auth/throttle failures retry up to 3× with
+   exponential backoff. Per-record failures are logged to `sync_errors` and
+   skipped. One entity failing **does not** stop the others.
+
+### Request auth
+
+Both `/api/sync-dynamics` invocations are gated by `CRON_SECRET`:
+
+- **Cron** — Vercel automatically attaches `Authorization: Bearer ${CRON_SECRET}`.
+- **Manual** — the "Run sync now" button calls a Server Action that adds the
+  same header server-side, so the secret never reaches the browser.
+
+The route handles its own auth, so `/api/*` is excluded from the auth proxy
+matcher in [`proxy.ts`](proxy.ts). `/api/sync-status` is read-only and needs
+no auth.
+
+### The Sync Status page (`/admin/sync`)
+
+Linked under **Admin → Sync Status** in the sidebar. It shows:
+
+- **Entities** — one row per entity from `sync_runs`: last synced time,
+  status (`success` / `partial` / `error` / `never run`), records written,
+  and error count. `partial` means the entity synced but some records landed
+  in `sync_errors`.
+- **Recent errors** — the 50 newest `sync_errors` rows (when, entity,
+  Dynamics id, message).
+- **Run sync now** — triggers an immediate sync for ad-hoc refreshes between
+  scheduled runs. Same data is also available as JSON at `/api/sync-status`.
+
+### Manually triggering a sync
+
+```bash
+# Production / preview (Vercel sets CRON_SECRET in the environment):
+curl -X POST https://<your-domain>/api/sync-dynamics \
+  -H "Authorization: Bearer $CRON_SECRET"
+
+# Locally (reads CRON_SECRET from .env.local):
+curl -X POST http://localhost:3000/api/sync-dynamics \
+  -H "Authorization: Bearer <your-local-CRON_SECRET>"
+```
+
+Or just click **Run sync now** on `/admin/sync`. The Python loader remains
+available as a fallback (see [`loader/`](../loader)).
+
+### Adding a new entity to the sync
+
+The sync is data-driven from a single list. To add an entity:
+
+1. Add a row mapper in [`lib/sync/mappers.ts`](lib/sync/mappers.ts) that
+   returns an object keyed by the target mirror table's column names (mirror
+   `loader/load.py` if it has an equivalent).
+2. Append one entry to `ENTITIES` in
+   [`lib/sync/entities.ts`](lib/sync/entities.ts) with the Web API entity
+   **set** name (plural), the Supabase `table`, its `pk`, and the `map`
+   function.
+3. Grant `service_role` `INSERT, UPDATE` on the new table (see
+   [`sql/07_sync_tables.sql`](../sql/07_sync_tables.sql)).
+
+The run loop, `/api/sync-status`, and the admin page all read from
+`ENTITIES` — nothing else needs changing.
+
+### SQL setup
+
+Run [`sql/07_sync_tables.sql`](../sql/07_sync_tables.sql) once in the
+Supabase SQL editor. It creates `sync_runs` + `sync_errors` and grants
+`service_role` write access to the mirror tables (the REST-based sync needs
+this; the Python loader used a direct Postgres connection and didn't).
+
 ## Supabase project configuration
 
 One-time setup in the Supabase dashboard:
@@ -166,7 +269,7 @@ Vercel project configuration:
 
 ### Environment variables on Vercel
 
-All four env vars must be set under **Project Settings → Environment
+All env vars must be set under **Project Settings → Environment
 Variables** for the Production environment (and Preview, if you want
 auth on preview deploys):
 
@@ -176,6 +279,16 @@ auth on preview deploys):
 | `SUPABASE_SERVICE_ROLE_KEY`      | service_role secret (not anon!)    |
 | `NEXT_PUBLIC_SUPABASE_URL`       | Same Project URL                   |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY`  | anon public key                    |
+| `AZURE_TENANT_ID`                | Azure AD tenant (directory) ID     |
+| `AZURE_CLIENT_ID`                | Azure AD application (client) ID   |
+| `AZURE_CLIENT_SECRET`            | Azure AD client secret             |
+| `DYNAMICS_BASE_URL`              | `https://clientcrm.crm.dynamics.com` |
+| `CRON_SECRET`                    | Long random secret (also auto-injected into cron requests by Vercel) |
+
+> **Cron note:** Vercel Cron is configured in [`vercel.json`](vercel.json)
+> and runs on the **production** deployment only. Setting `CRON_SECRET` in
+> Production scope both guards the route and is the value Vercel attaches to
+> the scheduled request.
 
 ### Post-deploy Supabase steps
 
