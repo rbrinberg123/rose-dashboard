@@ -1091,7 +1091,9 @@ FROM public.accounts a
 LEFT JOIN contract_counts cc ON cc.client_account_id = a.account_id
 LEFT JOIN latest_active la   ON la.client_account_id = a.account_id
 WHERE a.state_label = 'Active'
-ORDER BY (days_to_expiry IS NULL), days_to_expiry ASC NULLS LAST, client_name ASC;
+ORDER BY ((la.initial_term_end - CURRENT_DATE)::int IS NULL),
+         (la.initial_term_end - CURRENT_DATE)::int ASC NULLS LAST,
+         client_name ASC;
 
 
 -- -----------------------------------------------------------------------------
@@ -2122,3 +2124,85 @@ SELECT
 FROM public.users u
 LEFT JOIN primary_counts   pc ON pc.user_id = u.user_id
 LEFT JOIN secondary_counts sc ON sc.user_id = u.user_id;
+
+
+-- -----------------------------------------------------------------------------
+-- v_institution_style_meetings
+-- One row per qualifying confirmed meeting for the Institution Style page,
+-- joined to its client's style attributes. Powers client-side ranking of
+-- institutions by the share of their meetings spent with clients of a chosen
+-- style (market cap / sector / region) and/or a chosen set of named clients.
+--
+-- Qualifying meeting: meeting_status_label = 'Confirmed' and institution_name
+-- NOT NULL. NB this is NOT scoped to active clients — every confirmed meeting
+-- is kept (including former/inactive clients and meetings with a NULL or
+-- unmatched client_account_id) via a LEFT JOIN to accounts, so Total here
+-- reconciles with v_institution_detail_summary's lifetime meeting count.
+--
+-- The three bucket columns intentionally reuse the EXACT CASE logic from the
+-- Client Statistics views (v_client_stats_by_market_cap / _by_sector /
+-- _by_region) so the bucket values match that page — note this differs from
+-- v_institution_detail_style, which buckets unknowns differently. Because the
+-- join is a LEFT JOIN, a missing account leaves every attribute NULL, which the
+-- existing NULL/blank branches already resolve to 'Unknown' — so meetings with
+-- no matching account bucket as 'Unknown' across all three dimensions.
+--
+-- institution_id is stabilised per institution_name via the
+-- (array_agg(... ORDER BY meeting_date DESC NULLS LAST))[1] pattern used by the
+-- other institution views, so links land on a consistent detail page.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_institution_style_meetings AS
+WITH inst_id AS (
+  SELECT
+    m.institution_name,
+    (array_agg(m.institution_id ORDER BY m.meeting_date DESC NULLS LAST))[1]
+      AS institution_id
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+  GROUP BY m.institution_name
+)
+SELECT
+  i.institution_id,
+  m.institution_name,
+  m.client_account_id,
+  CASE
+    WHEN a.market_cap_b IS NULL          THEN 'Unknown'::text
+    WHEN a.market_cap_b >= 200::numeric  THEN 'Mega'::text
+    WHEN a.market_cap_b >= 10::numeric   THEN 'Large'::text
+    WHEN a.market_cap_b >= 2::numeric    THEN 'Mid'::text
+    WHEN a.market_cap_b >= 0.3           THEN 'Small'::text
+    ELSE                                      'Micro'::text
+  END AS market_cap_bucket,
+  COALESCE(NULLIF(TRIM(BOTH FROM a.sector_label), ''::text), 'Unknown'::text)
+    AS sector_bucket,
+  CASE
+    WHEN a.hq_country_name IS NULL OR TRIM(BOTH FROM a.hq_country_name) = ''::text
+      THEN 'Unknown'::text
+    WHEN a.hq_country_name = ANY (ARRAY[
+      'United States'::text, 'Canada'::text, 'Mexico'::text, 'Brazil'::text,
+      'Argentina'::text, 'Chile'::text, 'Colombia'::text, 'Peru'::text
+    ]) THEN 'Americas'::text
+    WHEN a.hq_country_name = ANY (ARRAY[
+      'United Kingdom'::text, 'Germany'::text, 'France'::text, 'Italy'::text,
+      'Spain'::text, 'Netherlands'::text, 'Switzerland'::text, 'Sweden'::text,
+      'Norway'::text, 'Denmark'::text, 'Finland'::text, 'Ireland'::text,
+      'Belgium'::text, 'Austria'::text, 'Portugal'::text, 'Israel'::text,
+      'Saudi Arabia'::text, 'UAE'::text, 'South Africa'::text, 'Turkey'::text,
+      'Poland'::text
+    ]) THEN 'EMEA'::text
+    WHEN a.hq_country_name = ANY (ARRAY[
+      'Japan'::text, 'China'::text, 'Hong Kong'::text, 'Taiwan'::text,
+      'South Korea'::text, 'Australia'::text, 'New Zealand'::text,
+      'Singapore'::text, 'India'::text, 'Indonesia'::text, 'Malaysia'::text,
+      'Thailand'::text, 'Philippines'::text, 'Vietnam'::text
+    ]) THEN 'APAC'::text
+    ELSE 'Unknown'::text
+  END AS region_bucket,
+  (m.meeting_date >= CURRENT_DATE - INTERVAL '12 months') AS is_ltm
+FROM public.meetings m
+JOIN inst_id i ON i.institution_name = m.institution_name
+LEFT JOIN public.accounts a
+  ON a.account_id = m.client_account_id
+WHERE m.meeting_status_label = 'Confirmed'
+  AND m.institution_name IS NOT NULL;

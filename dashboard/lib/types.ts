@@ -556,3 +556,24 @@ export type InstitutionDetailRecentMeetingRow = {
   meeting_type_label: string | null
   is_in_person: boolean | null
 }
+
+/**
+ * One row per qualifying confirmed meeting on the Institution Style page,
+ * carrying its client's style buckets. Aggregated client-side into the
+ * institution ranking. See v_institution_style_meetings.
+ */
+export type InstitutionStyleMeetingRow = {
+  institution_id: string | null
+  institution_name: string
+  client_account_id: string
+  market_cap_bucket: string
+  sector_bucket: string
+  region_bucket: string
+  is_ltm: boolean
+}
+
+/** Minimal active-client record for the Institution Style client picker. */
+export type ActiveClientOption = {
+  account_id: string
+  name: string
+}
