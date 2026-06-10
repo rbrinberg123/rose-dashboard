@@ -6,23 +6,26 @@ import type { SchedulerMeetingRow, SchedulerUnassignedRow } from "@/lib/types"
 
 // Brand palette
 const NAVY_DEEP = "#1E2858"
-const VIRTUAL = "#378ADD" // virtual meeting block (blue)
-const INPERSON = "#1D9E75" // in-person 1h core (teal)
-// Striped travel-buffer fill, built from the in-person colour at low opacity.
-const BUFFER_FILL = `repeating-linear-gradient(45deg, ${INPERSON}40, ${INPERSON}40 5px, ${INPERSON}14 5px, ${INPERSON}14 10px)`
 
-// Firm-wide "Week · everyone" block palette (softer pastels for density; the
-// "needs a host" amber signal takes priority over virtual/in-person for
-// unassigned meetings).
-const WK_VIRTUAL_BG = "#9FE1CB"
-const WK_VIRTUAL_TX = "#04342C"
-const WK_VIRTUAL_BORDER = "#5FB89C" // darker teal so adjacent blocks separate
-const WK_INPERSON_BG = "#B5D4F4"
-const WK_INPERSON_TX = "#042C53"
-const WK_INPERSON_BORDER = "#6BA0D8" // darker blue so adjacent blocks separate
-const WK_UNASSIGNED_BG = "#F7C9A6"
-const WK_UNASSIGNED_TX = "#7A3E12"
-const WK_UNASSIGNED_BORDER = "#C77A3E"
+// ---------------------------------------------------------------------------
+// Meeting-block palette — ONE source of truth, shared by all three views (Day,
+// single-person Week, and Week · everyone). The Day view's scheme is canonical:
+// virtual = blue, in-person = green, white text, each with a slightly darker
+// same-hue 1px solid border so adjacent same-type blocks stay separated.
+// Unassigned (Week · everyone only) keeps its amber dashed style. Blocks use
+// box-sizing: border-box so the border sits inside (no layout shift).
+// ---------------------------------------------------------------------------
+const BLOCK = {
+  virtual: { fill: "#378ADD", border: "#2C6FB0", text: "#FFFFFF" },
+  inperson: { fill: "#1D9E75", border: "#157A5B", text: "#FFFFFF" },
+  unassigned: { fill: "#F7C9A6", border: "#C77A3E", text: "#7A3E12" },
+} as const
+
+// In-person travel buffer: a lighter green stripe of the in-person fill, with a
+// faint border. Rendered in the Day and single-person Week views; intentionally
+// omitted in Week · everyone for density.
+const BUFFER_FILL = `repeating-linear-gradient(45deg, ${BLOCK.inperson.fill}40, ${BLOCK.inperson.fill}40 5px, ${BLOCK.inperson.fill}14 5px, ${BLOCK.inperson.fill}14 10px)`
+const BUFFER_BORDER = `${BLOCK.inperson.fill}55`
 
 // Default visible grid window: 7:00am–6:00pm. Auto-extended per displayed set
 // when meetings (incl. buffers) fall outside it.
@@ -209,22 +212,22 @@ function initialsOf(name: string): string {
 const firmKindStyle = (kind: FirmKind): React.CSSProperties => {
   if (kind === "unassigned") {
     return {
-      backgroundColor: WK_UNASSIGNED_BG,
-      color: WK_UNASSIGNED_TX,
-      border: `1px dashed ${WK_UNASSIGNED_BORDER}`,
+      backgroundColor: BLOCK.unassigned.fill,
+      color: BLOCK.unassigned.text,
+      border: `1px dashed ${BLOCK.unassigned.border}`,
     }
   }
   if (kind === "inperson") {
     return {
-      backgroundColor: WK_INPERSON_BG,
-      color: WK_INPERSON_TX,
-      border: `1px solid ${WK_INPERSON_BORDER}`,
+      backgroundColor: BLOCK.inperson.fill,
+      color: BLOCK.inperson.text,
+      border: `1px solid ${BLOCK.inperson.border}`,
     }
   }
   return {
-    backgroundColor: WK_VIRTUAL_BG,
-    color: WK_VIRTUAL_TX,
-    border: `1px solid ${WK_VIRTUAL_BORDER}`,
+    backgroundColor: BLOCK.virtual.fill,
+    color: BLOCK.virtual.text,
+    border: `1px solid ${BLOCK.virtual.border}`,
   }
 }
 
@@ -854,15 +857,15 @@ function DayGrid({
                       <div
                         key={m.meeting_id + "-" + i}
                         title={meetingTooltip(m)}
-                        className="absolute top-1.5 bottom-1.5 flex items-center overflow-hidden rounded px-1"
+                        className="absolute top-1.5 bottom-1.5 box-border flex items-center overflow-hidden rounded px-1"
                         style={{
                           left: `${left}%`,
                           width: `${Math.max(width, 0)}%`,
                           ...(s.kind === "virtual"
-                            ? { backgroundColor: VIRTUAL }
+                            ? { backgroundColor: BLOCK.virtual.fill, border: `1px solid ${BLOCK.virtual.border}` }
                             : s.kind === "core"
-                              ? { backgroundColor: INPERSON }
-                              : { background: BUFFER_FILL, border: `1px solid ${INPERSON}55` }),
+                              ? { backgroundColor: BLOCK.inperson.fill, border: `1px solid ${BLOCK.inperson.border}` }
+                              : { background: BUFFER_FILL, border: `1px solid ${BUFFER_BORDER}` }),
                         }}
                       >
                         {isCore && (
@@ -958,15 +961,15 @@ function WeekGrid({
                       <div
                         key={m.meeting_id + "-" + i}
                         title={meetingTooltip(m)}
-                        className="absolute left-0.5 right-0.5 overflow-hidden rounded px-1"
+                        className="absolute left-0.5 right-0.5 box-border overflow-hidden rounded px-1"
                         style={{
                           top,
                           height: Math.max(height, 0),
                           ...(s.kind === "virtual"
-                            ? { backgroundColor: VIRTUAL }
+                            ? { backgroundColor: BLOCK.virtual.fill, border: `1px solid ${BLOCK.virtual.border}` }
                             : s.kind === "core"
-                              ? { backgroundColor: INPERSON }
-                              : { background: BUFFER_FILL, border: `1px solid ${INPERSON}55` }),
+                              ? { backgroundColor: BLOCK.inperson.fill, border: `1px solid ${BLOCK.inperson.border}` }
+                              : { background: BUFFER_FILL, border: `1px solid ${BUFFER_BORDER}` }),
                         }}
                       >
                         {isCore && (
@@ -1196,17 +1199,23 @@ function Legend() {
     <div className="mb-3 rounded-lg border bg-card p-3">
       <div className="flex flex-wrap items-center gap-4 text-xs">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-3 w-6 rounded" style={{ backgroundColor: VIRTUAL }} />
+          <span
+            className="inline-block h-3 w-6 rounded"
+            style={{ backgroundColor: BLOCK.virtual.fill, border: `1px solid ${BLOCK.virtual.border}` }}
+          />
           Virtual (1h)
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-3 w-6 rounded" style={{ backgroundColor: INPERSON }} />
+          <span
+            className="inline-block h-3 w-6 rounded"
+            style={{ backgroundColor: BLOCK.inperson.fill, border: `1px solid ${BLOCK.inperson.border}` }}
+          />
           In-person (1h)
         </span>
         <span className="flex items-center gap-1.5">
           <span
             className="inline-block h-3 w-6 rounded"
-            style={{ background: BUFFER_FILL, border: `1px solid ${INPERSON}55` }}
+            style={{ background: BUFFER_FILL, border: `1px solid ${BUFFER_BORDER}` }}
           />
           Travel buffer (45m, in-person)
         </span>
@@ -1228,7 +1237,8 @@ function Legend() {
   )
 }
 
-// Legend for the firm-wide week overview — its own palette, no buffer swatch.
+// Legend for the firm-wide week overview — same block palette as the other
+// views, no buffer swatch (buffers are omitted here for density).
 function FirmWeekLegend() {
   return (
     <div className="mb-3 rounded-lg border bg-card p-3">
@@ -1236,14 +1246,14 @@ function FirmWeekLegend() {
         <span className="flex items-center gap-1.5">
           <span
             className="inline-block h-3 w-6 rounded-sm"
-            style={{ backgroundColor: WK_VIRTUAL_BG, color: WK_VIRTUAL_TX }}
+            style={{ backgroundColor: BLOCK.virtual.fill, border: `1px solid ${BLOCK.virtual.border}` }}
           />
           Virtual
         </span>
         <span className="flex items-center gap-1.5">
           <span
             className="inline-block h-3 w-6 rounded-sm"
-            style={{ backgroundColor: WK_INPERSON_BG }}
+            style={{ backgroundColor: BLOCK.inperson.fill, border: `1px solid ${BLOCK.inperson.border}` }}
           />
           In-person
         </span>
@@ -1251,8 +1261,8 @@ function FirmWeekLegend() {
           <span
             className="inline-block h-3 w-6 rounded-sm"
             style={{
-              backgroundColor: WK_UNASSIGNED_BG,
-              border: `1px dashed ${WK_UNASSIGNED_BORDER}`,
+              backgroundColor: BLOCK.unassigned.fill,
+              border: `1px dashed ${BLOCK.unassigned.border}`,
             }}
           />
           Unassigned (no host)
