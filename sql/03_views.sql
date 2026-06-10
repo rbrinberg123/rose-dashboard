@@ -2206,3 +2206,53 @@ LEFT JOIN public.accounts a
   ON a.account_id = m.client_account_id
 WHERE m.meeting_status_label = 'Confirmed'
   AND m.institution_name IS NOT NULL;
+
+
+-- -----------------------------------------------------------------------------
+-- v_scheduler_meetings
+-- One row per confirmed meeting that has a host and a real start time. Powers
+-- the Scheduler page (host availability — Day view across all hosts, Week view
+-- for one host).
+--
+-- Times are reported in US Eastern wall-clock time: meeting_date is a
+-- timestamptz (an instant), so we convert it to America/New_York BEFORE
+-- extracting the hour/minute. AT TIME ZONE 'America/New_York' handles the
+-- EST/EDT daylight-saving shift automatically, so a 2:00pm Eastern meeting
+-- always reports start_minutes = 840 regardless of the database's own
+-- session timezone (UTC on Supabase Cloud).
+--
+-- meeting_date is kept as the raw timestamptz for reference; meeting_day, dow,
+-- and start_minutes are all computed from the Eastern-local value so they agree
+-- with each other (e.g. a late-evening UTC instant that is still the same
+-- Eastern calendar day does not drift onto the next day).
+--
+-- Occupied intervals are intentionally NOT computed here. The page derives them
+-- from start_minutes + is_in_person (1h core; virtual = [start, start+60];
+-- in-person = [start-45, start+60+45] with a 45-minute travel buffer each side)
+-- so the duration assumptions live in one place and are easy to change.
+--
+-- The host list is derived from this view's distinct host_id/host_name on the
+-- page, so only users who have actually hosted a confirmed meeting appear. The
+-- non-hosting service account 'CRM Administration' is excluded by name here as
+-- a guard in case it is ever attached as a host.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_scheduler_meetings AS
+SELECT
+  m.meeting_id,
+  m.host_id,
+  m.host_name,
+  m.meeting_date,
+  (
+    EXTRACT(HOUR   FROM (m.meeting_date AT TIME ZONE 'America/New_York')) * 60 +
+    EXTRACT(MINUTE FROM (m.meeting_date AT TIME ZONE 'America/New_York'))
+  )::int AS start_minutes,
+  (m.meeting_date AT TIME ZONE 'America/New_York')::date AS meeting_day,
+  EXTRACT(ISODOW FROM (m.meeting_date AT TIME ZONE 'America/New_York'))::int AS dow,
+  m.is_in_person,
+  m.client_account_name,
+  m.institution_name
+FROM public.meetings m
+WHERE m.meeting_status_label = 'Confirmed'
+  AND m.host_id IS NOT NULL
+  AND m.meeting_date IS NOT NULL
+  AND COALESCE(m.host_name, '') <> 'CRM Administration';

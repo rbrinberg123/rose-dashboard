@@ -1,0 +1,49 @@
+import type { Metadata } from "next"
+import { PageShell } from "@/components/page-shell"
+import { getSupabaseServer } from "@/lib/supabase"
+import type { SchedulerMeetingRow } from "@/lib/types"
+import { SchedulerView } from "./scheduler-view"
+
+export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = { title: "Scheduler" }
+
+export default async function SchedulerPage() {
+  const sb = getSupabaseServer()
+
+  // ~11k confirmed, hosted meetings. PostgREST caps a single response at
+  // db-max-rows (1,000 by default on Supabase Cloud), so we paginate to make
+  // sure every row comes back regardless of project setting.
+  const PAGE_SIZE = 1000
+  const meetings: SchedulerMeetingRow[] = []
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await sb
+      .from("v_scheduler_meetings")
+      .select("*")
+      .order("meeting_day", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1)
+
+    if (error) {
+      return (
+        <PageShell title="Scheduler">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+            <div className="font-medium text-destructive">
+              Could not load v_scheduler_meetings
+            </div>
+            <div className="mt-1 text-muted-foreground">{error.message}</div>
+          </div>
+        </PageShell>
+      )
+    }
+
+    const page = (data ?? []) as SchedulerMeetingRow[]
+    meetings.push(...page)
+    if (page.length < PAGE_SIZE) break
+  }
+
+  return (
+    <PageShell title="Scheduler">
+      <SchedulerView meetings={meetings} />
+    </PageShell>
+  )
+}

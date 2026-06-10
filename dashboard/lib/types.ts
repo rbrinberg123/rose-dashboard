@@ -577,3 +577,23 @@ export type ActiveClientOption = {
   account_id: string
   name: string
 }
+
+/**
+ * One row per confirmed, hosted meeting for the Scheduler page (v_scheduler_meetings).
+ * Times are Eastern wall-clock: start_minutes is minutes from midnight ET,
+ * meeting_day / dow are the Eastern calendar day / ISO weekday. Occupied
+ * intervals (1h core + 45m in-person travel buffers) are derived on the page,
+ * not in SQL.
+ */
+export type SchedulerMeetingRow = {
+  meeting_id: string
+  host_id: string
+  host_name: string
+  meeting_date: string
+  start_minutes: number
+  meeting_day: string
+  dow: number
+  is_in_person: boolean
+  client_account_name: string | null
+  institution_name: string | null
+}
