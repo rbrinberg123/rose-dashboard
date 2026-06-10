@@ -2214,17 +2214,22 @@ WHERE m.meeting_status_label = 'Confirmed'
 -- the Scheduler page (host availability — Day view across all hosts, Week view
 -- for one host).
 --
--- Times are reported in US Eastern wall-clock time: meeting_date is a
--- timestamptz (an instant), so we convert it to America/New_York BEFORE
--- extracting the hour/minute. AT TIME ZONE 'America/New_York' handles the
--- EST/EDT daylight-saving shift automatically, so a 2:00pm Eastern meeting
--- always reports start_minutes = 840 regardless of the database's own
--- session timezone (UTC on Supabase Cloud).
+-- Times are reported as the meeting's stored wall-clock value, shown verbatim.
+-- IMPORTANT: meeting_date is a timestamptz, but the source data is NAIVE local
+-- wall-clock time tagged with a UTC (+00) offset — i.e. a meeting that really
+-- happens at 12:00 is stored as 12:00:00+00. The stored clock digits ARE the
+-- intended display time, so we must NOT shift zones. Converting to
+-- America/New_York would invent a 4–5h error (e.g. UK/Australia calls stored at
+-- their local morning hours would land at impossible Eastern times like 00:30).
 --
--- meeting_date is kept as the raw timestamptz for reference; meeting_day, dow,
--- and start_minutes are all computed from the Eastern-local value so they agree
--- with each other (e.g. a late-evening UTC instant that is still the same
--- Eastern calendar day does not drift onto the next day).
+-- To read the stored digits back independently of the database session zone we
+-- use AT TIME ZONE 'UTC' (surfaces the +00 wall clock as-is), then EXTRACT. So a
+-- meeting stored 14:00:00+00 reports start_minutes = 840, verbatim. NB the data
+-- mixes each party's own local zone (a London 9:00 is London time) — for the
+-- Eastern-based scheduler we pragmatically show the stored clock as-is.
+--
+-- meeting_day, dow, and start_minutes are all computed from the same stored
+-- value so they agree with each other.
 --
 -- Occupied intervals are intentionally NOT computed here. The page derives them
 -- from start_minutes + is_in_person (1h core; virtual = [start, start+60];
@@ -2243,15 +2248,19 @@ SELECT
   m.host_name,
   m.meeting_date,
   (
-    EXTRACT(HOUR   FROM (m.meeting_date AT TIME ZONE 'America/New_York')) * 60 +
-    EXTRACT(MINUTE FROM (m.meeting_date AT TIME ZONE 'America/New_York'))
+    EXTRACT(HOUR   FROM (m.meeting_date AT TIME ZONE 'UTC')) * 60 +
+    EXTRACT(MINUTE FROM (m.meeting_date AT TIME ZONE 'UTC'))
   )::int AS start_minutes,
-  (m.meeting_date AT TIME ZONE 'America/New_York')::date AS meeting_day,
-  EXTRACT(ISODOW FROM (m.meeting_date AT TIME ZONE 'America/New_York'))::int AS dow,
+  (m.meeting_date AT TIME ZONE 'UTC')::date AS meeting_day,
+  EXTRACT(ISODOW FROM (m.meeting_date AT TIME ZONE 'UTC'))::int AS dow,
   m.is_in_person,
   m.client_account_name,
-  m.institution_name
+  m.institution_name,
+  -- Appended last so CREATE OR REPLACE VIEW only adds a column (Postgres
+  -- forbids reordering/renaming existing view columns).
+  a.ticker_symbol AS client_ticker
 FROM public.meetings m
+LEFT JOIN public.accounts a ON a.account_id = m.client_account_id
 WHERE m.meeting_status_label = 'Confirmed'
   AND m.host_id IS NOT NULL
   AND m.meeting_date IS NOT NULL
@@ -2264,12 +2273,12 @@ WHERE m.meeting_status_label = 'Confirmed'
 -- "Unassigned meetings" section on the Scheduler page, which proposes a likely
 -- host for each (computed client-side from v_scheduler_meetings).
 --
--- Times use the SAME US Eastern conversion as v_scheduler_meetings so that
--- start_minutes / meeting_day line up exactly with hosted meetings — the page
--- compares occupied intervals across the two sets to detect host conflicts, so
--- they must share one clock. "Upcoming" is judged on the Eastern calendar day
--- (not UTC CURRENT_DATE) so today's afternoon meetings don't drop off in the
--- evening when the database's UTC date has already rolled over.
+-- Times use the SAME stored-wall-clock reading as v_scheduler_meetings (read
+-- as-is via AT TIME ZONE 'UTC' — see that view's note on why we must NOT shift
+-- zones) so start_minutes / meeting_day line up exactly with hosted meetings;
+-- the page compares occupied intervals across the two sets to detect host
+-- conflicts, so they must share one clock. "Upcoming" is judged on the stored
+-- meeting date >= today.
 --
 -- This set is small (host-less confirmed meetings from today onward), so the
 -- page fetches it in a single request with no pagination.
@@ -2279,17 +2288,18 @@ SELECT
   m.meeting_id,
   m.meeting_date,
   (
-    EXTRACT(HOUR   FROM (m.meeting_date AT TIME ZONE 'America/New_York')) * 60 +
-    EXTRACT(MINUTE FROM (m.meeting_date AT TIME ZONE 'America/New_York'))
+    EXTRACT(HOUR   FROM (m.meeting_date AT TIME ZONE 'UTC')) * 60 +
+    EXTRACT(MINUTE FROM (m.meeting_date AT TIME ZONE 'UTC'))
   )::int AS start_minutes,
-  (m.meeting_date AT TIME ZONE 'America/New_York')::date AS meeting_day,
+  (m.meeting_date AT TIME ZONE 'UTC')::date AS meeting_day,
   m.is_in_person,
   m.institution_name,
   m.client_account_id,
-  m.client_account_name
+  m.client_account_name,
+  a.ticker_symbol AS client_ticker
 FROM public.meetings m
+LEFT JOIN public.accounts a ON a.account_id = m.client_account_id
 WHERE m.meeting_status_label = 'Confirmed'
   AND m.host_id IS NULL
   AND m.meeting_date IS NOT NULL
-  AND (m.meeting_date AT TIME ZONE 'America/New_York')::date
-      >= (now() AT TIME ZONE 'America/New_York')::date;
+  AND (m.meeting_date AT TIME ZONE 'UTC')::date >= CURRENT_DATE;

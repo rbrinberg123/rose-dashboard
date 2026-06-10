@@ -595,6 +595,7 @@ export type SchedulerMeetingRow = {
   dow: number
   is_in_person: boolean
   client_account_name: string | null
+  client_ticker: string | null
   institution_name: string | null
 }
 
@@ -612,4 +613,5 @@ export type SchedulerUnassignedRow = {
   institution_name: string | null
   client_account_id: string | null
   client_account_name: string | null
+  client_ticker: string | null
 }

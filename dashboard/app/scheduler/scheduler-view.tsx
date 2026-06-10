@@ -11,6 +11,19 @@ const INPERSON = "#1D9E75" // in-person 1h core (teal)
 // Striped travel-buffer fill, built from the in-person colour at low opacity.
 const BUFFER_FILL = `repeating-linear-gradient(45deg, ${INPERSON}40, ${INPERSON}40 5px, ${INPERSON}14 5px, ${INPERSON}14 10px)`
 
+// Firm-wide "Week · everyone" block palette (softer pastels for density; the
+// "needs a host" amber signal takes priority over virtual/in-person for
+// unassigned meetings).
+const WK_VIRTUAL_BG = "#9FE1CB"
+const WK_VIRTUAL_TX = "#04342C"
+const WK_VIRTUAL_BORDER = "#5FB89C" // darker teal so adjacent blocks separate
+const WK_INPERSON_BG = "#B5D4F4"
+const WK_INPERSON_TX = "#042C53"
+const WK_INPERSON_BORDER = "#6BA0D8" // darker blue so adjacent blocks separate
+const WK_UNASSIGNED_BG = "#F7C9A6"
+const WK_UNASSIGNED_TX = "#7A3E12"
+const WK_UNASSIGNED_BORDER = "#C77A3E"
+
 // Default visible grid window: 7:00am–6:00pm. Auto-extended per displayed set
 // when meetings (incl. buffers) fall outside it.
 const DEFAULT_START = 7 * 60
@@ -33,7 +46,24 @@ const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 const PX_PER_HOUR = 44 // week view vertical scale
 
 type Interval = { start: number; end: number }
-type Mode = "day" | "week"
+type Mode = "day" | "week" | "week-all"
+
+// A single block in the firm-wide "Week · everyone" calendar. The core only
+// (1h) is drawn — travel buffers are intentionally omitted at firm scale.
+type FirmKind = "virtual" | "inperson" | "unassigned"
+type FirmBlock = {
+  id: string
+  day: string // meeting_day (ymd)
+  start: number // start_minutes
+  end: number // start + 60 (core)
+  kind: FirmKind
+  initials: string // host initials, or "?" for unassigned
+  ticker: string | null // client ticker shown on the block's second line
+  tooltip: string
+}
+// After lane-packing: which lane this block sits in, and how many lanes its
+// overlap-cluster needs (so width = 1 / lanes).
+type PackedBlock = FirmBlock & { lane: number; lanes: number }
 
 // A computed host suggestion for one unassigned meeting (advisory only).
 type UnassignedItem = {
@@ -166,6 +196,74 @@ function hourTicks(win: Interval): number[] {
   const ticks: number[] = []
   for (let t = win.start; t <= win.end; t += 60) ticks.push(t)
   return ticks
+}
+
+// Host initials for the narrow firm-week blocks: first + last word initials.
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return "?"
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+const firmKindStyle = (kind: FirmKind): React.CSSProperties => {
+  if (kind === "unassigned") {
+    return {
+      backgroundColor: WK_UNASSIGNED_BG,
+      color: WK_UNASSIGNED_TX,
+      border: `1px dashed ${WK_UNASSIGNED_BORDER}`,
+    }
+  }
+  if (kind === "inperson") {
+    return {
+      backgroundColor: WK_INPERSON_BG,
+      color: WK_INPERSON_TX,
+      border: `1px solid ${WK_INPERSON_BORDER}`,
+    }
+  }
+  return {
+    backgroundColor: WK_VIRTUAL_BG,
+    color: WK_VIRTUAL_TX,
+    border: `1px solid ${WK_VIRTUAL_BORDER}`,
+  }
+}
+
+// Lane-pack one day's blocks: group transitively-overlapping meetings (overlap
+// interval = [start, start+60]) into clusters, assign each to the first free
+// lane, and record the cluster's lane count so width = 1 / lanes.
+//
+// NOTE (future, not built now): at peak hours a firm-wide column can produce
+// many thin slivers. If that becomes a problem, add a host filter or a
+// density-collapse fallback (e.g. "+N more"). Shipping the side-by-side version
+// first per the spec.
+function packLanes(blocks: FirmBlock[]): PackedBlock[] {
+  const sorted = [...blocks].sort((a, b) => a.start - b.start || a.end - b.end)
+  const out: PackedBlock[] = []
+  let cluster: PackedBlock[] = []
+  let clusterMaxEnd = -Infinity
+
+  const flush = () => {
+    const lanes = cluster.reduce((mx, b) => Math.max(mx, b.lane + 1), 0)
+    for (const b of cluster) b.lanes = lanes
+    out.push(...cluster)
+    cluster = []
+    clusterMaxEnd = -Infinity
+  }
+
+  for (const b of sorted) {
+    // A block that starts at/after the cluster's running max end begins a new
+    // (non-overlapping) cluster.
+    if (cluster.length > 0 && b.start >= clusterMaxEnd) flush()
+    // First lane whose last block has already ended.
+    const laneEnds: number[] = []
+    for (const c of cluster) laneEnds[c.lane] = Math.max(laneEnds[c.lane] ?? -Infinity, c.end)
+    let lane = 0
+    while (lane < laneEnds.length && b.start < laneEnds[lane]) lane++
+    cluster.push({ ...b, lane, lanes: 1 })
+    clusterMaxEnd = Math.max(clusterMaxEnd, b.end)
+  }
+  flush()
+  return out
 }
 
 const selectClass = "h-9 rounded-md border border-border bg-card px-2 text-sm"
@@ -385,6 +483,71 @@ export function SchedulerView({
 
   const selectedHostName = hosts.find((h) => h.host_id === effectiveHost)?.host_name ?? ""
 
+  // ---- Firm-wide "Week · everyone" derived data -------------------------
+  // Every meeting (assigned + unassigned) in the selected Mon–Fri week, packed
+  // into side-by-side lanes per day. Core (1h) only — buffers are omitted here.
+  const firmWeek = React.useMemo(() => {
+    const set = new Set(weekDays.map((d) => d.ymd))
+    const blocks: FirmBlock[] = []
+
+    for (const m of meetings) {
+      if (!set.has(m.meeting_day)) continue
+      const type = m.is_in_person ? "In-person" : "Virtual"
+      blocks.push({
+        id: m.meeting_id,
+        day: m.meeting_day,
+        start: m.start_minutes,
+        end: m.start_minutes + CORE,
+        kind: m.is_in_person ? "inperson" : "virtual",
+        initials: initialsOf(m.host_name),
+        ticker: m.client_ticker,
+        tooltip: `${m.host_name} · ${meetingLabel(m)} · ${fmtTime(m.start_minutes)}–${fmtTime(m.start_minutes + CORE)} · ${type}`,
+      })
+    }
+    for (const u of unassigned) {
+      if (!set.has(u.meeting_day)) continue
+      const label = u.institution_name || u.client_account_name || "Meeting"
+      const type = u.is_in_person ? "In-person" : "Virtual"
+      blocks.push({
+        id: u.meeting_id,
+        day: u.meeting_day,
+        start: u.start_minutes,
+        end: u.start_minutes + CORE,
+        kind: "unassigned",
+        initials: "?",
+        ticker: u.client_ticker,
+        tooltip: `Unassigned · ${label} · ${fmtTime(u.start_minutes)}–${fmtTime(u.start_minutes + CORE)} · ${type}`,
+      })
+    }
+
+    // Window from cores only (no buffers drawn here).
+    let lo = DEFAULT_START
+    let hi = DEFAULT_END
+    for (const b of blocks) {
+      if (b.start < lo) lo = b.start
+      if (b.end > hi) hi = b.end
+    }
+    const win: Interval = {
+      start: Math.max(0, Math.floor(lo / 60) * 60),
+      end: Math.ceil(hi / 60) * 60,
+    }
+
+    const perDay = new Map<string, PackedBlock[]>()
+    for (const d of weekDays) {
+      perDay.set(
+        d.ymd,
+        packLanes(blocks.filter((b) => b.day === d.ymd)),
+      )
+    }
+
+    return {
+      win,
+      perDay,
+      total: blocks.length,
+      unassignedCount: blocks.reduce((n, b) => n + (b.kind === "unassigned" ? 1 : 0), 0),
+    }
+  }, [meetings, unassigned, weekDays])
+
   function pctOf(win: Interval, t: number): number {
     return ((t - win.start) / (win.end - win.start)) * 100
   }
@@ -413,6 +576,7 @@ export function SchedulerView({
                 [
                   { key: "day", label: "Day · everyone" },
                   { key: "week", label: "Week · one person" },
+                  { key: "week-all", label: "Week · everyone" },
                 ] as const
               ).map((opt) => {
                 const active = mode === opt.key
@@ -434,15 +598,15 @@ export function SchedulerView({
           </div>
 
           {/* Date navigator — date picker jumps to any date; arrows step by
-              day (Day mode) or week (Week mode). */}
+              day (Day mode) or week (both Week modes). */}
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-muted-foreground">Date</label>
             <div className="flex h-9 items-center gap-1">
               <button
                 type="button"
-                onClick={() => setAnchorDate((d) => addDays(d, mode === "week" ? -7 : -1))}
+                onClick={() => setAnchorDate((d) => addDays(d, mode === "day" ? -1 : -7))}
                 className="h-9 rounded-md border border-border bg-card px-2 text-sm hover:bg-slate-50"
-                aria-label={mode === "week" ? "Previous week" : "Previous day"}
+                aria-label={mode === "day" ? "Previous day" : "Previous week"}
               >
                 ◀
               </button>
@@ -458,9 +622,9 @@ export function SchedulerView({
               />
               <button
                 type="button"
-                onClick={() => setAnchorDate((d) => addDays(d, mode === "week" ? 7 : 1))}
+                onClick={() => setAnchorDate((d) => addDays(d, mode === "day" ? 1 : 7))}
                 className="h-9 rounded-md border border-border bg-card px-2 text-sm hover:bg-slate-50"
-                aria-label={mode === "week" ? "Next week" : "Next day"}
+                aria-label={mode === "day" ? "Next day" : "Next week"}
               >
                 ▶
               </button>
@@ -472,7 +636,7 @@ export function SchedulerView({
                 Today
               </button>
               <span className="ml-1 text-sm tabular-nums text-muted-foreground">
-                {mode === "week" ? weekRangeLabel : anchorLabel}
+                {mode === "day" ? anchorLabel : weekRangeLabel}
               </span>
             </div>
           </div>
@@ -549,10 +713,12 @@ export function SchedulerView({
         </div>
       </div>
 
-      {/* Legend + caveat — placed above the grid so the key reads first. */}
-      <Legend />
+      {/* Legend + caveat — placed above the grid so the key reads first. The
+          firm-wide week uses a different palette, so it gets its own legend. */}
+      {mode === "week-all" ? <FirmWeekLegend /> : <Legend />}
 
-      {/* Unassigned meetings — Day view only, for the selected date. */}
+      {/* Unassigned meetings — Day view only, for the selected date. Hidden in
+          both Week modes. */}
       {mode === "day" && (
         <UnassignedSection items={unassignedItems} dateLabel={anchorLabel} />
       )}
@@ -572,11 +738,18 @@ export function SchedulerView({
               free at {fmtTime(freeAt)} · {anchorLabel}
             </>
           )
-        ) : (
+        ) : mode === "week" ? (
           <>
             <span className="font-medium text-foreground">{selectedHostName}</span> ·{" "}
             {weekHostMeetings.length} meeting{weekHostMeetings.length === 1 ? "" : "s"} · week of{" "}
             {weekRangeLabel}
+          </>
+        ) : (
+          <>
+            <span className="font-medium text-foreground">{firmWeek.total}</span> meeting
+            {firmWeek.total === 1 ? "" : "s"}
+            {firmWeek.unassignedCount > 0 ? ` (${firmWeek.unassignedCount} unassigned)` : ""} ·
+            week of {weekRangeLabel}
           </>
         )}
       </div>
@@ -589,8 +762,10 @@ export function SchedulerView({
           freeAt={freeAt}
           pctOf={pctOf}
         />
-      ) : (
+      ) : mode === "week" ? (
         <WeekGrid host={selectedHostName} meetings={weekHostMeetings} weekDays={weekDays} win={weekWindow} />
+      ) : (
+        <FirmWeekGrid weekDays={weekDays} win={firmWeek.win} perDay={firmWeek.perDay} />
       )}
     </>
   )
@@ -813,6 +988,100 @@ function WeekGrid({
 }
 
 // ---------------------------------------------------------------------------
+// Firm-wide "Week · everyone": Mon–Fri columns × hour rows, every meeting
+// (assigned + unassigned) placed by start time, 1h core only (no buffers).
+// Overlapping meetings within a day are lane-packed side by side.
+// ---------------------------------------------------------------------------
+function FirmWeekGrid({
+  weekDays,
+  win,
+  perDay,
+}: {
+  weekDays: { label: string; date: Date; ymd: string }[]
+  win: Interval
+  perDay: Map<string, PackedBlock[]>
+}) {
+  const ticks = hourTicks(win)
+  const pxPerMin = PX_PER_HOUR / 60
+  const gridHeight = (win.end - win.start) * pxPerMin
+  const topOf = (t: number) => (t - win.start) * pxPerMin
+
+  return (
+    <div className="overflow-x-auto rounded-lg border bg-card">
+      <div className="flex min-w-[720px]">
+        {/* Time axis */}
+        <div className="w-12 shrink-0">
+          <div className="h-7 border-b" />
+          <div className="relative" style={{ height: gridHeight }}>
+            {ticks.map((t) => (
+              <span
+                key={t}
+                className="absolute right-1 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
+                style={{ top: topOf(t) }}
+              >
+                {fmtTickShort(t)}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Day columns */}
+        {weekDays.map((d) => {
+          const blocks = perDay.get(d.ymd) ?? []
+          return (
+            <div key={d.ymd} className="flex-1 border-l">
+              <div className="flex h-7 items-center justify-center border-b text-xs font-medium text-muted-foreground">
+                {d.label} {d.date.getDate()}
+              </div>
+              <div className="relative" style={{ height: gridHeight }}>
+                {/* Hour gridlines */}
+                {ticks.map((t) => (
+                  <div
+                    key={t}
+                    className="absolute left-0 right-0 border-t border-border/50"
+                    style={{ top: topOf(t) }}
+                  />
+                ))}
+                {/* Lane-packed meeting blocks (core only) */}
+                {blocks.map((b) => {
+                  const width = 100 / b.lanes
+                  const left = b.lane * width
+                  return (
+                    <div
+                      key={b.id}
+                      title={b.tooltip}
+                      className="absolute flex flex-col items-center justify-center overflow-hidden rounded-sm px-0.5 text-center"
+                      style={{
+                        boxSizing: "border-box",
+                        top: topOf(b.start),
+                        height: Math.max((b.end - b.start) * pxPerMin, 0),
+                        left: `calc(${left}% + 1px)`,
+                        width: `calc(${width}% - 2px)`,
+                        ...firmKindStyle(b.kind),
+                      }}
+                    >
+                      {/* Line 1: host initials (or "?") — bold, main text colour. */}
+                      <span className="text-[9px] font-semibold leading-[1.05]">{b.initials}</span>
+                      {/* Line 2: client ticker — lighter, secondary. Clips on
+                          very short slivers; the tooltip carries full detail. */}
+                      {b.ticker && b.ticker.trim() !== "" && (
+                        <span className="text-[8px] font-normal leading-[1.05] opacity-70">
+                          {b.ticker}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Unassigned meetings: host-less meetings on the selected date, with a
 // suggested host for each. Advisory only — the dashboard is read-only against
 // the mirrored CRM, so there is no assign action.
@@ -954,6 +1223,46 @@ function Legend() {
         before and after. Times are US Eastern. A host counts as busy whenever a meeting (or its
         buffer) overlaps a time — overlapping meetings are merged into continuous busy bands for
         the free-finder, but each meeting is still drawn separately.
+      </p>
+    </div>
+  )
+}
+
+// Legend for the firm-wide week overview — its own palette, no buffer swatch.
+function FirmWeekLegend() {
+  return (
+    <div className="mb-3 rounded-lg border bg-card p-3">
+      <div className="flex flex-wrap items-center gap-4 text-xs">
+        <span className="flex items-center gap-1.5">
+          <span
+            className="inline-block h-3 w-6 rounded-sm"
+            style={{ backgroundColor: WK_VIRTUAL_BG, color: WK_VIRTUAL_TX }}
+          />
+          Virtual
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span
+            className="inline-block h-3 w-6 rounded-sm"
+            style={{ backgroundColor: WK_INPERSON_BG }}
+          />
+          In-person
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span
+            className="inline-block h-3 w-6 rounded-sm"
+            style={{
+              backgroundColor: WK_UNASSIGNED_BG,
+              border: `1px dashed ${WK_UNASSIGNED_BORDER}`,
+            }}
+          />
+          Unassigned (no host)
+        </span>
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+        Firm-wide overview: every confirmed meeting for the week, placed by start time with a
+        1-hour assumed duration and lane-packed when they overlap. Blocks show host initials
+        (&ldquo;?&rdquo; = no host yet). Travel buffers are omitted here for density — see the Day or
+        single-person Week view for buffers. Times are US Eastern.
       </p>
     </div>
   )
