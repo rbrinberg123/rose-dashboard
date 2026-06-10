@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import type { SchedulerMeetingRow } from "@/lib/types"
+import { ArrowUp } from "lucide-react"
+import type { SchedulerMeetingRow, SchedulerUnassignedRow } from "@/lib/types"
 
 // Brand palette
 const NAVY_DEEP = "#1E2858"
@@ -34,16 +35,33 @@ const PX_PER_HOUR = 44 // week view vertical scale
 type Interval = { start: number; end: number }
 type Mode = "day" | "week"
 
+// A computed host suggestion for one unassigned meeting (advisory only).
+type UnassignedItem = {
+  row: SchedulerUnassignedRow
+  noPrior: boolean // pool empty — no host has ever hosted this institution/client
+  suggestedName: string | null // highest-ranked free candidate, if any
+  rationale: string | null // why the suggested host fits
+  bumpNote: string | null // amber note when the usual top host is busy
+}
+
 // ---------------------------------------------------------------------------
 // Duration / occupied-interval model (lives here, not in SQL).
 // Every meeting's core is 1h from start. Virtual occupies [start, start+60];
 // in-person adds a 45m travel buffer each side: [start-45, start+60+45].
 // ---------------------------------------------------------------------------
-function occupiedInterval(m: SchedulerMeetingRow): Interval {
-  if (m.is_in_person) {
-    return { start: m.start_minutes - BUFFER, end: m.start_minutes + CORE + BUFFER }
+function occFrom(startMinutes: number, isInPerson: boolean): Interval {
+  if (isInPerson) {
+    return { start: startMinutes - BUFFER, end: startMinutes + CORE + BUFFER }
   }
-  return { start: m.start_minutes, end: m.start_minutes + CORE }
+  return { start: startMinutes, end: startMinutes + CORE }
+}
+function occupiedInterval(m: SchedulerMeetingRow): Interval {
+  return occFrom(m.start_minutes, m.is_in_person)
+}
+
+// Two half-open intervals overlap when each starts before the other ends.
+function intervalsOverlap(a: Interval, b: Interval): boolean {
+  return a.start < b.end && b.start < a.end
 }
 
 type Seg = { startM: number; endM: number; kind: "virtual" | "core" | "buffer" }
@@ -152,7 +170,13 @@ function hourTicks(win: Interval): number[] {
 
 const selectClass = "h-9 rounded-md border border-border bg-card px-2 text-sm"
 
-export function SchedulerView({ meetings }: { meetings: SchedulerMeetingRow[] }) {
+export function SchedulerView({
+  meetings,
+  unassigned,
+}: {
+  meetings: SchedulerMeetingRow[]
+  unassigned: SchedulerUnassignedRow[]
+}) {
   const today = React.useMemo(() => new Date(), [])
 
   // Cutoff for "last 12 months" host activity, as an Eastern calendar date
@@ -183,6 +207,44 @@ export function SchedulerView({ meetings }: { meetings: SchedulerMeetingRow[] })
       l12m: l12mByHost.get(host_id) ?? 0,
     })).sort((a, b) => b.l12m - a.l12m || a.host_name.localeCompare(b.host_name))
   }, [meetings, l12mByHost])
+
+  // Lifetime frequency maps + per-host/day occupied intervals, derived once from
+  // hosted meetings. Used to suggest a host for each unassigned meeting.
+  // Hosted meetings expose client_account_name (not id), so client affinity is
+  // matched by name; institution affinity is matched by institution_name.
+  const affinity = React.useMemo(() => {
+    const hostName = new Map<string, string>()
+    const instHost = new Map<string, Map<string, number>>() // institution → host → count
+    const clientHost = new Map<string, Map<string, number>>() // client name → host → count
+    const instTotal = new Map<string, number>() // institution → total hosted meetings
+    const clientTotal = new Map<string, number>() // client name → total hosted meetings
+    const hostDay = new Map<string, Map<string, Interval[]>>() // host → day → occupied intervals
+
+    const bump = (m: Map<string, Map<string, number>>, key: string, host: string) => {
+      let inner = m.get(key)
+      if (!inner) m.set(key, (inner = new Map()))
+      inner.set(host, (inner.get(host) ?? 0) + 1)
+    }
+
+    for (const m of meetings) {
+      hostName.set(m.host_id, m.host_name)
+      if (m.institution_name) {
+        bump(instHost, m.institution_name, m.host_id)
+        instTotal.set(m.institution_name, (instTotal.get(m.institution_name) ?? 0) + 1)
+      }
+      if (m.client_account_name) {
+        bump(clientHost, m.client_account_name, m.host_id)
+        clientTotal.set(m.client_account_name, (clientTotal.get(m.client_account_name) ?? 0) + 1)
+      }
+      let days = hostDay.get(m.host_id)
+      if (!days) hostDay.set(m.host_id, (days = new Map()))
+      const arr = days.get(m.meeting_day)
+      if (arr) arr.push(occupiedInterval(m))
+      else days.set(m.meeting_day, [occupiedInterval(m)])
+    }
+    return { hostName, instHost, clientHost, instTotal, clientTotal, hostDay }
+  }, [meetings])
+
   const [mode, setMode] = React.useState<Mode>("day")
   // Single source of truth: the selected date. Day mode shows this date; Week
   // mode shows the Mon–Fri week containing it. Defaults to today.
@@ -237,6 +299,79 @@ export function SchedulerView({ meetings }: { meetings: SchedulerMeetingRow[] })
       return b.l12m - a.l12m || a.host_name.localeCompare(b.host_name)
     })
   }, [dayRows, freeAt])
+
+  // Suggested host per unassigned meeting on the selected date. Each is computed
+  // independently (no chain-reservation across rows) and is advisory only.
+  const unassignedItems = React.useMemo<UnassignedItem[]>(() => {
+    const rows = unassigned
+      .filter((u) => u.meeting_day === anchorYmd)
+      .sort((a, b) => a.start_minutes - b.start_minutes)
+
+    return rows.map((u) => {
+      const occ = occFrom(u.start_minutes, u.is_in_person)
+      const inst = u.institution_name
+      const client = u.client_account_name
+      const instMap = inst ? affinity.instHost.get(inst) : undefined
+      const clientMap = client ? affinity.clientHost.get(client) : undefined
+
+      // Candidate pool = any host who has hosted this institution OR this client.
+      const candidateIds = new Set<string>()
+      if (instMap) for (const id of instMap.keys()) candidateIds.add(id)
+      if (clientMap) for (const id of clientMap.keys()) candidateIds.add(id)
+
+      const candidates = Array.from(candidateIds)
+        .map((id) => ({
+          id,
+          name: affinity.hostName.get(id) ?? "—",
+          instCount: instMap?.get(id) ?? 0,
+          clientCount: clientMap?.get(id) ?? 0,
+          l12m: l12mByHost.get(id) ?? 0,
+        }))
+        // Rank: institution count desc, then client count desc, then L12M desc,
+        // with name as a final deterministic tiebreaker.
+        .sort(
+          (a, b) =>
+            b.instCount - a.instCount ||
+            b.clientCount - a.clientCount ||
+            b.l12m - a.l12m ||
+            a.name.localeCompare(b.name),
+        )
+
+      const isBusy = (id: string) => {
+        const ivs = affinity.hostDay.get(id)?.get(u.meeting_day)
+        return ivs ? ivs.some((iv) => intervalsOverlap(iv, occ)) : false
+      }
+
+      const rationaleFor = (c: { instCount: number; clientCount: number }) => {
+        if (c.instCount > 0 && inst) {
+          return `hosts ${c.instCount} of ${affinity.instTotal.get(inst) ?? c.instCount} ${inst} meetings`
+        }
+        if (c.clientCount > 0 && client) {
+          return `hosts ${c.clientCount} of ${affinity.clientTotal.get(client) ?? c.clientCount} ${client} meetings`
+        }
+        return null
+      }
+
+      const top = candidates[0]
+      const suggested = candidates.find((c) => !isBusy(c.id)) ?? null
+      const topPrimaryN = top ? (top.instCount > 0 ? top.instCount : top.clientCount) : 0
+
+      // Surface a note when the overall top candidate was skipped (or everyone
+      // is busy) because the usual host has a conflict.
+      const bumpNote =
+        top && (!suggested || suggested.id !== top.id)
+          ? `${top.name} usually hosts (${topPrimaryN}) but is busy at ${fmtTime(u.start_minutes)}`
+          : null
+
+      return {
+        row: u,
+        noPrior: candidates.length === 0,
+        suggestedName: suggested ? suggested.name : null,
+        rationale: suggested ? rationaleFor(suggested) : null,
+        bumpNote,
+      }
+    })
+  }, [unassigned, anchorYmd, affinity, l12mByHost])
 
   const freeCount = freeAt == null ? 0 : dayRows.filter((r) => r.free).length
 
@@ -416,6 +551,11 @@ export function SchedulerView({ meetings }: { meetings: SchedulerMeetingRow[] })
 
       {/* Legend + caveat — placed above the grid so the key reads first. */}
       <Legend />
+
+      {/* Unassigned meetings — Day view only, for the selected date. */}
+      {mode === "day" && (
+        <UnassignedSection items={unassignedItems} dateLabel={anchorLabel} />
+      )}
 
       {/* Summary line */}
       <div className="mb-3 text-sm text-muted-foreground">
@@ -667,6 +807,116 @@ function WeekGrid({
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Unassigned meetings: host-less meetings on the selected date, with a
+// suggested host for each. Advisory only — the dashboard is read-only against
+// the mirrored CRM, so there is no assign action.
+// ---------------------------------------------------------------------------
+function UnassignedSection({
+  items,
+  dateLabel,
+}: {
+  items: UnassignedItem[]
+  dateLabel: string
+}) {
+  return (
+    <div className="mb-4">
+      <div className="mb-2">
+        <h2 className="text-sm font-semibold" style={{ color: NAVY_DEEP }}>
+          Unassigned meetings
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          Upcoming confirmed meetings with no host yet — with a suggested host based on who
+          usually covers that institution or client and who&apos;s free at the time.
+        </p>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border bg-card">
+        {items.length === 0 ? (
+          <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+            No unassigned meetings for {dateLabel}.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">When</th>
+                  <th className="px-3 py-2 text-left font-medium">Meeting</th>
+                  <th className="px-3 py-2 text-left font-medium">Suggested host</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(({ row, noPrior, suggestedName, rationale, bumpNote }) => (
+                  <tr key={row.meeting_id} className="border-b last:border-0 align-top">
+                    {/* When */}
+                    <td className="whitespace-nowrap px-3 py-2.5">
+                      <div className="font-medium tabular-nums">{fmtTime(row.start_minutes)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.is_in_person ? "In-person" : "Virtual"}
+                      </div>
+                    </td>
+                    {/* Meeting */}
+                    <td className="px-3 py-2.5">
+                      <div className="font-medium">
+                        {row.institution_name || row.client_account_name || "—"}
+                      </div>
+                      {row.institution_name && row.client_account_name && (
+                        <div className="text-xs text-muted-foreground">
+                          {row.client_account_name}
+                        </div>
+                      )}
+                    </td>
+                    {/* Suggested host */}
+                    <td className="px-3 py-2.5">
+                      {noPrior ? (
+                        <span className="text-sm italic text-muted-foreground">
+                          No prior host for this institution — assign manually.
+                        </span>
+                      ) : suggestedName ? (
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium">{suggestedName}</span>
+                            <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                              free
+                            </span>
+                          </div>
+                          {rationale && (
+                            <div className="text-xs text-muted-foreground">{rationale}</div>
+                          )}
+                          {bumpNote && (
+                            <div className="mt-0.5 flex items-center gap-1 text-xs text-amber-600">
+                              <ArrowUp className="size-3 shrink-0" />
+                              {bumpNote}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        // Pool non-empty but everyone busy.
+                        <div>
+                          <span className="text-sm italic text-muted-foreground">
+                            No free usual host — assign manually.
+                          </span>
+                          {bumpNote && (
+                            <div className="mt-0.5 flex items-center gap-1 text-xs text-amber-600">
+                              <ArrowUp className="size-3 shrink-0" />
+                              {bumpNote}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )

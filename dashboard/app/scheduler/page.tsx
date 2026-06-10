@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
-import type { SchedulerMeetingRow } from "@/lib/types"
+import type { SchedulerMeetingRow, SchedulerUnassignedRow } from "@/lib/types"
 import { SchedulerView } from "./scheduler-view"
 
 export const dynamic = "force-dynamic"
@@ -41,9 +41,31 @@ export default async function SchedulerPage() {
     if (page.length < PAGE_SIZE) break
   }
 
+  // Host-less upcoming confirmed meetings. This set is small (host_id IS NULL,
+  // today onward), so a single fetch with no pagination is enough.
+  const unassignedRes = await sb
+    .from("v_scheduler_unassigned")
+    .select("*")
+    .order("meeting_date", { ascending: true })
+
+  if (unassignedRes.error) {
+    return (
+      <PageShell title="Scheduler">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          <div className="font-medium text-destructive">
+            Could not load v_scheduler_unassigned
+          </div>
+          <div className="mt-1 text-muted-foreground">{unassignedRes.error.message}</div>
+        </div>
+      </PageShell>
+    )
+  }
+
+  const unassigned = (unassignedRes.data ?? []) as SchedulerUnassignedRow[]
+
   return (
     <PageShell title="Scheduler">
-      <SchedulerView meetings={meetings} />
+      <SchedulerView meetings={meetings} unassigned={unassigned} />
     </PageShell>
   )
 }

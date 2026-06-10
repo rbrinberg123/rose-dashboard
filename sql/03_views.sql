@@ -2256,3 +2256,40 @@ WHERE m.meeting_status_label = 'Confirmed'
   AND m.host_id IS NOT NULL
   AND m.meeting_date IS NOT NULL
   AND COALESCE(m.host_name, '') <> 'CRM Administration';
+
+
+-- -----------------------------------------------------------------------------
+-- v_scheduler_unassigned
+-- One row per confirmed, upcoming meeting that has NO host. Powers the
+-- "Unassigned meetings" section on the Scheduler page, which proposes a likely
+-- host for each (computed client-side from v_scheduler_meetings).
+--
+-- Times use the SAME US Eastern conversion as v_scheduler_meetings so that
+-- start_minutes / meeting_day line up exactly with hosted meetings — the page
+-- compares occupied intervals across the two sets to detect host conflicts, so
+-- they must share one clock. "Upcoming" is judged on the Eastern calendar day
+-- (not UTC CURRENT_DATE) so today's afternoon meetings don't drop off in the
+-- evening when the database's UTC date has already rolled over.
+--
+-- This set is small (host-less confirmed meetings from today onward), so the
+-- page fetches it in a single request with no pagination.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_scheduler_unassigned AS
+SELECT
+  m.meeting_id,
+  m.meeting_date,
+  (
+    EXTRACT(HOUR   FROM (m.meeting_date AT TIME ZONE 'America/New_York')) * 60 +
+    EXTRACT(MINUTE FROM (m.meeting_date AT TIME ZONE 'America/New_York'))
+  )::int AS start_minutes,
+  (m.meeting_date AT TIME ZONE 'America/New_York')::date AS meeting_day,
+  m.is_in_person,
+  m.institution_name,
+  m.client_account_id,
+  m.client_account_name
+FROM public.meetings m
+WHERE m.meeting_status_label = 'Confirmed'
+  AND m.host_id IS NULL
+  AND m.meeting_date IS NOT NULL
+  AND (m.meeting_date AT TIME ZONE 'America/New_York')::date
+      >= (now() AT TIME ZONE 'America/New_York')::date;

@@ -597,3 +597,19 @@ export type SchedulerMeetingRow = {
   client_account_name: string | null
   institution_name: string | null
 }
+
+/**
+ * One row per confirmed, upcoming, host-less meeting for the Scheduler page's
+ * "Unassigned meetings" section (v_scheduler_unassigned). Same Eastern-time
+ * basis as SchedulerMeetingRow so occupied-interval conflict checks line up.
+ */
+export type SchedulerUnassignedRow = {
+  meeting_id: string
+  meeting_date: string
+  start_minutes: number
+  meeting_day: string
+  is_in_person: boolean
+  institution_name: string | null
+  client_account_id: string | null
+  client_account_name: string | null
+}
