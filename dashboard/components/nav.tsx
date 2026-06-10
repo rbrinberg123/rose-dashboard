@@ -4,26 +4,13 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
-  BarChart3,
-  Briefcase,
   Building2,
-  PieChart,
-  User,
-  User2,
+  Landmark,
   Users,
-  MessageSquare,
-  CalendarClock,
   CalendarDays,
   FileText,
-  TrendingUp,
-  Settings2,
-  DollarSign,
-  Receipt,
-  PiggyBank,
-  ShieldAlert,
-  AlertTriangle,
-  ClipboardList,
-  RefreshCw,
+  Settings,
+  Lock,
   Menu,
   LogOut,
 } from "lucide-react"
@@ -38,53 +25,74 @@ import {
 } from "@/components/ui/sheet"
 import { signOutAction } from "@/app/auth/actions"
 
-type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
+type NavItem = { href: string; label: string }
+type NavSection = {
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  items: NavItem[]
+}
 
-const dashboards: NavItem[] = [
-  { href: "/client-statistics", label: "Client Statistics", icon: BarChart3 },
-  { href: "/portfolio", label: "Client Portfolio", icon: Briefcase },
-  { href: "/client-detail", label: "Client Detail", icon: User2 },
-  { href: "/institutions", label: "Institutions", icon: Building2 },
-  { href: "/institution-style", label: "Institution Style", icon: PieChart },
-  { href: "/productivity", label: "Productivity", icon: Users },
-  { href: "/productivity-detail", label: "Productivity Detail", icon: User },
-  { href: "/scheduler", label: "Scheduler", icon: CalendarDays },
-  { href: "/feedback", label: "Feedback Discipline", icon: MessageSquare },
-  { href: "/pipeline", label: "Pipeline (Next 30 Days)", icon: CalendarClock },
-  { href: "/renewals", label: "Contract Renewals", icon: FileText },
-  { href: "/contract-management", label: "Contract Management", icon: FileText },
-  { href: "/margin", label: "Margin by Client", icon: TrendingUp },
-]
-
-const admin: NavItem[] = [
-  { href: "/cost-assumptions", label: "Cost Assumptions", icon: Settings2 },
-  { href: "/salary-schedule", label: "Salary Schedule", icon: DollarSign },
-  { href: "/direct-costs", label: "Direct Costs", icon: Receipt },
-  { href: "/quarterly-overhead", label: "Quarterly Overhead", icon: PiggyBank },
-  { href: "/overhead-overrides", label: "Overhead Overrides", icon: ShieldAlert },
-  { href: "/revenue-overrides", label: "Revenue Overrides", icon: ClipboardList },
-  { href: "/exceptions", label: "Exception Report", icon: AlertTriangle },
-  { href: "/admin/sync", label: "Sync Status", icon: RefreshCw },
+const sections: NavSection[] = [
+  {
+    label: "Clients",
+    icon: Building2,
+    items: [
+      { href: "/client-statistics", label: "Statistics" },
+      { href: "/portfolio", label: "Portfolio" },
+      { href: "/client-detail", label: "Detail" },
+    ],
+  },
+  {
+    label: "Institutions",
+    icon: Landmark,
+    items: [
+      { href: "/institutions", label: "Directory" },
+      { href: "/institution-style", label: "Finder" },
+    ],
+  },
+  {
+    label: "People",
+    icon: Users,
+    items: [
+      { href: "/productivity", label: "Summary" },
+      { href: "/productivity-detail", label: "Detail" },
+    ],
+  },
+  {
+    label: "Logistics",
+    icon: CalendarDays,
+    items: [
+      { href: "/scheduler", label: "Scheduler" },
+      { href: "/feedback", label: "Feedback" },
+      { href: "/pipeline", label: "Pipeline" },
+    ],
+  },
+  {
+    label: "Contracts",
+    icon: FileText,
+    items: [{ href: "/contract-management", label: "Management" }],
+  },
 ]
 
 function Section({
-  title,
-  items,
+  section,
   current,
   onNavigate,
 }: {
-  title: string
-  items: NavItem[]
+  section: NavSection
   current: string
   onNavigate?: () => void
 }) {
+  const { label, icon: Icon, items } = section
   return (
-    <div className="px-3 py-2">
-      <h2 className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        {title}
-      </h2>
+    <div className="px-3 py-1.5">
+      {/* Non-clickable category label — static, no hover/navigation */}
+      <div className="mb-1 flex items-center gap-2 px-2 text-[12px] font-medium uppercase tracking-wider text-[#8A93BD]">
+        <Icon className="size-[18px] shrink-0" />
+        <span>{label}</span>
+      </div>
       <ul className="space-y-0.5">
-        {items.map(({ href, label, icon: Icon }) => {
+        {items.map(({ href, label: itemLabel }) => {
           const active = current === href || current.startsWith(href + "/")
           return (
             <li key={href}>
@@ -93,14 +101,13 @@ function Section({
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                  "flex items-center rounded-md py-1 pl-6 pr-2 text-sm transition-colors",
                   active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium ring-1 ring-sidebar-border"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+                    ? "border-l-[3px] border-[#6FA0DA] bg-[#39477F] pl-[21px] font-medium text-white"
+                    : "text-[#B6BDDD] hover:bg-[#39477F]/40 hover:text-white",
                 )}
               >
-                <Icon className="size-4 shrink-0" />
-                <span className="truncate">{label}</span>
+                <span className="truncate">{itemLabel}</span>
               </Link>
             </li>
           )
@@ -113,20 +120,52 @@ function Section({
 function NavContents({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
   return (
     <>
-      <Section title="Dashboards" items={dashboards} current={pathname} onNavigate={onNavigate} />
-      <div className="my-2 mx-3 border-t border-sidebar-border/60" />
-      <Section title="Admin" items={admin} current={pathname} onNavigate={onNavigate} />
+      {sections.map((section, i) => (
+        <React.Fragment key={section.label}>
+          {i > 0 ? <div className="mx-3 my-0.5 border-t-[0.5px] border-[#2F3A6B]" /> : null}
+          <Section section={section} current={pathname} onNavigate={onNavigate} />
+        </React.Fragment>
+      ))}
     </>
+  )
+}
+
+/* Pinned, disabled admin row — muted, non-clickable, no navigation. */
+function AdminRow() {
+  return (
+    <div
+      aria-disabled="true"
+      className="flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[#6E77A0]"
+    >
+      <Settings className="size-[18px] shrink-0" />
+      <span className="flex-1 uppercase tracking-wider text-[12px] font-medium">Admin</span>
+      <Lock className="size-3.5 shrink-0 opacity-70" />
+    </div>
   )
 }
 
 function Brand() {
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex size-7 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground text-sm font-bold">
-        R
-      </div>
-      <span className="font-semibold text-sidebar-foreground">Rose &amp; Co.</span>
+    <div className="flex items-center gap-[8px]">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/rose-logo.png"
+        alt="Rose &amp; Co."
+        className="size-[68px] shrink-0 overflow-hidden rounded-[12px] object-contain"
+      />
+      <span
+        className="text-white"
+        style={{
+          fontFamily: "var(--font-sans)",
+          fontStyle: "italic",
+          fontWeight: 400,
+          fontSize: "46px",
+          letterSpacing: "3px",
+          lineHeight: 1,
+        }}
+      >
+        IQ
+      </span>
     </div>
   )
 }
@@ -158,39 +197,47 @@ export function Sidebar({ userEmail }: { userEmail?: string | null }) {
           >
             <Menu className="size-5" />
           </SheetTrigger>
-          <SheetContent side="left" className="w-72 bg-sidebar p-0">
-            <SheetHeader className="border-b border-sidebar-border">
-              <SheetTitle className="flex items-center gap-2">
+          <SheetContent side="left" className="w-72 bg-[#1E2858] p-0">
+            <SheetHeader className="border-b-[0.5px] border-[#39477F] bg-[#1E2858]">
+              <SheetTitle className="flex items-center justify-center">
                 <Brand />
               </SheetTitle>
             </SheetHeader>
             <nav className="flex-1 overflow-y-auto py-2">
               <NavContents pathname={pathname} onNavigate={() => setMobileOpen(false)} />
             </nav>
+            <div className="border-t-[0.5px] border-[#2F3A6B] px-3 py-2">
+              <AdminRow />
+            </div>
             {userEmail ? (
-              <div className="border-t border-sidebar-border p-3">
+              <div className="border-t-[0.5px] border-[#2F3A6B] p-3">
                 <UserPanel email={userEmail} />
               </div>
             ) : null}
           </SheetContent>
         </Sheet>
-        <Brand />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/rose-logo.png" alt="Rose &amp; Co." className="size-8 object-contain" />
       </header>
 
       {/* Desktop sidebar — visible at md+ */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
-        <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-[#1E2858] md:sticky md:top-0 md:flex md:h-screen">
+        {/* Logo header on navy background, ~88px square, faint bottom divider */}
+        <div className="flex items-center border-b-[0.5px] border-[#39477F] bg-[#1E2858] py-4 pl-5 pr-4">
           <Brand />
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
           <NavContents pathname={pathname} />
         </nav>
+        <div className="border-t-[0.5px] border-[#2F3A6B] px-3 py-2">
+          <AdminRow />
+        </div>
         {userEmail ? (
-          <div className="border-t border-sidebar-border px-3 py-3">
+          <div className="border-t-[0.5px] border-[#2F3A6B] px-3 py-3">
             <UserPanel email={userEmail} />
           </div>
         ) : (
-          <div className="border-t border-sidebar-border px-4 py-3 text-xs text-muted-foreground">
+          <div className="border-t-[0.5px] border-[#2F3A6B] px-4 py-3 text-xs text-[#8A93BD]">
             v0.1 · Internal
           </div>
         )}
@@ -202,16 +249,16 @@ export function Sidebar({ userEmail }: { userEmail?: string | null }) {
 function UserPanel({ email }: { email: string }) {
   return (
     <div className="space-y-2">
-      <div className="px-2 text-xs text-muted-foreground" title={email}>
+      <div className="px-2 text-xs text-[#8A93BD]" title={email}>
         Signed in as
-        <div className="truncate text-sidebar-foreground">{email}</div>
+        <div className="truncate text-[#E6E9F5]">{email}</div>
       </div>
       <form action={signOutAction}>
         <Button
           type="submit"
           variant="ghost"
           size="sm"
-          className="w-full justify-start text-sidebar-foreground/80 hover:text-sidebar-foreground"
+          className="w-full justify-start text-[#B6BDDD] hover:bg-[#39477F]/40 hover:text-white"
         >
           <LogOut className="size-4" />
           Sign out
