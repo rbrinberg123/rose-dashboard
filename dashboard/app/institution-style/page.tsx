@@ -66,7 +66,7 @@ export default async function InstitutionStylePage() {
   const clients = (clientsRes.data ?? []) as ActiveClientOption[]
 
   return (
-    <PageShell title="Institution Style/Set Finder">
+    <PageShell title="Institution Style/Set Finder" hideHeader>
       <InstitutionStyleView meetings={meetingRows} clients={clients} />
     </PageShell>
   )

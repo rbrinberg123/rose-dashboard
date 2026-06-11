@@ -43,7 +43,7 @@ export default async function FeedbackPage() {
   }
 
   return (
-    <PageShell title="Feedback">
+    <PageShell title="Feedback" hideHeader>
       <FeedbackView rows={rows} />
     </PageShell>
   )

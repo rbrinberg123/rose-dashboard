@@ -64,7 +64,7 @@ export default async function SchedulerPage() {
   const unassigned = (unassignedRes.data ?? []) as SchedulerUnassignedRow[]
 
   return (
-    <PageShell title="Scheduler">
+    <PageShell title="Scheduler" hideHeader>
       <SchedulerView meetings={meetings} unassigned={unassigned} />
     </PageShell>
   )

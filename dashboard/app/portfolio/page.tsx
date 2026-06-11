@@ -34,6 +34,7 @@ export default async function ClientPortfolioPage() {
     <PageShell
       title="Client Portfolio"
       description={`${rows.length.toLocaleString()} clients — health at a glance`}
+      hideHeader
     >
       <PortfolioTable rows={rows} />
     </PageShell>

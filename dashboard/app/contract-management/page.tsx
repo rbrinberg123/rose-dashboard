@@ -50,7 +50,11 @@ export default async function ContractManagementPage() {
   }))
 
   return (
-    <PageShell title="Contract Management" description="All active clients · sorted by soonest contract expiry">
+    <PageShell
+      title="Contract Management"
+      description="All active clients · sorted by soonest contract expiry"
+      hideHeader
+    >
       <ContractManagementView rows={rowsWithUrl} />
     </PageShell>
   )

@@ -3,6 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { format, parseISO } from "date-fns"
+import { GradientHero } from "@/components/gradient-hero"
 import type { InstitutionSummaryRow } from "@/lib/types"
 
 // Brand palette
@@ -145,17 +146,12 @@ export function InstitutionsSummaryView({
 
   return (
     <>
-      {/* Section 1: Page header */}
+      {/* Section 1: Gradient hero header */}
       <div className="mb-4">
-        <h1
-          className="text-2xl font-medium tracking-tight"
-          style={{ color: NAVY_DEEP }}
-        >
-          Institution Summary
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          All institutions ever met · {total.toLocaleString()} total
-        </p>
+        <GradientHero
+          title="Institution Summary"
+          subtitle={`All institutions ever met · ${total.toLocaleString()} total`}
+        />
       </div>
 
       {/* Section 1.5: Status legend */}

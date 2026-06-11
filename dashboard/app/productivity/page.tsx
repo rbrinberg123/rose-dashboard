@@ -353,7 +353,7 @@ export default async function ProductivityPage({
   })
 
   return (
-    <PageShell title="Productivity" description="Activity by person over a date range">
+    <PageShell title="Productivity" description="Activity by person over a date range" hideHeader>
       <ProductivityView from={from} to={to} rows={rowsWithRole} />
     </PageShell>
   )

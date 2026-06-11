@@ -7,23 +7,32 @@ export function PageShell({
   description,
   actions,
   children,
+  hideHeader = false,
 }: {
   title: string
   description?: string
   actions?: React.ReactNode
   children: React.ReactNode
+  /**
+   * Opt out of the thin top header row (title/description divider) for pages
+   * that supply their own heading (e.g. a gradient banner). Defaults to false,
+   * so every other page keeps the standard header.
+   */
+  hideHeader?: boolean
 }) {
   return (
     <div className="flex flex-col">
-      <header className="flex h-14 items-center justify-between border-b border-border bg-background/50 px-6 backdrop-blur">
-        <div className="min-w-0">
-          <h1 className="truncate text-base font-semibold">{title}</h1>
-          {description ? (
-            <p className="truncate text-xs text-muted-foreground">{description}</p>
-          ) : null}
-        </div>
-        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
-      </header>
+      {hideHeader ? null : (
+        <header className="flex h-14 items-center justify-between border-b border-border bg-background/50 px-6 backdrop-blur">
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-semibold">{title}</h1>
+            {description ? (
+              <p className="truncate text-xs text-muted-foreground">{description}</p>
+            ) : null}
+          </div>
+          {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+        </header>
+      )}
       <div className="p-6">{children}</div>
     </div>
   )

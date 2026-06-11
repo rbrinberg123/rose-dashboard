@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
+import { GradientHero } from "@/components/gradient-hero"
 import { cn } from "@/lib/utils"
 import type { ClientPortfolioRow } from "@/lib/types"
 
@@ -289,7 +290,14 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
   }
 
   return (
-    <div className="space-y-3">
+    <>
+      <div className="mb-4">
+        <GradientHero
+          title="Client Portfolio"
+          subtitle={`${rows.length.toLocaleString()} clients — health at a glance`}
+        />
+      </div>
+      <div className="space-y-3">
       {/* Activity flag legend */}
       <div
         className="flex flex-wrap items-center gap-2 text-muted-foreground"
@@ -669,6 +677,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
           </TableBody>
         </Table>
       </div>
-    </div>
+      </div>
+    </>
   )
 }

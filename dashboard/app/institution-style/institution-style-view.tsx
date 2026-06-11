@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { GradientHero } from "@/components/gradient-hero"
 import type {
   ActiveClientOption,
   InstitutionStyleMeetingRow,
@@ -281,18 +282,12 @@ export function InstitutionStyleView({
 
   return (
     <>
-      {/* Header */}
+      {/* Gradient hero header */}
       <div className="mb-4">
-        <h1
-          className="text-2xl font-medium tracking-tight"
-          style={{ color: NAVY_DEEP }}
-        >
-          Institution Style/Set Finder
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Rank institutions by the share of their meetings spent with clients of
-          a chosen style or set.
-        </p>
+        <GradientHero
+          title="Institution Style/Set Finder"
+          subtitle="Rank institutions by the share of their meetings spent with clients of a chosen style or set."
+        />
       </div>
 
       {/* Controls */}

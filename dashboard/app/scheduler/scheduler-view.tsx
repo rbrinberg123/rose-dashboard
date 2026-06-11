@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { ArrowUp } from "lucide-react"
+import { GradientHero } from "@/components/gradient-hero"
 import type { SchedulerMeetingRow, SchedulerUnassignedRow } from "@/lib/types"
 
 // Brand palette
@@ -557,15 +558,12 @@ export function SchedulerView({
 
   return (
     <>
-      {/* Header */}
+      {/* Gradient hero header */}
       <div className="mb-4">
-        <h1 className="text-2xl font-medium tracking-tight" style={{ color: NAVY_DEEP }}>
-          Scheduler
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Host availability from confirmed meetings. See one person&apos;s week, or who&apos;s
-          free across everyone on a given day.
-        </p>
+        <GradientHero
+          title="Scheduler"
+          subtitle="Host availability from confirmed meetings. See one person's week, or who's free across everyone on a given day."
+        />
       </div>
 
       {/* Controls */}
