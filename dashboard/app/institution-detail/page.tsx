@@ -6,6 +6,7 @@ import type {
   InstitutionDetailRecentMeetingRow,
   InstitutionDetailStyleRow,
   InstitutionDetailSummaryRow,
+  InstitutionDetailTopBookerRow,
   InstitutionDetailTopClientRow,
   InstitutionDetailTopHostRow,
   InstitutionSummaryRow,
@@ -91,13 +92,14 @@ export default async function InstitutionDetailPage({
           topClients={[]}
           style={[]}
           topHosts={[]}
+          topBookers={[]}
           recentMeetings={[]}
         />
       </PageShell>
     )
   }
 
-  const [quarterlyRes, topClientsRes, styleRes, topHostsRes, recentRes] =
+  const [quarterlyRes, topClientsRes, styleRes, topHostsRes, topBookersRes, recentRes] =
     await Promise.all([
       sb
         .from("v_institution_detail_quarterly")
@@ -123,6 +125,12 @@ export default async function InstitutionDetailPage({
         .order("ltm_count", { ascending: false })
         .order("last_met", { ascending: false }),
       sb
+        .from("v_institution_detail_top_bookers")
+        .select("*")
+        .eq("institution_id", selected.institution_id)
+        .order("ltm_count", { ascending: false })
+        .order("last_met", { ascending: false }),
+      sb
         .from("v_institution_detail_recent_meetings")
         .select("*")
         .eq("institution_id", selected.institution_id)
@@ -134,6 +142,7 @@ export default async function InstitutionDetailPage({
     topClientsRes.error ??
     styleRes.error ??
     topHostsRes.error ??
+    topBookersRes.error ??
     recentRes.error
   if (drillError) {
     return (
@@ -155,6 +164,9 @@ export default async function InstitutionDetailPage({
         topClients={(topClientsRes.data ?? []) as InstitutionDetailTopClientRow[]}
         style={(styleRes.data ?? []) as InstitutionDetailStyleRow[]}
         topHosts={(topHostsRes.data ?? []) as InstitutionDetailTopHostRow[]}
+        topBookers={
+          (topBookersRes.data ?? []) as InstitutionDetailTopBookerRow[]
+        }
         recentMeetings={
           (recentRes.data ?? []) as InstitutionDetailRecentMeetingRow[]
         }

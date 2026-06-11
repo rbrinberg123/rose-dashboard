@@ -23,6 +23,7 @@ import type {
   InstitutionDetailRecentMeetingRow,
   InstitutionDetailStyleRow,
   InstitutionDetailSummaryRow,
+  InstitutionDetailTopBookerRow,
   InstitutionDetailTopClientRow,
   InstitutionDetailTopHostRow,
   InstitutionSummaryRow,
@@ -109,6 +110,7 @@ export function InstitutionDetailView({
   topClients,
   style,
   topHosts,
+  topBookers,
   recentMeetings,
 }: {
   selected: InstitutionDetailSummaryRow
@@ -117,6 +119,7 @@ export function InstitutionDetailView({
   topClients: InstitutionDetailTopClientRow[]
   style: InstitutionDetailStyleRow[]
   topHosts: InstitutionDetailTopHostRow[]
+  topBookers: InstitutionDetailTopBookerRow[]
   recentMeetings: InstitutionDetailRecentMeetingRow[]
 }) {
   const router = useRouter()
@@ -596,67 +599,8 @@ export function InstitutionDetailView({
         </div>
       </div>
 
-      {/* Section 7: Top 10 Clients + Top Hosts side-by-side */}
+      {/* Section 7: Top Hosts + Top Booker side-by-side */}
       <div className="mb-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {/* Top 10 Clients */}
-        <div className="rounded-lg border bg-card p-4">
-          <div className="mb-3">
-            <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
-              Top 10 Rose &amp; Co Clients Met
-            </div>
-            <div className="text-xs text-muted-foreground">
-              Ranked by lifetime confirmed meetings
-            </div>
-          </div>
-          {topClients.length === 0 ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              No Rose &amp; Co client meetings on record.
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-xs text-muted-foreground">
-                  <th className="px-2 py-2 text-left font-medium w-10">#</th>
-                  <th className="px-2 py-2 text-left font-medium">Client</th>
-                  <th className="px-2 py-2 text-right font-medium">Total</th>
-                  <th className="px-2 py-2 text-right font-medium">LTM</th>
-                  <th className="px-2 py-2 text-right font-medium">Last Met</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topClients.map((row) => (
-                  <tr
-                    key={`${row.client_account_id}-${row.rank}`}
-                    className="border-b last:border-b-0"
-                  >
-                    <td className="px-2 py-2 text-muted-foreground tabular-nums">
-                      {row.rank}
-                    </td>
-                    <td className="px-2 py-2">
-                      <Link
-                        href={`/client-detail?account_id=${row.client_account_id}`}
-                        className="font-medium hover:underline"
-                        style={{ color: NAVY_DEEP }}
-                      >
-                        {row.client_account_name ?? "—"}
-                      </Link>
-                    </td>
-                    <td className="px-2 py-2 text-right tabular-nums">
-                      {row.lifetime_count.toLocaleString()}
-                    </td>
-                    <td className="px-2 py-2 text-right tabular-nums">
-                      {row.ltm_count.toLocaleString()}
-                    </td>
-                    <td className="px-2 py-2 text-right text-muted-foreground">
-                      {formatShortDate(row.last_met)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
         {/* Top Hosts (LTM) */}
         <div className="rounded-lg border bg-card p-4">
           <div className="mb-3">
@@ -693,6 +637,102 @@ export function InstitutionDetailView({
             </div>
           )}
         </div>
+
+        {/* Top Booker (LTM) */}
+        <div className="rounded-lg border bg-card p-4">
+          <div className="mb-3">
+            <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
+              Top Booker (LTM)
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Rose &amp; Co team members booking
+            </div>
+          </div>
+          {topBookers.length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              No bookers in the trailing 12 months.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {topBookers.map((b) => (
+                <div
+                  key={b.booker_name}
+                  className="flex items-baseline justify-between border-b last:border-b-0 py-1.5"
+                >
+                  <Link
+                    href={`/productivity-detail?display_name=${encodeURIComponent(b.booker_name)}`}
+                    className="font-medium hover:underline"
+                    style={{ color: NAVY_DEEP }}
+                  >
+                    {b.booker_name}
+                  </Link>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {b.ltm_count.toLocaleString()} mtgs · last {formatShortDate(b.last_met)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Section 7b: Top 10 Clients full width */}
+      <div className="mb-3 rounded-lg border bg-card p-4">
+        <div className="mb-3">
+          <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
+            Top 10 Rose &amp; Co Clients Met
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Ranked by lifetime confirmed meetings
+          </div>
+        </div>
+        {topClients.length === 0 ? (
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            No Rose &amp; Co client meetings on record.
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-xs text-muted-foreground">
+                <th className="px-2 py-2 text-left font-medium w-10">#</th>
+                <th className="px-2 py-2 text-left font-medium">Client</th>
+                <th className="px-2 py-2 text-right font-medium">Total</th>
+                <th className="px-2 py-2 text-right font-medium">LTM</th>
+                <th className="px-2 py-2 text-right font-medium">Last Met</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topClients.map((row) => (
+                <tr
+                  key={`${row.client_account_id}-${row.rank}`}
+                  className="border-b last:border-b-0"
+                >
+                  <td className="px-2 py-2 text-muted-foreground tabular-nums">
+                    {row.rank}
+                  </td>
+                  <td className="px-2 py-2">
+                    <Link
+                      href={`/client-detail?account_id=${row.client_account_id}`}
+                      className="font-medium hover:underline"
+                      style={{ color: NAVY_DEEP }}
+                    >
+                      {row.client_account_name ?? "—"}
+                    </Link>
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {row.lifetime_count.toLocaleString()}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {row.ltm_count.toLocaleString()}
+                  </td>
+                  <td className="px-2 py-2 text-right text-muted-foreground">
+                    {formatShortDate(row.last_met)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Section 8: divider */}

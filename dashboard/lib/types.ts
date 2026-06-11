@@ -544,6 +544,14 @@ export type InstitutionDetailTopHostRow = {
   last_met: string | null
 }
 
+export type InstitutionDetailTopBookerRow = {
+  institution_id: string | null
+  booker_name: string
+  booker_id: string | null
+  ltm_count: number
+  last_met: string | null
+}
+
 export type InstitutionDetailRecentMeetingRow = {
   institution_id: string | null
   meeting_id: string
