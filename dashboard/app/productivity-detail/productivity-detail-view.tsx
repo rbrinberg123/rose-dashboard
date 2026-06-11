@@ -268,7 +268,7 @@ export function ProductivityDetailView({
       gradient: PRODUCTIVITY_CARD_GRADIENTS.activeClients,
     },
     {
-      label: "Sales Lead Book",
+      label: "Revenue Managed",
       value: formatCompactDollars(selected.sales_lead_book_annualized),
       hint: "Annualized retainer",
       gradient: PRODUCTIVITY_CARD_GRADIENTS.salesLeadBook,
