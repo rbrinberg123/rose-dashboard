@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ArrowUp, Check, ChevronsUpDown, Search, Star, Users } from "lucide-react"
+import { ArrowDown, ArrowUp, Check, ChevronsUpDown, Search, Star, Users } from "lucide-react"
 import { GradientHero } from "@/components/gradient-hero"
 import { StatCard } from "@/components/stat-card"
 import { Input } from "@/components/ui/input"
@@ -288,6 +288,71 @@ const TABLE_MIN_WIDTH = TABLE_COLS.reduce((s, w) => s + parseInt(w, 10), 0)
 
 const ALL_TYPES = "__all__"
 
+// ---------------------------------------------------------------------------
+// Sorting — one entry per table column, in display order. Each column maps to a
+// comparison value below. `align` mirrors the cell alignment (Days is numeric /
+// right-aligned). Default sort is When ascending (chronological).
+// ---------------------------------------------------------------------------
+type SortKey =
+  | "when"
+  | "days"
+  | "client"
+  | "institution"
+  | "investor"
+  | "type"
+  | "booker"
+  | "host"
+
+const SORT_COLS: { key: SortKey; label: string; align: "left" | "right" }[] = [
+  { key: "when", label: "When", align: "left" },
+  { key: "days", label: "Days", align: "right" },
+  { key: "client", label: "Client", align: "left" },
+  { key: "institution", label: "Institution", align: "left" },
+  { key: "investor", label: "Investor", align: "left" },
+  { key: "type", label: "Type", align: "left" },
+  { key: "booker", label: "Booker", align: "left" },
+  { key: "host", label: "Host", align: "left" },
+]
+
+// The visible Type pill text, used so the Type column sorts by what's shown.
+function typeLabel(row: Pipeline30dRow): string {
+  if (row.is_in_person === true) return "In-person"
+  if (isCallType(row.meeting_type_label)) return "Call"
+  return "Virtual"
+}
+
+const cmpStr = (a: string | null, b: string | null) =>
+  (a ?? "").localeCompare(b ?? "", undefined, { sensitivity: "base" })
+
+// Ascending comparison for a single column. Direction is applied by the caller.
+function compareRows(a: Pipeline30dRow, b: Pipeline30dRow, key: SortKey): number {
+  switch (key) {
+    case "when":
+      // Underlying datetime, not the "Today/Tomorrow"-style display string.
+      return new Date(a.meeting_date).getTime() - new Date(b.meeting_date).getTime()
+    case "days":
+      return a.days_until - b.days_until
+    case "client":
+      return cmpStr(a.client_account_name, b.client_account_name)
+    case "institution":
+      return cmpStr(a.institution_name, b.institution_name)
+    case "investor":
+      return cmpStr(a.investor_text, b.investor_text)
+    case "type":
+      return cmpStr(typeLabel(a), typeLabel(b))
+    case "booker":
+      return cmpStr(a.booker_name, b.booker_name)
+    case "host": {
+      // Group unassigned (no host) rows together ahead of named hosts in the
+      // ascending direction, then sort the rest A–Z. Descending flips both.
+      const aUn = !a.host_id
+      const bUn = !b.host_id
+      if (aUn !== bUn) return aUn ? -1 : 1
+      return cmpStr(a.host_name, b.host_name)
+    }
+  }
+}
+
 export function PipelineView({
   rows,
   hosted,
@@ -372,6 +437,8 @@ export function PipelineView({
   const [search, setSearch] = React.useState("")
   const [type, setType] = React.useState(ALL_TYPES)
   const [unassignedOnly, setUnassignedOnly] = React.useState(false)
+  // Multi-select client filter — set of selected client names. Empty = show all.
+  const [clientSel, setClientSel] = React.useState<Set<string>>(new Set())
 
   // Meeting-type options, derived from the data (never hardcoded).
   const typeOptions = React.useMemo(() => {
@@ -380,18 +447,62 @@ export function PipelineView({
     return Array.from(set).sort((a, b) => a.localeCompare(b))
   }, [rows])
 
+  // Distinct client names present in the loaded rows, deduped + alphabetical.
+  // These are the only choices the client dropdown offers (not a full roster).
+  const clientOptions = React.useMemo(() => {
+    const set = new Set<string>()
+    for (const r of rows) if (r.client_account_name) set.add(r.client_account_name)
+    return Array.from(set).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    )
+  }, [rows])
+
+  const toggleClient = React.useCallback((name: string) => {
+    setClientSel((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }, [])
+  const clearClients = React.useCallback(() => setClientSel(new Set()), [])
+
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase()
     return rows.filter((r) => {
       if (unassignedOnly && r.host_id) return false
       if (type !== ALL_TYPES && r.meeting_type_label !== type) return false
+      // OR logic: keep rows whose client is in the selected set. Empty = show all.
+      if (clientSel.size > 0 && !(r.client_account_name && clientSel.has(r.client_account_name)))
+        return false
       if (q) {
         const hay = `${r.client_account_name ?? ""} ${r.institution_name ?? ""} ${r.investor_text ?? ""} ${r.host_name ?? ""} ${r.booker_name ?? ""}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
     })
-  }, [rows, search, type, unassignedOnly])
+  }, [rows, search, type, unassignedOnly, clientSel])
+
+  // ---- Sorting ------------------------------------------------------------
+  // Default: When ascending (chronological), matching the prior row order.
+  const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "when",
+    dir: "asc",
+  })
+  const onSort = React.useCallback((key: SortKey) => {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" },
+    )
+  }, [])
+
+  // Sort applies to the currently filtered rows. Array.sort is stable, so equal
+  // keys keep their filtered order.
+  const sorted = React.useMemo(() => {
+    const dir = sort.dir === "asc" ? 1 : -1
+    return [...filtered].sort((a, b) => dir * compareRows(a, b, sort.key))
+  }, [filtered, sort])
 
   const selectClass = "h-9 rounded-md border border-border bg-card px-2 text-sm"
 
@@ -450,6 +561,13 @@ export function PipelineView({
           aria-label="Search"
         />
 
+        <ClientFilter
+          options={clientOptions}
+          selected={clientSel}
+          onToggle={toggleClient}
+          onClear={clearClients}
+        />
+
         <select
           value={type}
           onChange={(e) => setType(e.target.value)}
@@ -491,18 +609,19 @@ export function PipelineView({
           </colgroup>
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-3 py-2 text-left font-medium">When</th>
-              <th className="px-3 py-2 text-right font-medium">Days</th>
-              <th className="px-3 py-2 text-left font-medium">Client</th>
-              <th className="px-3 py-2 text-left font-medium">Institution</th>
-              <th className="px-3 py-2 text-left font-medium">Investor</th>
-              <th className="px-3 py-2 text-left font-medium">Type</th>
-              <th className="px-3 py-2 text-left font-medium">Booker</th>
-              <th className="px-3 py-2 text-left font-medium">Host</th>
+              {SORT_COLS.map((col) => (
+                <SortHeader
+                  key={col.key}
+                  col={col}
+                  active={sort.key === col.key}
+                  dir={sort.dir}
+                  onSort={onSort}
+                />
+              ))}
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {sorted.length === 0 ? (
               <tr>
                 <td colSpan={TABLE_COLS.length} className="h-32 text-center text-sm text-muted-foreground">
                   {rows.length === 0
@@ -511,7 +630,7 @@ export function PipelineView({
                 </td>
               </tr>
             ) : (
-              filtered.map((r) => {
+              sorted.map((r) => {
                 const unassigned = !r.host_id
                 return (
                   <tr
@@ -843,6 +962,137 @@ function HostSelectCell({
         {selected ? `Assign ${selected.name}` : "Assign host"}
       </button>
     </div>
+  )
+}
+
+// Multi-select client filter. Collapsed trigger shows "All clients" or
+// "N clients selected". Open reveals a searchable checklist limited to the
+// clients present in the loaded rows, with a live count and a Clear action.
+// Reuses the Base UI Popover, which closes on outside-click and stays open
+// while you interact inside.
+function ClientFilter({
+  options,
+  selected,
+  onToggle,
+  onClear,
+}: {
+  options: string[]
+  selected: Set<string>
+  onToggle: (name: string) => void
+  onClear: () => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState("")
+
+  const q = query.trim().toLowerCase()
+  const visible = q ? options.filter((n) => n.toLowerCase().includes(q)) : options
+
+  const label =
+    selected.size === 0
+      ? "All clients"
+      : `${selected.size} client${selected.size === 1 ? "" : "s"} selected`
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o)
+        if (!o) setQuery("")
+      }}
+    >
+      <PopoverTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Filter by client"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-sm hover:bg-slate-50"
+          />
+        }
+      >
+        <span className={cn(selected.size === 0 && "text-muted-foreground")}>{label}</span>
+        <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
+      </PopoverTrigger>
+
+      <PopoverContent align="start" className="w-72 p-1.5">
+        <div className="relative mb-1.5">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search clients"
+            className="pl-8"
+            autoFocus
+          />
+        </div>
+        <div className="mb-1 flex items-center justify-between px-1 text-xs text-muted-foreground">
+          <span>
+            {visible.length} {visible.length === 1 ? "client" : "clients"}
+          </span>
+          <button
+            type="button"
+            onClick={onClear}
+            disabled={selected.size === 0}
+            className="font-medium text-foreground hover:underline disabled:cursor-default disabled:text-muted-foreground disabled:no-underline"
+          >
+            Clear
+          </button>
+        </div>
+        <div className="max-h-72 overflow-y-auto">
+          {visible.length === 0 ? (
+            <p className="px-2 py-6 text-center text-sm text-muted-foreground">No matches</p>
+          ) : (
+            <ul className="grid">
+              {visible.map((name) => (
+                <li key={name}>
+                  <label className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(name)}
+                      onChange={() => onToggle(name)}
+                      className="size-4 shrink-0"
+                    />
+                    <span className="truncate text-sm">{name}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// A clickable column header. Shows an up arrow when this column is the active
+// ascending sort, a down arrow when descending, and a faint neutral icon when
+// inactive. The active header's text is darkened for emphasis.
+function SortHeader({
+  col,
+  active,
+  dir,
+  onSort,
+}: {
+  col: { key: SortKey; label: string; align: "left" | "right" }
+  active: boolean
+  dir: "asc" | "desc"
+  onSort: (key: SortKey) => void
+}) {
+  const Icon = !active ? ChevronsUpDown : dir === "asc" ? ArrowUp : ArrowDown
+  return (
+    <th className={cn("px-3 py-2 font-medium", col.align === "right" ? "text-right" : "text-left")}>
+      <button
+        type="button"
+        onClick={() => onSort(col.key)}
+        aria-label={`Sort by ${col.label}`}
+        className={cn(
+          "inline-flex items-center gap-1 uppercase tracking-wide transition-colors hover:text-foreground",
+          active ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        <span>{col.label}</span>
+        <Icon className={cn("size-3 shrink-0", !active && "opacity-40")} />
+      </button>
+    </th>
   )
 }
 
