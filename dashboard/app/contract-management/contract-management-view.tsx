@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { GradientHero } from "@/components/gradient-hero"
 import { formatCurrency, formatDate } from "@/lib/format"
 import type { ContractManagementRow } from "@/lib/types"
 
@@ -142,15 +143,10 @@ export function ContractManagementView({
   return (
     <>
       <div className="mb-6">
-        <h1
-          className="text-2xl font-medium tracking-tight"
-          style={{ color: NAVY }}
-        >
-          Contract Management
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          All active clients · sorted by soonest contract expiry
-        </p>
+        <GradientHero
+          title="Contract Management"
+          subtitle="All active clients · sorted by soonest contract expiry"
+        />
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">

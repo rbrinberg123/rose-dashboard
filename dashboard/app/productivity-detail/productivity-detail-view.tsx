@@ -23,6 +23,9 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { formatCurrency } from "@/lib/format"
+import { GradientHero } from "@/components/gradient-hero"
+import { StatCard } from "@/components/stat-card"
+import { PRODUCTIVITY_CARD_GRADIENTS } from "@/lib/gradients"
 import type {
   AnalystMonthlyActivityRow,
   ProductivityDetailInstitutionRow,
@@ -32,6 +35,14 @@ import type {
 
 const NAVY = "#1E2858"
 const TEAL = "#00B8B8"
+
+/** Initials from a display name: first letters of first + last word. */
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return ""
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase()
+}
 const TICK_FILL = "#64748B"
 const GRID_STROKE = "#E5E7EB"
 
@@ -221,111 +232,119 @@ export function ProductivityDetailView({
     value: string
     hint: string
     valueColor?: string
-    labelColor?: string
+    gradient: readonly [string, string]
+    exact?: string
   }> = [
     {
       label: "Scheduled",
       value: selected.meetings_scheduled_12m.toLocaleString(),
       hint: "As booker",
       valueColor: "#0154A6",
-      labelColor: "#0154A6",
+      gradient: PRODUCTIVITY_CARD_GRADIENTS.scheduled,
     },
     {
       label: "Hosted",
       value: selected.meetings_hosted_12m.toLocaleString(),
       hint: "As host",
+      gradient: PRODUCTIVITY_CARD_GRADIENTS.hosted,
     },
     {
       label: "In Person",
       value: selected.meetings_in_person_12m.toLocaleString(),
       hint: `${inPersonPct}% of hosted`,
+      gradient: PRODUCTIVITY_CARD_GRADIENTS.inPerson,
     },
     {
       label: "Feedback Rec'd",
       value: feedbackPctText,
       hint: "Of hosted meetings",
       valueColor: TEAL,
+      gradient: PRODUCTIVITY_CARD_GRADIENTS.feedback,
     },
     {
       label: "Active Clients",
       value: selected.active_clients_as_sales_lead.toLocaleString(),
       hint: "As sales lead",
+      gradient: PRODUCTIVITY_CARD_GRADIENTS.activeClients,
     },
     {
       label: "Sales Lead Book",
       value: formatCompactDollars(selected.sales_lead_book_annualized),
       hint: "Annualized retainer",
+      gradient: PRODUCTIVITY_CARD_GRADIENTS.salesLeadBook,
+      exact: formatCurrency(selected.sales_lead_book_annualized),
     },
   ]
 
   return (
     <>
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1
-            className="text-2xl font-medium tracking-tight"
-            style={{ color: NAVY }}
-          >
-            Productivity Detail · {selected.display_name}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Activity over the trailing 12 months
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={goPrev}
-            aria-label="Previous person"
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card hover:bg-accent"
-          >
-            <ChevronLeft className="size-4" />
-          </button>
-          <select
-            value={selected.display_name}
-            onChange={(e) => goTo(e.target.value)}
-            className="h-9 min-w-[200px] rounded-md border border-border bg-card px-2 text-sm"
-            aria-label="Select person"
-          >
-            {rows.map((r) => (
-              <option key={r.display_name} value={r.display_name}>
-                {r.display_name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={goNext}
-            aria-label="Next person"
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card hover:bg-accent"
-          >
-            <ChevronRight className="size-4" />
-          </button>
-        </div>
+      {/* Gradient hero band */}
+      <div className="mb-4">
+        <GradientHero
+          title={selected.display_name}
+          subtitle="Activity over the trailing 12 months"
+          monogram={initials(selected.display_name)}
+          rightSlot={
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={goPrev}
+                aria-label="Previous person"
+                className="flex h-9 w-9 items-center justify-center rounded-md text-white transition-colors"
+                style={{
+                  background: "rgba(255,255,255,0.10)",
+                  border: "1px solid rgba(255,255,255,0.26)",
+                }}
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+              <select
+                value={selected.display_name}
+                onChange={(e) => goTo(e.target.value)}
+                className="h-9 min-w-[200px] rounded-md px-2 text-sm text-white"
+                style={{
+                  background: "rgba(255,255,255,0.12)",
+                  border: "1px solid rgba(255,255,255,0.26)",
+                }}
+                aria-label="Select person"
+              >
+                {rows.map((r) => (
+                  <option
+                    key={r.display_name}
+                    value={r.display_name}
+                    style={{ color: NAVY }}
+                  >
+                    {r.display_name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={goNext}
+                aria-label="Next person"
+                className="flex h-9 w-9 items-center justify-center rounded-md text-white transition-colors"
+                style={{
+                  background: "rgba(255,255,255,0.10)",
+                  border: "1px solid rgba(255,255,255,0.26)",
+                }}
+              >
+                <ChevronRight className="size-4" />
+              </button>
+            </div>
+          }
+        />
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((t) => (
-          <div
+          <StatCard
             key={t.label}
-            className="rounded-lg border bg-slate-50 p-3.5"
-          >
-            <div
-              className="text-2xl font-medium tracking-tight tabular-nums"
-              style={{ color: t.valueColor ?? NAVY }}
-            >
-              {t.value}
-            </div>
-            <div
-              className="mt-1 text-xs font-medium"
-              style={{ color: t.labelColor ?? NAVY }}
-            >
-              {t.label}
-            </div>
-            <div className="mt-0.5 text-[10px] text-muted-foreground">
-              {t.hint}
-            </div>
-          </div>
+            label={t.label}
+            value={t.exact ? <span title={t.exact}>{t.value}</span> : t.value}
+            valueColor={t.valueColor}
+            gradient={t.gradient}
+            hint={t.hint}
+          />
         ))}
       </div>
 

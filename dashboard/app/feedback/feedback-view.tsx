@@ -9,6 +9,9 @@ import {
   Users,
   Video,
 } from "lucide-react"
+import { GradientHero } from "@/components/gradient-hero"
+import { StatCard } from "@/components/stat-card"
+import { FEEDBACK_CARD_GRADIENTS } from "@/lib/gradients"
 import type { FeedbackOutstandingRow } from "@/lib/types"
 
 // Brand + status palette. One source of truth for the coral (no feedback),
@@ -195,39 +198,54 @@ export function FeedbackView({ rows }: { rows: FeedbackOutstandingRow[] }) {
 
   return (
     <>
-      {/* Header */}
+      {/* Gradient hero band — title only (firm-wide list page) */}
       <div className="mb-4">
-        <h1 className="text-2xl font-medium tracking-tight" style={{ color: NAVY_DEEP }}>
-          Feedback
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Concluded meetings still missing complete feedback — blank or awaiting additional.
-        </p>
+        <GradientHero
+          title="Feedback"
+          subtitle="Concluded meetings still missing complete feedback — blank or awaiting additional."
+        />
       </div>
 
       {/* Summary strip — firm-wide, static across views. */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <MetricCard label="Need feedback" value={summary.total} />
-        <MetricCard
+        <StatCard
+          label="Need feedback"
+          value={summary.total}
+          gradient={FEEDBACK_CARD_GRADIENTS.needFeedback}
+        />
+        <StatCard
           label="No feedback"
           value={summary.blank}
           valueColor={CORAL.text}
-          accent={CORAL.border}
+          gradient={FEEDBACK_CARD_GRADIENTS.noFeedback}
         />
-        <MetricCard
+        <StatCard
           label="Awaiting add'l"
           value={summary.awaiting}
           valueColor={AMBER.text}
-          accent={AMBER.border}
+          gradient={FEEDBACK_CARD_GRADIENTS.awaiting}
         />
-        <MetricCard
-          label="30+ days"
+        <StatCard
+          label={
+            <span className="inline-flex items-center gap-1">
+              <Flame className="size-3" style={{ color: RED.text }} />
+              30+ days
+            </span>
+          }
           value={summary.stale30}
           valueColor={RED.text}
-          accent={RED.text}
-          icon={<Flame className="size-3" style={{ color: RED.text }} />}
+          gradient={FEEDBACK_CARD_GRADIENTS.stale30}
         />
-        <MetricCard label="Oldest" value={summary.oldest} suffix="d" />
+        <StatCard
+          label="Oldest"
+          value={
+            <>
+              {summary.oldest}
+              <span className="text-base font-normal">d</span>
+            </>
+          }
+          gradient={FEEDBACK_CARD_GRADIENTS.oldest}
+        />
       </div>
 
       {/* Distinct-counts line */}
@@ -318,45 +336,6 @@ export function FeedbackView({ rows }: { rows: FeedbackOutstandingRow[] }) {
         </div>
       )}
     </>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Summary-strip metric card: secondary surface, 12px muted label, 26px/500
-// number. An optional left-border accent and value color carry the status hue.
-// ---------------------------------------------------------------------------
-function MetricCard({
-  label,
-  value,
-  suffix,
-  valueColor,
-  accent,
-  icon,
-}: {
-  label: string
-  value: number
-  suffix?: string
-  valueColor?: string
-  accent?: string
-  icon?: React.ReactNode
-}) {
-  return (
-    <div
-      className="rounded-lg border bg-secondary p-3"
-      style={accent ? { borderLeft: `3px solid ${accent}` } : undefined}
-    >
-      <div className="flex items-center gap-1 text-[12px] text-muted-foreground">
-        {icon}
-        {label}
-      </div>
-      <div
-        className="mt-1 text-[26px] font-medium leading-none tabular-nums"
-        style={valueColor ? { color: valueColor } : undefined}
-      >
-        {value}
-        {suffix ? <span className="text-base font-normal">{suffix}</span> : null}
-      </div>
-    </div>
   )
 }
 

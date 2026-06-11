@@ -2,6 +2,9 @@
 
 import * as React from "react"
 import { ArrowUp, Users } from "lucide-react"
+import { GradientHero } from "@/components/gradient-hero"
+import { StatCard } from "@/components/stat-card"
+import { PIPELINE_CARD_GRADIENTS } from "@/lib/gradients"
 import type { Pipeline30dRow, SchedulerMeetingRow } from "@/lib/types"
 
 // Type-pill palette. Metric-card accents reuse the same hues inline below.
@@ -332,23 +335,41 @@ export function PipelineView({
 
   return (
     <>
+      {/* Gradient hero band — title only (firm-wide list page) */}
+      <div className="mb-4">
+        <GradientHero title="Upcoming Meetings" subtitle="Next 30 days" />
+      </div>
+
       {/* Summary strip — firm-wide, static across filters. */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <MetricCard label="Upcoming" value={summary.total} />
-        <MetricCard
+        <StatCard
+          label="Upcoming"
+          value={summary.total}
+          gradient={PIPELINE_CARD_GRADIENTS.upcoming}
+        />
+        <StatCard
           label="Unassigned"
           value={summary.unassigned}
           valueColor="#854F0B"
-          accent="#C77A3E"
+          gradient={PIPELINE_CARD_GRADIENTS.unassigned}
         />
-        <MetricCard label="Virtual" value={summary.virtual} valueColor="#185FA5" accent="#185FA5" />
-        <MetricCard
+        <StatCard
+          label="Virtual"
+          value={summary.virtual}
+          valueColor="#185FA5"
+          gradient={PIPELINE_CARD_GRADIENTS.virtual}
+        />
+        <StatCard
           label="In-person"
           value={summary.inPerson}
           valueColor="#3B6D11"
-          accent="#3B6D11"
+          gradient={PIPELINE_CARD_GRADIENTS.inPerson}
         />
-        <MetricCard label="Next 7 days" value={summary.next7} />
+        <StatCard
+          label="Next 7 days"
+          value={summary.next7}
+          gradient={PIPELINE_CARD_GRADIENTS.next7}
+        />
       </div>
 
       <p className="mb-5 text-xs text-muted-foreground">
@@ -589,33 +610,3 @@ function Legend() {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Summary-strip metric card — mirrors the Feedback page: secondary surface,
-// 12px muted label, 26px/500 number, optional left-border accent + value color.
-// ---------------------------------------------------------------------------
-function MetricCard({
-  label,
-  value,
-  valueColor,
-  accent,
-}: {
-  label: string
-  value: number
-  valueColor?: string
-  accent?: string
-}) {
-  return (
-    <div
-      className="rounded-lg border bg-secondary p-3"
-      style={accent ? { borderLeft: `3px solid ${accent}` } : undefined}
-    >
-      <div className="text-[12px] text-muted-foreground">{label}</div>
-      <div
-        className="mt-1 text-[26px] font-medium leading-none tabular-nums"
-        style={valueColor ? { color: valueColor } : undefined}
-      >
-        {value}
-      </div>
-    </div>
-  )
-}

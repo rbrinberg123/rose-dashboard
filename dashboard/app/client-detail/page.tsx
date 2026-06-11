@@ -66,6 +66,7 @@ export default async function ClientDetailPage({
     recentRes,
     recentNoteRes,
     touchpointsRes,
+    accountRes,
   ] = await Promise.all([
       sb
         .from("v_client_detail_quarterly")
@@ -104,6 +105,11 @@ export default async function ClientDetailPage({
         .select("*")
         .eq("account_id", selected.account_id)
         .order("scheduled_start", { ascending: false, nullsFirst: false }),
+      sb
+        .from("accounts")
+        .select("ticker_symbol")
+        .eq("account_id", selected.account_id)
+        .maybeSingle(),
     ])
 
   const firstError =
@@ -130,6 +136,7 @@ export default async function ClientDetailPage({
       <ClientDetailView
         allClients={summaryRows}
         selected={selected}
+        clientTicker={(accountRes.data?.ticker_symbol ?? null) as string | null}
         quarterly={(quarterlyRes.data ?? []) as ClientDetailQuarterlyRow[]}
         topInstitutions={(topInstRes.data ?? []) as ClientDetailTopInstitutionRow[]}
         reachDepth={(reachDepthRes.data ?? []) as ClientDetailReachDepthRow[]}

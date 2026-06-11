@@ -10,6 +10,16 @@ import {
   Tooltip,
 } from "recharts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { GradientHero } from "@/components/gradient-hero"
+import { StatCard } from "@/components/stat-card"
+import {
+  CLIENT_STATS_CARD_GRADIENTS,
+  DISTRIBUTION_EDGES,
+  MARKET_CAP_DONUT,
+  MARKET_CAP_DONUT_FALLBACK,
+  BAR_TRACK,
+  BAR_FILLS,
+} from "@/lib/gradients"
 import { formatCurrency } from "@/lib/format"
 import type { ClientStatisticsRow, ClientStatsBucketRow } from "@/lib/types"
 
@@ -18,26 +28,23 @@ function portfolioHref(param: "market_cap" | "region" | "sector", bucket: string
 }
 
 const NAVY = "#1E2858"
-const TEAL = "#00B8B8"
+const TEAL = "#0E7C72"
 
-const CHART_PALETTE = [
-  "#1E2858", // deep navy
-  "#3D4A8C", // mid navy
-  "#00B8B8", // teal
-  "#7DD9D9", // light teal
-  "#C4E8E8", // lightest teal/gray
-]
+/** Donut slice color for a market-cap bucket (navy→teal, larger caps darker). */
+function marketCapColor(bucket: string): string {
+  return MARKET_CAP_DONUT[bucket] ?? MARKET_CAP_DONUT_FALLBACK
+}
 
-// Largest count gets the deepest navy; smaller counts step through to the lightest color.
-function rankColors(data: ClientStatsBucketRow[]): string[] {
-  const ranked = data
-    .map((d, i) => ({ i, count: d.count }))
-    .sort((a, b) => b.count - a.count)
-  const out: string[] = new Array(data.length)
-  ranked.forEach((entry, rank) => {
-    out[entry.i] = CHART_PALETTE[Math.min(rank, CHART_PALETTE.length - 1)]
-  })
-  return out
+/**
+ * "$19.8M" / "$188.7K" — abbreviated for display. The exact figure is shown in
+ * a title tooltip on hover. Computed from the real number, not hardcoded.
+ */
+function compactUsd(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—"
+  const abs = Math.abs(value)
+  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000) return `$${(value / 1_000).toFixed(1)}K`
+  return formatCurrency(value)
 }
 
 const SECTOR_TOP_N = 6
@@ -58,16 +65,25 @@ export function ClientStatisticsView({
     {
       label: "Active Accounts",
       value: row.active_account_count.toLocaleString(),
+      exact: undefined as string | undefined,
+      color: NAVY,
+      gradient: CLIENT_STATS_CARD_GRADIENTS.activeAccounts,
       hint: "Active records in CRM",
     },
     {
       label: "Annualized Retainer Revenue",
-      value: formatCurrency(row.annualized_retainer_revenue),
+      value: compactUsd(row.annualized_retainer_revenue),
+      exact: formatCurrency(row.annualized_retainer_revenue),
+      color: NAVY,
+      gradient: CLIENT_STATS_CARD_GRADIENTS.retainerRevenue,
       hint: "Quarterly retainer × 4, active contracts",
     },
     {
       label: "Avg Annualized Retainer / Account",
-      value: formatCurrency(row.avg_annualized_retainer),
+      value: compactUsd(row.avg_annualized_retainer),
+      exact: formatCurrency(row.avg_annualized_retainer),
+      color: TEAL,
+      gradient: CLIENT_STATS_CARD_GRADIENTS.avgRetainer,
       hint: "Per active account",
     },
   ]
@@ -88,33 +104,28 @@ export function ClientStatisticsView({
   const sectorRestCount = sectorRest.reduce((s, r) => s + r.count, 0)
   const sectorTotal = sortedSector.reduce((s, r) => s + r.count, 0)
 
-  const marketCapColors = rankColors(marketCap)
-  const regionColors = rankColors(region)
-  const sectorColors = rankColors(sectorTop)
-
   return (
     <>
+      {/* Gradient hero band — title + subtitle only */}
+      <div className="mb-4">
+        <GradientHero
+          title="Client Statistics"
+          subtitle="Top-line numbers across the client book"
+        />
+      </div>
+
+      {/* KPI cards below the band, as clean white cards */}
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {kpis.map((k, idx) => (
-          <Card key={k.label} className="rounded-lg bg-slate-50">
-            <CardHeader className="pb-2">
-              <CardTitle
-                className="text-4xl font-semibold tracking-tight tabular-nums"
-                style={{ color: idx === 2 ? TEAL : NAVY }}
-              >
-                {k.value}
-              </CardTitle>
-              <CardDescription
-                className="text-sm font-medium"
-                style={{ color: NAVY }}
-              >
-                {k.label}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <p className="text-xs text-muted-foreground">{k.hint}</p>
-            </CardContent>
-          </Card>
+        {kpis.map((k) => (
+          <StatCard
+            key={k.label}
+            label={k.label}
+            value={<span title={k.exact}>{k.value}</span>}
+            valueColor={k.color}
+            valueSize={30}
+            gradient={k.gradient}
+            hint={k.hint}
+          />
         ))}
       </div>
 
@@ -129,7 +140,12 @@ export function ClientStatisticsView({
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <Card>
+        <Card className="relative transition duration-150 hover:-translate-y-[2px] hover:shadow-[0_8px_20px_rgba(10,31,92,0.12)]">
+          <span
+            aria-hidden="true"
+            className="absolute inset-x-0 top-0 h-[3px]"
+            style={{ background: DISTRIBUTION_EDGES.marketCap }}
+          />
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
               Clients by Market Cap
@@ -148,8 +164,8 @@ export function ClientStatisticsView({
                     nameKey="bucket"
                     cx="50%"
                     cy="50%"
-                    innerRadius={60}
-                    outerRadius={90}
+                    innerRadius={69}
+                    outerRadius={88}
                     onClick={(_, index) => {
                       const bucket = marketCap[index]?.bucket
                       if (bucket && bucket !== "Unknown") {
@@ -160,7 +176,7 @@ export function ClientStatisticsView({
                     {marketCap.map((m, i) => (
                       <Cell
                         key={i}
-                        fill={marketCapColors[i]}
+                        fill={marketCapColor(m.bucket)}
                         style={{ cursor: m.bucket === "Unknown" ? "default" : "pointer" }}
                       />
                     ))}
@@ -187,7 +203,7 @@ export function ClientStatisticsView({
               </div>
             </div>
             <ul className="mt-4 space-y-1">
-              {marketCap.map((m, i) => {
+              {marketCap.map((m) => {
                 const pct =
                   marketCapTotal > 0
                     ? Math.round((m.count / marketCapTotal) * 100)
@@ -196,7 +212,7 @@ export function ClientStatisticsView({
                   <>
                     <span
                       className="h-3 w-3 shrink-0 rounded-sm"
-                      style={{ backgroundColor: marketCapColors[i] }}
+                      style={{ backgroundColor: marketCapColor(m.bucket) }}
                       aria-hidden="true"
                     />
                     <span
@@ -206,7 +222,7 @@ export function ClientStatisticsView({
                       {m.bucket}
                     </span>
                     <span className="shrink-0 tabular-nums text-muted-foreground">
-                      {m.count} ({pct}%)
+                      {m.count} · {pct}%
                     </span>
                   </>
                 )
@@ -231,7 +247,12 @@ export function ClientStatisticsView({
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="relative transition duration-150 hover:-translate-y-[2px] hover:shadow-[0_8px_20px_rgba(10,31,92,0.12)]">
+          <span
+            aria-hidden="true"
+            className="absolute inset-x-0 top-0 h-[3px]"
+            style={{ background: DISTRIBUTION_EDGES.region }}
+          />
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
               Clients by Region
@@ -242,7 +263,7 @@ export function ClientStatisticsView({
           </CardHeader>
           <CardContent>
             <ul className="space-y-2">
-              {region.map((r, i) => {
+              {region.map((r) => {
                 const pct =
                   regionTotal > 0
                     ? Math.round((r.count / regionTotal) * 100)
@@ -261,12 +282,15 @@ export function ClientStatisticsView({
                           {r.count} ({pct}%)
                         </span>
                       </div>
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-[7px] w-full overflow-hidden rounded-full"
+                        style={{ backgroundColor: BAR_TRACK }}
+                      >
                         <div
                           className="h-full rounded-full"
                           style={{
                             width: `${pct}%`,
-                            backgroundColor: regionColors[i],
+                            background: BAR_FILLS.region,
                           }}
                         />
                       </div>
@@ -278,7 +302,12 @@ export function ClientStatisticsView({
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="relative transition duration-150 hover:-translate-y-[2px] hover:shadow-[0_8px_20px_rgba(10,31,92,0.12)]">
+          <span
+            aria-hidden="true"
+            className="absolute inset-x-0 top-0 h-[3px]"
+            style={{ background: DISTRIBUTION_EDGES.sector }}
+          />
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
               Clients by Sector
@@ -289,7 +318,7 @@ export function ClientStatisticsView({
           </CardHeader>
           <CardContent>
             <ul className="space-y-2">
-              {sectorTop.map((s, i) => {
+              {sectorTop.map((s) => {
                 const pct =
                   sectorTotal > 0
                     ? Math.round((s.count / sectorTotal) * 100)
@@ -307,12 +336,15 @@ export function ClientStatisticsView({
                         {s.count} ({pct}%)
                       </span>
                     </div>
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-[7px] w-full overflow-hidden rounded-full"
+                      style={{ backgroundColor: BAR_TRACK }}
+                    >
                       <div
                         className="h-full rounded-full"
                         style={{
                           width: `${pct}%`,
-                          backgroundColor: sectorColors[i],
+                          background: BAR_FILLS.sector,
                         }}
                       />
                     </div>

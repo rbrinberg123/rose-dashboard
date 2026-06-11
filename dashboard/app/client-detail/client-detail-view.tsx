@@ -16,6 +16,9 @@ import {
 } from "recharts"
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react"
 import { formatCurrency } from "@/lib/format"
+import { GradientHero } from "@/components/gradient-hero"
+import { StatCard } from "@/components/stat-card"
+import { STAT_GRADIENTS, type PillVariant, type StatGradient } from "@/lib/gradients"
 import type {
   ClientDetailQuarterlyRow,
   ClientDetailReachDepthRow,
@@ -85,6 +88,7 @@ function formatCompactDollars(value: number | null | undefined): string {
 export function ClientDetailView({
   allClients,
   selected,
+  clientTicker,
   quarterly,
   topInstitutions,
   reachDepth,
@@ -95,6 +99,7 @@ export function ClientDetailView({
 }: {
   allClients: ClientDetailSummaryRow[]
   selected: ClientDetailSummaryRow
+  clientTicker: string | null
   quarterly: ClientDetailQuarterlyRow[]
   topInstitutions: ClientDetailTopInstitutionRow[]
   reachDepth: ClientDetailReachDepthRow[]
@@ -131,6 +136,36 @@ export function ClientDetailView({
   if (selected.client_since) subtitleParts.push(`Client since ${since}`)
   subtitleParts.push(`${selected.lifetime_meetings.toLocaleString()} meetings lifetime`)
   if (selected.sales_lead_name) subtitleParts.push(`sales lead ${selected.sales_lead_name}`)
+
+  // ---------- Hero badge ----------
+  // Prefer the client's ticker (exchange suffix stripped: "ADT-US" → "ADT").
+  // Fall back to name initials for private/unlisted clients with no ticker.
+  const monogram = React.useMemo(() => {
+    const ticker = clientTicker?.trim()
+    if (ticker) return ticker.split("-")[0]
+    const words = selected.client_name.trim().split(/\s+/).filter(Boolean)
+    if (words.length === 0) return ""
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+    return (words[0][0] + words[1][0]).toUpperCase()
+  }, [clientTicker, selected.client_name])
+
+  // ---------- Hero status pill ----------
+  // Best-effort read of the most-recent note's free-text status. Priority order
+  // matters when one note mixes cues: most urgent signal wins. Matched buckets
+  // get a clean canonical label; anything unmatched keeps the raw status text.
+  const statusPill = React.useMemo<
+    { label: string; variant: PillVariant } | undefined
+  >(() => {
+    const text = recentNote?.status_text?.trim()
+    if (!text) return undefined
+    const t = text.toLowerCase()
+    if (/at[\s-]?risk|churn/.test(t)) return { label: "At Risk", variant: "atRisk" }
+    if (/watch|flak/.test(t)) return { label: "Watch", variant: "watch" }
+    if (/positive|strong|healthy|good/.test(t))
+      return { label: "Positive", variant: "positive" }
+    if (/\bnew\b/.test(t)) return { label: "New Client", variant: "new" }
+    return { label: text, variant: "neutral" }
+  }, [recentNote?.status_text])
 
   // ---------- KPI tiles ----------
   const delta = selected.ltm_meetings_delta
@@ -172,23 +207,27 @@ export function ClientDetailView({
     value: string
     hint: React.ReactNode
     valueColor?: string
+    gradient: StatGradient
   }
   const tiles: Tile[] = [
     {
       label: "Meetings (LTM)",
       value: `${selected.ltm_meetings.toLocaleString()} / ${selected.lifetime_meetings.toLocaleString()}`,
       hint: <span style={{ color: deltaColor }}>{deltaText}</span>,
+      gradient: STAT_GRADIENTS.meetings,
     },
     {
       label: "Institutions (LTM)",
       value: selected.ltm_unique_institutions.toLocaleString(),
       hint: `${selected.ltm_unique_investors.toLocaleString()} individual investors`,
+      gradient: STAT_GRADIENTS.institutions,
     },
     {
       label: "Feedback Rec'd (LTM)",
       value: feedbackValue,
       valueColor: feedbackColor,
       hint: `${selected.ltm_feedback_collected.toLocaleString()} of ${selected.ltm_feedback_total_closed.toLocaleString()} closed`,
+      gradient: STAT_GRADIENTS.feedback,
     },
     {
       label: "Annualized Retainer",
@@ -198,17 +237,20 @@ export function ClientDetailView({
         selected.annualized_retainer > 0
           ? `${formatCompactDollars(quarterlyDollars)}/quarter`
           : "No active contract",
+      gradient: STAT_GRADIENTS.retainer,
     },
     {
       label: "$ per Meeting",
       value: formatCompactDollars(selected.dollars_per_meeting_ltm),
       hint: "LTM, retainer ÷ meetings",
+      gradient: STAT_GRADIENTS.perMeeting,
     },
     {
       label: "Contract Renewal",
       value: renewalValue,
       valueColor: renewalColor,
       hint: renewalHint,
+      gradient: STAT_GRADIENTS.renewal,
     },
   ]
 
@@ -263,75 +305,75 @@ export function ClientDetailView({
   // ---------- Render ----------
   return (
     <>
-      {/* Section 1: Header */}
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1
-            className="text-2xl font-medium tracking-tight"
-            style={{ color: NAVY_DEEP }}
-          >
-            {selected.client_name}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {subtitleParts.join(" · ")}
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={goPrev}
-            aria-label="Previous client"
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card hover:bg-accent"
-          >
-            <ChevronLeft className="size-4" />
-          </button>
-          <select
-            value={selected.account_id}
-            onChange={(e) => goTo(e.target.value)}
-            className="h-9 min-w-[220px] rounded-md border border-border bg-card px-2 text-sm"
-            aria-label="Select client"
-          >
-            {allClients.map((c) => (
-              <option key={c.account_id} value={c.account_id}>
-                {c.client_name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={goNext}
-            aria-label="Next client"
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card hover:bg-accent"
-          >
-            <ChevronRight className="size-4" />
-          </button>
-        </div>
+      {/* Section 1: Gradient hero header */}
+      <div className="mb-4">
+        <GradientHero
+          title={selected.client_name}
+          subtitle={subtitleParts.join(" · ")}
+          monogram={monogram}
+          status={statusPill}
+          rightSlot={
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={goPrev}
+                aria-label="Previous client"
+                className="flex h-9 w-9 items-center justify-center rounded-md text-white transition-colors"
+                style={{
+                  background: "rgba(255,255,255,0.10)",
+                  border: "1px solid rgba(255,255,255,0.26)",
+                }}
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+              <select
+                value={selected.account_id}
+                onChange={(e) => goTo(e.target.value)}
+                className="h-9 min-w-[220px] rounded-md px-2 text-sm text-white"
+                style={{
+                  background: "rgba(255,255,255,0.12)",
+                  border: "1px solid rgba(255,255,255,0.26)",
+                }}
+                aria-label="Select client"
+              >
+                {allClients.map((c) => (
+                  <option
+                    key={c.account_id}
+                    value={c.account_id}
+                    style={{ color: NAVY_DEEP }}
+                  >
+                    {c.client_name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={goNext}
+                aria-label="Next client"
+                className="flex h-9 w-9 items-center justify-center rounded-md text-white transition-colors"
+                style={{
+                  background: "rgba(255,255,255,0.10)",
+                  border: "1px solid rgba(255,255,255,0.26)",
+                }}
+              >
+                <ChevronRight className="size-4" />
+              </button>
+            </div>
+          }
+        />
       </div>
 
-      {/* Section 2: 6 KPI tiles */}
+      {/* Section 2: 6 KPI cards */}
       <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((t) => (
-          <div
+          <StatCard
             key={t.label}
-            className="rounded-lg border p-3.5"
-            style={{ backgroundColor: GRAY_BG }}
-          >
-            <div
-              className="text-2xl font-medium tracking-tight tabular-nums"
-              style={{ color: t.valueColor ?? NAVY_DEEP }}
-            >
-              {t.value}
-            </div>
-            <div
-              className="mt-1 text-xs font-medium"
-              style={{ color: NAVY_DEEP }}
-            >
-              {t.label}
-            </div>
-            <div className="mt-0.5 text-[10px] text-muted-foreground">
-              {t.hint}
-            </div>
-          </div>
+            label={t.label}
+            value={t.value}
+            hint={t.hint}
+            valueColor={t.valueColor}
+            gradient={t.gradient}
+          />
         ))}
       </div>
 
