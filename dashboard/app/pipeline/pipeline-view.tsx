@@ -1,12 +1,15 @@
 "use client"
 
 import * as React from "react"
-import { ArrowDown, ArrowUp, Check, ChevronsUpDown, Search, Star, Users } from "lucide-react"
+import { ArrowDown, ArrowUp, ChevronsUpDown, Search, Users } from "lucide-react"
 import { GradientHero } from "@/components/gradient-hero"
+import { HostSelectCell } from "@/components/host-select-cell"
 import { StatCard } from "@/components/stat-card"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { PIPELINE_CARD_GRADIENTS } from "@/lib/gradients"
+import { analyzeHost, buildAffinity, isHostBusy } from "@/lib/host-suggestion"
+import type { HostPick, HostSlot } from "@/lib/host-suggestion"
 import { cn } from "@/lib/utils"
 import type { Pipeline30dRow, SchedulerMeetingRow } from "@/lib/types"
 
@@ -19,27 +22,6 @@ const TYPE_PILL = {
 
 // Faint warm tint so unassigned (host-less) rows stand out in the table.
 const UNASSIGNED_TINT = "#FCF8F2"
-
-// ---------------------------------------------------------------------------
-// Duration / occupied-interval model — identical to the Scheduler. Every
-// meeting's core is 1h from start; in-person adds a 45m travel buffer each side.
-// Used to detect host conflicts when suggesting a host for an unassigned
-// pipeline meeting.
-// ---------------------------------------------------------------------------
-const BUFFER = 45
-const CORE = 60
-
-type Interval = { start: number; end: number }
-
-function occFrom(startMinutes: number, isInPerson: boolean): Interval {
-  if (isInPerson) {
-    return { start: startMinutes - BUFFER, end: startMinutes + CORE + BUFFER }
-  }
-  return { start: startMinutes, end: startMinutes + CORE }
-}
-function intervalsOverlap(a: Interval, b: Interval): boolean {
-  return a.start < b.end && b.start < a.end
-}
 
 // 840 -> "2pm", 870 -> "2:30pm". Matches the Scheduler's formatting.
 function fmtTime(min: number): string {
@@ -87,159 +69,17 @@ function fmtWallDate(iso: string): string {
   return WALL_DATE_FMT.format(new Date(iso))
 }
 
-// ---------------------------------------------------------------------------
-// Host suggestion for one unassigned pipeline meeting — same approach and exact
-// wording as the Scheduler's unassigned-meetings section.
-// ---------------------------------------------------------------------------
-// One ranked host option for an unassigned meeting.
-type Candidate = {
-  id: string
-  name: string
-  instCount: number
-  clientCount: number
-  l12m: number
-  free: boolean
-  rationale: string | null
-}
-
-// The full analysis for one unassigned meeting: every history candidate ranked
-// free-first, the smart-default id (top of that list), and the bump note shown
-// when the single most-historical host was skipped for being busy.
-type HostPick = {
-  noPrior: boolean
-  candidates: Candidate[]
-  defaultId: string | null
-  bumpNote: string | null
-}
-
-type Affinity = {
-  hostName: Map<string, string>
-  instHost: Map<string, Map<string, number>>
-  clientHost: Map<string, Map<string, number>>
-  instTotal: Map<string, number>
-  clientTotal: Map<string, number>
-  hostDay: Map<string, Map<string, Interval[]>>
-}
-
-function buildAffinity(meetings: SchedulerMeetingRow[]): Affinity {
-  const hostName = new Map<string, string>()
-  const instHost = new Map<string, Map<string, number>>()
-  const clientHost = new Map<string, Map<string, number>>()
-  const instTotal = new Map<string, number>()
-  const clientTotal = new Map<string, number>()
-  const hostDay = new Map<string, Map<string, Interval[]>>()
-
-  const bump = (m: Map<string, Map<string, number>>, key: string, host: string) => {
-    let inner = m.get(key)
-    if (!inner) m.set(key, (inner = new Map()))
-    inner.set(host, (inner.get(host) ?? 0) + 1)
+// Normalize one unassigned pipeline row into the shared host-suggestion shape.
+// The hosted-meeting basis stores wall-clock digits read as UTC, so we derive
+// start minutes / calendar day the same way for the conflict check to line up.
+function slotOf(row: Pipeline30dRow): HostSlot {
+  return {
+    start_minutes: startMinutesOf(row.meeting_date),
+    meeting_day: meetingDayOf(row.meeting_date),
+    is_in_person: row.is_in_person === true,
+    institution_name: row.institution_name,
+    client_account_name: row.client_account_name,
   }
-
-  for (const m of meetings) {
-    hostName.set(m.host_id, m.host_name)
-    if (m.institution_name) {
-      bump(instHost, m.institution_name, m.host_id)
-      instTotal.set(m.institution_name, (instTotal.get(m.institution_name) ?? 0) + 1)
-    }
-    if (m.client_account_name) {
-      bump(clientHost, m.client_account_name, m.host_id)
-      clientTotal.set(m.client_account_name, (clientTotal.get(m.client_account_name) ?? 0) + 1)
-    }
-    let days = hostDay.get(m.host_id)
-    if (!days) hostDay.set(m.host_id, (days = new Map()))
-    const arr = days.get(m.meeting_day)
-    if (arr) arr.push(occFrom(m.start_minutes, m.is_in_person))
-    else days.set(m.meeting_day, [occFrom(m.start_minutes, m.is_in_person)])
-  }
-  return { hostName, instHost, clientHost, instTotal, clientTotal, hostDay }
-}
-
-// Is `hostId` busy at this meeting's date/time? Same occupied-interval model as
-// the Scheduler, evaluated against the already-loaded hosted meetings. Works for
-// any host (history candidate or an arbitrary roster pick from search).
-function isHostBusy(
-  affinity: Affinity,
-  row: Pipeline30dRow,
-  hostId: string,
-): boolean {
-  const day = meetingDayOf(row.meeting_date)
-  const occ = occFrom(startMinutesOf(row.meeting_date), row.is_in_person === true)
-  const ivs = affinity.hostDay.get(hostId)?.get(day)
-  return ivs ? ivs.some((iv) => intervalsOverlap(iv, occ)) : false
-}
-
-function analyzeHost(
-  row: Pipeline30dRow,
-  affinity: Affinity,
-  l12mByHost: Map<string, number>,
-): HostPick {
-  const startMinutes = startMinutesOf(row.meeting_date)
-  const inst = row.institution_name
-  const client = row.client_account_name
-  const instMap = inst ? affinity.instHost.get(inst) : undefined
-  const clientMap = client ? affinity.clientHost.get(client) : undefined
-
-  // Candidate pool = any host who has hosted this institution OR this client.
-  const candidateIds = new Set<string>()
-  if (instMap) for (const id of instMap.keys()) candidateIds.add(id)
-  if (clientMap) for (const id of clientMap.keys()) candidateIds.add(id)
-
-  const rationaleFor = (instCount: number, clientCount: number): string | null => {
-    if (instCount > 0 && inst) {
-      return `hosts ${instCount} of ${affinity.instTotal.get(inst) ?? instCount} ${inst} meetings`
-    }
-    if (clientCount > 0 && client) {
-      return `hosts ${clientCount} of ${affinity.clientTotal.get(client) ?? clientCount} ${client} meetings`
-    }
-    return null
-  }
-
-  const base: Candidate[] = Array.from(candidateIds).map((id) => {
-    const instCount = instMap?.get(id) ?? 0
-    const clientCount = clientMap?.get(id) ?? 0
-    return {
-      id,
-      name: affinity.hostName.get(id) ?? "—",
-      instCount,
-      clientCount,
-      l12m: l12mByHost.get(id) ?? 0,
-      free: !isHostBusy(affinity, row, id),
-      rationale: rationaleFor(instCount, clientCount),
-    }
-  })
-
-  // History-only order — institution desc, client desc, L12M desc, name. Used to
-  // find the single most-historical host for the bump note.
-  const byHistory = [...base].sort(
-    (a, b) =>
-      b.instCount - a.instCount ||
-      b.clientCount - a.clientCount ||
-      b.l12m - a.l12m ||
-      a.name.localeCompare(b.name),
-  )
-
-  // Free-first order — bookable hosts on top, then the same history ranking.
-  // This is the dropdown order; candidates[0] is the smart default.
-  const candidates = [...base].sort(
-    (a, b) =>
-      Number(b.free) - Number(a.free) ||
-      b.instCount - a.instCount ||
-      b.clientCount - a.clientCount ||
-      b.l12m - a.l12m ||
-      a.name.localeCompare(b.name),
-  )
-
-  const defaultId = candidates[0]?.id ?? null
-  const top = byHistory[0]
-  const topPrimaryN = top ? (top.instCount > 0 ? top.instCount : top.clientCount) : 0
-  // Bump note only when the most-historical host is busy AND a free host took the
-  // default slot instead (i.e. it was genuinely skipped, not just shown busy).
-  const bumpNote =
-    top && !top.free && defaultId !== top.id
-      ? `${top.name} usually hosts (${topPrimaryN}) but is busy at ${fmtTime(startMinutes)}`
-      : null
-
-  return { noPrior: base.length === 0, candidates, defaultId, bumpNote }
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +243,7 @@ export function PipelineView({
   const picks = React.useMemo(() => {
     const map = new Map<string, HostPick>()
     for (const r of rows) {
-      if (!r.host_id) map.set(r.meeting_id, analyzeHost(r, affinity, l12mByHost))
+      if (!r.host_id) map.set(r.meeting_id, analyzeHost(slotOf(r), affinity, l12mByHost))
     }
     return map
   }, [rows, affinity, l12mByHost])
@@ -418,7 +258,7 @@ export function PipelineView({
 
   // Free/busy for an arbitrary host (e.g. a search pick) against a meeting.
   const hostFreeFor = React.useCallback(
-    (row: Pipeline30dRow, hostId: string) => !isHostBusy(affinity, row, hostId),
+    (row: Pipeline30dRow, hostId: string) => !isHostBusy(affinity, slotOf(row), hostId),
     [affinity],
   )
 
@@ -686,7 +526,6 @@ export function PipelineView({
                     <td className="px-3 py-2.5">
                       {unassigned ? (
                         <HostSelectCell
-                          row={r}
                           pick={picks.get(r.meeting_id)}
                           selectedId={
                             chosenHost.get(r.meeting_id) ??
@@ -694,7 +533,7 @@ export function PipelineView({
                             null
                           }
                           roster={roster}
-                          hostFreeFor={hostFreeFor}
+                          isHostFree={(hostId) => hostFreeFor(r, hostId)}
                           onSelect={(hostId) => selectHost(r.meeting_id, hostId)}
                         />
                       ) : (
@@ -719,250 +558,6 @@ function DaysCell({ days }: { days: number }) {
   }
   const cls = days <= 3 ? "text-amber-700" : "text-muted-foreground"
   return <span className={"tabular-nums " + cls}>{days}</span>
-}
-
-// Small free / busy pill.
-function FreeBusyPill({ free }: { free: boolean }) {
-  return free ? (
-    <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-      free
-    </span>
-  ) : (
-    <span className="shrink-0 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-700">
-      busy
-    </span>
-  )
-}
-
-// The Host cell for an unassigned meeting. Collapsed, it shows the smart default
-// (top free candidate) — name + free/busy pill + rationale + the amber bump
-// note. The name is a dropdown: top-5 ranked candidates (free-first, ★ on the
-// default, ✓ on the selection) plus "Search all hosts…" over the full roster.
-// The "Assign {name}" button reflects the current selection (placeholder — no
-// CRM write-back).
-function HostSelectCell({
-  row,
-  pick,
-  selectedId,
-  roster,
-  hostFreeFor,
-  onSelect,
-}: {
-  row: Pipeline30dRow
-  pick: HostPick | undefined
-  selectedId: string | null
-  roster: { id: string; name: string }[]
-  hostFreeFor: (row: Pipeline30dRow, hostId: string) => boolean
-  onSelect: (hostId: string) => void
-}) {
-  const [open, setOpen] = React.useState(false)
-  const [searchMode, setSearchMode] = React.useState(false)
-  const [query, setQuery] = React.useState("")
-
-  const candidates = React.useMemo(() => pick?.candidates ?? [], [pick])
-  const candidateById = React.useMemo(() => {
-    const m = new Map<string, Candidate>()
-    for (const c of candidates) m.set(c.id, c)
-    return m
-  }, [candidates])
-  const rosterNameById = React.useMemo(() => {
-    const m = new Map<string, string>()
-    for (const h of roster) m.set(h.id, h.name)
-    return m
-  }, [roster])
-
-  // Resolve the selected host's display info — from the candidate pool when it
-  // has history, otherwise from the roster (no rationale; live availability).
-  const selected: Candidate | null = selectedId
-    ? candidateById.get(selectedId) ?? {
-        id: selectedId,
-        name: rosterNameById.get(selectedId) ?? "—",
-        instCount: 0,
-        clientCount: 0,
-        l12m: 0,
-        free: hostFreeFor(row, selectedId),
-        rationale: null,
-      }
-    : null
-
-  const top5 = candidates.slice(0, 5)
-
-  const reset = () => {
-    setSearchMode(false)
-    setQuery("")
-  }
-  const pickHost = (id: string) => {
-    onSelect(id)
-    setOpen(false)
-    reset()
-  }
-
-  const q = query.trim().toLowerCase()
-  const filteredRoster = q
-    ? roster.filter((h) => h.name.toLowerCase().includes(q))
-    : roster
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Popover
-        open={open}
-        onOpenChange={(o) => {
-          setOpen(o)
-          if (!o) reset()
-        }}
-      >
-        <PopoverTrigger
-          render={
-            <button
-              type="button"
-              aria-label="Select host"
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-left text-sm hover:bg-slate-50"
-            />
-          }
-        >
-          {selected ? (
-            <>
-              <span className="truncate font-medium">{selected.name}</span>
-              <FreeBusyPill free={selected.free} />
-            </>
-          ) : (
-            <span className="truncate italic text-muted-foreground">
-              No prior host — assign manually.
-            </span>
-          )}
-          <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
-        </PopoverTrigger>
-
-        <PopoverContent align="start" className="w-80 p-1.5">
-          {!searchMode ? (
-            <>
-              {top5.length === 0 ? (
-                <p className="px-2 py-3 text-xs text-muted-foreground">
-                  No suggested hosts — search all hosts.
-                </p>
-              ) : (
-                <ul className="grid">
-                  {top5.map((c, idx) => (
-                    <li key={c.id}>
-                      <button
-                        type="button"
-                        onClick={() => pickHost(c.id)}
-                        className={cn(
-                          "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted",
-                          selectedId === c.id && "bg-muted",
-                        )}
-                      >
-                        <span className="min-w-0">
-                          <span className="flex items-center gap-1">
-                            {idx === 0 && (
-                              <Star
-                                className="size-3 shrink-0 fill-amber-400 text-amber-400"
-                                aria-label="Smart default"
-                              />
-                            )}
-                            <span className="truncate text-sm font-medium">{c.name}</span>
-                          </span>
-                          {c.rationale && (
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {c.rationale}
-                            </span>
-                          )}
-                        </span>
-                        <span className="flex shrink-0 items-center gap-1.5">
-                          <FreeBusyPill free={c.free} />
-                          {selectedId === c.id && <Check className="size-4" />}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <div className="my-1 h-px bg-border" />
-              <button
-                type="button"
-                onClick={() => setSearchMode(true)}
-                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted"
-              >
-                <Search className="size-3.5 shrink-0" />
-                Search all hosts…
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="relative mb-1.5">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search by name"
-                  className="pl-8"
-                  autoFocus
-                />
-              </div>
-              <div className="max-h-72 overflow-y-auto">
-                {filteredRoster.length === 0 ? (
-                  <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                    No matches
-                  </p>
-                ) : (
-                  <ul className="grid">
-                    {filteredRoster.map((h) => {
-                      const cand = candidateById.get(h.id)
-                      const free = cand ? cand.free : hostFreeFor(row, h.id)
-                      return (
-                        <li key={h.id}>
-                          <button
-                            type="button"
-                            onClick={() => pickHost(h.id)}
-                            className={cn(
-                              "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted",
-                              selectedId === h.id && "bg-muted",
-                            )}
-                          >
-                            <span className="min-w-0">
-                              <span className="truncate text-sm">{h.name}</span>
-                              {cand?.rationale && (
-                                <span className="block truncate text-xs text-muted-foreground">
-                                  {cand.rationale}
-                                </span>
-                              )}
-                            </span>
-                            <span className="flex shrink-0 items-center gap-1.5">
-                              <FreeBusyPill free={free} />
-                              {selectedId === h.id && <Check className="size-4" />}
-                            </span>
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </div>
-            </>
-          )}
-        </PopoverContent>
-      </Popover>
-
-      {selected?.rationale && (
-        <div className="text-xs text-muted-foreground">{selected.rationale}</div>
-      )}
-      {pick?.bumpNote && (
-        <div className="mt-0.5 flex items-center gap-1 text-xs text-amber-600">
-          <ArrowUp className="size-3 shrink-0" />
-          {pick.bumpNote}
-        </div>
-      )}
-
-      {/* Placeholder only — this dashboard is read-only against the mirrored
-          CRM, so this does not write a host back to Dynamics yet. */}
-      <button
-        type="button"
-        className="w-fit rounded-md border border-border bg-card px-2 py-0.5 text-xs font-medium text-foreground hover:bg-slate-50"
-      >
-        {selected ? `Assign ${selected.name}` : "Assign host"}
-      </button>
-    </div>
-  )
 }
 
 // Multi-select client filter. Collapsed trigger shows "All clients" or
