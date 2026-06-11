@@ -65,7 +65,16 @@ function detectPreset(from: string, to: string): Preset {
   return "custom"
 }
 
-export function DateRangeControl({ from, to }: { from: string; to: string }) {
+export function DateRangeControl({
+  from,
+  to,
+  tone = "default",
+}: {
+  from: string
+  to: string
+  /** "hero" restyles the control (translucent white) to sit on the gradient band. */
+  tone?: "default" | "hero"
+}) {
   const router = useRouter()
   const [pending, startTransition] = React.useTransition()
 
@@ -111,11 +120,23 @@ export function DateRangeControl({ from, to }: { from: string; to: string }) {
   const fromDate = parseYmd(customFrom)
   const toDate = parseYmd(customTo)
 
+  // Hero tone: translucent-white styling so the control reads on the gradient.
+  const isHero = tone === "hero"
+  const labelCls = isHero ? "text-white/80" : "text-muted-foreground"
+  const triggerCls = isHero
+    ? "border-white/30 bg-white/15 text-white hover:bg-white/25 [&_svg]:text-white/80 data-placeholder:text-white/70"
+    : ""
+  const rangeTextCls = isHero ? "text-white/85" : "text-muted-foreground"
+  const heroBtnCls = isHero
+    ? "border-white/30 bg-white/15 text-white hover:bg-white/25 hover:text-white"
+    : ""
+  const applyCls = isHero ? "bg-white/90 text-[#1E2858] hover:bg-white" : ""
+
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2">
-      <span className="text-sm text-muted-foreground">Date range</span>
+    <div className={`${isHero ? "" : "mb-4 "}flex flex-wrap items-center gap-2`}>
+      <span className={`text-sm ${labelCls}`}>Date range</span>
       <Select value={preset} onValueChange={(v) => handlePresetChange(v as Preset)}>
-        <SelectTrigger className="w-48">
+        <SelectTrigger className={`w-48 ${triggerCls}`}>
           <SelectValue placeholder="Select range" />
         </SelectTrigger>
         <SelectContent>
@@ -135,23 +156,26 @@ export function DateRangeControl({ from, to }: { from: string; to: string }) {
             valueYmd={customFrom}
             date={fromDate}
             onChange={(d) => setCustomFrom(ymd(d))}
+            buttonClassName={heroBtnCls}
           />
           <DatePopover
             label="End"
             valueYmd={customTo}
             date={toDate}
             onChange={(d) => setCustomTo(ymd(d))}
+            buttonClassName={heroBtnCls}
           />
           <Button
             size="sm"
             onClick={applyCustom}
+            className={applyCls}
             disabled={pending || !customFrom || !customTo || customFrom === from && customTo === to}
           >
             Apply
           </Button>
         </>
       ) : (
-        <span className="text-xs text-muted-foreground tabular-nums">
+        <span className={`text-xs tabular-nums ${rangeTextCls}`}>
           {formatDate(from)} – {formatDate(to)}
         </span>
       )}
@@ -164,18 +188,20 @@ function DatePopover({
   valueYmd,
   date,
   onChange,
+  buttonClassName,
 }: {
   label: string
   valueYmd: string
   date: Date | undefined
   onChange: (d: Date) => void
+  buttonClassName?: string
 }) {
   const [open, setOpen] = React.useState(false)
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" className={buttonClassName}>
             <CalendarIcon />
             <span className="tabular-nums">
               {label}: {valueYmd ? formatDate(valueYmd) : "—"}

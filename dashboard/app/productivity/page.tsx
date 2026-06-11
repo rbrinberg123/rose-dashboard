@@ -3,9 +3,12 @@ import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type {
   CostAssumptionsRow,
+  PersonRole,
+  PersonRoleTtmRow,
   ProductivityAggregateRow,
   ProductivityPersonManagerStatsRow,
   ProductivityPersonMeetingRow,
+  ProductivityRoleRow,
 } from "@/lib/types"
 import { ProductivityView } from "./productivity-view"
 
@@ -41,6 +44,20 @@ function inclusiveDays(from: string, to: string): number {
   const f = new Date(`${from}T00:00:00Z`).getTime()
   const t = new Date(`${to}T00:00:00Z`).getTime()
   return Math.round((t - f) / 86_400_000) + 1
+}
+
+// Trailing-12-month role from v_person_role_ttm. One symmetric ratio:
+// fewer than 25 total actions → unclassified; otherwise Host/Booker when that
+// side is >= 70% of total actions, else Hybrid.
+const ROLE_MIN_TOTAL = 25
+const ROLE_THRESHOLD = 0.7
+function deriveRole(bookedTtm: number, hostedTtm: number): PersonRole {
+  const total = bookedTtm + hostedTtm
+  if (total < ROLE_MIN_TOTAL) return null
+  const hostedShare = hostedTtm / total
+  if (hostedShare >= ROLE_THRESHOLD) return "Host"
+  if (hostedShare <= 1 - ROLE_THRESHOLD) return "Booker"
+  return "Hybrid"
 }
 
 type SalaryActiveRow = {
@@ -200,7 +217,7 @@ export default async function ProductivityPage({
     if (page.length < PAGE_SIZE) break
   }
 
-  const [costRes, statsRes, salaryRes] = await Promise.all([
+  const [costRes, statsRes, salaryRes, roleRes] = await Promise.all([
     sb.from("cost_assumptions").select("*").eq("id", 1).maybeSingle(),
     sb.from("v_productivity_person_manager_stats").select("*"),
     sb
@@ -208,11 +225,17 @@ export default async function ProductivityPage({
       .select("user_id, annual_salary, annual_bonus, benefits_multiplier")
       .lte("effective_from", to)
       .or(`effective_to.is.null,effective_to.gte.${to}`),
+    sb.from("v_person_role_ttm").select("*"),
   ])
 
   const cost = (costRes.data ?? null) as CostAssumptionsRow | null
   const stats = (statsRes.data ?? []) as ProductivityPersonManagerStatsRow[]
   const activeSalary = (salaryRes.data ?? []) as SalaryActiveRow[]
+  const roleRows = (roleRes.data ?? []) as PersonRoleTtmRow[]
+  // Role is trailing-12-month based (v_person_role_ttm), joined by user_id —
+  // independent of the page's selected date range.
+  const roleByUser = new Map<string, PersonRoleTtmRow>()
+  for (const r of roleRows) roleByUser.set(r.user_id, r)
 
   const workHoursPerYear = Number(cost?.work_hours_per_year ?? 0)
   const primaryHoursMonthly = Number(cost?.primary_manager_hours_monthly ?? 0)
@@ -317,9 +340,21 @@ export default async function ProductivityPage({
     )
   }
 
+  // Attach trailing-12-month role to each row, joined by user_id.
+  const rowsWithRole: ProductivityRoleRow[] = rows.map((r) => {
+    const ttm = roleByUser.get(r.user_id)
+    const bookedTtm = ttm?.booked_ttm ?? 0
+    const hostedTtm = ttm?.hosted_ttm ?? 0
+    return {
+      ...r,
+      role: deriveRole(bookedTtm, hostedTtm),
+      total_ttm: ttm?.total_ttm ?? bookedTtm + hostedTtm,
+    }
+  })
+
   return (
     <PageShell title="Productivity" description="Activity by person over a date range">
-      <ProductivityView from={from} to={to} rows={rows} />
+      <ProductivityView from={from} to={to} rows={rowsWithRole} />
     </PageShell>
   )
 }

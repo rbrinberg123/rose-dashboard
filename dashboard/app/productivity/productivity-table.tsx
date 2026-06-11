@@ -5,14 +5,11 @@ import Link from "next/link"
 import {
   flexRender,
   getCoreRowModel,
-  getFilteredRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
-  type FilterFn,
   type SortingState,
 } from "@tanstack/react-table"
-import { Search, X } from "lucide-react"
 
 import {
   Table,
@@ -22,16 +19,33 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
 import { SortHeader } from "@/components/sort-header"
-import { formatCurrency, formatPercent } from "@/lib/format"
-import type { ProductivityAggregateRow } from "@/lib/types"
+import { formatPercent } from "@/lib/format"
+import type { PersonRole, ProductivityRoleRow } from "@/lib/types"
 
-const searchFilter: FilterFn<ProductivityAggregateRow> = (row, _id, query: string) => {
-  const q = query.trim().toLowerCase()
-  if (!q) return true
-  return (row.original.display_name ?? "").toLowerCase().includes(q)
+// Role filter options for the segmented toggle. "All" = no filter;
+// "Unclassified" = people with no role (null / under-25-activity).
+const ROLE_FILTERS = ["All", "Host", "Booker", "Hybrid", "Unclassified"] as const
+type RoleFilter = (typeof ROLE_FILTERS)[number]
+
+function matchesRoleFilter(role: PersonRole, filter: RoleFilter): boolean {
+  if (filter === "All") return true
+  if (filter === "Unclassified") return role === null
+  return role === filter
+}
+
+// Account-management filter, driven by the per-person manager counts already
+// on each row (from v_productivity_person_manager_stats).
+const AM_FILTERS = ["All", "Primary", "Secondary", "Either"] as const
+type AccountMgmtFilter = (typeof AM_FILTERS)[number]
+
+function matchesAmFilter(row: ProductivityRoleRow, filter: AccountMgmtFilter): boolean {
+  if (filter === "All") return true
+  const isPrimary = row.primary_manager_count > 0
+  const isSecondary = row.secondary_manager_count > 0
+  if (filter === "Primary") return isPrimary
+  if (filter === "Secondary") return isSecondary
+  return isPrimary || isSecondary // Either
 }
 
 function nullSafeNumberCmp(a: number | null, b: number | null): number {
@@ -41,7 +55,31 @@ function nullSafeNumberCmp(a: number | null, b: number | null): number {
   return a - b
 }
 
-const columns: ColumnDef<ProductivityAggregateRow>[] = [
+// Role pill palette + sort rank (Host > Hybrid > Booker > unclassified).
+const ROLE_STYLES: Record<"Host" | "Booker" | "Hybrid", { bg: string; text: string }> = {
+  Host: { bg: "#E2F2EE", text: "#0E7C72" },
+  Booker: { bg: "#EAF0FB", text: "#2A3C77" },
+  Hybrid: { bg: "#F0EAFB", text: "#5B4B9E" },
+}
+const ROLE_RANK: Record<"Host" | "Booker" | "Hybrid", number> = { Host: 3, Hybrid: 2, Booker: 1 }
+function roleRank(role: PersonRole): number {
+  return role ? ROLE_RANK[role] : 0
+}
+
+function RolePill({ role }: { role: PersonRole }) {
+  if (!role) return <span className="text-muted-foreground">—</span>
+  const s = ROLE_STYLES[role]
+  return (
+    <span
+      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: s.bg, color: s.text }}
+    >
+      {role}
+    </span>
+  )
+}
+
+const columns: ColumnDef<ProductivityRoleRow>[] = [
   {
     id: "display_name",
     accessorKey: "display_name",
@@ -66,6 +104,19 @@ const columns: ColumnDef<ProductivityAggregateRow>[] = [
         )}
       </div>
     ),
+  },
+  {
+    id: "role",
+    accessorFn: (r) => r.role ?? "",
+    sortingFn: (a, b) => roleRank(a.original.role) - roleRank(b.original.role),
+    header: ({ column }) => (
+      <SortHeader
+        label="Role"
+        isSorted={column.getIsSorted()}
+        onClick={() => column.toggleSorting()}
+      />
+    ),
+    cell: ({ row }) => <RolePill role={row.original.role} />,
   },
   {
     id: "primary_manager_count",
@@ -199,67 +250,105 @@ const columns: ColumnDef<ProductivityAggregateRow>[] = [
       </div>
     ),
   },
-  {
-    id: "labor_cost",
-    accessorKey: "labor_cost",
-    sortingFn: "basic",
-    header: ({ column }) => (
-      <SortHeader
-        label="Labor cost"
-        isSorted={column.getIsSorted()}
-        onClick={() => column.toggleSorting()}
-        align="right"
-        title="Includes management time, per-row booker time, and per-meeting host time (group meetings count once for host)."
-      />
-    ),
-    cell: ({ row }) => (
-      <div className="text-right tabular-nums">{formatCurrency(row.original.labor_cost)}</div>
-    ),
-  },
+  // Labor cost column is intentionally hidden for now. The labor_cost value is
+  // still computed in the page logic so this column can be re-added later.
 ]
 
-export function ProductivityTable({ rows }: { rows: ProductivityAggregateRow[] }) {
+// Labeled segmented toggle (Feedback-page style): rounded button group, active
+// button filled navy, 0.5px border around the group.
+function SegmentedFilter<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string
+  options: readonly T[]
+  value: T
+  onChange: (v: T) => void
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <div
+        className="flex h-9 items-center rounded-md bg-card p-0.5"
+        style={{ border: "0.5px solid var(--border)" }}
+      >
+        {options.map((opt) => {
+          const active = value === opt
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onChange(opt)}
+              className={
+                "rounded px-2.5 py-1 text-xs font-medium transition-colors " +
+                (active ? "bg-[#1E2858] text-white" : "text-foreground hover:bg-slate-50")
+              }
+            >
+              {opt}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+export function ProductivityTable({ rows }: { rows: ProductivityRoleRow[] }) {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: "hosted", desc: true }])
-  const [search, setSearch] = React.useState("")
+  const [roleFilter, setRoleFilter] = React.useState<RoleFilter>("All")
+  const [amFilter, setAmFilter] = React.useState<AccountMgmtFilter>("All")
+
+  // Filter by role AND account-management before the table sees the data, so
+  // sorting/render only operate on the in-filter rows.
+  const filteredRows = React.useMemo(
+    () =>
+      rows.filter(
+        (r) => matchesRoleFilter(r.role, roleFilter) && matchesAmFilter(r, amFilter),
+      ),
+    [rows, roleFilter, amFilter],
+  )
 
   const table = useReactTable({
-    data: rows,
+    data: filteredRows,
     columns,
-    state: { sorting, globalFilter: search },
+    state: { sorting },
     onSortingChange: setSorting,
-    onGlobalFilterChange: (next) => setSearch((next as string) ?? ""),
-    globalFilterFn: searchFilter,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
   })
 
-  const visibleCount = table.getFilteredRowModel().rows.length
-  const hasFilter = search.trim().length > 0
+  const visibleCount = filteredRows.length
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-56 max-w-sm flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by person"
-            className="pl-8"
-          />
-        </div>
-
-        {hasFilter ? (
-          <Button variant="ghost" size="sm" onClick={() => setSearch("")}>
-            <X /> Clear
-          </Button>
-        ) : null}
+      <div className="flex flex-wrap items-center gap-3">
+        <SegmentedFilter
+          label="Role"
+          options={ROLE_FILTERS}
+          value={roleFilter}
+          onChange={setRoleFilter}
+        />
+        <SegmentedFilter
+          label="Account Management"
+          options={AM_FILTERS}
+          value={amFilter}
+          onChange={setAmFilter}
+        />
 
         <div className="ml-auto text-xs tabular-nums text-muted-foreground">
           {visibleCount.toLocaleString()} of {rows.length.toLocaleString()} people
         </div>
       </div>
+
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        Role reflects each person&apos;s booking-vs-hosting split over the trailing 12
+        months. A person is a Host or Booker when that activity is at least 70% of their
+        total actions; otherwise Hybrid. People with fewer than 25 total actions in the
+        trailing 12 months aren&apos;t classified (shown as &ldquo;—&rdquo;) — not enough
+        activity to determine a role.
+      </p>
 
       <div className="rounded-lg border border-border bg-card">
         <Table>
@@ -285,7 +374,7 @@ export function ProductivityTable({ rows }: { rows: ProductivityAggregateRow[] }
                 >
                   {rows.length === 0
                     ? "No activity recorded for the selected date range."
-                    : "No people match the current search."}
+                    : "No people match the current filter."}
                 </TableCell>
               </TableRow>
             ) : (

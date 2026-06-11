@@ -898,6 +898,58 @@ WHERE u.display_name IS NOT NULL
 
 
 -- -----------------------------------------------------------------------------
+-- v_person_role_ttm
+-- One row per user with their trailing-12-month confirmed activity totals,
+-- independent of any date range the People Summary page uses elsewhere. Drives
+-- the "Role" column (Host / Booker / Hybrid) on that page. Users are matched by
+-- user_id (booker_id / host_id), not by name. Trailing window and the Eastern
+-- "today" follow the same conventions as the other productivity views.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_person_role_ttm AS
+WITH user_universe AS (
+  SELECT DISTINCT booker_id AS user_id
+  FROM public.meetings
+  WHERE booker_id IS NOT NULL
+    AND meeting_status_label = 'Confirmed'
+    AND meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+  UNION
+  SELECT DISTINCT host_id
+  FROM public.meetings
+  WHERE host_id IS NOT NULL
+    AND meeting_status_label = 'Confirmed'
+    AND meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+)
+SELECT
+  uu.user_id,
+  COUNT(*) FILTER (
+    WHERE m.booker_id = uu.user_id
+      AND m.meeting_status_label = 'Confirmed'
+      AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+  )::int AS booked_ttm,
+  COUNT(*) FILTER (
+    WHERE m.host_id = uu.user_id
+      AND m.meeting_status_label = 'Confirmed'
+      AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+  )::int AS hosted_ttm,
+  (
+    COUNT(*) FILTER (
+      WHERE m.booker_id = uu.user_id
+        AND m.meeting_status_label = 'Confirmed'
+        AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+    )
+    + COUNT(*) FILTER (
+      WHERE m.host_id = uu.user_id
+        AND m.meeting_status_label = 'Confirmed'
+        AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+    )
+  )::int AS total_ttm
+FROM user_universe uu
+LEFT JOIN public.meetings m
+  ON (m.booker_id = uu.user_id OR m.host_id = uu.user_id)
+GROUP BY uu.user_id;
+
+
+-- -----------------------------------------------------------------------------
 -- v_analyst_monthly_activity
 -- One row per (display_name, year, month) for the trailing 12 months.
 -- Powers the monthly bar charts on the Productivity Detail page.

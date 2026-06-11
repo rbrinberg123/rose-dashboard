@@ -205,6 +205,23 @@ export type ProductivityPersonManagerStatsRow = {
   secondary_manager_account_count: number
 }
 
+/** One row per person from v_person_role_ttm — trailing-12-month activity. */
+export type PersonRoleTtmRow = {
+  user_id: string
+  booked_ttm: number
+  hosted_ttm: number
+  total_ttm: number
+}
+
+/** Trailing-12-month role classification. null = not enough activity. */
+export type PersonRole = "Host" | "Booker" | "Hybrid" | null
+
+/** Aggregate row plus its trailing-12-month role (joined by user_id). */
+export type ProductivityRoleRow = ProductivityAggregateRow & {
+  role: PersonRole
+  total_ttm: number
+}
+
 export type FeedbackOverallRow = {
   period_year: number
   period_quarter: number
