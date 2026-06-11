@@ -1,10 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { ArrowUp, Users } from "lucide-react"
+import { ArrowUp, Check, ChevronsUpDown, Search, Star, Users } from "lucide-react"
 import { GradientHero } from "@/components/gradient-hero"
 import { StatCard } from "@/components/stat-card"
+import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { PIPELINE_CARD_GRADIENTS } from "@/lib/gradients"
+import { cn } from "@/lib/utils"
 import type { Pipeline30dRow, SchedulerMeetingRow } from "@/lib/types"
 
 // Type-pill palette. Metric-card accents reuse the same hues inline below.
@@ -88,10 +91,24 @@ function fmtWallDate(iso: string): string {
 // Host suggestion for one unassigned pipeline meeting — same approach and exact
 // wording as the Scheduler's unassigned-meetings section.
 // ---------------------------------------------------------------------------
-type Suggestion = {
-  noPrior: boolean
-  suggestedName: string | null
+// One ranked host option for an unassigned meeting.
+type Candidate = {
+  id: string
+  name: string
+  instCount: number
+  clientCount: number
+  l12m: number
+  free: boolean
   rationale: string | null
+}
+
+// The full analysis for one unassigned meeting: every history candidate ranked
+// free-first, the smart-default id (top of that list), and the bump note shown
+// when the single most-historical host was skipped for being busy.
+type HostPick = {
+  noPrior: boolean
+  candidates: Candidate[]
+  defaultId: string | null
   bumpNote: string | null
 }
 
@@ -137,14 +154,26 @@ function buildAffinity(meetings: SchedulerMeetingRow[]): Affinity {
   return { hostName, instHost, clientHost, instTotal, clientTotal, hostDay }
 }
 
-function suggestHost(
+// Is `hostId` busy at this meeting's date/time? Same occupied-interval model as
+// the Scheduler, evaluated against the already-loaded hosted meetings. Works for
+// any host (history candidate or an arbitrary roster pick from search).
+function isHostBusy(
+  affinity: Affinity,
+  row: Pipeline30dRow,
+  hostId: string,
+): boolean {
+  const day = meetingDayOf(row.meeting_date)
+  const occ = occFrom(startMinutesOf(row.meeting_date), row.is_in_person === true)
+  const ivs = affinity.hostDay.get(hostId)?.get(day)
+  return ivs ? ivs.some((iv) => intervalsOverlap(iv, occ)) : false
+}
+
+function analyzeHost(
   row: Pipeline30dRow,
   affinity: Affinity,
   l12mByHost: Map<string, number>,
-): Suggestion {
+): HostPick {
   const startMinutes = startMinutesOf(row.meeting_date)
-  const day = meetingDayOf(row.meeting_date)
-  const occ = occFrom(startMinutes, row.is_in_person === true)
   const inst = row.institution_name
   const client = row.client_account_name
   const instMap = inst ? affinity.instHost.get(inst) : undefined
@@ -155,54 +184,62 @@ function suggestHost(
   if (instMap) for (const id of instMap.keys()) candidateIds.add(id)
   if (clientMap) for (const id of clientMap.keys()) candidateIds.add(id)
 
-  const candidates = Array.from(candidateIds)
-    .map((id) => ({
-      id,
-      name: affinity.hostName.get(id) ?? "—",
-      instCount: instMap?.get(id) ?? 0,
-      clientCount: clientMap?.get(id) ?? 0,
-      l12m: l12mByHost.get(id) ?? 0,
-    }))
-    // Rank: institution count desc, then client count desc, then L12M desc,
-    // with name as a final deterministic tiebreaker.
-    .sort(
-      (a, b) =>
-        b.instCount - a.instCount ||
-        b.clientCount - a.clientCount ||
-        b.l12m - a.l12m ||
-        a.name.localeCompare(b.name),
-    )
-
-  const isBusy = (id: string) => {
-    const ivs = affinity.hostDay.get(id)?.get(day)
-    return ivs ? ivs.some((iv) => intervalsOverlap(iv, occ)) : false
-  }
-
-  const rationaleFor = (c: { instCount: number; clientCount: number }) => {
-    if (c.instCount > 0 && inst) {
-      return `hosts ${c.instCount} of ${affinity.instTotal.get(inst) ?? c.instCount} ${inst} meetings`
+  const rationaleFor = (instCount: number, clientCount: number): string | null => {
+    if (instCount > 0 && inst) {
+      return `hosts ${instCount} of ${affinity.instTotal.get(inst) ?? instCount} ${inst} meetings`
     }
-    if (c.clientCount > 0 && client) {
-      return `hosts ${c.clientCount} of ${affinity.clientTotal.get(client) ?? c.clientCount} ${client} meetings`
+    if (clientCount > 0 && client) {
+      return `hosts ${clientCount} of ${affinity.clientTotal.get(client) ?? clientCount} ${client} meetings`
     }
     return null
   }
 
-  const top = candidates[0]
-  const suggested = candidates.find((c) => !isBusy(c.id)) ?? null
-  const topPrimaryN = top ? (top.instCount > 0 ? top.instCount : top.clientCount) : 0
+  const base: Candidate[] = Array.from(candidateIds).map((id) => {
+    const instCount = instMap?.get(id) ?? 0
+    const clientCount = clientMap?.get(id) ?? 0
+    return {
+      id,
+      name: affinity.hostName.get(id) ?? "—",
+      instCount,
+      clientCount,
+      l12m: l12mByHost.get(id) ?? 0,
+      free: !isHostBusy(affinity, row, id),
+      rationale: rationaleFor(instCount, clientCount),
+    }
+  })
 
+  // History-only order — institution desc, client desc, L12M desc, name. Used to
+  // find the single most-historical host for the bump note.
+  const byHistory = [...base].sort(
+    (a, b) =>
+      b.instCount - a.instCount ||
+      b.clientCount - a.clientCount ||
+      b.l12m - a.l12m ||
+      a.name.localeCompare(b.name),
+  )
+
+  // Free-first order — bookable hosts on top, then the same history ranking.
+  // This is the dropdown order; candidates[0] is the smart default.
+  const candidates = [...base].sort(
+    (a, b) =>
+      Number(b.free) - Number(a.free) ||
+      b.instCount - a.instCount ||
+      b.clientCount - a.clientCount ||
+      b.l12m - a.l12m ||
+      a.name.localeCompare(b.name),
+  )
+
+  const defaultId = candidates[0]?.id ?? null
+  const top = byHistory[0]
+  const topPrimaryN = top ? (top.instCount > 0 ? top.instCount : top.clientCount) : 0
+  // Bump note only when the most-historical host is busy AND a free host took the
+  // default slot instead (i.e. it was genuinely skipped, not just shown busy).
   const bumpNote =
-    top && (!suggested || suggested.id !== top.id)
+    top && !top.free && defaultId !== top.id
       ? `${top.name} usually hosts (${topPrimaryN}) but is busy at ${fmtTime(startMinutes)}`
       : null
 
-  return {
-    noPrior: candidates.length === 0,
-    suggestedName: suggested ? suggested.name : null,
-    rationale: suggested ? rationaleFor(suggested) : null,
-    bumpNote,
-  }
+  return { noPrior: base.length === 0, candidates, defaultId, bumpNote }
 }
 
 // ---------------------------------------------------------------------------
@@ -297,14 +334,39 @@ export function PipelineView({
     return map
   }, [hosted])
 
-  // One suggestion per unassigned pipeline meeting, keyed by meeting_id.
-  const suggestions = React.useMemo(() => {
-    const map = new Map<string, Suggestion>()
+  // One ranked analysis per unassigned pipeline meeting, keyed by meeting_id.
+  const picks = React.useMemo(() => {
+    const map = new Map<string, HostPick>()
     for (const r of rows) {
-      if (!r.host_id) map.set(r.meeting_id, suggestHost(r, affinity, l12mByHost))
+      if (!r.host_id) map.set(r.meeting_id, analyzeHost(r, affinity, l12mByHost))
     }
     return map
   }, [rows, affinity, l12mByHost])
+
+  // Full host roster for "Search all hosts…" — every distinct host present in the
+  // loaded hosted meetings, alphabetical.
+  const roster = React.useMemo(() => {
+    const arr = Array.from(affinity.hostName.entries()).map(([id, name]) => ({ id, name }))
+    arr.sort((a, b) => a.name.localeCompare(b.name))
+    return arr
+  }, [affinity])
+
+  // Free/busy for an arbitrary host (e.g. a search pick) against a meeting.
+  const hostFreeFor = React.useCallback(
+    (row: Pipeline30dRow, hostId: string) => !isHostBusy(affinity, row, hostId),
+    [affinity],
+  )
+
+  // User overrides of the smart default, keyed by meeting_id. Placeholder only —
+  // this does not write a host back to the CRM.
+  const [chosenHost, setChosenHost] = React.useState<Map<string, string>>(new Map())
+  const selectHost = React.useCallback((meetingId: string, hostId: string) => {
+    setChosenHost((prev) => {
+      const next = new Map(prev)
+      next.set(meetingId, hostId)
+      return next
+    })
+  }, [])
 
   // ---- Filters ------------------------------------------------------------
   const [search, setSearch] = React.useState("")
@@ -501,10 +563,21 @@ export function PipelineView({
                     <td className="truncate px-3 py-2.5" title={r.booker_name || undefined}>
                       {r.booker_name || "—"}
                     </td>
-                    {/* Host (or suggestion for unassigned) */}
+                    {/* Host (or selector for unassigned) */}
                     <td className="px-3 py-2.5">
                       {unassigned ? (
-                        <HostSuggestionCell suggestion={suggestions.get(r.meeting_id)} />
+                        <HostSelectCell
+                          row={r}
+                          pick={picks.get(r.meeting_id)}
+                          selectedId={
+                            chosenHost.get(r.meeting_id) ??
+                            picks.get(r.meeting_id)?.defaultId ??
+                            null
+                          }
+                          roster={roster}
+                          hostFreeFor={hostFreeFor}
+                          onSelect={(hostId) => selectHost(r.meeting_id, hostId)}
+                        />
                       ) : (
                         <span className="truncate">{r.host_name || "—"}</span>
                       )}
@@ -529,45 +602,235 @@ function DaysCell({ days }: { days: number }) {
   return <span className={"tabular-nums " + cls}>{days}</span>
 }
 
-// The Host cell for an unassigned meeting — suggested host + "free" pill +
-// rationale, with the amber "usually hosts… but is busy" note, plus a
-// non-functional "Assign host" placeholder button. Mirrors the Scheduler.
-function HostSuggestionCell({ suggestion }: { suggestion: Suggestion | undefined }) {
+// Small free / busy pill.
+function FreeBusyPill({ free }: { free: boolean }) {
+  return free ? (
+    <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+      free
+    </span>
+  ) : (
+    <span className="shrink-0 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-700">
+      busy
+    </span>
+  )
+}
+
+// The Host cell for an unassigned meeting. Collapsed, it shows the smart default
+// (top free candidate) — name + free/busy pill + rationale + the amber bump
+// note. The name is a dropdown: top-5 ranked candidates (free-first, ★ on the
+// default, ✓ on the selection) plus "Search all hosts…" over the full roster.
+// The "Assign {name}" button reflects the current selection (placeholder — no
+// CRM write-back).
+function HostSelectCell({
+  row,
+  pick,
+  selectedId,
+  roster,
+  hostFreeFor,
+  onSelect,
+}: {
+  row: Pipeline30dRow
+  pick: HostPick | undefined
+  selectedId: string | null
+  roster: { id: string; name: string }[]
+  hostFreeFor: (row: Pipeline30dRow, hostId: string) => boolean
+  onSelect: (hostId: string) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const [searchMode, setSearchMode] = React.useState(false)
+  const [query, setQuery] = React.useState("")
+
+  const candidates = React.useMemo(() => pick?.candidates ?? [], [pick])
+  const candidateById = React.useMemo(() => {
+    const m = new Map<string, Candidate>()
+    for (const c of candidates) m.set(c.id, c)
+    return m
+  }, [candidates])
+  const rosterNameById = React.useMemo(() => {
+    const m = new Map<string, string>()
+    for (const h of roster) m.set(h.id, h.name)
+    return m
+  }, [roster])
+
+  // Resolve the selected host's display info — from the candidate pool when it
+  // has history, otherwise from the roster (no rationale; live availability).
+  const selected: Candidate | null = selectedId
+    ? candidateById.get(selectedId) ?? {
+        id: selectedId,
+        name: rosterNameById.get(selectedId) ?? "—",
+        instCount: 0,
+        clientCount: 0,
+        l12m: 0,
+        free: hostFreeFor(row, selectedId),
+        rationale: null,
+      }
+    : null
+
+  const top5 = candidates.slice(0, 5)
+
+  const reset = () => {
+    setSearchMode(false)
+    setQuery("")
+  }
+  const pickHost = (id: string) => {
+    onSelect(id)
+    setOpen(false)
+    reset()
+  }
+
+  const q = query.trim().toLowerCase()
+  const filteredRoster = q
+    ? roster.filter((h) => h.name.toLowerCase().includes(q))
+    : roster
+
   return (
     <div className="flex flex-col gap-1.5">
-      {!suggestion || suggestion.noPrior ? (
-        <span className="text-sm italic text-muted-foreground">
-          No prior host — assign manually.
-        </span>
-      ) : suggestion.suggestedName ? (
-        <div>
-          <div className="flex items-center gap-1.5">
-            <span className="font-medium">{suggestion.suggestedName}</span>
-            <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-              free
+      <Popover
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o)
+          if (!o) reset()
+        }}
+      >
+        <PopoverTrigger
+          render={
+            <button
+              type="button"
+              aria-label="Select host"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-left text-sm hover:bg-slate-50"
+            />
+          }
+        >
+          {selected ? (
+            <>
+              <span className="truncate font-medium">{selected.name}</span>
+              <FreeBusyPill free={selected.free} />
+            </>
+          ) : (
+            <span className="truncate italic text-muted-foreground">
+              No prior host — assign manually.
             </span>
-          </div>
-          {suggestion.rationale && (
-            <div className="text-xs text-muted-foreground">{suggestion.rationale}</div>
           )}
-          {suggestion.bumpNote && (
-            <div className="mt-0.5 flex items-center gap-1 text-xs text-amber-600">
-              <ArrowUp className="size-3 shrink-0" />
-              {suggestion.bumpNote}
-            </div>
+          <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
+        </PopoverTrigger>
+
+        <PopoverContent align="start" className="w-80 p-1.5">
+          {!searchMode ? (
+            <>
+              {top5.length === 0 ? (
+                <p className="px-2 py-3 text-xs text-muted-foreground">
+                  No suggested hosts — search all hosts.
+                </p>
+              ) : (
+                <ul className="grid">
+                  {top5.map((c, idx) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => pickHost(c.id)}
+                        className={cn(
+                          "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted",
+                          selectedId === c.id && "bg-muted",
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-1">
+                            {idx === 0 && (
+                              <Star
+                                className="size-3 shrink-0 fill-amber-400 text-amber-400"
+                                aria-label="Smart default"
+                              />
+                            )}
+                            <span className="truncate text-sm font-medium">{c.name}</span>
+                          </span>
+                          {c.rationale && (
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {c.rationale}
+                            </span>
+                          )}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          <FreeBusyPill free={c.free} />
+                          {selectedId === c.id && <Check className="size-4" />}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="my-1 h-px bg-border" />
+              <button
+                type="button"
+                onClick={() => setSearchMode(true)}
+                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted"
+              >
+                <Search className="size-3.5 shrink-0" />
+                Search all hosts…
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="relative mb-1.5">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search by name"
+                  className="pl-8"
+                  autoFocus
+                />
+              </div>
+              <div className="max-h-72 overflow-y-auto">
+                {filteredRoster.length === 0 ? (
+                  <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+                    No matches
+                  </p>
+                ) : (
+                  <ul className="grid">
+                    {filteredRoster.map((h) => {
+                      const cand = candidateById.get(h.id)
+                      const free = cand ? cand.free : hostFreeFor(row, h.id)
+                      return (
+                        <li key={h.id}>
+                          <button
+                            type="button"
+                            onClick={() => pickHost(h.id)}
+                            className={cn(
+                              "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted",
+                              selectedId === h.id && "bg-muted",
+                            )}
+                          >
+                            <span className="min-w-0">
+                              <span className="truncate text-sm">{h.name}</span>
+                              {cand?.rationale && (
+                                <span className="block truncate text-xs text-muted-foreground">
+                                  {cand.rationale}
+                                </span>
+                              )}
+                            </span>
+                            <span className="flex shrink-0 items-center gap-1.5">
+                              <FreeBusyPill free={free} />
+                              {selectedId === h.id && <Check className="size-4" />}
+                            </span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </div>
+            </>
           )}
-        </div>
-      ) : (
-        <div>
-          <span className="text-sm italic text-muted-foreground">
-            No free usual host — assign manually.
-          </span>
-          {suggestion.bumpNote && (
-            <div className="mt-0.5 flex items-center gap-1 text-xs text-amber-600">
-              <ArrowUp className="size-3 shrink-0" />
-              {suggestion.bumpNote}
-            </div>
-          )}
+        </PopoverContent>
+      </Popover>
+
+      {selected?.rationale && (
+        <div className="text-xs text-muted-foreground">{selected.rationale}</div>
+      )}
+      {pick?.bumpNote && (
+        <div className="mt-0.5 flex items-center gap-1 text-xs text-amber-600">
+          <ArrowUp className="size-3 shrink-0" />
+          {pick.bumpNote}
         </div>
       )}
 
@@ -577,7 +840,7 @@ function HostSuggestionCell({ suggestion }: { suggestion: Suggestion | undefined
         type="button"
         className="w-fit rounded-md border border-border bg-card px-2 py-0.5 text-xs font-medium text-foreground hover:bg-slate-50"
       >
-        Assign host
+        {selected ? `Assign ${selected.name}` : "Assign host"}
       </button>
     </div>
   )
