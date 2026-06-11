@@ -9,7 +9,7 @@ import { InstitutionStyleView } from "./institution-style-view"
 
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = { title: "Institution Style" }
+export const metadata: Metadata = { title: "Institution Style/Set Finder" }
 
 export default async function InstitutionStylePage() {
   const sb = getSupabaseServer()
@@ -28,7 +28,7 @@ export default async function InstitutionStylePage() {
 
     if (error) {
       return (
-        <PageShell title="Institution Style">
+        <PageShell title="Institution Style/Set Finder">
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
             <div className="font-medium text-destructive">
               Could not load v_institution_style_meetings
@@ -52,7 +52,7 @@ export default async function InstitutionStylePage() {
 
   if (clientsRes.error) {
     return (
-      <PageShell title="Institution Style">
+      <PageShell title="Institution Style/Set Finder">
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
           <div className="font-medium text-destructive">
             Could not load active client list
@@ -66,7 +66,7 @@ export default async function InstitutionStylePage() {
   const clients = (clientsRes.data ?? []) as ActiveClientOption[]
 
   return (
-    <PageShell title="Institution Style">
+    <PageShell title="Institution Style/Set Finder">
       <InstitutionStyleView meetings={meetingRows} clients={clients} />
     </PageShell>
   )

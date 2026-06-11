@@ -78,6 +78,15 @@ export const FEEDBACK_CARD_GRADIENTS = {
   oldest: ["#0355A7", "#0E6E9E"],
 } as const satisfies Record<string, readonly [string, string]>
 
+/** Gradient top-edge pairs [from, to] for the Institution Detail KPIs. */
+export const INSTITUTION_CARD_GRADIENTS = {
+  meetings: ["#0355A7", "#1E2858"],
+  clients: ["#0355A7", "#0E6E9E"],
+  people: ["#0355A7", "#1C8C9C"],
+  feedback: ["#1D9E75", "#0E6E9E"],
+  lastMet: ["#0355A7", "#13347A"],
+} as const satisfies Record<string, readonly [string, string]>
+
 /** Gradient top-edge pairs [from, to] for the People (Productivity) Detail KPIs. */
 export const PRODUCTIVITY_CARD_GRADIENTS = {
   scheduled: ["#0355A7", "#1E2858"],

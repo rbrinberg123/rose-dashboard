@@ -47,6 +47,7 @@ const sections: NavSection[] = [
     icon: Landmark,
     items: [
       { href: "/institutions", label: "Directory" },
+      { href: "/institution-detail", label: "Detail" },
       { href: "/institution-style", label: "Finder" },
     ],
   },

@@ -11,7 +11,7 @@ export default function InstitutionStyleError({
 }) {
   return (
     <ErrorState
-      title="Institution Style"
+      title="Institution Style/Set Finder"
       error={error}
       reset={reset}
     />

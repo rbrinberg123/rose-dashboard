@@ -15,6 +15,9 @@ import {
   YAxis,
 } from "recharts"
 import { ChevronLeft, ChevronRight } from "lucide-react"
+import { GradientHero } from "@/components/gradient-hero"
+import { StatCard } from "@/components/stat-card"
+import { INSTITUTION_CARD_GRADIENTS } from "@/lib/gradients"
 import type {
   InstitutionDetailQuarterlyRow,
   InstitutionDetailRecentMeetingRow,
@@ -33,7 +36,6 @@ const TEAL_LIGHT = "#7DD9D9"
 const TEAL_LIGHTEST = "#C4E8E8"
 const RED = "#C53030"
 const GREEN = "#2D7A2D"
-const GRAY_BG = "#F2F4F8"
 const TICK_FILL = "#64748B"
 const GRID_STROKE = "#E5E7EB"
 
@@ -91,6 +93,14 @@ const REGION_BUCKETS: Array<{ order: number; label: string }> = [
 ]
 
 const SECTOR_TOP_N = 6
+
+/** Initials from an institution name: first letters of its first two words. */
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return ""
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+  return (words[0][0] + words[1][0]).toUpperCase()
+}
 
 export function InstitutionDetailView({
   selected,
@@ -179,33 +189,39 @@ export function InstitutionDetailView({
     value: string
     hint: React.ReactNode
     valueColor?: string
+    gradient: readonly [string, string]
   }
   const tiles: Tile[] = [
     {
       label: "Meetings (LTM)",
       value: selected.ltm_meetings.toLocaleString(),
       hint: <span style={{ color: deltaColor }}>{deltaText}</span>,
+      gradient: INSTITUTION_CARD_GRADIENTS.meetings,
     },
     {
       label: "Clients Met (LTM)",
       value: selected.ltm_clients.toLocaleString(),
       hint: `${selected.lifetime_clients.toLocaleString()} lifetime`,
+      gradient: INSTITUTION_CARD_GRADIENTS.clients,
     },
     {
       label: "People (LTM)",
       value: selected.ltm_people.toLocaleString(),
       hint: `${selected.lifetime_people.toLocaleString()} lifetime`,
+      gradient: INSTITUTION_CARD_GRADIENTS.people,
     },
     {
       label: "Feedback Rec'd (LTM)",
       value: feedbackValue,
       valueColor: TEAL,
       hint: `${selected.ltm_feedback_collected.toLocaleString()} of ${selected.ltm_feedback_total_closed.toLocaleString()} closed`,
+      gradient: INSTITUTION_CARD_GRADIENTS.feedback,
     },
     {
       label: "Last Met",
       value: formatShortDate(selected.last_met),
       hint: `${lastMetClient} · ${lastMetHost}`,
+      gradient: INSTITUTION_CARD_GRADIENTS.lastMet,
     },
   ]
 
@@ -267,82 +283,81 @@ export function InstitutionDetailView({
   // ---------- Render ----------
   return (
     <>
-      {/* Section 1: Header + navigator */}
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1
-            className="text-2xl font-medium tracking-tight"
-            style={{ color: NAVY_DEEP }}
-          >
-            {selected.institution_name}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {subtitleParts.join(" · ")}
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={goPrev}
-            aria-label="Previous institution"
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card hover:bg-accent"
-          >
-            <ChevronLeft className="size-4" />
-          </button>
-          <select
-            value={selected.institution_id ?? ""}
-            onChange={(e) => {
-              if (e.target.value) goTo(e.target.value)
-            }}
-            className="h-9 min-w-[240px] rounded-md border border-border bg-card px-2 text-sm"
-            aria-label="Select institution"
-          >
-            {selectedIndex < 0 && selected.institution_name ? (
-              <option value="" disabled>
-                {selected.institution_name}
-              </option>
-            ) : null}
-            {navTop.map((r) => (
-              <option key={r.institution_id} value={r.institution_id}>
-                {r.institution_name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={goNext}
-            aria-label="Next institution"
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card hover:bg-accent"
-          >
-            <ChevronRight className="size-4" />
-          </button>
-        </div>
+      {/* Section 1: Gradient hero band + navigator */}
+      <div className="mb-4">
+        <GradientHero
+          title={selected.institution_name}
+          subtitle={subtitleParts.join(" · ")}
+          monogram={initials(selected.institution_name)}
+          rightSlot={
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={goPrev}
+                aria-label="Previous institution"
+                className="flex h-9 w-9 items-center justify-center rounded-md text-white transition-colors"
+                style={{
+                  background: "rgba(255,255,255,0.10)",
+                  border: "1px solid rgba(255,255,255,0.26)",
+                }}
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+              <select
+                value={selected.institution_id ?? ""}
+                onChange={(e) => {
+                  if (e.target.value) goTo(e.target.value)
+                }}
+                className="h-9 min-w-[240px] rounded-md px-2 text-sm text-white"
+                style={{
+                  background: "rgba(255,255,255,0.12)",
+                  border: "1px solid rgba(255,255,255,0.26)",
+                }}
+                aria-label="Select institution"
+              >
+                {selectedIndex < 0 && selected.institution_name ? (
+                  <option value="" disabled style={{ color: NAVY_DEEP }}>
+                    {selected.institution_name}
+                  </option>
+                ) : null}
+                {navTop.map((r) => (
+                  <option
+                    key={r.institution_id}
+                    value={r.institution_id}
+                    style={{ color: NAVY_DEEP }}
+                  >
+                    {r.institution_name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={goNext}
+                aria-label="Next institution"
+                className="flex h-9 w-9 items-center justify-center rounded-md text-white transition-colors"
+                style={{
+                  background: "rgba(255,255,255,0.10)",
+                  border: "1px solid rgba(255,255,255,0.26)",
+                }}
+              >
+                <ChevronRight className="size-4" />
+              </button>
+            </div>
+          }
+        />
       </div>
 
-      {/* Section 2: 5 KPI tiles */}
+      {/* Section 2: 5 KPI cards */}
       <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {tiles.map((t) => (
-          <div
+          <StatCard
             key={t.label}
-            className="rounded-lg border p-3.5"
-            style={{ backgroundColor: GRAY_BG }}
-          >
-            <div
-              className="text-2xl font-medium tracking-tight tabular-nums"
-              style={{ color: t.valueColor ?? NAVY_DEEP }}
-            >
-              {t.value}
-            </div>
-            <div
-              className="mt-1 text-xs font-medium"
-              style={{ color: NAVY_DEEP }}
-            >
-              {t.label}
-            </div>
-            <div className="mt-0.5 text-[10px] text-muted-foreground">
-              {t.hint}
-            </div>
-          </div>
+            label={t.label}
+            value={t.value}
+            hint={t.hint}
+            valueColor={t.valueColor}
+            gradient={t.gradient}
+          />
         ))}
       </div>
 

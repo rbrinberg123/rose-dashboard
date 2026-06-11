@@ -287,7 +287,7 @@ export function InstitutionStyleView({
           className="text-2xl font-medium tracking-tight"
           style={{ color: NAVY_DEEP }}
         >
-          Institution Style
+          Institution Style/Set Finder
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Rank institutions by the share of their meetings spent with clients of
