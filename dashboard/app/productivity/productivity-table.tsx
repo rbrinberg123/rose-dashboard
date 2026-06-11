@@ -252,6 +252,13 @@ const columns: ColumnDef<ProductivityRoleRow>[] = [
   },
   // Labor cost column is intentionally hidden for now. The labor_cost value is
   // still computed in the page logic so this column can be re-added later.
+  // Hidden sort-only column: total activity = booked + hosted. Drives the
+  // default sort (descending) without adding a visible column.
+  {
+    id: "total_activity",
+    accessorFn: (r) => r.booked + r.hosted,
+    enableHiding: true,
+  },
 ]
 
 // Labeled segmented toggle (Feedback-page style): rounded button group, active
@@ -296,7 +303,9 @@ function SegmentedFilter<T extends string>({
 }
 
 export function ProductivityTable({ rows }: { rows: ProductivityRoleRow[] }) {
-  const [sorting, setSorting] = React.useState<SortingState>([{ id: "hosted", desc: true }])
+  const [sorting, setSorting] = React.useState<SortingState>([
+    { id: "total_activity", desc: true },
+  ])
   const [roleFilter, setRoleFilter] = React.useState<RoleFilter>("All")
   const [amFilter, setAmFilter] = React.useState<AccountMgmtFilter>("All")
 
@@ -313,7 +322,10 @@ export function ProductivityTable({ rows }: { rows: ProductivityRoleRow[] }) {
   const table = useReactTable({
     data: filteredRows,
     columns,
-    state: { sorting },
+    // total_activity is a hidden sort-only column (booked + hosted) that drives
+    // the default sort; keep it out of the visible table. Controlled visibility
+    // (not initialState) so it stays hidden across hot-reloads/remounts.
+    state: { sorting, columnVisibility: { total_activity: false } },
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -369,7 +381,7 @@ export function ProductivityTable({ rows }: { rows: ProductivityRoleRow[] }) {
             {table.getRowModel().rows.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={columns.length}
+                  colSpan={table.getVisibleLeafColumns().length}
                   className="h-32 text-center text-sm text-muted-foreground"
                 >
                   {rows.length === 0
