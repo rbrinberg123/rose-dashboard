@@ -107,7 +107,9 @@ export default async function ClientDetailPage({
         .order("scheduled_start", { ascending: false, nullsFirst: false }),
       sb
         .from("accounts")
-        .select("ticker_symbol")
+        .select(
+          "ticker_symbol, sales_lead_primary_name, secondary_manager_name, associate_name, logistics_coordinator_name",
+        )
         .eq("account_id", selected.account_id)
         .maybeSingle(),
     ])
@@ -137,6 +139,15 @@ export default async function ClientDetailPage({
         allClients={summaryRows}
         selected={selected}
         clientTicker={(accountRes.data?.ticker_symbol ?? null) as string | null}
+        accountTeam={{
+          sales_lead_primary_name:
+            (accountRes.data?.sales_lead_primary_name ?? null) as string | null,
+          secondary_manager_name:
+            (accountRes.data?.secondary_manager_name ?? null) as string | null,
+          associate_name: (accountRes.data?.associate_name ?? null) as string | null,
+          logistics_coordinator_name:
+            (accountRes.data?.logistics_coordinator_name ?? null) as string | null,
+        }}
         quarterly={(quarterlyRes.data ?? []) as ClientDetailQuarterlyRow[]}
         topInstitutions={(topInstRes.data ?? []) as ClientDetailTopInstitutionRow[]}
         reachDepth={(reachDepthRes.data ?? []) as ClientDetailReachDepthRow[]}

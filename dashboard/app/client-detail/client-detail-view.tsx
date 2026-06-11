@@ -85,6 +85,14 @@ function formatCompactDollars(value: number | null | undefined): string {
   return formatCurrency(value)
 }
 
+// First letter of the first and last word of a name ("Jane A. Doe" → "JD").
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return ""
+  if (words.length === 1) return words[0][0].toUpperCase()
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase()
+}
+
 export function ClientDetailView({
   allClients,
   selected,
@@ -96,6 +104,7 @@ export function ClientDetailView({
   recentMeetings,
   recentNote,
   touchpoints,
+  accountTeam,
 }: {
   allClients: ClientDetailSummaryRow[]
   selected: ClientDetailSummaryRow
@@ -107,6 +116,12 @@ export function ClientDetailView({
   recentMeetings: ClientDetailRecentMeetingRow[]
   recentNote: ClientDetailRecentNoteRow | null
   touchpoints: ClientDetailTouchpointRow[]
+  accountTeam: {
+    sales_lead_primary_name: string | null
+    secondary_manager_name: string | null
+    associate_name: string | null
+    logistics_coordinator_name: string | null
+  }
 }) {
   const router = useRouter()
 
@@ -135,7 +150,6 @@ export function ClientDetailView({
   const subtitleParts: string[] = []
   if (selected.client_since) subtitleParts.push(`Client since ${since}`)
   subtitleParts.push(`${selected.lifetime_meetings.toLocaleString()} meetings lifetime`)
-  if (selected.sales_lead_name) subtitleParts.push(`sales lead ${selected.sales_lead_name}`)
 
   // ---------- Hero badge ----------
   // Prefer the client's ticker (exchange suffix stripped: "ADT-US" → "ADT").
@@ -302,6 +316,20 @@ export function ClientDetailView({
   const deadlineUrgent =
     recentNote?.days_to_deadline != null && recentNote.days_to_deadline <= 7
 
+  // ---------- Account team strip ----------
+  // Only render roles with an assigned (non-blank) name. Colors are drawn from
+  // the shared navy→teal palette. The whole strip hides when nobody is assigned.
+  const accountTeamMembers = (
+    [
+      { role: "Account Mgr", name: accountTeam.sales_lead_primary_name, color: "#1E2858" },
+      { role: "Secondary", name: accountTeam.secondary_manager_name, color: "#3D5599" },
+      { role: "Associate", name: accountTeam.associate_name, color: "#1C8C9C" },
+      { role: "Logistics", name: accountTeam.logistics_coordinator_name, color: "#4FC6BC" },
+    ] as Array<{ role: string; name: string | null; color: string }>
+  ).filter((m): m is { role: string; name: string; color: string } =>
+    Boolean(m.name && m.name.trim()),
+  )
+
   // ---------- Render ----------
   return (
     <>
@@ -376,6 +404,51 @@ export function ClientDetailView({
           />
         ))}
       </div>
+
+      {/* Account Team strip — slim secondary-surface bar of assigned people */}
+      {accountTeamMembers.length > 0 && (
+        <div
+          className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 bg-secondary"
+          style={{
+            border: "0.5px solid var(--border)",
+            borderRadius: 11,
+            padding: "10px 14px",
+          }}
+        >
+          <span
+            className="shrink-0 text-[11px] font-semibold uppercase tracking-wide"
+            style={{ color: TICK_FILL }}
+          >
+            Account Team
+          </span>
+          {accountTeamMembers.map((m, i) => (
+            <React.Fragment key={m.role}>
+              {i > 0 && (
+                <span className="text-muted-foreground" aria-hidden="true">
+                  ·
+                </span>
+              )}
+              <span className="flex items-center gap-2">
+                <span
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold leading-none text-white"
+                  style={{ backgroundColor: m.color }}
+                  aria-hidden="true"
+                >
+                  {initialsOf(m.name)}
+                </span>
+                <span className="flex flex-col leading-tight">
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {m.role}
+                  </span>
+                  <span className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
+                    {m.name}
+                  </span>
+                </span>
+              </span>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
 
       {/* Client Touchpoints & Notes */}
       <div className="my-6 flex items-center gap-3">
