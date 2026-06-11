@@ -384,6 +384,29 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
         <span>90+ days since</span>
       </div>
 
+      {/* Account Team color key — mirrors the avatar colors in the team column */}
+      <div
+        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground"
+        style={{ fontSize: "11px" }}
+      >
+        <span>Account Team:</span>
+        {ACCOUNT_TEAM_ROLES.map((m) => (
+          <span key={m.key} className="inline-flex items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              style={{
+                width: 9,
+                height: 9,
+                borderRadius: "50%",
+                backgroundColor: m.bg,
+                display: "inline-block",
+              }}
+            />
+            {m.role}
+          </span>
+        ))}
+      </div>
+
       {/* Filter row */}
       <div className="flex flex-wrap items-center gap-2">
         <select
