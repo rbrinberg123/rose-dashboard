@@ -26,9 +26,32 @@ export default async function ContractManagementPage() {
 
   const rows = (res.data ?? []) as ContractManagementRow[]
 
+  // contract_url isn't exposed by v_contract_management, so look it up from the
+  // contracts table by contract_id and attach it to each row.
+  const contractIds = Array.from(
+    new Set(rows.map((r) => r.contract_id).filter((id): id is string => Boolean(id))),
+  )
+  const urlByContractId = new Map<string, string | null>()
+  if (contractIds.length > 0) {
+    const urlRes = await sb
+      .from("contracts")
+      .select("contract_id, contract_url")
+      .in("contract_id", contractIds)
+    for (const c of (urlRes.data ?? []) as {
+      contract_id: string
+      contract_url: string | null
+    }[]) {
+      urlByContractId.set(c.contract_id, c.contract_url ?? null)
+    }
+  }
+  const rowsWithUrl: ContractManagementRow[] = rows.map((r) => ({
+    ...r,
+    contract_url: r.contract_id ? urlByContractId.get(r.contract_id) ?? null : null,
+  }))
+
   return (
     <PageShell title="Contract Management" description="All active clients · sorted by soonest contract expiry">
-      <ContractManagementView rows={rows} />
+      <ContractManagementView rows={rowsWithUrl} />
     </PageShell>
   )
 }

@@ -381,6 +381,8 @@ export type ContractManagementRow = {
   auto_renew: boolean | null
   quarterly_retainer: number | null
   contract_status_label: string | null
+  // Not exposed by v_contract_management; joined in from the contracts table.
+  contract_url: string | null
 }
 
 export type ClientDetailSummaryRow = {

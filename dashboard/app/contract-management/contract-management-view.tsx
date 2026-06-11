@@ -1,8 +1,12 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
+import { FileText } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { GradientHero } from "@/components/gradient-hero"
+import { StatCard } from "@/components/stat-card"
+import { CONTRACT_CARD_GRADIENTS } from "@/lib/gradients"
 import { formatCurrency, formatDate } from "@/lib/format"
 import type { ContractManagementRow } from "@/lib/types"
 
@@ -150,98 +154,39 @@ export function ContractManagementView({
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">
-        <Card className="rounded-lg bg-slate-50">
-          <CardHeader className="pb-2">
-            <CardTitle
-              className="text-3xl font-semibold tracking-tight tabular-nums"
-              style={{ color: NAVY }}
-            >
-              {kpis.total.toLocaleString()}
-            </CardTitle>
-            <p className="text-sm font-medium" style={{ color: NAVY }}>
-              Active Clients
-            </p>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <p className="text-xs text-muted-foreground">
-              {kpis.withActive} with active contract
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-lg bg-slate-50">
-          <CardHeader className="pb-2">
-            <CardTitle
-              className="text-3xl font-semibold tracking-tight tabular-nums"
-              style={{ color: RED }}
-            >
-              {kpis.expiringUnder30.toLocaleString()}
-            </CardTitle>
-            <p className="text-sm font-medium" style={{ color: NAVY }}>
-              Expiring &lt; 30 days
-            </p>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <p className="text-xs text-muted-foreground">Action needed</p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-lg bg-slate-50">
-          <CardHeader className="pb-2">
-            <CardTitle
-              className="text-3xl font-semibold tracking-tight tabular-nums"
-              style={{ color: AMBER }}
-            >
-              {kpis.expiring30to90.toLocaleString()}
-            </CardTitle>
-            <p className="text-sm font-medium" style={{ color: NAVY }}>
-              Expiring 30–90 days
-            </p>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <p className="text-xs text-muted-foreground">
-              Approaching renewal
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-lg bg-slate-50">
-          <CardHeader className="pb-2">
-            <CardTitle
-              className="text-3xl font-semibold tracking-tight tabular-nums"
-              style={{ color: NAVY }}
-            >
-              {kpis.noContract.toLocaleString()}
-            </CardTitle>
-            <p className="text-sm font-medium" style={{ color: NAVY }}>
-              No Active Contract
-            </p>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <p className="text-xs text-muted-foreground">
-              Active client, no contract
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-lg bg-slate-50">
-          <CardHeader className="pb-2">
-            <CardTitle
-              className="text-3xl font-semibold tracking-tight tabular-nums"
-              style={{ color: TEAL }}
-            >
-              {kpis.autoRenewPct}%
-            </CardTitle>
-            <p className="text-sm font-medium" style={{ color: NAVY }}>
-              Auto-Renew On
-            </p>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <p className="text-xs text-muted-foreground">
-              {kpis.autoRenewOn} of {kpis.withActive} contracts
-            </p>
-          </CardContent>
-        </Card>
+        <StatCard
+          label="Active Clients"
+          value={kpis.total.toLocaleString()}
+          hint={`${kpis.withActive} with active contract`}
+          gradient={CONTRACT_CARD_GRADIENTS.total}
+        />
+        <StatCard
+          label="Expiring < 30 days"
+          value={kpis.expiringUnder30.toLocaleString()}
+          hint="Action needed"
+          valueColor={RED}
+          gradient={CONTRACT_CARD_GRADIENTS.expiringUrgent}
+        />
+        <StatCard
+          label="Expiring 30–90 days"
+          value={kpis.expiring30to90.toLocaleString()}
+          hint="Approaching renewal"
+          valueColor={AMBER}
+          gradient={CONTRACT_CARD_GRADIENTS.expiringSoon}
+        />
+        <StatCard
+          label="No Active Contract"
+          value={kpis.noContract.toLocaleString()}
+          hint="Active client, no contract"
+          gradient={CONTRACT_CARD_GRADIENTS.noContract}
+        />
+        <StatCard
+          label="Auto-Renew On"
+          value={`${kpis.autoRenewPct}%`}
+          hint={`${kpis.autoRenewOn} of ${kpis.withActive} contracts`}
+          valueColor={TEAL}
+          gradient={CONTRACT_CARD_GRADIENTS.autoRenew}
+        />
       </div>
 
       <div className="mb-3 flex flex-wrap gap-2">
@@ -264,6 +209,39 @@ export function ContractManagementView({
           )
         })}
       </div>
+
+      <p className="mb-3 text-xs italic text-muted-foreground">
+        Days Left:{" "}
+        <span
+          className="not-italic inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+          style={{ backgroundColor: RED_BG, color: RED }}
+        >
+          &lt; 30 d
+        </span>{" "}
+        urgent ·{" "}
+        <span
+          className="not-italic inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+          style={{ backgroundColor: AMBER_BG, color: AMBER }}
+        >
+          30–89 d
+        </span>{" "}
+        approaching ·{" "}
+        <span
+          className="not-italic inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+          style={{ backgroundColor: GREEN_BG, color: GREEN }}
+        >
+          90+ d
+        </span>{" "}
+        healthy ·{" "}
+        <span
+          className="not-italic inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+          style={{ backgroundColor: GRAY_BG, color: GRAY_FG }}
+        >
+          No contract
+        </span>
+        . Auto-Renew: <span style={{ color: GREEN }}>●</span> on,{" "}
+        <span style={{ color: RED }}>○</span> off.
+      </p>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between border-b py-3">
@@ -314,6 +292,7 @@ export function ContractManagementView({
                   const dash = (
                     <span className="text-muted-foreground">—</span>
                   )
+                  const contractUrl = r.contract_url?.trim() || null
                   return (
                     <tr
                       key={r.account_id}
@@ -322,11 +301,27 @@ export function ContractManagementView({
                         (inactive ? "bg-slate-50 opacity-60" : "")
                       }
                     >
-                      <td
-                        className="px-3 py-2 text-left font-medium"
-                        style={{ color: inactive ? GRAY_FG : NAVY }}
-                      >
-                        {r.client_name}
+                      <td className="px-3 py-2 text-left">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Link
+                            href={`/client-detail?account_id=${r.account_id}`}
+                            className="font-medium text-[#1E2858] hover:underline"
+                          >
+                            {r.client_name}
+                          </Link>
+                          {contractUrl ? (
+                            <a
+                              href={contractUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Open contract"
+                              aria-label="Open contract"
+                              className="text-muted-foreground transition-colors hover:text-[#1E2858]"
+                            >
+                              <FileText className="size-3.5" aria-hidden="true" />
+                            </a>
+                          ) : null}
+                        </span>
                       </td>
                       <td
                         className="px-3 py-2 text-center tabular-nums"
@@ -406,39 +401,6 @@ export function ContractManagementView({
           </div>
         </CardContent>
       </Card>
-
-      <p className="mt-3 text-xs italic text-muted-foreground">
-        Days Left:{" "}
-        <span
-          className="not-italic inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-          style={{ backgroundColor: RED_BG, color: RED }}
-        >
-          &lt; 30 d
-        </span>{" "}
-        urgent ·{" "}
-        <span
-          className="not-italic inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-          style={{ backgroundColor: AMBER_BG, color: AMBER }}
-        >
-          30–89 d
-        </span>{" "}
-        approaching ·{" "}
-        <span
-          className="not-italic inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-          style={{ backgroundColor: GREEN_BG, color: GREEN }}
-        >
-          90+ d
-        </span>{" "}
-        healthy ·{" "}
-        <span
-          className="not-italic inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-          style={{ backgroundColor: GRAY_BG, color: GRAY_FG }}
-        >
-          No contract
-        </span>
-        . Auto-Renew: <span style={{ color: GREEN }}>●</span> on,{" "}
-        <span style={{ color: RED }}>○</span> off.
-      </p>
     </>
   )
 }

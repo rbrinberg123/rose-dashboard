@@ -97,6 +97,15 @@ export const PRODUCTIVITY_CARD_GRADIENTS = {
   salesLeadBook: ["#1D9E75", "#0355A7"],
 } as const satisfies Record<string, readonly [string, string]>
 
+/** Gradient top-edge pairs [from, to] for the Contract Management KPIs. */
+export const CONTRACT_CARD_GRADIENTS = {
+  total: ["#0355A7", "#13347A"],
+  expiringUrgent: ["#A32D2D", "#D85A30"],
+  expiringSoon: ["#EF9F27", "#C77A3E"],
+  noContract: ["#D85A30", "#A32D2D"],
+  autoRenew: ["#1D9E75", "#0E6E9E"],
+} as const satisfies Record<string, readonly [string, string]>
+
 // ---------------------------------------------------------------------------
 // Client Statistics page
 // ---------------------------------------------------------------------------
