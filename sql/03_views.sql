@@ -2303,3 +2303,49 @@ WHERE m.meeting_status_label = 'Confirmed'
   AND m.host_id IS NULL
   AND m.meeting_date IS NOT NULL
   AND (m.meeting_date AT TIME ZONE 'UTC')::date >= CURRENT_DATE;
+
+
+-- -----------------------------------------------------------------------------
+-- v_feedback_outstanding
+-- One row per concluded, confirmed, hosted meeting whose feedback is still
+-- incomplete — i.e. the host has not closed it out. Powers the Feedback page's
+-- "outstanding feedback" tracker.
+--
+-- "Incomplete" = feedback_status_label IS NULL (never started / blank) OR
+-- 'Awaiting Additional' (partial). Done states such as 'Closed - All in' and
+-- 'Closed - No Feedback' are intentionally excluded.
+--
+-- "Concluded" is judged on the meeting's Eastern calendar date being strictly
+-- before Eastern today, and days_since is the whole-day gap between those two
+-- Eastern dates. Both use AT TIME ZONE 'America/New_York' per the page spec.
+-- NB this differs from v_scheduler_meetings, which reads the stored +00 wall
+-- clock as-is; here we follow the requested Eastern-local basis.
+--
+-- This set is small, so the page fetches it in a single request.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_feedback_outstanding AS
+SELECT
+  m.meeting_id,
+  m.meeting_date,
+  m.host_id,
+  m.host_name,
+  m.client_account_id,
+  m.client_account_name,
+  m.institution_name,
+  m.is_in_person,
+  COALESCE(m.group_meeting, false) AS group_meeting,
+  m.feedback_status_label,
+  (
+    (now() AT TIME ZONE 'America/New_York')::date
+    - (m.meeting_date AT TIME ZONE 'America/New_York')::date
+  )::int AS days_since
+FROM public.meetings m
+WHERE m.meeting_status_label = 'Confirmed'
+  AND m.host_id IS NOT NULL
+  AND m.meeting_date IS NOT NULL
+  AND (m.meeting_date AT TIME ZONE 'America/New_York')::date
+      < (now() AT TIME ZONE 'America/New_York')::date
+  AND (
+    m.feedback_status_label IS NULL
+    OR m.feedback_status_label = 'Awaiting Additional'
+  );

@@ -615,3 +615,24 @@ export type SchedulerUnassignedRow = {
   client_account_name: string | null
   client_ticker: string | null
 }
+
+/**
+ * One row per concluded, confirmed, hosted meeting whose feedback is still
+ * incomplete (v_feedback_outstanding). Powers the Feedback "outstanding
+ * feedback" tracker. feedback_status_label is NULL for the blank / no-feedback
+ * bucket, or 'Awaiting Additional' for the partial bucket. days_since is the
+ * whole-day Eastern gap between the meeting date and Eastern today.
+ */
+export type FeedbackOutstandingRow = {
+  meeting_id: string
+  meeting_date: string
+  host_id: string
+  host_name: string
+  client_account_id: string | null
+  client_account_name: string | null
+  institution_name: string | null
+  is_in_person: boolean
+  group_meeting: boolean
+  feedback_status_label: string | null
+  days_since: number
+}

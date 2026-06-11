@@ -9,12 +9,5 @@ export default function FeedbackError({
   error: Error & { digest?: string }
   reset: () => void
 }) {
-  return (
-    <ErrorState
-      title="Feedback Discipline"
-      description="Are we collecting feedback on the meetings we host?"
-      error={error}
-      reset={reset}
-    />
-  )
+  return <ErrorState title="Feedback" error={error} reset={reset} />
 }
