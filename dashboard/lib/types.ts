@@ -307,6 +307,11 @@ export type ClientPortfolioRow = {
   name: string
   ticker_symbol: string | null
   sales_lead_primary_name: string | null
+  // Other three account-team roles. Not exposed by v_client_portfolio; merged in
+  // page-side from the accounts table, keyed by account_id.
+  secondary_manager_name: string | null
+  associate_name: string | null
+  logistics_coordinator_name: string | null
   market_cap_b: number | null
   market_cap_label: string | null
   hq_country_name: string | null

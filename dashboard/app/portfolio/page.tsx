@@ -28,7 +28,28 @@ export default async function ClientPortfolioPage() {
     )
   }
 
-  const rows = (data ?? []) as ClientPortfolioRow[]
+  // v_client_portfolio only exposes the account manager (sales_lead_primary_name).
+  // The other three account-team roles live on the accounts table, so pull them
+  // in one bulk read and merge by account_id. Mirrors what Client Detail does.
+  const { data: teamData } = await sb
+    .from("accounts")
+    .select(
+      "account_id, secondary_manager_name, associate_name, logistics_coordinator_name",
+    )
+  const teamById = new Map(
+    (teamData ?? []).map((t) => [t.account_id as string, t]),
+  )
+
+  const rows = ((data ?? []) as ClientPortfolioRow[]).map((r) => {
+    const t = teamById.get(r.account_id)
+    return {
+      ...r,
+      secondary_manager_name: (t?.secondary_manager_name ?? null) as string | null,
+      associate_name: (t?.associate_name ?? null) as string | null,
+      logistics_coordinator_name:
+        (t?.logistics_coordinator_name ?? null) as string | null,
+    }
+  })
 
   return (
     <PageShell
