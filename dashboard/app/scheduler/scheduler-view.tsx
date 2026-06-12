@@ -1,8 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { GradientHero } from "@/components/gradient-hero"
+import { ListTitleCard } from "@/components/page-masthead"
 import { HostSelectCell } from "@/components/host-select-cell"
+import { CARD_CLASS } from "@/lib/design"
 import { analyzeHost, buildAffinity, isHostBusy } from "@/lib/host-suggestion"
 import type { HostPick } from "@/lib/host-suggestion"
 import type { SchedulerMeetingRow, SchedulerUnassignedRow } from "@/lib/types"
@@ -481,16 +482,16 @@ export function SchedulerView({
 
   return (
     <>
-      {/* Gradient hero header */}
+      {/* Floating list-title card */}
       <div className="mb-4">
-        <GradientHero
+        <ListTitleCard
           title="Scheduler"
           subtitle="Host availability from confirmed meetings. See one person's week, or who's free across everyone on a given day."
         />
       </div>
 
       {/* Controls */}
-      <div className="mb-4 rounded-lg border bg-card p-4">
+      <div className={`mb-4 p-4 ${CARD_CLASS}`}>
         <div className="flex flex-wrap items-end gap-4">
           {/* Mode toggle */}
           <div className="flex flex-col gap-1">
@@ -718,7 +719,7 @@ function DayGrid({
 }) {
   const ticks = hourTicks(win)
   return (
-    <div className="overflow-x-auto rounded-lg border bg-card">
+    <div className={`overflow-x-auto ${CARD_CLASS}`}>
       <div className="min-w-[720px]">
         {/* Hour header */}
         <div className="flex border-b">
@@ -835,14 +836,14 @@ function WeekGrid({
 
   if (!host) {
     return (
-      <div className="rounded-lg border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
+      <div className={`px-4 py-10 text-center text-sm text-muted-foreground ${CARD_CLASS}`}>
         Select a host to see their week.
       </div>
     )
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border bg-card">
+    <div className={`overflow-x-auto ${CARD_CLASS}`}>
       <div className="flex min-w-[720px]">
         {/* Time axis */}
         <div className="w-12 shrink-0">
@@ -938,7 +939,7 @@ function FirmWeekGrid({
   const topOf = (t: number) => (t - win.start) * pxPerMin
 
   return (
-    <div className="overflow-x-auto rounded-lg border bg-card">
+    <div className={`overflow-x-auto ${CARD_CLASS}`}>
       <div className="flex min-w-[720px]">
         {/* Time axis */}
         <div className="w-12 shrink-0">
@@ -1044,7 +1045,7 @@ function UnassignedSection({
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-lg border bg-card">
+      <div className={`overflow-hidden ${CARD_CLASS}`}>
         {picks.length === 0 ? (
           <div className="px-4 py-6 text-center text-sm text-muted-foreground">
             No unassigned meetings for {dateLabel}.
@@ -1105,7 +1106,7 @@ function UnassignedSection({
 
 function Legend() {
   return (
-    <div className="mb-3 rounded-lg border bg-card p-3">
+    <div className={`mb-3 p-3 ${CARD_CLASS}`}>
       <div className="flex flex-wrap items-center gap-4 text-xs">
         <span className="flex items-center gap-1.5">
           <span
@@ -1150,7 +1151,7 @@ function Legend() {
 // views, no buffer swatch (buffers are omitted here for density).
 function FirmWeekLegend() {
   return (
-    <div className="mb-3 rounded-lg border bg-card p-3">
+    <div className={`mb-3 p-3 ${CARD_CLASS}`}>
       <div className="flex flex-wrap items-center gap-4 text-xs">
         <span className="flex items-center gap-1.5">
           <span

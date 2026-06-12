@@ -1,0 +1,71 @@
+// Shared "light-and-airy" design tokens — one source of truth for the canvas,
+// the floating-card elevation, and the restrained palette. Pages and shared
+// components draw from here so the system stays consistent.
+//
+// Visual only. No data/behaviour lives in this file.
+
+import type { PillVariant } from "@/lib/gradients"
+
+/** Soft off-white canvas the white cards float on. */
+export const CANVAS = "#F4F6F9"
+
+// ---- Text scale -----------------------------------------------------------
+export const TEXT_PRIMARY = "#1A2233"
+export const TEXT_SECONDARY = "#5B6472"
+export const TEXT_MUTED = "#6B7280"
+export const TEXT_TERTIARY = "#9AA1AD"
+
+// ---- Brand + accents (used sparingly) -------------------------------------
+export const BRAND_NAVY = "#1E2858"
+export const BRAND_BLUE = "#0355A7"
+export const TEAL = "#1C8C9C"
+/** The one green, reserved for money. */
+export const MONEY_GREEN = "#0E7C56"
+
+/** 4px gradient accent strip down the left edge of header cards. */
+export const ACCENT_STRIP = "linear-gradient(180deg, #1E2858, #0355A7, #1C8C9C)"
+/** Navy→blue badge / logo chip. */
+export const BADGE_GRADIENT = "linear-gradient(135deg, #1E2858, #0355A7)"
+
+// ---- Floating surfaces ----------------------------------------------------
+// Class strings (not inline styles) so the :hover lift works. White card,
+// barely-there border, soft layered shadow, 2px hover lift + stronger shadow.
+export const CARD_CLASS =
+  "rounded-[14px] bg-white border border-[rgba(16,24,40,0.04)] " +
+  "shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.05)] " +
+  "transition duration-150 " +
+  "hover:-translate-y-0.5 " +
+  "hover:shadow-[0_2px_4px_rgba(16,24,40,0.05),0_12px_32px_rgba(16,24,40,0.09)]"
+
+/** Same surface, slightly tighter radius for the KPI tiles. */
+export const KPI_CARD_CLASS =
+  "rounded-[13px] bg-white border border-[rgba(16,24,40,0.04)] " +
+  "shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.05)] " +
+  "transition duration-150 " +
+  "hover:-translate-y-0.5 " +
+  "hover:shadow-[0_2px_4px_rgba(16,24,40,0.05),0_12px_32px_rgba(16,24,40,0.09)]"
+
+/** Clean white control (selector / button) styling for mastheads. */
+export const CONTROL_STYLE = {
+  background: "#FFFFFF",
+  border: "1px solid #E6E9EF",
+  color: TEXT_PRIMARY,
+  borderRadius: 9,
+  boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+} as const
+
+/**
+ * Status pill colors on a LIGHT background (the app is light now, so the
+ * dark-gradient pill variants in lib/gradients no longer read). Keyed by the
+ * same note-sentiment PillVariant so existing mapping logic is reused.
+ */
+export const STATUS_PILL_LIGHT: Record<
+  PillVariant,
+  { bg: string; text: string }
+> = {
+  new: { bg: "#EEF2FB", text: "#2D4A8A" },
+  positive: { bg: "#E7F5EE", text: "#0E7C56" },
+  watch: { bg: "#FCF4E6", text: "#92600B" },
+  atRisk: { bg: "#FDECEC", text: "#B42318" },
+  neutral: { bg: "#F1F3F7", text: "#5B6472" },
+}

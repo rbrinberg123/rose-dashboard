@@ -2,12 +2,12 @@
 
 import * as React from "react"
 import { ArrowDown, ArrowUp, ChevronsUpDown, Search, Users } from "lucide-react"
-import { GradientHero } from "@/components/gradient-hero"
+import { ListTitleCard } from "@/components/page-masthead"
 import { HostSelectCell } from "@/components/host-select-cell"
 import { StatCard } from "@/components/stat-card"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { PIPELINE_CARD_GRADIENTS } from "@/lib/gradients"
+import { CARD_CLASS } from "@/lib/design"
 import { analyzeHost, buildAffinity, isHostBusy } from "@/lib/host-suggestion"
 import type { HostPick, HostSlot } from "@/lib/host-suggestion"
 import { cn } from "@/lib/utils"
@@ -348,41 +348,33 @@ export function PipelineView({
 
   return (
     <>
-      {/* Gradient hero band — title only (firm-wide list page) */}
+      {/* Floating list-title card — title only (firm-wide list page) */}
       <div className="mb-4">
-        <GradientHero title="Upcoming Meetings" subtitle="Next 30 days" />
+        <ListTitleCard title="Upcoming Meetings" subtitle="Next 30 days" />
       </div>
 
       {/* Summary strip — firm-wide, static across filters. */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard floating label="Upcoming" value={summary.total} />
         <StatCard
-          label="Upcoming"
-          value={summary.total}
-          gradient={PIPELINE_CARD_GRADIENTS.upcoming}
-        />
-        <StatCard
+          floating
           label="Unassigned"
           value={summary.unassigned}
           valueColor="#854F0B"
-          gradient={PIPELINE_CARD_GRADIENTS.unassigned}
         />
         <StatCard
+          floating
           label="Virtual"
           value={summary.virtual}
           valueColor="#185FA5"
-          gradient={PIPELINE_CARD_GRADIENTS.virtual}
         />
         <StatCard
+          floating
           label="In-person"
           value={summary.inPerson}
           valueColor="#3B6D11"
-          gradient={PIPELINE_CARD_GRADIENTS.inPerson}
         />
-        <StatCard
-          label="Next 7 days"
-          value={summary.next7}
-          gradient={PIPELINE_CARD_GRADIENTS.next7}
-        />
+        <StatCard floating label="Next 7 days" value={summary.next7} />
       </div>
 
       <p className="mb-5 text-xs text-muted-foreground">
@@ -440,7 +432,7 @@ export function PipelineView({
       <Legend />
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-lg border bg-card">
+      <div className={`overflow-x-auto ${CARD_CLASS}`}>
         <table className="w-full table-fixed text-sm" style={{ minWidth: TABLE_MIN_WIDTH }}>
           <colgroup>
             {TABLE_COLS.map((w, i) => (
@@ -693,7 +685,7 @@ function SortHeader({
 
 function Legend() {
   return (
-    <div className="mb-3 rounded-lg border bg-card p-3">
+    <div className={`mb-3 p-3 ${CARD_CLASS}`}>
       <div className="flex flex-wrap items-center gap-4 text-xs">
         <span className="flex items-center gap-1.5">
           <span

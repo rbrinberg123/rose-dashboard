@@ -134,7 +134,7 @@ export default async function ClientDetailPage({
   }
 
   return (
-    <PageShell title="Client Detail">
+    <PageShell title="Client Detail" hideHeader canvas>
       <ClientDetailView
         allClients={summaryRows}
         selected={selected}

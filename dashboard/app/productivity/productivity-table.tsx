@@ -20,6 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { SortHeader } from "@/components/sort-header"
+import { CARD_CLASS } from "@/lib/design"
 import { formatPercent } from "@/lib/format"
 import type { PersonRole, ProductivityRoleRow } from "@/lib/types"
 
@@ -362,7 +363,7 @@ export function ProductivityTable({ rows }: { rows: ProductivityRoleRow[] }) {
         activity to determine a role.
       </p>
 
-      <div className="rounded-lg border border-border bg-card">
+      <div className={CARD_CLASS}>
         <Table>
           <TableHeader className="sticky top-0 z-10 bg-card">
             {table.getHeaderGroups().map((hg) => (

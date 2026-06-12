@@ -37,7 +37,7 @@ export default async function Home() {
   const sector = (sectorRes.data ?? []) as ClientStatsBucketRow[]
 
   return (
-    <PageShell title="Client Statistics" description="Top-line numbers across the client book">
+    <PageShell title="Client Statistics" description="Top-line numbers across the client book" hideHeader canvas>
       <ClientStatisticsView
         row={row}
         marketCap={marketCap}

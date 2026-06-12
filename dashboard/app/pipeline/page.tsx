@@ -64,6 +64,7 @@ export default async function PipelinePage() {
       title="Pipeline (Next 30 Days)"
       description={`${rows.length.toLocaleString()} meetings on the books`}
       hideHeader
+      canvas
     >
       <PipelineView rows={rows} hosted={hosted} />
     </PageShell>

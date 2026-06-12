@@ -9,9 +9,9 @@ import {
   Users,
   Video,
 } from "lucide-react"
-import { GradientHero } from "@/components/gradient-hero"
+import { ListTitleCard } from "@/components/page-masthead"
 import { StatCard } from "@/components/stat-card"
-import { FEEDBACK_CARD_GRADIENTS } from "@/lib/gradients"
+import { CARD_CLASS } from "@/lib/design"
 import type { FeedbackOutstandingRow } from "@/lib/types"
 
 // Brand + status palette. One source of truth for the coral (no feedback),
@@ -198,9 +198,9 @@ export function FeedbackView({ rows }: { rows: FeedbackOutstandingRow[] }) {
 
   return (
     <>
-      {/* Gradient hero band — title only (firm-wide list page) */}
+      {/* Floating list-title card (firm-wide list page) */}
       <div className="mb-4">
-        <GradientHero
+        <ListTitleCard
           title="Feedback"
           subtitle="Concluded meetings still missing complete feedback — blank or awaiting additional."
         />
@@ -208,24 +208,21 @@ export function FeedbackView({ rows }: { rows: FeedbackOutstandingRow[] }) {
 
       {/* Summary strip — firm-wide, static across views. */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard floating label="Need feedback" value={summary.total} />
         <StatCard
-          label="Need feedback"
-          value={summary.total}
-          gradient={FEEDBACK_CARD_GRADIENTS.needFeedback}
-        />
-        <StatCard
+          floating
           label="No feedback"
           value={summary.blank}
           valueColor={CORAL.text}
-          gradient={FEEDBACK_CARD_GRADIENTS.noFeedback}
         />
         <StatCard
+          floating
           label="Awaiting add'l"
           value={summary.awaiting}
           valueColor={AMBER.text}
-          gradient={FEEDBACK_CARD_GRADIENTS.awaiting}
         />
         <StatCard
+          floating
           label={
             <span className="inline-flex items-center gap-1">
               <Flame className="size-3" style={{ color: RED.text }} />
@@ -234,9 +231,9 @@ export function FeedbackView({ rows }: { rows: FeedbackOutstandingRow[] }) {
           }
           value={summary.stale30}
           valueColor={RED.text}
-          gradient={FEEDBACK_CARD_GRADIENTS.stale30}
         />
         <StatCard
+          floating
           label="Oldest"
           value={
             <>
@@ -244,7 +241,6 @@ export function FeedbackView({ rows }: { rows: FeedbackOutstandingRow[] }) {
               <span className="text-base font-normal">d</span>
             </>
           }
-          gradient={FEEDBACK_CARD_GRADIENTS.oldest}
         />
       </div>
 
@@ -319,7 +315,7 @@ export function FeedbackView({ rows }: { rows: FeedbackOutstandingRow[] }) {
 
       {/* Group cards */}
       {groups.length === 0 ? (
-        <div className="rounded-lg border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
+        <div className={`px-4 py-10 text-center text-sm text-muted-foreground ${CARD_CLASS}`}>
           No outstanding feedback. Every concluded confirmed meeting has complete feedback.
         </div>
       ) : (
@@ -355,7 +351,7 @@ function GroupCard({
   onToggle: () => void
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
+    <div className={`overflow-hidden ${CARD_CLASS}`}>
       <button
         type="button"
         onClick={onToggle}
@@ -537,7 +533,7 @@ function DaysCell({ days }: { days: number }) {
 
 function Legend() {
   return (
-    <div className="mb-3 rounded-lg border bg-card p-3">
+    <div className={`mb-3 p-3 ${CARD_CLASS}`}>
       <div className="flex flex-wrap items-center gap-4 text-xs">
         <span className="flex items-center gap-1.5">
           <span

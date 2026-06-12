@@ -54,6 +54,7 @@ export default async function ContractManagementPage() {
       title="Contract Management"
       description="All active clients · sorted by soonest contract expiry"
       hideHeader
+      canvas
     >
       <ContractManagementView rows={rowsWithUrl} />
     </PageShell>

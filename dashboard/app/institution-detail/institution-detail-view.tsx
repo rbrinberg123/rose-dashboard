@@ -14,10 +14,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { ChevronLeft, ChevronRight } from "lucide-react"
-import { GradientHero } from "@/components/gradient-hero"
 import { StatCard } from "@/components/stat-card"
-import { INSTITUTION_CARD_GRADIENTS } from "@/lib/gradients"
+import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
+import { CARD_CLASS } from "@/lib/design"
 import type {
   InstitutionDetailQuarterlyRow,
   InstitutionDetailRecentMeetingRow,
@@ -192,39 +191,33 @@ export function InstitutionDetailView({
     value: string
     hint: React.ReactNode
     valueColor?: string
-    gradient: readonly [string, string]
   }
   const tiles: Tile[] = [
     {
       label: "Meetings (LTM)",
       value: selected.ltm_meetings.toLocaleString(),
       hint: <span style={{ color: deltaColor }}>{deltaText}</span>,
-      gradient: INSTITUTION_CARD_GRADIENTS.meetings,
     },
     {
       label: "Clients Met (LTM)",
       value: selected.ltm_clients.toLocaleString(),
       hint: `${selected.lifetime_clients.toLocaleString()} lifetime`,
-      gradient: INSTITUTION_CARD_GRADIENTS.clients,
     },
     {
       label: "People (LTM)",
       value: selected.ltm_people.toLocaleString(),
       hint: `${selected.lifetime_people.toLocaleString()} lifetime`,
-      gradient: INSTITUTION_CARD_GRADIENTS.people,
     },
     {
       label: "Feedback Rec'd (LTM)",
       value: feedbackValue,
       valueColor: TEAL,
       hint: `${selected.ltm_feedback_collected.toLocaleString()} of ${selected.ltm_feedback_total_closed.toLocaleString()} closed`,
-      gradient: INSTITUTION_CARD_GRADIENTS.feedback,
     },
     {
       label: "Last Met",
       value: formatShortDate(selected.last_met),
       hint: `${lastMetClient} · ${lastMetHost}`,
-      gradient: INSTITUTION_CARD_GRADIENTS.lastMet,
     },
   ]
 
@@ -286,66 +279,36 @@ export function InstitutionDetailView({
   // ---------- Render ----------
   return (
     <>
-      {/* Section 1: Gradient hero band + navigator */}
+      {/* Section 1: Floating masthead — badge, name, selector/navigator. */}
       <div className="mb-4">
-        <GradientHero
-          title={selected.institution_name}
+        <EntityMasthead
+          badge={initials(selected.institution_name)}
+          name={selected.institution_name}
           subtitle={subtitleParts.join(" · ")}
-          monogram={initials(selected.institution_name)}
           rightSlot={
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={goPrev}
-                aria-label="Previous institution"
-                className="flex h-9 w-9 items-center justify-center rounded-md text-white transition-colors"
-                style={{
-                  background: "rgba(255,255,255,0.10)",
-                  border: "1px solid rgba(255,255,255,0.26)",
-                }}
-              >
-                <ChevronLeft className="size-4" />
-              </button>
-              <select
-                value={selected.institution_id ?? ""}
-                onChange={(e) => {
-                  if (e.target.value) goTo(e.target.value)
-                }}
-                className="h-9 min-w-[240px] rounded-md px-2 text-sm text-white"
-                style={{
-                  background: "rgba(255,255,255,0.12)",
-                  border: "1px solid rgba(255,255,255,0.26)",
-                }}
-                aria-label="Select institution"
-              >
-                {selectedIndex < 0 && selected.institution_name ? (
-                  <option value="" disabled style={{ color: NAVY_DEEP }}>
-                    {selected.institution_name}
-                  </option>
-                ) : null}
-                {navTop.map((r) => (
-                  <option
-                    key={r.institution_id}
-                    value={r.institution_id}
-                    style={{ color: NAVY_DEEP }}
-                  >
-                    {r.institution_name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={goNext}
-                aria-label="Next institution"
-                className="flex h-9 w-9 items-center justify-center rounded-md text-white transition-colors"
-                style={{
-                  background: "rgba(255,255,255,0.10)",
-                  border: "1px solid rgba(255,255,255,0.26)",
-                }}
-              >
-                <ChevronRight className="size-4" />
-              </button>
-            </div>
+            <MastheadSelector
+              items={[
+                // When the selected institution is outside the top-50 navigator,
+                // prepend it so the dropdown can still show its name as current.
+                ...(selectedIndex < 0 && selected.institution_id
+                  ? [
+                      {
+                        value: selected.institution_id,
+                        label: selected.institution_name,
+                      },
+                    ]
+                  : []),
+                ...navTop.map((r) => ({
+                  value: r.institution_id,
+                  label: r.institution_name,
+                })),
+              ]}
+              value={selected.institution_id ?? ""}
+              onChange={goTo}
+              onPrev={goPrev}
+              onNext={goNext}
+              ariaLabel="Select institution"
+            />
           }
         />
       </div>
@@ -355,11 +318,11 @@ export function InstitutionDetailView({
         {tiles.map((t) => (
           <StatCard
             key={t.label}
+            floating
             label={t.label}
             value={t.value}
             hint={t.hint}
             valueColor={t.valueColor}
-            gradient={t.gradient}
           />
         ))}
       </div>
@@ -376,7 +339,7 @@ export function InstitutionDetailView({
       </div>
 
       {/* Section 4: Quarterly chart card */}
-      <div className="mb-3 rounded-lg border bg-card p-4">
+      <div className={`mb-3 p-4 ${CARD_CLASS}`}>
         <div className="mb-3 flex items-start justify-between">
           <div>
             <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
@@ -463,7 +426,7 @@ export function InstitutionDetailView({
       {/* Section 6: 3 panels */}
       <div className="mb-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
         {/* By Market Cap */}
-        <div className="rounded-lg border bg-card p-4">
+        <div className={`p-4 ${CARD_CLASS}`}>
           <div className="mb-3">
             <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
               By Market Cap
@@ -504,7 +467,7 @@ export function InstitutionDetailView({
         </div>
 
         {/* By Sector */}
-        <div className="rounded-lg border bg-card p-4">
+        <div className={`p-4 ${CARD_CLASS}`}>
           <div className="mb-3">
             <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
               By Sector
@@ -558,7 +521,7 @@ export function InstitutionDetailView({
         </div>
 
         {/* By Region */}
-        <div className="rounded-lg border bg-card p-4">
+        <div className={`p-4 ${CARD_CLASS}`}>
           <div className="mb-3">
             <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
               By Region
@@ -602,7 +565,7 @@ export function InstitutionDetailView({
       {/* Section 7: Top Hosts + Top Booker side-by-side */}
       <div className="mb-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
         {/* Top Hosts (LTM) */}
-        <div className="rounded-lg border bg-card p-4">
+        <div className={`p-4 ${CARD_CLASS}`}>
           <div className="mb-3">
             <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
               Top Hosts (LTM)
@@ -639,7 +602,7 @@ export function InstitutionDetailView({
         </div>
 
         {/* Top Booker (LTM) */}
-        <div className="rounded-lg border bg-card p-4">
+        <div className={`p-4 ${CARD_CLASS}`}>
           <div className="mb-3">
             <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
               Top Booker (LTM)
@@ -677,7 +640,7 @@ export function InstitutionDetailView({
       </div>
 
       {/* Section 7b: Top 10 Clients full width */}
-      <div className="mb-3 rounded-lg border bg-card p-4">
+      <div className={`mb-3 p-4 ${CARD_CLASS}`}>
         <div className="mb-3">
           <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
             Top 10 Rose &amp; Co Clients Met
@@ -747,7 +710,7 @@ export function InstitutionDetailView({
       </div>
 
       {/* Section 9: Last 8 Meetings */}
-      <div className="rounded-lg border bg-card p-4">
+      <div className={`p-4 ${CARD_CLASS}`}>
         <div className="mb-3 text-sm font-medium" style={{ color: NAVY_DEEP }}>
           Last 8 Meetings
         </div>

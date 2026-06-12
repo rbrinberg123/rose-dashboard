@@ -121,15 +121,19 @@ export function DateRangeControl({
   const toDate = parseYmd(customTo)
 
   // Hero tone: translucent-white styling so the control reads on the gradient.
+  // Default tone now sits on the light floating ListTitleCard — white control
+  // surface, hairline border, navy text, subtle shadow.
   const isHero = tone === "hero"
+  const LIGHT_CONTROL =
+    "border-[#E6E9EF] bg-white text-[#1A2233] shadow-[0_1px_2px_rgba(16,24,40,0.04)] rounded-[9px]"
   const labelCls = isHero ? "text-white/80" : "text-muted-foreground"
   const triggerCls = isHero
     ? "border-white/30 bg-white/15 text-white hover:bg-white/25 [&_svg]:text-white/80 data-placeholder:text-white/70"
-    : ""
+    : LIGHT_CONTROL
   const rangeTextCls = isHero ? "text-white/85" : "text-muted-foreground"
   const heroBtnCls = isHero
     ? "border-white/30 bg-white/15 text-white hover:bg-white/25 hover:text-white"
-    : ""
+    : LIGHT_CONTROL
   const applyCls = isHero ? "bg-white/90 text-[#1E2858] hover:bg-white" : ""
 
   return (

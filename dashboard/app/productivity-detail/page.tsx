@@ -54,7 +54,7 @@ export default async function ProductivityDetailPage() {
   const userOptions = (usersRes.data ?? []) as UserOption[]
 
   return (
-    <PageShell title="Productivity Detail">
+    <PageShell title="Productivity Detail" hideHeader canvas>
       <ProductivityDetailView
         rows={rows}
         monthlyRows={monthlyRows}

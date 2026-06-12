@@ -84,7 +84,7 @@ export default async function InstitutionDetailPage({
   if (!selected.institution_id) {
     // Cannot fetch detail panels keyed by id when id is null. Show what we have.
     return (
-      <PageShell title="Institution Detail">
+      <PageShell title="Institution Detail" hideHeader canvas>
         <InstitutionDetailView
           selected={selected}
           navTop={navTop}
@@ -156,7 +156,7 @@ export default async function InstitutionDetailPage({
   }
 
   return (
-    <PageShell title="Institution Detail">
+    <PageShell title="Institution Detail" hideHeader canvas>
       <InstitutionDetailView
         selected={selected}
         navTop={navTop}

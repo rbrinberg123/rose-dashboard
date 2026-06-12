@@ -88,7 +88,7 @@ function Section({
   return (
     <div className="px-3 py-1.5">
       {/* Non-clickable category label — static, no hover/navigation */}
-      <div className="mb-1 flex items-center gap-2 px-2 text-[12px] font-medium uppercase tracking-wider text-[#8A93BD]">
+      <div className="mb-1 flex items-center gap-2 px-2 text-[12px] font-medium uppercase tracking-wider text-[#9AA1AD]">
         <Icon className="size-[18px] shrink-0" />
         <span>{label}</span>
       </div>
@@ -102,12 +102,19 @@ function Section({
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center rounded-md py-1 pl-6 pr-2 text-sm transition-colors",
+                  "relative flex items-center rounded-md py-1 pl-6 pr-2 text-sm transition-colors",
                   active
-                    ? "border-l-[3px] border-[#6FA0DA] bg-[#39477F] pl-[21px] font-medium text-white"
-                    : "text-[#B6BDDD] hover:bg-[#39477F]/40 hover:text-white",
+                    ? "bg-[#EEF2FB] font-medium text-[#1E2858]"
+                    : "text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
                 )}
               >
+                {active && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-y-1 left-0 w-[3px] rounded-full"
+                    style={{ background: "linear-gradient(180deg, #1E2858, #0355A7)" }}
+                  />
+                )}
                 <span className="truncate">{itemLabel}</span>
               </Link>
             </li>
@@ -123,7 +130,7 @@ function NavContents({ pathname, onNavigate }: { pathname: string; onNavigate?: 
     <>
       {sections.map((section, i) => (
         <React.Fragment key={section.label}>
-          {i > 0 ? <div className="mx-3 my-0.5 border-t-[0.5px] border-[#2F3A6B]" /> : null}
+          {i > 0 ? <div className="mx-3 my-0.5 border-t border-[#EDEFF3]" /> : null}
           <Section section={section} current={pathname} onNavigate={onNavigate} />
         </React.Fragment>
       ))}
@@ -136,7 +143,7 @@ function AdminRow() {
   return (
     <div
       aria-disabled="true"
-      className="flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[#6E77A0]"
+      className="flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[#9AA1AD]"
     >
       <Settings className="size-[18px] shrink-0" />
       <span className="flex-1 uppercase tracking-wider text-[12px] font-medium">Admin</span>
@@ -148,14 +155,22 @@ function AdminRow() {
 function Brand() {
   return (
     <div className="flex items-center gap-[8px]">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/rose-logo.png"
-        alt="Rose &amp; Co."
-        className="size-[68px] shrink-0 overflow-hidden rounded-[12px] object-contain"
-      />
+      {/* Logo sits in a navy→blue gradient tile with a soft shadow. */}
       <span
-        className="text-white"
+        className="flex shrink-0 items-center justify-center overflow-hidden rounded-[14px]"
+        style={{
+          background: "linear-gradient(135deg, #1E2858, #0355A7)",
+          boxShadow: "0 2px 8px rgba(3,85,167,0.25)",
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/rose-logo.png"
+          alt="Rose &amp; Co."
+          className="size-[60px] shrink-0 object-contain"
+        />
+      </span>
+      <span
         style={{
           fontFamily: "var(--font-sans)",
           fontStyle: "italic",
@@ -163,6 +178,7 @@ function Brand() {
           fontSize: "46px",
           letterSpacing: "3px",
           lineHeight: 1,
+          color: "#1E2858",
         }}
       >
         IQ
@@ -189,7 +205,7 @@ export function Sidebar({ userEmail }: { userEmail?: string | null }) {
   return (
     <>
       {/* Mobile top bar — visible below md */}
-      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-sidebar-border bg-sidebar px-3 md:hidden">
+      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-[#EDEFF3] bg-white px-3 md:hidden">
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger
             render={
@@ -198,8 +214,8 @@ export function Sidebar({ userEmail }: { userEmail?: string | null }) {
           >
             <Menu className="size-5" />
           </SheetTrigger>
-          <SheetContent side="left" className="w-72 bg-[#1E2858] p-0">
-            <SheetHeader className="border-b-[0.5px] border-[#39477F] bg-[#1E2858]">
+          <SheetContent side="left" className="w-72 bg-white p-0">
+            <SheetHeader className="border-b border-[#EDEFF3] bg-white">
               <SheetTitle className="flex items-center justify-center">
                 <Brand />
               </SheetTitle>
@@ -207,11 +223,11 @@ export function Sidebar({ userEmail }: { userEmail?: string | null }) {
             <nav className="flex-1 overflow-y-auto py-2">
               <NavContents pathname={pathname} onNavigate={() => setMobileOpen(false)} />
             </nav>
-            <div className="border-t-[0.5px] border-[#2F3A6B] px-3 py-2">
+            <div className="border-t border-[#EDEFF3] px-3 py-2">
               <AdminRow />
             </div>
             {userEmail ? (
-              <div className="border-t-[0.5px] border-[#2F3A6B] p-3">
+              <div className="border-t border-[#EDEFF3] p-3">
                 <UserPanel email={userEmail} />
               </div>
             ) : null}
@@ -222,23 +238,23 @@ export function Sidebar({ userEmail }: { userEmail?: string | null }) {
       </header>
 
       {/* Desktop sidebar — visible at md+ */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-[#1E2858] md:sticky md:top-0 md:flex md:h-screen">
-        {/* Logo header on navy background, ~88px square, faint bottom divider */}
-        <div className="flex items-center border-b-[0.5px] border-[#39477F] bg-[#1E2858] py-4 pl-5 pr-4">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-[#EDEFF3] bg-white md:sticky md:top-0 md:flex md:h-screen">
+        {/* Logo header, faint bottom divider */}
+        <div className="flex items-center border-b border-[#EDEFF3] bg-white py-4 pl-5 pr-4">
           <Brand />
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
           <NavContents pathname={pathname} />
         </nav>
-        <div className="border-t-[0.5px] border-[#2F3A6B] px-3 py-2">
+        <div className="border-t border-[#EDEFF3] px-3 py-2">
           <AdminRow />
         </div>
         {userEmail ? (
-          <div className="border-t-[0.5px] border-[#2F3A6B] px-3 py-3">
+          <div className="border-t border-[#EDEFF3] px-3 py-3">
             <UserPanel email={userEmail} />
           </div>
         ) : (
-          <div className="border-t-[0.5px] border-[#2F3A6B] px-4 py-3 text-xs text-[#8A93BD]">
+          <div className="border-t border-[#EDEFF3] px-4 py-3 text-xs text-[#9AA1AD]">
             v0.1 · Internal
           </div>
         )}
@@ -250,16 +266,16 @@ export function Sidebar({ userEmail }: { userEmail?: string | null }) {
 function UserPanel({ email }: { email: string }) {
   return (
     <div className="space-y-2">
-      <div className="px-2 text-xs text-[#8A93BD]" title={email}>
+      <div className="px-2 text-xs text-[#9AA1AD]" title={email}>
         Signed in as
-        <div className="truncate text-[#E6E9F5]">{email}</div>
+        <div className="truncate text-[#5B6472]">{email}</div>
       </div>
       <form action={signOutAction}>
         <Button
           type="submit"
           variant="ghost"
           size="sm"
-          className="w-full justify-start text-[#B6BDDD] hover:bg-[#39477F]/40 hover:text-white"
+          className="w-full justify-start text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]"
         >
           <LogOut className="size-4" />
           Sign out

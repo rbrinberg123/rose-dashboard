@@ -14,11 +14,28 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react"
+import {
+  BarChart3,
+  Building2,
+  CalendarDays,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Layers,
+  NotebookText,
+  Users,
+  type LucideIcon,
+} from "lucide-react"
 import { formatCurrency } from "@/lib/format"
-import { GradientHero } from "@/components/gradient-hero"
 import { StatCard } from "@/components/stat-card"
-import { STAT_GRADIENTS, type PillVariant, type StatGradient } from "@/lib/gradients"
+import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
+import { type PillVariant } from "@/lib/gradients"
+import {
+  CARD_CLASS,
+  MONEY_GREEN,
+  TEXT_MUTED,
+  TEXT_PRIMARY,
+} from "@/lib/design"
 import type {
   ClientDetailQuarterlyRow,
   ClientDetailReachDepthRow,
@@ -91,6 +108,74 @@ function initialsOf(name: string): string {
   if (words.length === 0) return ""
   if (words.length === 1) return words[0][0].toUpperCase()
   return (words[0][0] + words[words.length - 1][0]).toUpperCase()
+}
+
+/** Tiny inline-SVG trend line for a KPI card (no axes, no chrome). */
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) return null
+  const w = 88
+  const h = 20
+  const max = Math.max(...values)
+  const min = Math.min(...values)
+  const span = max - min || 1
+  const pts = values
+    .map((v, i) => {
+      const x = (i / (values.length - 1)) * w
+      const y = h - ((v - min) / span) * h
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(" ")
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
+      <polyline
+        points={pts}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/** Thin ratio bar for the Feedback KPI (received ÷ total). */
+function RatioBar({ pct }: { pct: number }) {
+  const w = Math.max(0, Math.min(100, pct))
+  return (
+    <div
+      className="h-1.5 w-full overflow-hidden rounded-full"
+      style={{ backgroundColor: "#EEF0F4" }}
+    >
+      <div
+        className="h-full rounded-full"
+        style={{ width: `${w}%`, background: "linear-gradient(90deg, #1C9E72, #37B88C)" }}
+      />
+    </div>
+  )
+}
+
+/** Section-card title with a small colored leading icon. */
+function CardTitle({
+  icon: Icon,
+  color,
+  className,
+  children,
+}: {
+  icon: LucideIcon
+  color: string
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      className={`flex items-center gap-1.5 text-sm font-medium ${className ?? ""}`}
+      style={{ color: NAVY_DEEP }}
+    >
+      <Icon className="size-[15px] shrink-0" style={{ color }} aria-hidden="true" />
+      <span>{children}</span>
+    </div>
+  )
 }
 
 export function ClientDetailView({
@@ -197,7 +282,7 @@ export function ClientDetailView({
       : Math.round(selected.ltm_feedback_rate * 100)
   const feedbackValue = feedbackPct == null ? "—" : `${feedbackPct}%`
   const feedbackColor =
-    feedbackPct != null && feedbackPct < 60 ? RED : NAVY_DEEP
+    feedbackPct != null && feedbackPct < 60 ? RED : TEXT_PRIMARY
 
   const quarterlyDollars = selected.annualized_retainer / 4
 
@@ -205,66 +290,74 @@ export function ClientDetailView({
   const renewalValue = days == null ? "—" : days.toLocaleString()
   const renewalColor =
     days == null
-      ? NAVY_DEEP
+      ? TEXT_PRIMARY
       : days < 30
         ? RED
         : days < 90
           ? AMBER
-          : NAVY_DEEP
+          : TEXT_PRIMARY
   const renewalHint =
     selected.latest_term_end == null
       ? "No active contract"
       : `Term ends ${formatLongDate(selected.latest_term_end)}`
 
+  // Exact-on-hover for the abbreviated dollar values.
+  const retainerExact =
+    selected.annualized_retainer > 0
+      ? formatCurrency(selected.annualized_retainer)
+      : undefined
+  const perMeetingExact =
+    selected.dollars_per_meeting_ltm != null &&
+    Number.isFinite(selected.dollars_per_meeting_ltm)
+      ? formatCurrency(selected.dollars_per_meeting_ltm)
+      : undefined
+
   type Tile = {
     label: string
-    value: string
+    value: React.ReactNode
     hint: React.ReactNode
     valueColor?: string
-    gradient: StatGradient
+    sparkline?: React.ReactNode
   }
   const tiles: Tile[] = [
     {
       label: "Meetings (LTM)",
       value: `${selected.ltm_meetings.toLocaleString()} / ${selected.lifetime_meetings.toLocaleString()}`,
       hint: <span style={{ color: deltaColor }}>{deltaText}</span>,
-      gradient: STAT_GRADIENTS.meetings,
+      sparkline: <Sparkline values={quarterly.map((q) => q.total)} color={NAVY_DEEP} />,
     },
     {
       label: "Institutions (LTM)",
       value: selected.ltm_unique_institutions.toLocaleString(),
       hint: `${selected.ltm_unique_investors.toLocaleString()} individual investors`,
-      gradient: STAT_GRADIENTS.institutions,
     },
     {
       label: "Feedback Rec'd (LTM)",
       value: feedbackValue,
       valueColor: feedbackColor,
+      sparkline: feedbackPct != null ? <RatioBar pct={feedbackPct} /> : undefined,
       hint: `${selected.ltm_feedback_collected.toLocaleString()} of ${selected.ltm_feedback_total_closed.toLocaleString()} closed`,
-      gradient: STAT_GRADIENTS.feedback,
     },
     {
       label: "Annualized Retainer",
-      value: formatCompactDollars(selected.annualized_retainer),
-      valueColor: TEAL,
+      value: <span title={retainerExact}>{formatCompactDollars(selected.annualized_retainer)}</span>,
+      valueColor: MONEY_GREEN,
       hint:
         selected.annualized_retainer > 0
           ? `${formatCompactDollars(quarterlyDollars)}/quarter`
           : "No active contract",
-      gradient: STAT_GRADIENTS.retainer,
     },
     {
       label: "$ per Meeting",
-      value: formatCompactDollars(selected.dollars_per_meeting_ltm),
+      value: <span title={perMeetingExact}>{formatCompactDollars(selected.dollars_per_meeting_ltm)}</span>,
+      valueColor: MONEY_GREEN,
       hint: "LTM, retainer ÷ meetings",
-      gradient: STAT_GRADIENTS.perMeeting,
     },
     {
       label: "Contract Renewal",
       value: renewalValue,
       valueColor: renewalColor,
       hint: renewalHint,
-      gradient: STAT_GRADIENTS.renewal,
     },
   ]
 
@@ -321,103 +414,71 @@ export function ClientDetailView({
   // the shared navy→teal palette. The whole strip hides when nobody is assigned.
   const accountTeamMembers = (
     [
-      { role: "Account Mgr", name: accountTeam.sales_lead_primary_name, color: "#1E2858" },
-      { role: "Secondary", name: accountTeam.secondary_manager_name, color: "#3D5599" },
-      { role: "Associate", name: accountTeam.associate_name, color: "#1C8C9C" },
-      { role: "Logistics", name: accountTeam.logistics_coordinator_name, color: "#4FC6BC" },
-    ] as Array<{ role: string; name: string | null; color: string }>
-  ).filter((m): m is { role: string; name: string; color: string } =>
+      { role: "Account Mgr", name: accountTeam.sales_lead_primary_name, color: "#1E2858", text: "#FFFFFF" },
+      { role: "Secondary", name: accountTeam.secondary_manager_name, color: "#3D5599", text: "#FFFFFF" },
+      { role: "Associate", name: accountTeam.associate_name, color: "#1C8C9C", text: "#FFFFFF" },
+      { role: "Logistics", name: accountTeam.logistics_coordinator_name, color: "#4FC6BC", text: "#0A3B36" },
+    ] as Array<{ role: string; name: string | null; color: string; text: string }>
+  ).filter((m): m is { role: string; name: string; color: string; text: string } =>
     Boolean(m.name && m.name.trim()),
   )
 
   // ---------- Render ----------
   return (
     <>
-      {/* Section 1: Gradient hero header */}
+      {/* Section 1: Floating masthead — badge, name, status, selector, team. */}
       <div className="mb-4">
-        <GradientHero
-          title={selected.client_name}
+        <EntityMasthead
+          badge={monogram}
+          name={selected.client_name}
           subtitle={subtitleParts.join(" · ")}
-          monogram={monogram}
           status={statusPill}
           rightSlot={
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={goPrev}
-                aria-label="Previous client"
-                className="flex h-9 w-9 items-center justify-center rounded-md text-white transition-colors"
-                style={{
-                  background: "rgba(255,255,255,0.10)",
-                  border: "1px solid rgba(255,255,255,0.26)",
-                }}
-              >
-                <ChevronLeft className="size-4" />
-              </button>
-              <select
-                value={selected.account_id}
-                onChange={(e) => goTo(e.target.value)}
-                className="h-9 min-w-[220px] rounded-md px-2 text-sm text-white"
-                style={{
-                  background: "rgba(255,255,255,0.12)",
-                  border: "1px solid rgba(255,255,255,0.26)",
-                }}
-                aria-label="Select client"
-              >
-                {allClients.map((c) => (
-                  <option
-                    key={c.account_id}
-                    value={c.account_id}
-                    style={{ color: NAVY_DEEP }}
-                  >
-                    {c.client_name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={goNext}
-                aria-label="Next client"
-                className="flex h-9 w-9 items-center justify-center rounded-md text-white transition-colors"
-                style={{
-                  background: "rgba(255,255,255,0.10)",
-                  border: "1px solid rgba(255,255,255,0.26)",
-                }}
-              >
-                <ChevronRight className="size-4" />
-              </button>
-            </div>
+            <MastheadSelector
+              items={allClients.map((c) => ({
+                value: c.account_id,
+                label: c.client_name,
+              }))}
+              value={selected.account_id}
+              onChange={goTo}
+              onPrev={goPrev}
+              onNext={goNext}
+              ariaLabel="Select client"
+            />
           }
         />
       </div>
 
-      {/* Section 2: 6 KPI cards */}
+      {/* Section 2: 6 KPI cards — floating style */}
       <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((t) => (
           <StatCard
             key={t.label}
+            floating
             label={t.label}
             value={t.value}
             hint={t.hint}
             valueColor={t.valueColor}
-            gradient={t.gradient}
+            sparkline={t.sparkline}
           />
         ))}
       </div>
 
-      {/* Account Team strip — slim secondary-surface bar of assigned people */}
+      {/* Account Team — understated standalone strip (label + avatar + role/name
+          groups), below the KPIs. Hides entirely when nobody is assigned. */}
       {accountTeamMembers.length > 0 && (
         <div
-          className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 bg-secondary"
+          className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2"
           style={{
-            border: "0.5px solid var(--border)",
+            background: "#FFFFFF",
+            border: "1px solid rgba(16,24,40,0.04)",
             borderRadius: 11,
             padding: "10px 14px",
           }}
         >
           <span
             className="shrink-0 text-[11px] font-semibold uppercase tracking-wide"
-            style={{ color: TICK_FILL }}
+            style={{ color: TEXT_MUTED }}
           >
             Account Team
           </span>
@@ -428,10 +489,13 @@ export function ClientDetailView({
                   ·
                 </span>
               )}
-              <span className="flex items-center gap-2">
+              <span
+                className="flex items-center gap-2"
+                title={`${m.role} · ${m.name}`}
+              >
                 <span
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold leading-none text-white"
-                  style={{ backgroundColor: m.color }}
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold leading-none"
+                  style={{ backgroundColor: m.color, color: m.text }}
                   aria-hidden="true"
                 >
                   {initialsOf(m.name)}
@@ -440,7 +504,7 @@ export function ClientDetailView({
                   <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                     {m.role}
                   </span>
-                  <span className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
+                  <span className="text-sm font-medium" style={{ color: TEXT_PRIMARY }}>
                     {m.name}
                   </span>
                 </span>
@@ -466,11 +530,11 @@ export function ClientDetailView({
       <div className="mb-3 grid grid-cols-1 items-start gap-3 lg:grid-cols-2">
         {/* Most Recent Client Note — only when a note exists */}
         {recentNote && (
-          <div className="min-w-0 rounded-lg border bg-card p-4">
+          <div className={`min-w-0 p-5 ${CARD_CLASS}`}>
             <div className="mb-3 flex items-baseline justify-between">
-              <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
+              <CardTitle icon={NotebookText} color="#0355A7">
                 Most Recent Client Note
-              </div>
+              </CardTitle>
             <div className="text-xs text-muted-foreground">
               {formatLongDate(recentNote.note_date)}
             </div>
@@ -482,7 +546,7 @@ export function ClientDetailView({
               {recentNote.status_text && (
                 <span
                   className="rounded-full px-2.5 py-1 text-xs font-medium"
-                  style={{ backgroundColor: GRAY_BG, color: NAVY_MID }}
+                  style={{ backgroundColor: "#EEF2FB", color: "#2D4A8A" }}
                 >
                   {recentNote.status_text}
                 </span>
@@ -532,11 +596,11 @@ export function ClientDetailView({
       )}
 
         {/* Recent Touchpoints */}
-        <div className="min-w-0 rounded-lg border bg-card p-4">
+        <div className={`min-w-0 p-5 ${CARD_CLASS}`}>
         <div className="mb-3 flex items-center justify-between">
-          <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
+          <CardTitle icon={Clock} color="#1C8C9C">
             Recent Touchpoints
-          </div>
+          </CardTitle>
           {tpTotal > 1 && (
             <button
               type="button"
@@ -634,12 +698,12 @@ export function ClientDetailView({
       </div>
 
       {/* Section 4: Quarterly chart card */}
-      <div className="mb-3 rounded-lg border bg-card p-4">
+      <div className={`mb-3 p-5 ${CARD_CLASS}`}>
         <div className="mb-3 flex items-start justify-between">
           <div>
-            <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
+            <CardTitle icon={BarChart3} color="#0355A7">
               Meetings by Quarter
-            </div>
+            </CardTitle>
             <div className="text-xs text-muted-foreground">
               Last 8 quarters · stacked: virtual + live
             </div>
@@ -708,11 +772,11 @@ export function ClientDetailView({
       </div>
 
       {/* Section 5: Top 20 Institutions */}
-      <div className="mb-3 rounded-lg border bg-card p-4">
+      <div className={`mb-3 p-5 ${CARD_CLASS}`}>
         <div className="mb-3">
-          <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
+          <CardTitle icon={Building2} color="#1C8C9C">
             Top 20 Institutions Met
-          </div>
+          </CardTitle>
           <div className="text-xs text-muted-foreground">
             Lifetime · of {reachTotal.toLocaleString()} unique institutions
           </div>
@@ -780,11 +844,11 @@ export function ClientDetailView({
       {/* Section 6: Reach Depth + Top Hosts side by side */}
       <div className="mb-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
         {/* Reach Depth */}
-        <div className="rounded-lg border bg-card p-4">
+        <div className={`p-5 ${CARD_CLASS}`}>
           <div className="mb-3">
-            <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
+            <CardTitle icon={Layers} color="#0355A7">
               Investor Reach Depth
-            </div>
+            </CardTitle>
             <div className="text-xs text-muted-foreground">
               Lifetime: {reachTotal.toLocaleString()} unique institutions
             </div>
@@ -823,11 +887,11 @@ export function ClientDetailView({
         </div>
 
         {/* Top Hosts */}
-        <div className="rounded-lg border bg-card p-4">
+        <div className={`p-5 ${CARD_CLASS}`}>
           <div className="mb-3">
-            <div className="text-sm font-medium" style={{ color: NAVY_DEEP }}>
+            <CardTitle icon={Users} color="#1C8C9C">
               Top Hosts (LTM)
-            </div>
+            </CardTitle>
             <div className="text-xs text-muted-foreground">
               Rose &amp; Co team members hosting
             </div>
@@ -876,10 +940,10 @@ export function ClientDetailView({
       </div>
 
       {/* Section 8: Last 8 Meetings */}
-      <div className="rounded-lg border bg-card p-4">
-        <div className="mb-3 text-sm font-medium" style={{ color: NAVY_DEEP }}>
+      <div className={`p-5 ${CARD_CLASS}`}>
+        <CardTitle icon={CalendarDays} color="#0355A7" className="mb-3">
           Last 8 Meetings
-        </div>
+        </CardTitle>
         {recentMeetings.length === 0 ? (
           <div className="py-6 text-center text-sm text-muted-foreground">
             No recent confirmed meetings.

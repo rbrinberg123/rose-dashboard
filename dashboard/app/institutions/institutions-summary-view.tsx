@@ -3,7 +3,8 @@
 import * as React from "react"
 import Link from "next/link"
 import { format, parseISO } from "date-fns"
-import { GradientHero } from "@/components/gradient-hero"
+import { ListTitleCard } from "@/components/page-masthead"
+import { CARD_CLASS } from "@/lib/design"
 import type { InstitutionSummaryRow } from "@/lib/types"
 
 // Brand palette
@@ -146,9 +147,9 @@ export function InstitutionsSummaryView({
 
   return (
     <>
-      {/* Section 1: Gradient hero header */}
+      {/* Section 1: Floating list-title card */}
       <div className="mb-4">
-        <GradientHero
+        <ListTitleCard
           title="Institution Summary"
           subtitle={`All institutions ever met · ${total.toLocaleString()} total`}
         />
@@ -292,7 +293,7 @@ export function InstitutionsSummaryView({
       </div>
 
       {/* Section 4: Table card */}
-      <div className="rounded-lg border bg-card">
+      <div className={CARD_CLASS}>
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="text-base font-semibold" style={{ color: NAVY_DEEP }}>
             Institutions

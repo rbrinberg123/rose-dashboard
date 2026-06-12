@@ -13,19 +13,10 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { ChevronLeft, ChevronRight } from "lucide-react"
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { formatCurrency } from "@/lib/format"
-import { GradientHero } from "@/components/gradient-hero"
 import { StatCard } from "@/components/stat-card"
-import { PRODUCTIVITY_CARD_GRADIENTS } from "@/lib/gradients"
+import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
+import { CARD_CLASS, MONEY_GREEN } from "@/lib/design"
 import type {
   AnalystMonthlyActivityRow,
   ProductivityDetailInstitutionRow,
@@ -64,6 +55,49 @@ function formatCompactDollars(value: number): string {
   if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
   if (abs >= 1_000) return `$${Math.round(value / 1_000)}K`
   return formatCurrency(value)
+}
+
+/** Tiny inline-SVG trend line with a faint area fill (no axes, no chrome). */
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) return null
+  const w = 88
+  const h = 20
+  const max = Math.max(...values)
+  const min = Math.min(...values)
+  const span = max - min || 1
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * w
+    const y = h - ((v - min) / span) * h
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  })
+  const line = pts.join(" ")
+  const area = `0,${h} ${line} ${w},${h}`
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
+      <polygon points={area} fill={color} opacity={0.1} />
+      <polyline
+        points={line}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/** Thin ratio bar (received ÷ total style). `fill` is any CSS background. */
+function RatioBar({ pct, fill }: { pct: number; fill: string }) {
+  const w = Math.max(0, Math.min(100, pct))
+  return (
+    <div
+      className="h-1.5 w-full overflow-hidden rounded-full"
+      style={{ backgroundColor: "#EEF0F4" }}
+    >
+      <div className="h-full rounded-full" style={{ width: `${w}%`, background: fill }} />
+    </div>
+  )
 }
 
 export function ProductivityDetailView({
@@ -196,7 +230,7 @@ export function ProductivityDetailView({
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
+      <div className={`p-6 text-sm text-muted-foreground ${CARD_CLASS}`}>
         No users with activity in the trailing 12 months.
       </div>
     )
@@ -222,115 +256,89 @@ export function ProductivityDetailView({
       ? Math.round((selected.meetings_in_person_12m / selected.meetings_hosted_12m) * 100)
       : 0
 
-  const feedbackPctText =
+  const feedbackPctNum =
     selected.feedback_collection_rate_12m == null
-      ? "—"
-      : `${Math.round(selected.feedback_collection_rate_12m * 100)}%`
+      ? null
+      : Math.round(selected.feedback_collection_rate_12m * 100)
+  const feedbackPctText = feedbackPctNum == null ? "—" : `${feedbackPctNum}%`
 
   const tiles: Array<{
     label: string
     value: string
     hint: string
     valueColor?: string
-    gradient: readonly [string, string]
     exact?: string
+    sparkline?: React.ReactNode
   }> = [
     {
       label: "Scheduled",
       value: selected.meetings_scheduled_12m.toLocaleString(),
       hint: "As booker",
       valueColor: "#0154A6",
-      gradient: PRODUCTIVITY_CARD_GRADIENTS.scheduled,
+      sparkline: (
+        <Sparkline values={chartData.map((d) => d.meetings_scheduled)} color="#0355A7" />
+      ),
     },
     {
       label: "Hosted",
       value: selected.meetings_hosted_12m.toLocaleString(),
       hint: "As host",
-      gradient: PRODUCTIVITY_CARD_GRADIENTS.hosted,
+      sparkline: (
+        <Sparkline values={chartData.map((d) => d.meetings_hosted)} color="#1C8C9C" />
+      ),
     },
     {
       label: "In Person",
       value: selected.meetings_in_person_12m.toLocaleString(),
       hint: `${inPersonPct}% of hosted`,
-      gradient: PRODUCTIVITY_CARD_GRADIENTS.inPerson,
+      sparkline: (
+        <RatioBar pct={inPersonPct} fill="linear-gradient(90deg, #0355A7, #1C8C9C)" />
+      ),
     },
     {
       label: "Feedback Rec'd",
       value: feedbackPctText,
       hint: "Of hosted meetings",
       valueColor: TEAL,
-      gradient: PRODUCTIVITY_CARD_GRADIENTS.feedback,
+      sparkline:
+        feedbackPctNum != null ? (
+          <RatioBar pct={feedbackPctNum} fill="linear-gradient(90deg, #1C9E72, #37B88C)" />
+        ) : undefined,
     },
     {
       label: "Active Clients",
       value: selected.active_clients_as_sales_lead.toLocaleString(),
       hint: "As sales lead",
-      gradient: PRODUCTIVITY_CARD_GRADIENTS.activeClients,
     },
     {
       label: "Revenue Managed",
       value: formatCompactDollars(selected.sales_lead_book_annualized),
       hint: "Annualized retainer",
-      gradient: PRODUCTIVITY_CARD_GRADIENTS.salesLeadBook,
+      valueColor: MONEY_GREEN,
       exact: formatCurrency(selected.sales_lead_book_annualized),
     },
   ]
 
   return (
     <>
-      {/* Gradient hero band */}
+      {/* Floating masthead — badge, name, subtitle, selector */}
       <div className="mb-4">
-        <GradientHero
-          title={selected.display_name}
+        <EntityMasthead
+          badge={initials(selected.display_name)}
+          name={selected.display_name}
           subtitle="Activity over the trailing 12 months"
-          monogram={initials(selected.display_name)}
           rightSlot={
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={goPrev}
-                aria-label="Previous person"
-                className="flex h-9 w-9 items-center justify-center rounded-md text-white transition-colors"
-                style={{
-                  background: "rgba(255,255,255,0.10)",
-                  border: "1px solid rgba(255,255,255,0.26)",
-                }}
-              >
-                <ChevronLeft className="size-4" />
-              </button>
-              <select
-                value={selected.display_name}
-                onChange={(e) => goTo(e.target.value)}
-                className="h-9 min-w-[200px] rounded-md px-2 text-sm text-white"
-                style={{
-                  background: "rgba(255,255,255,0.12)",
-                  border: "1px solid rgba(255,255,255,0.26)",
-                }}
-                aria-label="Select person"
-              >
-                {rows.map((r) => (
-                  <option
-                    key={r.display_name}
-                    value={r.display_name}
-                    style={{ color: NAVY }}
-                  >
-                    {r.display_name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={goNext}
-                aria-label="Next person"
-                className="flex h-9 w-9 items-center justify-center rounded-md text-white transition-colors"
-                style={{
-                  background: "rgba(255,255,255,0.10)",
-                  border: "1px solid rgba(255,255,255,0.26)",
-                }}
-              >
-                <ChevronRight className="size-4" />
-              </button>
-            </div>
+            <MastheadSelector
+              items={rows.map((r) => ({
+                value: r.display_name,
+                label: r.display_name,
+              }))}
+              value={selected.display_name}
+              onChange={goTo}
+              onPrev={goPrev}
+              onNext={goNext}
+              ariaLabel="Select person"
+            />
           }
         />
       </div>
@@ -339,11 +347,12 @@ export function ProductivityDetailView({
         {tiles.map((t) => (
           <StatCard
             key={t.label}
+            floating
             label={t.label}
             value={t.exact ? <span title={t.exact}>{t.value}</span> : t.value}
             valueColor={t.valueColor}
-            gradient={t.gradient}
             hint={t.hint}
+            sparkline={t.sparkline}
           />
         ))}
       </div>
@@ -359,16 +368,16 @@ export function ProductivityDetailView({
       </div>
 
       <div className="grid grid-cols-1 gap-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
+        <div className={`p-5 ${CARD_CLASS}`}>
+          <div className="mb-3">
+            <div className="text-sm font-medium" style={{ color: NAVY }}>
               Meetings Scheduled
-            </CardTitle>
-            <CardDescription className="text-xs">
+            </div>
+            <div className="text-xs text-muted-foreground">
               Booked by this person
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+            </div>
+          </div>
+          <div>
             <ResponsiveContainer width="100%" height={110}>
               <BarChart data={chartData} margin={{ top: 24, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
@@ -403,39 +412,39 @@ export function ProductivityDetailView({
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
-              Meetings Hosted
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Split: virtual vs. in-person
-            </CardDescription>
-            <CardAction>
-              <div className="flex items-center gap-3 text-xs">
-                <span className="flex items-center gap-1">
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-sm"
-                    style={{ backgroundColor: NAVY }}
-                    aria-hidden="true"
-                  />
-                  <span className="text-muted-foreground">Virtual</span>
-                </span>
-                <span className="flex items-center gap-1">
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-sm"
-                    style={{ backgroundColor: TEAL }}
-                    aria-hidden="true"
-                  />
-                  <span className="text-muted-foreground">In-person</span>
-                </span>
+        <div className={`p-5 ${CARD_CLASS}`}>
+          <div className="mb-3 flex items-start justify-between">
+            <div>
+              <div className="text-sm font-medium" style={{ color: NAVY }}>
+                Meetings Hosted
               </div>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
+              <div className="text-xs text-muted-foreground">
+                Split: virtual vs. in-person
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="flex items-center gap-1">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{ backgroundColor: NAVY }}
+                  aria-hidden="true"
+                />
+                <span className="text-muted-foreground">Virtual</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{ backgroundColor: TEAL }}
+                  aria-hidden="true"
+                />
+                <span className="text-muted-foreground">In-person</span>
+              </span>
+            </div>
+          </div>
+          <div>
             <ResponsiveContainer width="100%" height={110}>
               <BarChart data={chartData} margin={{ top: 24, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
@@ -471,19 +480,19 @@ export function ProductivityDetailView({
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
+        <div className={`p-5 ${CARD_CLASS}`}>
+          <div className="mb-3">
+            <div className="text-sm font-medium" style={{ color: NAVY }}>
               Feedback Collection
-            </CardTitle>
-            <CardDescription className="text-xs">
+            </div>
+            <div className="text-xs text-muted-foreground">
               % of hosted meetings with feedback collected
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+            </div>
+          </div>
+          <div>
             <ResponsiveContainer width="100%" height={110}>
               <BarChart data={chartData} margin={{ top: 24, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
@@ -522,8 +531,8 @@ export function ProductivityDetailView({
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
       <div className="my-6 flex items-center gap-3">
@@ -576,14 +585,14 @@ function InstitutionTable({
   const total = rows.reduce((sum, r) => sum + r[countKey], 0)
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
+    <div className={`p-5 ${CARD_CLASS}`}>
+      <div className="mb-3">
+        <div className="text-sm font-medium" style={{ color: NAVY }}>
           {title}
-        </CardTitle>
-        <CardDescription className="text-xs">{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
+        </div>
+        <div className="text-xs text-muted-foreground">{description}</div>
+      </div>
+      <div>
         {rows.length === 0 ? (
           <div className="py-4 text-sm text-muted-foreground">
             No meetings in the last 12 months.
@@ -643,7 +652,7 @@ function InstitutionTable({
             + {overflow.toLocaleString()} more institution{overflow === 1 ? "" : "s"}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }

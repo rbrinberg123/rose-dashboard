@@ -1,9 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { GradientHero } from "@/components/gradient-hero"
+import { ListTitleCard } from "@/components/page-masthead"
 import { StatCard } from "@/components/stat-card"
-import { PRODUCTIVITY_CARD_GRADIENTS } from "@/lib/gradients"
 import { formatDate, formatPercent } from "@/lib/format"
 import type { ProductivityRoleRow } from "@/lib/types"
 import { DateRangeControl } from "./date-range-control"
@@ -47,41 +46,37 @@ export function ProductivityView({
   return (
     <>
       <div className="mb-4">
-        <GradientHero
+        <ListTitleCard
           title="Productivity Summary"
           subtitle={`Activity by person · ${formatDate(from)} – ${formatDate(to)}`}
-          rightSlot={<DateRangeControl from={from} to={to} tone="hero" />}
+          rightSlot={<DateRangeControl from={from} to={to} />}
         />
       </div>
 
       {/* Activity summary — firm-wide totals across the selected range. */}
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
+          floating
           label="Meetings scheduled"
           value={summary.scheduled.toLocaleString()}
-          gradient={PRODUCTIVITY_CARD_GRADIENTS.scheduled}
         />
+        <StatCard floating label="Hosted" value={summary.hosted.toLocaleString()} />
         <StatCard
-          label="Hosted"
-          value={summary.hosted.toLocaleString()}
-          gradient={PRODUCTIVITY_CARD_GRADIENTS.hosted}
-        />
-        <StatCard
+          floating
           label="In-person share"
           value={formatPercent(summary.inPersonShare)}
           hint="of hosted"
-          gradient={PRODUCTIVITY_CARD_GRADIENTS.inPerson}
         />
         <StatCard
+          floating
           label="Feedback rate"
           value={formatPercent(summary.feedbackRate)}
           hint="feedback ÷ hosted"
-          gradient={PRODUCTIVITY_CARD_GRADIENTS.feedback}
         />
         <StatCard
+          floating
           label="Active people"
           value={summary.active.toLocaleString()}
-          gradient={PRODUCTIVITY_CARD_GRADIENTS.activeClients}
         />
       </div>
 

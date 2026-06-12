@@ -3,10 +3,9 @@
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { FileText } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { GradientHero } from "@/components/gradient-hero"
+import { ListTitleCard } from "@/components/page-masthead"
 import { StatCard } from "@/components/stat-card"
-import { CONTRACT_CARD_GRADIENTS } from "@/lib/gradients"
+import { CARD_CLASS } from "@/lib/design"
 import { formatCurrency, formatDate } from "@/lib/format"
 import type { ContractManagementRow } from "@/lib/types"
 
@@ -147,7 +146,7 @@ export function ContractManagementView({
   return (
     <>
       <div className="mb-6">
-        <GradientHero
+        <ListTitleCard
           title="Contract Management"
           subtitle="All active clients · sorted by soonest contract expiry"
         />
@@ -155,37 +154,37 @@ export function ContractManagementView({
 
       <div className="mb-6 grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">
         <StatCard
+          floating
           label="Active Clients"
           value={kpis.total.toLocaleString()}
           hint={`${kpis.withActive} with active contract`}
-          gradient={CONTRACT_CARD_GRADIENTS.total}
         />
         <StatCard
+          floating
           label="Expiring < 30 days"
           value={kpis.expiringUnder30.toLocaleString()}
           hint="Action needed"
           valueColor={RED}
-          gradient={CONTRACT_CARD_GRADIENTS.expiringUrgent}
         />
         <StatCard
+          floating
           label="Expiring 30–90 days"
           value={kpis.expiring30to90.toLocaleString()}
           hint="Approaching renewal"
           valueColor={AMBER}
-          gradient={CONTRACT_CARD_GRADIENTS.expiringSoon}
         />
         <StatCard
+          floating
           label="No Active Contract"
           value={kpis.noContract.toLocaleString()}
           hint="Active client, no contract"
-          gradient={CONTRACT_CARD_GRADIENTS.noContract}
         />
         <StatCard
+          floating
           label="Auto-Renew On"
           value={`${kpis.autoRenewPct}%`}
           hint={`${kpis.autoRenewOn} of ${kpis.withActive} contracts`}
           valueColor={TEAL}
-          gradient={CONTRACT_CARD_GRADIENTS.autoRenew}
         />
       </div>
 
@@ -243,19 +242,19 @@ export function ContractManagementView({
         <span style={{ color: RED }}>○</span> off.
       </p>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between border-b py-3">
-          <CardTitle
+      <div className={`overflow-hidden ${CARD_CLASS}`}>
+        <div className="flex flex-row items-center justify-between border-b px-4 py-3">
+          <h2
             className="text-base font-semibold"
             style={{ color: NAVY }}
           >
             Contracts
-          </CardTitle>
+          </h2>
           <span className="text-xs text-muted-foreground tabular-nums">
             {filteredRows.length} of {rows.length} clients
           </span>
-        </CardHeader>
-        <CardContent className="p-0">
+        </div>
+        <div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground">
@@ -399,8 +398,8 @@ export function ContractManagementView({
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </>
   )
 }

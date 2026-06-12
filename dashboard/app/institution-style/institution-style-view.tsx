@@ -2,7 +2,8 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { GradientHero } from "@/components/gradient-hero"
+import { ListTitleCard } from "@/components/page-masthead"
+import { CARD_CLASS } from "@/lib/design"
 import type {
   ActiveClientOption,
   InstitutionStyleMeetingRow,
@@ -282,16 +283,16 @@ export function InstitutionStyleView({
 
   return (
     <>
-      {/* Gradient hero header */}
+      {/* Floating list-title card */}
       <div className="mb-4">
-        <GradientHero
+        <ListTitleCard
           title="Institution Style/Set Finder"
           subtitle="Rank institutions by the share of their meetings spent with clients of a chosen style or set."
         />
       </div>
 
       {/* Controls */}
-      <div className="mb-4 rounded-lg border bg-card p-4">
+      <div className={`mb-4 p-4 ${CARD_CLASS}`}>
         <div className="flex flex-wrap items-end gap-4">
           {/* Clients multi-select */}
           <div className="flex flex-col gap-1">
@@ -519,7 +520,7 @@ export function InstitutionStyleView({
       </div>
 
       {/* Results */}
-      <div className="rounded-lg border bg-card">
+      <div className={`overflow-hidden ${CARD_CLASS}`}>
         {ranked.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-muted-foreground">
             No institutions meet the minimum-meetings threshold

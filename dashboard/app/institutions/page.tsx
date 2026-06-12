@@ -31,7 +31,7 @@ export default async function InstitutionsPage() {
   const rows = (res.data ?? []) as InstitutionSummaryRow[]
 
   return (
-    <PageShell title="Institution Summary" hideHeader>
+    <PageShell title="Institution Summary" hideHeader canvas>
       <InstitutionsSummaryView rows={rows} />
     </PageShell>
   )

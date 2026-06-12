@@ -10,16 +10,15 @@ import {
   Tooltip,
 } from "recharts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { GradientHero } from "@/components/gradient-hero"
+import { ListTitleCard } from "@/components/page-masthead"
 import { StatCard } from "@/components/stat-card"
 import {
-  CLIENT_STATS_CARD_GRADIENTS,
-  DISTRIBUTION_EDGES,
   MARKET_CAP_DONUT,
   MARKET_CAP_DONUT_FALLBACK,
   BAR_TRACK,
   BAR_FILLS,
 } from "@/lib/gradients"
+import { CARD_CLASS, MONEY_GREEN } from "@/lib/design"
 import { formatCurrency } from "@/lib/format"
 import type { ClientStatisticsRow, ClientStatsBucketRow } from "@/lib/types"
 
@@ -28,7 +27,6 @@ function portfolioHref(param: "market_cap" | "region" | "sector", bucket: string
 }
 
 const NAVY = "#1E2858"
-const TEAL = "#0E7C72"
 
 /** Donut slice color for a market-cap bucket (navy→teal, larger caps darker). */
 function marketCapColor(bucket: string): string {
@@ -66,24 +64,21 @@ export function ClientStatisticsView({
       label: "Active Accounts",
       value: row.active_account_count.toLocaleString(),
       exact: undefined as string | undefined,
-      color: NAVY,
-      gradient: CLIENT_STATS_CARD_GRADIENTS.activeAccounts,
+      color: undefined as string | undefined,
       hint: "Active records in CRM",
     },
     {
       label: "Annualized Retainer Revenue",
       value: compactUsd(row.annualized_retainer_revenue),
       exact: formatCurrency(row.annualized_retainer_revenue),
-      color: NAVY,
-      gradient: CLIENT_STATS_CARD_GRADIENTS.retainerRevenue,
+      color: MONEY_GREEN,
       hint: "Quarterly retainer × 4, active contracts",
     },
     {
       label: "Avg Annualized Retainer / Account",
       value: compactUsd(row.avg_annualized_retainer),
       exact: formatCurrency(row.avg_annualized_retainer),
-      color: TEAL,
-      gradient: CLIENT_STATS_CARD_GRADIENTS.avgRetainer,
+      color: MONEY_GREEN,
       hint: "Per active account",
     },
   ]
@@ -106,24 +101,24 @@ export function ClientStatisticsView({
 
   return (
     <>
-      {/* Gradient hero band — title + subtitle only */}
+      {/* Floating list-title card — title + subtitle only */}
       <div className="mb-4">
-        <GradientHero
+        <ListTitleCard
           title="Client Statistics"
           subtitle="Top-line numbers across the client book"
         />
       </div>
 
-      {/* KPI cards below the band, as clean white cards */}
+      {/* KPI cards below the band, as floating white cards */}
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {kpis.map((k) => (
           <StatCard
             key={k.label}
+            floating
             label={k.label}
             value={<span title={k.exact}>{k.value}</span>}
             valueColor={k.color}
             valueSize={30}
-            gradient={k.gradient}
             hint={k.hint}
           />
         ))}
@@ -140,12 +135,7 @@ export function ClientStatisticsView({
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <Card className="relative transition duration-150 hover:-translate-y-[2px] hover:shadow-[0_8px_20px_rgba(10,31,92,0.12)]">
-          <span
-            aria-hidden="true"
-            className="absolute inset-x-0 top-0 h-[3px]"
-            style={{ background: DISTRIBUTION_EDGES.marketCap }}
-          />
+        <Card className={`relative ${CARD_CLASS}`}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
               Clients by Market Cap
@@ -247,12 +237,7 @@ export function ClientStatisticsView({
           </CardContent>
         </Card>
 
-        <Card className="relative transition duration-150 hover:-translate-y-[2px] hover:shadow-[0_8px_20px_rgba(10,31,92,0.12)]">
-          <span
-            aria-hidden="true"
-            className="absolute inset-x-0 top-0 h-[3px]"
-            style={{ background: DISTRIBUTION_EDGES.region }}
-          />
+        <Card className={`relative ${CARD_CLASS}`}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
               Clients by Region
@@ -302,12 +287,7 @@ export function ClientStatisticsView({
           </CardContent>
         </Card>
 
-        <Card className="relative transition duration-150 hover:-translate-y-[2px] hover:shadow-[0_8px_20px_rgba(10,31,92,0.12)]">
-          <span
-            aria-hidden="true"
-            className="absolute inset-x-0 top-0 h-[3px]"
-            style={{ background: DISTRIBUTION_EDGES.sector }}
-          />
+        <Card className={`relative ${CARD_CLASS}`}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
               Clients by Sector

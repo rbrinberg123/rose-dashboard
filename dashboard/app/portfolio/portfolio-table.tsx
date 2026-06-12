@@ -15,7 +15,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
-import { GradientHero } from "@/components/gradient-hero"
+import { ListTitleCard } from "@/components/page-masthead"
+import { CARD_CLASS } from "@/lib/design"
 import { cn } from "@/lib/utils"
 import type { ClientPortfolioRow } from "@/lib/types"
 
@@ -344,7 +345,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
   return (
     <>
       <div className="mb-4">
-        <GradientHero
+        <ListTitleCard
           title="Client Portfolio"
           subtitle={`${rows.length.toLocaleString()} clients — health at a glance`}
         />
@@ -545,7 +546,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
         ))}
       </div>
 
-      <div className="rounded-lg border border-border bg-card">
+      <div className={CARD_CLASS}>
         <Table>
           <TableHeader className="sticky top-0 z-10 bg-card">
             <TableRow>
