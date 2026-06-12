@@ -939,10 +939,10 @@ export function ClientDetailView({
         <span className="h-px flex-1 bg-border" aria-hidden="true" />
       </div>
 
-      {/* Section 8: Last 8 Meetings */}
+      {/* Section 8: Last 25 Meetings */}
       <div className={`p-5 ${CARD_CLASS}`}>
         <CardTitle icon={CalendarDays} color="#0355A7" className="mb-3">
-          Last 8 Meetings
+          Last 25 Meetings
         </CardTitle>
         {recentMeetings.length === 0 ? (
           <div className="py-6 text-center text-sm text-muted-foreground">
@@ -962,6 +962,9 @@ export function ClientDetailView({
             <tbody>
               {recentMeetings.map((m) => {
                 const isLive = m.is_in_person === true
+                const meetingDate = safeParseDate(m.meeting_date)
+                const isUpcoming =
+                  meetingDate !== null && meetingDate.getTime() > Date.now()
                 const typeLabel = m.meeting_type_label ?? (isLive ? "Live" : "Virtual")
                 const pillStyle = isLive
                   ? { backgroundColor: TEAL_LIGHTEST, color: NAVY_DEEP }
@@ -983,7 +986,17 @@ export function ClientDetailView({
                 return (
                   <tr key={m.meeting_id} className="border-b last:border-b-0">
                     <td className="px-2 py-2 tabular-nums">
-                      {formatLongDate(m.meeting_date)}
+                      <span className="inline-flex items-center gap-1.5">
+                        {formatLongDate(m.meeting_date)}
+                        {isUpcoming && (
+                          <span
+                            className="inline-block rounded px-2 py-0.5 text-xs font-medium"
+                            style={{ backgroundColor: "#EEF2FB", color: "#2D4A8A" }}
+                          >
+                            Scheduled
+                          </span>
+                        )}
+                      </span>
                     </td>
                     <td className="px-2 py-2">
                       {m.institution_id && m.institution_name ? (

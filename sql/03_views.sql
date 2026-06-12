@@ -1401,7 +1401,7 @@ WHERE rn <= 5;
 
 -- -----------------------------------------------------------------------------
 -- v_client_detail_recent_meetings
--- Last 8 confirmed meetings per client, most recent first.
+-- Last 25 confirmed meetings per client, most recent first.
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW public.v_client_detail_recent_meetings AS
 WITH ranked AS (
@@ -1434,7 +1434,7 @@ SELECT
   feedback_status_label,
   institution_id
 FROM ranked
-WHERE rn <= 8;
+WHERE rn <= 25;
 
 
 -- -----------------------------------------------------------------------------
@@ -2001,7 +2001,7 @@ WHERE rn <= 5;
 
 -- -----------------------------------------------------------------------------
 -- v_institution_detail_recent_meetings
--- Last 8 confirmed meetings per institution, most recent first.
+-- Last 25 confirmed meetings per institution, most recent first.
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW public.v_institution_detail_recent_meetings AS
 WITH inst_id AS (
@@ -2047,7 +2047,7 @@ SELECT
   meeting_type_label,
   is_in_person
 FROM ranked
-WHERE rn <= 8;
+WHERE rn <= 25;
 
 
 -- -----------------------------------------------------------------------------
