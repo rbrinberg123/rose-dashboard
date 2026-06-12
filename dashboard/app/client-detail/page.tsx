@@ -108,7 +108,7 @@ export default async function ClientDetailPage({
       sb
         .from("accounts")
         .select(
-          "ticker_symbol, sales_lead_primary_name, secondary_manager_name, associate_name, logistics_coordinator_name",
+          "ticker_symbol, sales_lead_primary_name, secondary_manager_name, associate_name, logistics_coordinator_name, ai_summary, ai_summary_generated_at",
         )
         .eq("account_id", selected.account_id)
         .maybeSingle(),
@@ -139,6 +139,10 @@ export default async function ClientDetailPage({
         allClients={summaryRows}
         selected={selected}
         clientTicker={(accountRes.data?.ticker_symbol ?? null) as string | null}
+        aiSummary={(accountRes.data?.ai_summary ?? null) as string | null}
+        aiSummaryGeneratedAt={
+          (accountRes.data?.ai_summary_generated_at ?? null) as string | null
+        }
         accountTeam={{
           sales_lead_primary_name:
             (accountRes.data?.sales_lead_primary_name ?? null) as string | null,

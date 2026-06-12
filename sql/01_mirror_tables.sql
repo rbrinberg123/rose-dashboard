@@ -110,6 +110,12 @@ CREATE TABLE public.accounts (
   -- Catch-all for fields we didn't model explicitly
   _raw                        jsonb,
 
+  -- Rose-owned, NOT synced from Dynamics. The AI client-summary feature caches
+  -- its generated text here. The Dynamics sync upsert only writes the mapped
+  -- columns (see lib/sync/mappers.ts mapAccount), so these survive every sync.
+  ai_summary                  text,
+  ai_summary_generated_at     timestamptz,
+
   -- Sync metadata
   _synced_at                  timestamptz NOT NULL DEFAULT now()
 );

@@ -23,6 +23,7 @@ import {
   Clock,
   Layers,
   NotebookText,
+  Sparkles,
   Users,
   type LucideIcon,
 } from "lucide-react"
@@ -190,6 +191,8 @@ export function ClientDetailView({
   recentNote,
   touchpoints,
   accountTeam,
+  aiSummary,
+  aiSummaryGeneratedAt,
 }: {
   allClients: ClientDetailSummaryRow[]
   selected: ClientDetailSummaryRow
@@ -207,6 +210,8 @@ export function ClientDetailView({
     associate_name: string | null
     logistics_coordinator_name: string | null
   }
+  aiSummary: string | null
+  aiSummaryGeneratedAt: string | null
 }) {
   const router = useRouter()
 
@@ -511,6 +516,26 @@ export function ClientDetailView({
               </span>
             </React.Fragment>
           ))}
+        </div>
+      )}
+
+      {/* AI Summary — cached relationship summary. Hidden entirely until one has
+          been generated for this client (accounts.ai_summary is null). */}
+      {aiSummary && aiSummary.trim() && (
+        <div className={`mb-6 p-5 ${CARD_CLASS}`}>
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <CardTitle icon={Sparkles} color="#1C8C9C">
+              AI Summary
+            </CardTitle>
+            {aiSummaryGeneratedAt && (
+              <div className="shrink-0 text-xs text-muted-foreground">
+                Updated {formatLongDate(aiSummaryGeneratedAt)}
+              </div>
+            )}
+          </div>
+          <p className="text-sm leading-relaxed" style={{ color: TEXT_PRIMARY }}>
+            {aiSummary}
+          </p>
         </div>
       )}
 
