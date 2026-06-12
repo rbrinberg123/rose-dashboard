@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { Info } from "lucide-react"
 import {
   Cell,
   Pie,
@@ -123,6 +124,17 @@ export function ClientStatisticsView({
           />
         ))}
       </div>
+
+      {/* Understated single-line methodology note — muted, italic, no wrap. */}
+      <p
+        className="mt-3 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap text-[11px] italic"
+        style={{ color: "#9AA1AD" }}
+      >
+        <Info className="size-3.5 shrink-0" aria-hidden="true" />
+        <span>
+          Figures are based on active clients in the CRM. Annualized retainer revenue may slightly overstate the true run-rate (not all in-contract clients are renewing).
+        </span>
+      </p>
 
       <div className="my-6 flex items-center gap-3">
         <span
