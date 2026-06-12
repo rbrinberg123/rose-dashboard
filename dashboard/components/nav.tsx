@@ -154,36 +154,13 @@ function AdminRow() {
 
 function Brand() {
   return (
-    <div className="flex items-center gap-[8px]">
-      {/* Logo sits in a navy→blue gradient tile with a soft shadow. */}
-      <span
-        className="flex shrink-0 items-center justify-center overflow-hidden rounded-[14px]"
-        style={{
-          background: "linear-gradient(135deg, #1E2858, #0355A7)",
-          boxShadow: "0 2px 8px rgba(3,85,167,0.25)",
-        }}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/rose-logo.png"
-          alt="Rose &amp; Co."
-          className="size-[60px] shrink-0 object-contain"
-        />
-      </span>
-      <span
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontStyle: "italic",
-          fontWeight: 400,
-          fontSize: "46px",
-          letterSpacing: "3px",
-          lineHeight: 1,
-          color: "#1E2858",
-        }}
-      >
-        IQ
-      </span>
-    </div>
+    /* Horizontal Rose & Co IQ lockup — navy on transparent, sits on the light sidebar. */
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img
+      src="/roseco-iq-logo.png"
+      alt="Rose &amp; Co IQ Dashboards"
+      className="h-auto w-full max-w-[160px] object-contain"
+    />
   )
 }
 
@@ -240,7 +217,7 @@ export function Sidebar({ userEmail }: { userEmail?: string | null }) {
       {/* Desktop sidebar — visible at md+ */}
       <aside className="hidden w-64 shrink-0 flex-col border-r border-[#EDEFF3] bg-white md:sticky md:top-0 md:flex md:h-screen">
         {/* Logo header, faint bottom divider */}
-        <div className="flex items-center border-b border-[#EDEFF3] bg-white py-4 pl-5 pr-4">
+        <div className="flex items-center justify-center border-b border-[#EDEFF3] bg-white px-4 py-4">
           <Brand />
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
