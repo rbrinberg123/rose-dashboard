@@ -102,6 +102,49 @@ function initials(name: string): string {
   return (words[0][0] + words[1][0]).toUpperCase()
 }
 
+/** Tiny inline-SVG trend line with a faint area fill (no axes, no chrome). */
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) return null
+  const w = 88
+  const h = 20
+  const max = Math.max(...values)
+  const min = Math.min(...values)
+  const span = max - min || 1
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * w
+    const y = h - ((v - min) / span) * h
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  })
+  const line = pts.join(" ")
+  const area = `0,${h} ${line} ${w},${h}`
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
+      <polygon points={area} fill={color} opacity={0.1} />
+      <polyline
+        points={line}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/** Thin ratio bar (received ÷ total style). `fill` is any CSS background. */
+function RatioBar({ pct, fill }: { pct: number; fill: string }) {
+  const w = Math.max(0, Math.min(100, pct))
+  return (
+    <div
+      className="h-1.5 w-full overflow-hidden rounded-full"
+      style={{ backgroundColor: "#EEF0F4" }}
+    >
+      <div className="h-full rounded-full" style={{ width: `${w}%`, background: fill }} />
+    </div>
+  )
+}
+
 export function InstitutionDetailView({
   selected,
   navTop,
@@ -186,17 +229,25 @@ export function InstitutionDetailView({
   const lastMetClient = selected.last_met_client_name ?? "—"
   const lastMetHost = selected.last_met_host_name ?? "—"
 
+  // Real per-quarter total series already powering the Meetings-by-Quarter chart.
+  const quarterlyTotals = quarterly.map((q) => q.total)
+
   type Tile = {
     label: string
     value: string
     hint: React.ReactNode
     valueColor?: string
+    sparkline?: React.ReactNode
   }
   const tiles: Tile[] = [
     {
       label: "Meetings (LTM)",
       value: selected.ltm_meetings.toLocaleString(),
       hint: <span style={{ color: deltaColor }}>{deltaText}</span>,
+      sparkline:
+        quarterlyTotals.length >= 2 ? (
+          <Sparkline values={quarterlyTotals} color="#0355A7" />
+        ) : undefined,
     },
     {
       label: "Clients Met (LTM)",
@@ -212,6 +263,10 @@ export function InstitutionDetailView({
       label: "Feedback Rec'd (LTM)",
       value: feedbackValue,
       valueColor: TEAL,
+      sparkline:
+        feedbackPct != null ? (
+          <RatioBar pct={feedbackPct} fill="linear-gradient(90deg, #1C9E72, #37B88C)" />
+        ) : undefined,
       hint: `${selected.ltm_feedback_collected.toLocaleString()} of ${selected.ltm_feedback_total_closed.toLocaleString()} closed`,
     },
     {
@@ -323,6 +378,7 @@ export function InstitutionDetailView({
             value={t.value}
             hint={t.hint}
             valueColor={t.valueColor}
+            sparkline={t.sparkline}
           />
         ))}
       </div>
