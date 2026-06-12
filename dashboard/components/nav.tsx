@@ -217,7 +217,7 @@ export function Sidebar({ userEmail }: { userEmail?: string | null }) {
       {/* Desktop sidebar — visible at md+ */}
       <aside className="hidden w-64 shrink-0 flex-col border-r border-[#EDEFF3] bg-white md:sticky md:top-0 md:flex md:h-screen">
         {/* Logo header, faint bottom divider */}
-        <div className="flex items-center justify-center border-b border-[#EDEFF3] bg-white px-4 py-4">
+        <div className="flex items-center justify-center border-b border-[#EDEFF3] bg-white px-4 pb-4 pt-5">
           <Brand />
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
