@@ -454,6 +454,86 @@ export function ClientDetailView({
         />
       </div>
 
+      {/* Account Team + AI Summary — one combined floating card, directly below
+          the masthead and above the KPIs. The team always shows when staffed; the
+          AI summary (and the divider above it) appear only once one is generated.
+          The card hides entirely when there's neither a team nor a summary. */}
+      {(accountTeamMembers.length > 0 || (aiSummary && aiSummary.trim())) && (
+        <div className={`mb-6 p-5 ${CARD_CLASS}`}>
+          {/* Account Team — label + avatar + role/name groups (moved as-is). */}
+          {accountTeamMembers.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span
+                className="shrink-0 text-[11px] font-semibold uppercase tracking-wide"
+                style={{ color: TEXT_MUTED }}
+              >
+                Account Team
+              </span>
+              {accountTeamMembers.map((m, i) => (
+                <React.Fragment key={m.role}>
+                  {i > 0 && (
+                    <span className="text-muted-foreground" aria-hidden="true">
+                      ·
+                    </span>
+                  )}
+                  <span
+                    className="flex items-center gap-2"
+                    title={`${m.role} · ${m.name}`}
+                  >
+                    <span
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold leading-none"
+                      style={{ backgroundColor: m.color, color: m.text }}
+                      aria-hidden="true"
+                    >
+                      {initialsOf(m.name)}
+                    </span>
+                    <span className="flex flex-col leading-tight">
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {m.role}
+                      </span>
+                      <span className="text-sm font-medium" style={{ color: TEXT_PRIMARY }}>
+                        {m.name}
+                      </span>
+                    </span>
+                  </span>
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+
+          {/* AI Summary — only when generated. The 1px divider sits between team and
+              summary; it's skipped when the team is absent so there's no leading rule. */}
+          {aiSummary && aiSummary.trim() && (
+            <>
+              {accountTeamMembers.length > 0 && (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    height: 1,
+                    background: "#EEF0F4",
+                    marginTop: 13,
+                    marginBottom: 13,
+                  }}
+                />
+              )}
+              <div className="mb-2 flex items-baseline justify-between gap-3">
+                <CardTitle icon={Sparkles} color="#1C8C9C">
+                  AI Summary
+                </CardTitle>
+                {aiSummaryGeneratedAt && (
+                  <div className="shrink-0 text-xs text-muted-foreground">
+                    Updated {formatLongDate(aiSummaryGeneratedAt)}
+                  </div>
+                )}
+              </div>
+              <p className="text-sm leading-relaxed" style={{ color: TEXT_PRIMARY }}>
+                {aiSummary}
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Section 2: 6 KPI cards — floating style */}
       <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((t) => (
@@ -468,76 +548,6 @@ export function ClientDetailView({
           />
         ))}
       </div>
-
-      {/* Account Team — understated standalone strip (label + avatar + role/name
-          groups), below the KPIs. Hides entirely when nobody is assigned. */}
-      {accountTeamMembers.length > 0 && (
-        <div
-          className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2"
-          style={{
-            background: "#FFFFFF",
-            border: "1px solid rgba(16,24,40,0.04)",
-            borderRadius: 11,
-            padding: "10px 14px",
-          }}
-        >
-          <span
-            className="shrink-0 text-[11px] font-semibold uppercase tracking-wide"
-            style={{ color: TEXT_MUTED }}
-          >
-            Account Team
-          </span>
-          {accountTeamMembers.map((m, i) => (
-            <React.Fragment key={m.role}>
-              {i > 0 && (
-                <span className="text-muted-foreground" aria-hidden="true">
-                  ·
-                </span>
-              )}
-              <span
-                className="flex items-center gap-2"
-                title={`${m.role} · ${m.name}`}
-              >
-                <span
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold leading-none"
-                  style={{ backgroundColor: m.color, color: m.text }}
-                  aria-hidden="true"
-                >
-                  {initialsOf(m.name)}
-                </span>
-                <span className="flex flex-col leading-tight">
-                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {m.role}
-                  </span>
-                  <span className="text-sm font-medium" style={{ color: TEXT_PRIMARY }}>
-                    {m.name}
-                  </span>
-                </span>
-              </span>
-            </React.Fragment>
-          ))}
-        </div>
-      )}
-
-      {/* AI Summary — cached relationship summary. Hidden entirely until one has
-          been generated for this client (accounts.ai_summary is null). */}
-      {aiSummary && aiSummary.trim() && (
-        <div className={`mb-6 p-5 ${CARD_CLASS}`}>
-          <div className="mb-2 flex items-baseline justify-between gap-3">
-            <CardTitle icon={Sparkles} color="#1C8C9C">
-              AI Summary
-            </CardTitle>
-            {aiSummaryGeneratedAt && (
-              <div className="shrink-0 text-xs text-muted-foreground">
-                Updated {formatLongDate(aiSummaryGeneratedAt)}
-              </div>
-            )}
-          </div>
-          <p className="text-sm leading-relaxed" style={{ color: TEXT_PRIMARY }}>
-            {aiSummary}
-          </p>
-        </div>
-      )}
 
       {/* Client Touchpoints & Notes */}
       <div className="my-6 flex items-center gap-3">
