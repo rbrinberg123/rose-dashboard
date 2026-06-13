@@ -52,9 +52,10 @@ const sections: NavSection[] = [
     ],
   },
   {
-    label: "People",
+    label: "Activity",
     icon: Users,
     items: [
+      { href: "/people-statistics", label: "Statistics" },
       { href: "/productivity", label: "Summary" },
       { href: "/productivity-detail", label: "Detail" },
     ],

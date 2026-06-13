@@ -216,6 +216,32 @@ export type PersonRoleTtmRow = {
 /** Trailing-12-month role classification. null = not enough activity. */
 export type PersonRole = "Host" | "Booker" | "Hybrid" | null
 
+// Per-person booked/hosted counts over two windows (v_person_activity_windows).
+// Confirmed meetings, firm-wide; keyed by user_id (matches v_person_role_ttm).
+export type PersonActivityWindowsRow = {
+  user_id: string
+  display_name: string
+  booked_30d: number
+  hosted_30d: number
+  booked_1y: number
+  hosted_1y: number
+}
+
+// Per-person feedback completion over two windows (v_person_feedback_windows).
+// Host-attributed, confirmed, firm-wide. assigned = resolved feedback
+// assignments (Closed - All in + Closed - No Feedback); collected = Closed - All in.
+export type PersonFeedbackWindowsRow = {
+  user_id: string
+  display_name: string
+  assigned_30d: number
+  collected_30d: number
+  assigned_1y: number
+  collected_1y: number
+  // Prior 12 months (13th–24th months back) — firm-wide YoY trend on the KPI card.
+  assigned_prev_1y: number
+  collected_prev_1y: number
+}
+
 /** Aggregate row plus its trailing-12-month role (joined by user_id). */
 export type ProductivityRoleRow = ProductivityAggregateRow & {
   role: PersonRole
@@ -417,6 +443,17 @@ export type ClientDetailQuarterlyRow = {
   period_label: string
   live_count: number
   virtual_count: number
+  total: number
+}
+
+// Firm-wide confirmed meetings bucketed by calendar month (v_meetings_monthly).
+// One row per (year, month); virtual = is_in_person false, live = true.
+export type MeetingsMonthlyRow = {
+  period_year: number
+  period_month: number
+  period_label: string // 'YYYY-MM', sortable
+  virtual_count: number
+  live_count: number
   total: number
 }
 

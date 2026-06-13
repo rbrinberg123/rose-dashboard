@@ -23,6 +23,7 @@ import { SortHeader } from "@/components/sort-header"
 import { CARD_CLASS } from "@/lib/design"
 import { formatPercent } from "@/lib/format"
 import type { PersonRole, ProductivityRoleRow } from "@/lib/types"
+import { ROLE_STYLES } from "@/lib/person-role"
 
 // Role filter options for the segmented toggle. "All" = no filter;
 // "Unclassified" = people with no role (null / under-25-activity).
@@ -56,12 +57,8 @@ function nullSafeNumberCmp(a: number | null, b: number | null): number {
   return a - b
 }
 
-// Role pill palette + sort rank (Host > Hybrid > Booker > unclassified).
-const ROLE_STYLES: Record<"Host" | "Booker" | "Hybrid", { bg: string; text: string }> = {
-  Host: { bg: "#E2F2EE", text: "#0E7C72" },
-  Booker: { bg: "#EAF0FB", text: "#2A3C77" },
-  Hybrid: { bg: "#F0EAFB", text: "#5B4B9E" },
-}
+// Role sort rank (Host > Hybrid > Booker > unclassified). Palette lives in
+// lib/person-role.ts so the Statistics page can share it.
 const ROLE_RANK: Record<"Host" | "Booker" | "Hybrid", number> = { Host: 3, Hybrid: 2, Booker: 1 }
 function roleRank(role: PersonRole): number {
   return role ? ROLE_RANK[role] : 0

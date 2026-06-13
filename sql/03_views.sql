@@ -2401,3 +2401,157 @@ WHERE m.meeting_status_label = 'Confirmed'
     m.feedback_status_label IS NULL
     OR m.feedback_status_label = 'Awaiting Additional'
   );
+
+
+-- -----------------------------------------------------------------------------
+-- v_meetings_monthly
+-- Firm-wide confirmed meetings bucketed by calendar month, split by
+-- virtual vs live (in-person). Same definitions as the *_detail_quarterly
+-- views: meeting_status_label = 'Confirmed', and is_in_person true = live,
+-- false = virtual. Covers the trailing 48 months (~4 years) so both the
+-- People → Statistics charts (12-month monthly, 4-year quarterly, 3-year
+-- seasonality) have their data. One row per (year, month).
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_meetings_monthly AS
+SELECT
+  EXTRACT(YEAR FROM m.meeting_date)::int AS period_year,
+  EXTRACT(MONTH FROM m.meeting_date)::int AS period_month,
+  to_char(
+    make_date(
+      EXTRACT(YEAR FROM m.meeting_date)::int,
+      EXTRACT(MONTH FROM m.meeting_date)::int,
+      1
+    ),
+    'YYYY-MM'
+  ) AS period_label,
+  COUNT(*) FILTER (WHERE m.is_in_person = false)::int AS virtual_count,
+  COUNT(*) FILTER (WHERE m.is_in_person = true)::int  AS live_count,
+  COUNT(*)::int AS total
+FROM public.meetings m
+WHERE m.meeting_status_label = 'Confirmed'
+  AND m.meeting_date IS NOT NULL
+  AND m.meeting_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '47 months'
+GROUP BY 1, 2, 3;
+
+
+-- -----------------------------------------------------------------------------
+-- v_person_activity_windows
+-- Per-person confirmed-meeting counts (firm-wide), booked vs hosted, over two
+-- windows: trailing 30 days and trailing 12 months. Keyed by user_id so it
+-- joins cleanly to v_person_role_ttm (which supplies the stable TTM role used
+-- for grouping on the People → Statistics "Activity by Person" chart). Same
+-- universe and conventions as v_person_role_ttm: active in the last 12 months,
+-- Eastern-time windows, 'CRM Administration'/'#%' accounts excluded. The _1y
+-- columns equal v_person_role_ttm.booked_ttm / hosted_ttm by construction.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_person_activity_windows AS
+WITH active_users AS (
+  SELECT DISTINCT booker_id AS user_id
+  FROM public.meetings
+  WHERE booker_id IS NOT NULL
+    AND meeting_status_label = 'Confirmed'
+    AND meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+  UNION
+  SELECT DISTINCT host_id
+  FROM public.meetings
+  WHERE host_id IS NOT NULL
+    AND meeting_status_label = 'Confirmed'
+    AND meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+)
+SELECT
+  au.user_id,
+  u.display_name,
+  COUNT(*) FILTER (
+    WHERE m.booker_id = au.user_id
+      AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '30 days'
+  )::int AS booked_30d,
+  COUNT(*) FILTER (
+    WHERE m.host_id = au.user_id
+      AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '30 days'
+  )::int AS hosted_30d,
+  COUNT(*) FILTER (WHERE m.booker_id = au.user_id)::int AS booked_1y,
+  COUNT(*) FILTER (WHERE m.host_id  = au.user_id)::int AS hosted_1y
+FROM active_users au
+JOIN public.users u ON u.user_id = au.user_id
+LEFT JOIN public.meetings m
+  ON (m.booker_id = au.user_id OR m.host_id = au.user_id)
+  AND m.meeting_status_label = 'Confirmed'
+  AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+WHERE u.display_name IS NOT NULL
+  AND u.display_name != 'CRM Administration'
+  AND u.display_name NOT LIKE '#%'
+GROUP BY au.user_id, u.display_name;
+
+
+-- -----------------------------------------------------------------------------
+-- v_person_feedback_windows
+-- Per-person feedback completion (firm-wide), attributed to the meeting HOST,
+-- over two windows: trailing 30 days and trailing 12 months.
+--
+-- Feedback rate = collected / assigned, where:
+--   collected = confirmed hosted meetings with feedback_status_label
+--               = 'Closed - All in'
+--   assigned  = confirmed hosted meetings whose feedback was actually on the
+--               hook and RESOLVED, i.e. feedback_status_label IN
+--               ('Closed - All in', 'Closed - No Feedback'). The still-open
+--               'Awaiting Additional' and the never-assigned NULL/blank rows
+--               are deliberately excluded from the denominator.
+--
+-- NOTE: this is a different (correct) denominator than the productivity page's
+-- feedback-vs-hosted ratio, which divides by hosted meetings. Same conventions
+-- as the other person views: confirmed only, Eastern-time windows, and the
+-- 'CRM Administration'/'#%' accounts excluded. The <25 low-volume exclusion is
+-- applied in the app, on the `assigned` count.
+-- -----------------------------------------------------------------------------
+-- The *_prev_1y columns cover the 12 months BEFORE the trailing year (i.e. the
+-- 13th–24th months back); summed firm-wide they drive the Feedback KPI card's
+-- year-over-year trend. The per-person chart ignores them. The host universe
+-- spans 24 months so prior-year-only hosts still contribute to the firm-wide
+-- prior total (they fall out of the chart via the <25 assigned_1y filter).
+CREATE OR REPLACE VIEW public.v_person_feedback_windows AS
+WITH active_hosts AS (
+  SELECT DISTINCT host_id AS user_id
+  FROM public.meetings
+  WHERE host_id IS NOT NULL
+    AND meeting_status_label = 'Confirmed'
+    AND meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '24 months'
+)
+SELECT
+  ah.user_id,
+  u.display_name,
+  COUNT(*) FILTER (
+    WHERE m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
+      AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '30 days'
+  )::int AS assigned_30d,
+  COUNT(*) FILTER (
+    WHERE m.feedback_status_label = 'Closed - All in'
+      AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '30 days'
+  )::int AS collected_30d,
+  COUNT(*) FILTER (
+    WHERE m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
+      AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+  )::int AS assigned_1y,
+  COUNT(*) FILTER (
+    WHERE m.feedback_status_label = 'Closed - All in'
+      AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+  )::int AS collected_1y,
+  COUNT(*) FILTER (
+    WHERE m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
+      AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '24 months'
+      AND m.meeting_date <  (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+  )::int AS assigned_prev_1y,
+  COUNT(*) FILTER (
+    WHERE m.feedback_status_label = 'Closed - All in'
+      AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '24 months'
+      AND m.meeting_date <  (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+  )::int AS collected_prev_1y
+FROM active_hosts ah
+JOIN public.users u ON u.user_id = ah.user_id
+LEFT JOIN public.meetings m
+  ON m.host_id = ah.user_id
+  AND m.meeting_status_label = 'Confirmed'
+  AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '24 months'
+WHERE u.display_name IS NOT NULL
+  AND u.display_name != 'CRM Administration'
+  AND u.display_name NOT LIKE '#%'
+GROUP BY ah.user_id, u.display_name;

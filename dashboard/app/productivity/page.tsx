@@ -3,13 +3,13 @@ import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type {
   CostAssumptionsRow,
-  PersonRole,
   PersonRoleTtmRow,
   ProductivityAggregateRow,
   ProductivityPersonManagerStatsRow,
   ProductivityPersonMeetingRow,
   ProductivityRoleRow,
 } from "@/lib/types"
+import { deriveRole } from "@/lib/person-role"
 import { ProductivityView } from "./productivity-view"
 
 export const dynamic = "force-dynamic"
@@ -44,20 +44,6 @@ function inclusiveDays(from: string, to: string): number {
   const f = new Date(`${from}T00:00:00Z`).getTime()
   const t = new Date(`${to}T00:00:00Z`).getTime()
   return Math.round((t - f) / 86_400_000) + 1
-}
-
-// Trailing-12-month role from v_person_role_ttm. One symmetric ratio:
-// fewer than 25 total actions → unclassified; otherwise Host/Booker when that
-// side is >= 70% of total actions, else Hybrid.
-const ROLE_MIN_TOTAL = 25
-const ROLE_THRESHOLD = 0.7
-function deriveRole(bookedTtm: number, hostedTtm: number): PersonRole {
-  const total = bookedTtm + hostedTtm
-  if (total < ROLE_MIN_TOTAL) return null
-  const hostedShare = hostedTtm / total
-  if (hostedShare >= ROLE_THRESHOLD) return "Host"
-  if (hostedShare <= 1 - ROLE_THRESHOLD) return "Booker"
-  return "Hybrid"
 }
 
 type SalaryActiveRow = {
