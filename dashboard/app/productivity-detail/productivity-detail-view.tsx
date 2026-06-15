@@ -308,7 +308,7 @@ export function ProductivityDetailView({
     {
       label: "Active Clients",
       value: selected.active_clients_as_sales_lead.toLocaleString(),
-      hint: "As sales lead",
+      hint: "As Account Manager",
     },
     {
       label: "Revenue Managed",
