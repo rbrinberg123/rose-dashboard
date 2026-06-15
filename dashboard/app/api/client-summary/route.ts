@@ -49,11 +49,10 @@ export async function GET(request: Request) {
       // Echoed so you can sanity-check the inputs while testing.
       debug: {
         model: SUMMARY_MODEL,
-        pace_flag: result.paceFlag,
         months_active: result.monthsActive,
-        meetings_to_date: result.meetingsToDate,
         trailing_12m_meetings: result.trailing12m,
         upcoming_confirmed_meetings: result.upcomingConfirmed,
+        recent_touchpoints: result.recentTouchpoints,
         client_data: result.clientData,
       },
     })

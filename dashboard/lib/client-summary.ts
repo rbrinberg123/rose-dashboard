@@ -15,13 +15,11 @@ import type {
 
 export const SUMMARY_MODEL = "claude-haiku-4-5-20251001"
 
-// Meeting-pace guideline: ~60 confirmed meetings/year. We only ever tell the
-// model "low" / "normal" / "high" / "too_new" — it never sees these thresholds
-// and never does the math itself.
-const PACE_LOW = 40
-const PACE_HIGH = 80
-
-export type PaceFlag = "too_new" | "low" | "normal" | "high"
+// How many of the most recent touchpoints to feed the model.
+const RECENT_TOUCHPOINTS = 5
+// How many of the longest recent touchpoints to tag as "[longest]" so the model
+// can decide whether their duration genuinely stands out.
+const LONGEST_TO_TAG = 2
 
 /** Carries an HTTP status so the single route can map failures to a response. */
 export class ClientSummaryError extends Error {
@@ -38,11 +36,10 @@ export type ClientSummaryResult = {
   clientName: string
   summary: string
   generatedAt: string
-  paceFlag: PaceFlag
   monthsActive: number
-  meetingsToDate: number
   trailing12m: number
   upcomingConfirmed: number
+  recentTouchpoints: number
   clientData: string
 }
 
@@ -55,44 +52,61 @@ function monthsBetween(from: Date, to: Date): number {
   return Math.max(0, months)
 }
 
-function bandFromAnnualized(value: number): PaceFlag {
-  if (value < PACE_LOW) return "low"
-  if (value > PACE_HIGH) return "high"
-  return "normal"
+/** A recent touchpoint as fed to the model. */
+type TouchpointRow = {
+  touchpoint_type_label: string | null
+  subject: string | null
+  description: string | null
+  scheduled_start: string | null
+  actual_duration_minutes: number | null
 }
 
 /**
- * Tenure-aware pace flag, computed server-side so the model never does this
- * arithmetic.
- *   < 6 months active        -> "too_new" (do not comment on pace)
- *   6–12 months              -> annualize meetings-so-far, then band it
- *   12+ months               -> trailing-12m + confirmed-upcoming, then band it
+ * Render the recent touchpoints as plain lines for the prompt. The 1–2
+ * longest-duration ones are tagged "[longest]" so the model can decide whether
+ * their length genuinely stands out — we do not force it to comment.
+ * Returns "" when there are no touchpoints to show.
  */
-function computePaceFlag(args: {
-  monthsActive: number
-  meetingsToDate: number
-  trailing12m: number
-  upcomingConfirmed: number
-}): PaceFlag {
-  const { monthsActive, meetingsToDate, trailing12m, upcomingConfirmed } = args
-  if (monthsActive < 6) return "too_new"
-  if (monthsActive < 12) {
-    const annualized = (meetingsToDate / monthsActive) * 12
-    return bandFromAnnualized(annualized)
-  }
-  return bandFromAnnualized(trailing12m + upcomingConfirmed)
+function buildTouchpointsBlock(rows: TouchpointRow[]): string {
+  if (rows.length === 0) return ""
+
+  // Indices of the longest 1–2 touchpoints that have a real duration.
+  const longest = new Set(
+    rows
+      .map((r, i) => ({ i, mins: r.actual_duration_minutes }))
+      .filter((x): x is { i: number; mins: number } => x.mins != null && x.mins > 0)
+      .sort((a, b) => b.mins - a.mins)
+      .slice(0, LONGEST_TO_TAG)
+      .map((x) => x.i),
+  )
+
+  const lines = rows.map((r, i) => {
+    const parts: string[] = []
+    parts.push(r.touchpoint_type_label ?? "Touchpoint")
+    if (r.scheduled_start) parts.push(r.scheduled_start.slice(0, 10))
+    if (r.subject) parts.push(r.subject)
+    let line = parts.join(" — ")
+    if (r.actual_duration_minutes != null)
+      line += ` (${r.actual_duration_minutes} min)`
+    if (longest.has(i)) line += " [longest]"
+    if (r.description) line += `: ${r.description}`
+    return `- ${line}`
+  })
+
+  return lines.join("\n")
 }
 
 const SYSTEM_PROMPT =
   "You are writing a brief relationship summary for an investor-relations advisory firm's internal dashboard. Below is structured data about one corporate client. Write a 2–3 sentence summary that helps an account manager quickly understand the state of this relationship.\n\n" +
   "Guidelines:\n\n" +
-  "Be factual and concise. Use only the data provided — do not invent details, numbers, or events. If a field is missing or null, omit it; do not speculate.\n" +
-  "Lead with the most important signal about the relationship.\n" +
-  "Mention how long they've been a client (from the start date).\n" +
+  "Be factual, concise, and neutral. Use only the data provided — do not invent details, numbers, or events. If a field is missing or null, omit it; do not speculate. Synthesize; do not recite every field.\n" +
+  "State what is true, not how good it is. Do not editorialize or apply subjective labels. Never use phrases like \"valued client,\" \"strong relationship,\" or \"well-positioned,\" and never use any adjective that is a judgment rather than a fact.\n" +
+  "Mention how long they have been a client (from the start date).\n" +
   "Reflect the most recent client note and its sentiment if present.\n" +
-  'Only remark on meeting pace if the pace flag is "low" or "high": if "low," note meeting activity appears unusually light; if "high," note it is unusually active. If the flag is "normal" or "too_new," do not mention pace at all. Never state whether they are precisely "on track." Never comment on meeting pace for a client active less than six months, regardless of any flag.\n' +
+  "Summarize the recent touchpoints — what kinds of contact have happened and roughly when. Touchpoints tagged \"[longest]\" are the longest-duration recent ones; mention a long touchpoint only if its duration genuinely stands out from the others, and never imply there were tasks or activities beyond the touchpoints listed.\n" +
+  "You may state plain facts such as the number of recent meetings, the number of unique institutions met, and upcoming confirmed meetings. Do NOT comment on meeting pace in any way: no \"low\" or \"high,\" no \"light\" or \"active,\" no \"on track\" or \"behind.\" Report counts, never a judgment about them.\n" +
   'Do not give explicit recommendations (no "you should…"). Describe the state; let the reader draw conclusions.\n' +
-  "Neutral, professional tone. No bullet points — 2–3 flowing sentences. Don't restate every number; synthesize."
+  "Neutral, professional tone. No bullet points — 2–3 flowing sentences."
 
 /** Render only the non-null fields so the model never sees "null". */
 function buildClientDataBlock(
@@ -144,10 +158,12 @@ export async function generateAndCacheClientSummary(
   const twelveMonthsAgoIso = twelveMonthsAgo.toISOString().slice(0, 10)
 
   // Reuse the same Client Detail views the page uses for the display fields, and
-  // count confirmed meetings directly for the pace math. The summary view's
-  // ltm_meetings has no upper date bound (it folds in future-dated confirmed
-  // meetings), so we compute clean past-vs-upcoming counts here instead.
-  const [summaryRes, noteRes, toDateRes, trailing12mRes, upcomingRes] =
+  // count confirmed meetings directly. The summary view's ltm_meetings has no
+  // upper date bound (it folds in future-dated confirmed meetings), so we
+  // compute clean trailing-12m and upcoming counts here instead. The recent
+  // touchpoints come straight from the base table so we get the description and
+  // duration the v_client_detail_touchpoints view omits.
+  const [summaryRes, noteRes, trailing12mRes, upcomingRes, touchpointsRes] =
     await Promise.all([
       sb
         .from("v_client_detail_summary")
@@ -164,12 +180,6 @@ export async function generateAndCacheClientSummary(
         .select("*", { count: "exact", head: true })
         .eq("client_account_id", accountId)
         .eq("meeting_status_label", "Confirmed")
-        .lte("meeting_date", todayIso),
-      sb
-        .from("meetings")
-        .select("*", { count: "exact", head: true })
-        .eq("client_account_id", accountId)
-        .eq("meeting_status_label", "Confirmed")
         .gte("meeting_date", twelveMonthsAgoIso)
         .lt("meeting_date", todayIso),
       sb
@@ -178,14 +188,22 @@ export async function generateAndCacheClientSummary(
         .eq("client_account_id", accountId)
         .eq("meeting_status_label", "Confirmed")
         .gte("meeting_date", todayIso),
+      sb
+        .from("touchpoints")
+        .select(
+          "touchpoint_type_label, subject, description, scheduled_start, actual_duration_minutes",
+        )
+        .eq("client_account_id", accountId)
+        .order("scheduled_start", { ascending: false, nullsFirst: false })
+        .limit(RECENT_TOUCHPOINTS),
     ])
 
   const dbError =
     summaryRes.error ??
     noteRes.error ??
-    toDateRes.error ??
     trailing12mRes.error ??
-    upcomingRes.error
+    upcomingRes.error ??
+    touchpointsRes.error
   if (dbError) {
     throw new ClientSummaryError(dbError.message, 500)
   }
@@ -199,37 +217,22 @@ export async function generateAndCacheClientSummary(
   }
   const note = noteRes.data as ClientDetailRecentNoteRow | null
 
-  const meetingsToDate = toDateRes.count ?? 0
   const trailing12m = trailing12mRes.count ?? 0
   const upcomingConfirmed = upcomingRes.count ?? 0
+  const touchpoints = (touchpointsRes.data ?? []) as TouchpointRow[]
 
   const clientSince = summary.client_since
     ? new Date(summary.client_since)
     : null
   const monthsActive = clientSince ? monthsBetween(clientSince, new Date()) : 0
 
-  const paceFlag: PaceFlag = clientSince
-    ? computePaceFlag({
-        monthsActive,
-        meetingsToDate,
-        trailing12m,
-        upcomingConfirmed,
-      })
-    : "too_new"
-
-  const feedbackRate =
-    summary.ltm_feedback_rate === null
-      ? null
-      : `${Math.round(summary.ltm_feedback_rate * 100)}%`
-
-  const clientData = buildClientDataBlock({
+  let clientData = buildClientDataBlock({
     "Client name": summary.client_name,
     "Client since": summary.client_since,
     "Lifetime meetings": summary.lifetime_meetings,
     "Trailing-12-month meetings": trailing12m,
     "Confirmed upcoming meetings": upcomingConfirmed,
     "Institutions met (last 12 months)": summary.ltm_unique_institutions,
-    "Feedback received rate (last 12 months)": feedbackRate,
     "Annualized retainer (USD)": summary.annualized_retainer
       ? Math.round(summary.annualized_retainer)
       : null,
@@ -238,8 +241,12 @@ export async function generateAndCacheClientSummary(
     "Most recent client note": note?.notes_text ?? null,
     "Client note status / sentiment": note?.status_text ?? null,
     "Primary risk driver": note?.primary_risk_driver ?? null,
-    "Meeting pace flag": paceFlag,
   })
+
+  const touchpointsBlock = buildTouchpointsBlock(touchpoints)
+  if (touchpointsBlock) {
+    clientData += `\n\nRecent touchpoints (most recent first):\n${touchpointsBlock}`
+  }
 
   let summaryText: string
   try {
@@ -283,11 +290,10 @@ export async function generateAndCacheClientSummary(
     clientName: summary.client_name,
     summary: summaryText,
     generatedAt,
-    paceFlag,
     monthsActive,
-    meetingsToDate,
     trailing12m,
     upcomingConfirmed,
+    recentTouchpoints: touchpoints.length,
     clientData,
   }
 }
