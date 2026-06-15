@@ -213,6 +213,17 @@ export type PersonRoleTtmRow = {
   total_ttm: number
 }
 
+// Per-person active-client counts in each account role (v_capacity_account_roles).
+// "Active" = accounts.state_label = 'Active' (the app-wide active-client
+// definition). Feeds the Capacity page's account-management hours.
+export type CapacityAccountRolesRow = {
+  user_id: string
+  display_name: string | null
+  am_client_count: number
+  secondary_client_count: number
+  associate_client_count: number
+}
+
 /** Trailing-12-month role classification. null = not enough activity. */
 export type PersonRole = "Host" | "Booker" | "Hybrid" | null
 

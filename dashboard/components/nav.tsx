@@ -58,6 +58,7 @@ const sections: NavSection[] = [
       { href: "/people-statistics", label: "Statistics" },
       { href: "/productivity", label: "Summary" },
       { href: "/productivity-detail", label: "Detail" },
+      { href: "/capacity", label: "Capacity" },
     ],
   },
   {
