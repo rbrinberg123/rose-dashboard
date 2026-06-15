@@ -88,9 +88,9 @@ function Section({
 }) {
   const { label, icon: Icon, items } = section
   return (
-    <div className="px-3 py-1.5">
+    <div className="px-3 py-[5px]">
       {/* Non-clickable category label — static, no hover/navigation */}
-      <div className="mb-1 flex items-center gap-2 px-2 text-[12px] font-medium uppercase tracking-wider text-[#9AA1AD]">
+      <div className="mb-[3px] flex items-center gap-2 px-2 text-[12px] font-medium uppercase tracking-wider text-[#9AA1AD]">
         <Icon className="size-[18px] shrink-0" />
         <span>{label}</span>
       </div>
@@ -104,7 +104,7 @@ function Section({
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex items-center rounded-md py-1 pl-6 pr-2 text-sm transition-colors",
+                  "relative flex items-center rounded-md py-[3px] pl-6 pr-2 text-sm transition-colors",
                   active
                     ? "bg-[#EEF2FB] font-medium text-[#1E2858]"
                     : "text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
