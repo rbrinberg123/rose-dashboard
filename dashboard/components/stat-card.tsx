@@ -63,7 +63,7 @@ export function StatCard({
 
   return (
     <div
-      className="relative overflow-hidden rounded-[13px] bg-card p-3.5 transition duration-150 hover:-translate-y-[2px] hover:shadow-[0_8px_20px_rgba(10,31,92,0.12)]"
+      className="relative overflow-hidden rounded-[13px] bg-card p-3.5"
       style={{ border: "0.5px solid var(--border)" }}
     >
       {/* Gradient top edge */}

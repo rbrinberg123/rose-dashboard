@@ -28,21 +28,24 @@ export const ACCENT_STRIP = "linear-gradient(180deg, #1E2858, #0355A7, #1C8C9C)"
 export const BADGE_GRADIENT = "linear-gradient(135deg, #1E2858, #0355A7)"
 
 // ---- Floating surfaces ----------------------------------------------------
-// Class strings (not inline styles) so the :hover lift works. White card,
-// barely-there border, soft layered shadow, 2px hover lift + stronger shadow.
+// Static white card: barely-there border + soft layered shadow. NO hover lift,
+// because a lift implies the card is clickable. Use this for the vast majority
+// of cards — KPI tiles, tables, content panels that just display info.
 export const CARD_CLASS =
   "rounded-[14px] bg-white border border-[rgba(16,24,40,0.04)] " +
-  "shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.05)] " +
-  "transition duration-150 " +
-  "hover:-translate-y-0.5 " +
-  "hover:shadow-[0_2px_4px_rgba(16,24,40,0.05),0_12px_32px_rgba(16,24,40,0.09)]"
+  "shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.05)]"
 
-/** Same surface, slightly tighter radius for the KPI tiles. */
+/** Same static surface, slightly tighter radius for the KPI tiles. */
 export const KPI_CARD_CLASS =
   "rounded-[13px] bg-white border border-[rgba(16,24,40,0.04)] " +
-  "shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.05)] " +
-  "transition duration-150 " +
-  "hover:-translate-y-0.5 " +
+  "shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.05)]"
+
+// Interactive variant: the static card PLUS a 2px hover lift + stronger shadow.
+// Use ONLY on cards that are genuine links / navigate somewhere, where the lift
+// correctly signals "this is clickable" (e.g. the Activity section cards).
+export const INTERACTIVE_CARD_CLASS =
+  CARD_CLASS +
+  " transition duration-150 hover:-translate-y-0.5 " +
   "hover:shadow-[0_2px_4px_rgba(16,24,40,0.05),0_12px_32px_rgba(16,24,40,0.09)]"
 
 /** Clean white control (selector / button) styling for mastheads. */

@@ -360,7 +360,9 @@ export function ProductivityTable({ rows }: { rows: ProductivityRoleRow[] }) {
         activity to determine a role.
       </p>
 
-      <div className={CARD_CLASS}>
+      <div
+        className={`${CARD_CLASS} [&_thead_tr:first-child_th:first-child]:rounded-tl-[14px] [&_thead_tr:first-child_th:last-child]:rounded-tr-[14px] [&_tbody_tr:last-child_td:first-child]:rounded-bl-[14px] [&_tbody_tr:last-child_td:last-child]:rounded-br-[14px]`}
+      >
         <Table>
           <TableHeader className="sticky top-0 z-10 bg-card">
             {table.getHeaderGroups().map((hg) => (

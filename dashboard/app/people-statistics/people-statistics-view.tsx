@@ -26,6 +26,7 @@ import {
   BRAND_BLUE,
   BRAND_NAVY,
   CARD_CLASS,
+  INTERACTIVE_CARD_CLASS,
   TEAL,
   TEXT_MUTED,
   TEXT_PRIMARY,
@@ -797,7 +798,7 @@ function SectionKpiCard({
     <a
       href={`#${targetId}`}
       onClick={handleClick}
-      className={`group flex flex-col p-4 ${CARD_CLASS}`}
+      className={`group flex flex-col p-4 ${INTERACTIVE_CARD_CLASS}`}
     >
       {/* Headline row: icon + section name (the prominent element). */}
       <div className="mb-2 flex items-center gap-2.5">

@@ -147,7 +147,7 @@ export function ClientStatisticsView({
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <Card className={`relative ${CARD_CLASS}`}>
+        <Card className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
               Clients by Market Cap
@@ -249,7 +249,7 @@ export function ClientStatisticsView({
           </CardContent>
         </Card>
 
-        <Card className={`relative ${CARD_CLASS}`}>
+        <Card className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
               Clients by Region
@@ -299,7 +299,7 @@ export function ClientStatisticsView({
           </CardContent>
         </Card>
 
-        <Card className={`relative ${CARD_CLASS}`}>
+        <Card className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
               Clients by Sector
