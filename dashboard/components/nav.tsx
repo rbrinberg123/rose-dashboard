@@ -159,7 +159,7 @@ function Brand() {
     /* Horizontal Rose & Co IQ lockup — navy on transparent, sits on the light sidebar. */
     /* eslint-disable-next-line @next/next/no-img-element */
     <img
-      src="/roseco-iq-logo.png"
+      src="/roseco-iq-logo_3.png"
       alt="Rose &amp; Co IQ Dashboards"
       className="h-auto w-full max-w-[160px] object-contain"
     />
