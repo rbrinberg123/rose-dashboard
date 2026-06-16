@@ -33,6 +33,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { StatCard } from "@/components/stat-card"
 import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
 import { type PillVariant } from "@/lib/gradients"
@@ -43,6 +50,7 @@ import {
   TEXT_PRIMARY,
 } from "@/lib/design"
 import type {
+  ClientDetailInstitutionRow,
   ClientDetailQuarterlyRow,
   ClientDetailReachDepthRow,
   ClientDetailRecentMeetingRow,
@@ -190,6 +198,7 @@ export function ClientDetailView({
   clientTicker,
   quarterly,
   topInstitutions,
+  institutions,
   reachDepth,
   topHosts,
   recentMeetings,
@@ -204,6 +213,7 @@ export function ClientDetailView({
   clientTicker: string | null
   quarterly: ClientDetailQuarterlyRow[]
   topInstitutions: ClientDetailTopInstitutionRow[]
+  institutions: ClientDetailInstitutionRow[]
   reachDepth: ClientDetailReachDepthRow[]
   topHosts: ClientDetailTopHostRow[]
   recentMeetings: ClientDetailRecentMeetingRow[]
@@ -402,6 +412,28 @@ export function ClientDetailView({
   }))
   const reachTotal = reachRows.reduce((sum, r) => sum + r.count, 0)
   const reachMax = Math.max(1, ...reachRows.map((r) => r.count))
+
+  // Institutions grouped by reach-depth bucket (same boundaries as the view),
+  // for the drawer. Already ordered by the query (last_met desc, then name).
+  const institutionsByBucket = React.useMemo(() => {
+    const m = new Map<number, ClientDetailInstitutionRow[]>()
+    for (const inst of institutions) {
+      const list = m.get(inst.bucket_order)
+      if (list) list.push(inst)
+      else m.set(inst.bucket_order, [inst])
+    }
+    return m
+  }, [institutions])
+
+  // Which reach-depth bucket's drawer is open (null = closed).
+  const [openBucket, setOpenBucket] = React.useState<{
+    order: number
+    label: string
+    count: number
+  } | null>(null)
+  const openInstitutions = openBucket
+    ? institutionsByBucket.get(openBucket.order) ?? []
+    : []
   const oneOffCount = reachRows.find((r) => r.order === 1)?.count ?? 0
   const deepCount =
     (reachRows.find((r) => r.order === 4)?.count ?? 0) +
@@ -959,7 +991,19 @@ export function ClientDetailView({
               const sharePct =
                 reachTotal > 0 ? Math.round((row.count / reachTotal) * 100) : 0
               return (
-                <div key={row.order}>
+                <button
+                  key={row.order}
+                  type="button"
+                  onClick={() =>
+                    setOpenBucket({
+                      order: row.order,
+                      label: row.label,
+                      count: row.count,
+                    })
+                  }
+                  className="-mx-2 block w-full cursor-pointer rounded-md px-2 py-1.5 text-left transition-colors hover:bg-slate-50"
+                  title={`View the ${row.count.toLocaleString()} institution${row.count === 1 ? "" : "s"} in “${row.label}”`}
+                >
                   <div className="flex items-baseline justify-between text-xs">
                     <span style={{ color: NAVY_DEEP }}>{row.label}</span>
                     <span className="tabular-nums text-muted-foreground">
@@ -975,7 +1019,7 @@ export function ClientDetailView({
                       }}
                     />
                   </div>
-                </div>
+                </button>
               )
             })}
           </div>
@@ -985,6 +1029,73 @@ export function ClientDetailView({
               : `${oneOffCount.toLocaleString()} institutions met just once · ${deepCount.toLocaleString()} have been visited 6+ times.`}
           </p>
         </div>
+
+        {/* Reach Depth drawer — institutions in the clicked bucket */}
+        <Sheet
+          open={openBucket !== null}
+          onOpenChange={(open) => {
+            if (!open) setOpenBucket(null)
+          }}
+        >
+          <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
+            <SheetHeader className="gap-1 border-b p-4 pr-12">
+              <div
+                className="text-[11px] font-medium uppercase tracking-wide"
+                style={{ color: TEAL }}
+              >
+                Reach Depth
+              </div>
+              <SheetTitle className="text-base" style={{ color: NAVY_DEEP }}>
+                {selected.client_name}
+              </SheetTitle>
+              <SheetDescription>
+                {openBucket?.label} ·{" "}
+                {(openBucket?.count ?? 0).toLocaleString()}{" "}
+                {openBucket?.count === 1 ? "institution" : "institutions"}
+              </SheetDescription>
+            </SheetHeader>
+            <div className="flex-1 overflow-y-auto p-2">
+              {openInstitutions.length === 0 ? (
+                <div className="px-2 py-10 text-center text-sm text-muted-foreground">
+                  No institutions in this bucket.
+                </div>
+              ) : (
+                <ul>
+                  {openInstitutions.map((inst) => {
+                    const rowInner = (
+                      <>
+                        <span className="truncate font-medium text-[#1E2858]">
+                          {inst.institution_name}
+                        </span>
+                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                          {inst.last_met
+                            ? `last ${formatShortDate(inst.last_met)}`
+                            : "—"}
+                        </span>
+                      </>
+                    )
+                    return (
+                      <li key={`${inst.institution_id ?? inst.institution_name}`}>
+                        {inst.institution_id ? (
+                          <Link
+                            href={`/institution-detail?institution_id=${inst.institution_id}`}
+                            className="flex items-baseline justify-between gap-3 rounded-md px-2 py-2 transition-colors hover:bg-slate-50"
+                          >
+                            {rowInner}
+                          </Link>
+                        ) : (
+                          <div className="flex items-baseline justify-between gap-3 rounded-md px-2 py-2">
+                            {rowInner}
+                          </div>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
 
         {/* Top Hosts */}
         <div className={`p-5 ${CARD_CLASS}`}>

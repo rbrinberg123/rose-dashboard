@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import type {
+  ClientDetailInstitutionRow,
   ClientDetailQuarterlyRow,
   ClientDetailReachDepthRow,
   ClientDetailRecentMeetingRow,
@@ -61,6 +62,7 @@ export default async function ClientDetailPage({
   const [
     quarterlyRes,
     topInstRes,
+    institutionsRes,
     reachDepthRes,
     topHostsRes,
     recentRes,
@@ -79,6 +81,16 @@ export default async function ClientDetailPage({
         .select("*")
         .eq("account_id", selected.account_id)
         .order("rank", { ascending: true }),
+      // Complete institution list (all buckets) for this client — backs the
+      // Reach Depth drawer. Small payload (≤ a few hundred rows even for the
+      // widest-reach client), so we load it up front rather than per-drawer.
+      sb
+        .from("v_client_detail_institutions")
+        .select("*")
+        .eq("account_id", selected.account_id)
+        .order("bucket_order", { ascending: true })
+        .order("last_met", { ascending: false, nullsFirst: false })
+        .order("institution_name", { ascending: true }),
       sb
         .from("v_client_detail_reach_depth")
         .select("*")
@@ -123,6 +135,7 @@ export default async function ClientDetailPage({
   const firstError =
     quarterlyRes.error ??
     topInstRes.error ??
+    institutionsRes.error ??
     reachDepthRes.error ??
     topHostsRes.error ??
     recentRes.error ??
@@ -160,6 +173,7 @@ export default async function ClientDetailPage({
         }}
         quarterly={(quarterlyRes.data ?? []) as ClientDetailQuarterlyRow[]}
         topInstitutions={(topInstRes.data ?? []) as ClientDetailTopInstitutionRow[]}
+        institutions={(institutionsRes.data ?? []) as ClientDetailInstitutionRow[]}
         reachDepth={(reachDepthRes.data ?? []) as ClientDetailReachDepthRow[]}
         topHosts={(topHostsRes.data ?? []) as ClientDetailTopHostRow[]}
         recentMeetings={(recentRes.data ?? []) as ClientDetailRecentMeetingRow[]}

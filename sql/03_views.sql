@@ -22,6 +22,7 @@ DROP VIEW IF EXISTS public.v_contract_management CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_summary CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_quarterly CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_top_institutions CASCADE;
+DROP VIEW IF EXISTS public.v_client_detail_institutions CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_reach_depth CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_top_hosts CASCADE;
 DROP VIEW IF EXISTS public.v_client_detail_recent_meetings CASCADE;
@@ -1363,6 +1364,52 @@ SELECT
   COUNT(*)::int AS institution_count
 FROM bucketed
 GROUP BY account_id, bucket_label, bucket_order;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_detail_institutions
+-- COMPLETE per-client institution list: every institution a client has met,
+-- with the per-client lifetime confirmed meeting count. Same source + filters
+-- as v_client_detail_reach_depth (and v_client_detail_top_institutions, minus
+-- the top-20 cap), plus a bucket_order column whose CASE is copied verbatim
+-- from v_client_detail_reach_depth so grouping by it reproduces the reach-depth
+-- counts exactly (1 / 2-3 / 4-5 / 6-10 / 11+). Backs the Reach Depth drawer.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_detail_institutions AS
+WITH inst_counts AS (
+  SELECT
+    m.client_account_id AS account_id,
+    m.institution_name,
+    (array_agg(m.institution_id ORDER BY m.meeting_date DESC NULLS LAST))[1]
+      AS institution_id,
+    COUNT(*)::int AS lifetime_count,
+    COUNT(*) FILTER (
+      WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    )::int AS ltm_count,
+    MIN(m.meeting_date)::date AS first_met,
+    MAX(m.meeting_date)::date AS last_met
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.client_account_id IS NOT NULL
+    AND m.institution_name IS NOT NULL
+  GROUP BY m.client_account_id, m.institution_name
+)
+SELECT
+  account_id,
+  institution_id,
+  institution_name,
+  lifetime_count,
+  ltm_count,
+  first_met,
+  last_met,
+  CASE
+    WHEN lifetime_count = 1 THEN 1
+    WHEN lifetime_count BETWEEN 2 AND 3 THEN 2
+    WHEN lifetime_count BETWEEN 4 AND 5 THEN 3
+    WHEN lifetime_count BETWEEN 6 AND 10 THEN 4
+    ELSE 5
+  END AS bucket_order
+FROM inst_counts;
 
 
 -- -----------------------------------------------------------------------------

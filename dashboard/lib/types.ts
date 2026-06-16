@@ -486,6 +486,22 @@ export type ClientDetailReachDepthRow = {
   institution_count: number
 }
 
+// Complete per-client institution list (v_client_detail_institutions) — every
+// institution a client has met, with the per-client lifetime confirmed meeting
+// count. `bucket_order` uses the SAME boundaries as v_client_detail_reach_depth
+// (1 / 2-3 / 4-5 / 6-10 / 11+), so grouping by it reproduces the reach-depth
+// counts exactly. Backs the Reach Depth drawer.
+export type ClientDetailInstitutionRow = {
+  account_id: string
+  institution_id: string | null
+  institution_name: string
+  lifetime_count: number
+  ltm_count: number
+  first_met: string | null
+  last_met: string | null
+  bucket_order: number
+}
+
 export type ClientDetailTopHostRow = {
   account_id: string
   host_name: string
