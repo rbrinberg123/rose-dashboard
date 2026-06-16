@@ -52,7 +52,7 @@ const sections: NavSection[] = [
     ],
   },
   {
-    label: "Activity",
+    label: "Productivity",
     icon: Users,
     items: [
       { href: "/people-statistics", label: "Statistics" },
