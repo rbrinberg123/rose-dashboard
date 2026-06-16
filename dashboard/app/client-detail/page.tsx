@@ -101,9 +101,15 @@ export default async function ClientDetailPage({
         .eq("account_id", selected.account_id)
         .maybeSingle(),
       sb
-        .from("v_client_detail_touchpoints")
-        .select("*")
-        .eq("account_id", selected.account_id)
+        // Base table (not v_client_detail_touchpoints) so we also get the full
+        // `description`, which the view omits. The view is just this same
+        // projection filtered to client_account_id IS NOT NULL, so filtering on
+        // client_account_id below yields the identical row set.
+        .from("touchpoints")
+        .select(
+          "account_id:client_account_id, touchpoint_id, scheduled_start, subject, touchpoint_type_label, direction_code, actual_duration_minutes, description",
+        )
+        .eq("client_account_id", selected.account_id)
         .order("scheduled_start", { ascending: false, nullsFirst: false }),
       sb
         .from("accounts")

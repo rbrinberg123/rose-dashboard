@@ -28,6 +28,11 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { formatCurrency } from "@/lib/format"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { StatCard } from "@/components/stat-card"
 import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
 import { type PillVariant } from "@/lib/gradients"
@@ -676,42 +681,102 @@ export function ClientDetailView({
               <tbody>
                 {tpVisible.map((t) => {
                   const isOut = t.direction_code === true
+                  const hasDescription =
+                    t.description != null && t.description.trim() !== ""
                   return (
-                    <tr key={t.touchpoint_id} className="border-b last:border-b-0">
-                      <td className="whitespace-nowrap px-2 py-2 tabular-nums">
-                        {formatLongDate(t.scheduled_start)}
-                      </td>
-                      <td className="px-2 py-2">{t.subject ?? "—"}</td>
-                      <td className="px-2 py-2">
-                        {t.touchpoint_type_label ? (
+                    <Popover key={t.touchpoint_id}>
+                      <PopoverTrigger
+                        nativeButton={false}
+                        openOnHover
+                        delay={150}
+                        closeDelay={150}
+                        render={
+                          <tr className="cursor-default border-b transition-colors last:border-b-0 hover:bg-accent/40 data-[popup-open]:bg-accent/40" />
+                        }
+                      >
+                        <td className="whitespace-nowrap px-2 py-2 tabular-nums">
+                          {formatLongDate(t.scheduled_start)}
+                        </td>
+                        <td className="px-2 py-2">{t.subject ?? "—"}</td>
+                        <td className="px-2 py-2">
+                          {t.touchpoint_type_label ? (
+                            <span
+                              className="inline-block rounded px-2 py-0.5 text-xs font-medium"
+                              style={{ backgroundColor: GRAY_BG, color: NAVY_DEEP }}
+                            >
+                              {t.touchpoint_type_label}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="px-2 py-2">
                           <span
                             className="inline-block rounded px-2 py-0.5 text-xs font-medium"
-                            style={{ backgroundColor: GRAY_BG, color: NAVY_DEEP }}
+                            style={
+                              isOut
+                                ? { backgroundColor: TEAL_LIGHTEST, color: NAVY_DEEP }
+                                : { backgroundColor: GRAY_BG, color: NAVY_MID }
+                            }
                           >
-                            {t.touchpoint_type_label}
+                            {isOut ? "Out" : "In"}
                           </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="px-2 py-2">
-                        <span
-                          className="inline-block rounded px-2 py-0.5 text-xs font-medium"
-                          style={
-                            isOut
-                              ? { backgroundColor: TEAL_LIGHTEST, color: NAVY_DEEP }
-                              : { backgroundColor: GRAY_BG, color: NAVY_MID }
-                          }
-                        >
-                          {isOut ? "Out" : "In"}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2 text-right tabular-nums">
-                        {t.actual_duration_minutes != null
-                          ? t.actual_duration_minutes.toLocaleString()
-                          : "—"}
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="px-2 py-2 text-right tabular-nums">
+                          {t.actual_duration_minutes != null
+                            ? t.actual_duration_minutes.toLocaleString()
+                            : "—"}
+                        </td>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        side="top"
+                        align="start"
+                        sideOffset={6}
+                        className="w-auto max-w-md gap-0 p-0 text-left"
+                      >
+                        <div className="border-b px-3.5 py-2.5">
+                          <div
+                            className="text-sm font-semibold"
+                            style={{ color: NAVY_DEEP }}
+                          >
+                            {t.subject ?? "Touchpoint"}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                            <span>{formatLongDate(t.scheduled_start)}</span>
+                            {t.touchpoint_type_label && (
+                              <>
+                                <span aria-hidden>·</span>
+                                <span>{t.touchpoint_type_label}</span>
+                              </>
+                            )}
+                            <span aria-hidden>·</span>
+                            <span>{isOut ? "Outbound" : "Inbound"}</span>
+                            {t.actual_duration_minutes != null && (
+                              <>
+                                <span aria-hidden>·</span>
+                                <span>
+                                  {t.actual_duration_minutes.toLocaleString()} min
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="max-h-[340px] overflow-y-auto px-3.5 py-3">
+                          {hasDescription ? (
+                            <p
+                              className="whitespace-pre-wrap break-words text-sm leading-relaxed"
+                              style={{ color: TEXT_PRIMARY }}
+                            >
+                              {t.description}
+                            </p>
+                          ) : (
+                            <p className="text-sm italic text-muted-foreground">
+                              No additional detail recorded.
+                            </p>
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   )
                 })}
               </tbody>

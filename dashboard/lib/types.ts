@@ -543,6 +543,7 @@ export type ClientDetailTouchpointRow = {
   touchpoint_type_label: string | null
   direction_code: boolean | null
   actual_duration_minutes: number | null
+  description: string | null
 }
 
 export type InstitutionSummaryRow = {
