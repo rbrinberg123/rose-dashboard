@@ -177,3 +177,82 @@ CREATE TRIGGER overhead_overrides_touch_updated_at
 CREATE TRIGGER cost_assumptions_touch_updated_at
   BEFORE UPDATE ON public.cost_assumptions
   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+
+-- -----------------------------------------------------------------------------
+-- user_id_aliases
+-- Curated identity map for people who exist under MORE THAN ONE Dynamics
+-- systemuserid (sync artifact: the same human re-created across business units /
+-- import batches, with meetings attributed to both ids over time). Each row
+-- folds an alias id into the canonical (high-volume) id for that person.
+--
+-- Rose-owned: NEVER touched by the Dynamics sync, so the mapping survives the
+-- nightly mirror refresh. Curated MANUALLY and only for people VERIFIED to be a
+-- single human (shared top clients / continuous timeline) — never a blanket
+-- display_name merge, which would wrongly fuse two different people sharing a
+-- name (e.g. a common name like "Brian Smith").
+--
+-- Resolve identity everywhere via public.canonical_user_id(uuid) — one source
+-- of truth. Views LEFT JOIN this table (or call the function) and group by the
+-- canonical id; the base per-meeting view exposes canonical_user_id so the JS
+-- aggregations (Productivity Summary, Capacity) group by it without re-deriving
+-- the map. The per-person, user_id-keyed views that fold by canonical id are:
+-- v_productivity_person_meeting (exposes the column), v_person_role_ttm,
+-- v_person_activity_windows, v_person_feedback_windows,
+-- v_productivity_detail_summary, v_productivity_detail_institutions,
+-- v_productivity_person_manager_stats.
+--
+-- ADDING A NEW DUPLICATE: only after VERIFYING the two systemusers are the same
+-- human (trace shared top clients + a continuous/overlapping timeline, as was
+-- done for Brian Smith and Blair Mutschler). Add one row (alias -> canonical,
+-- canonical = the high-volume id) and re-run the affected views; no app change
+-- is needed. Do NOT add a row on a name match alone.
+--
+-- THIS TABLE IS A BRIDGE, not the cure. The duplicates originate upstream in
+-- Dynamics (one person with two systemuserid records). The durable fix is to
+-- MERGE the duplicate systemusers in Dynamics; once merged, the corresponding
+-- alias row here becomes a harmless no-op and can be removed.
+--
+-- NOT YET on the canonical model: the three name-merge views
+-- v_analyst_monthly_activity, v_institution_detail_top_hosts and
+-- v_client_detail_top_hosts still group by display_name / host_name. They are
+-- correct TODAY only because the sole duplicates (Brian, Blair) are same-person,
+-- so name-merge == canonical-merge for them. See those views' headers for the
+-- collision caveat and the conversion path.
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.canonical_user_id(uuid) CASCADE;
+DROP TABLE IF EXISTS public.user_id_aliases CASCADE;
+
+CREATE TABLE public.user_id_aliases (
+  alias_user_id     uuid PRIMARY KEY,
+  canonical_user_id uuid NOT NULL,
+  note              text,
+  CHECK (alias_user_id <> canonical_user_id)
+);
+
+-- Verified-same people only (traced: shared top clients + continuous timeline).
+INSERT INTO public.user_id_aliases (alias_user_id, canonical_user_id, note) VALUES
+  -- Brian Smith: alias …4b51 (3 mtgs, 2026, Royal Gold/IAMGOLD) -> canonical …4e0c
+  -- (1031 host since 2020; Royal Gold is its #1 client).
+  ('b5f90f22-c40b-ee11-8f6e-0022482a4b51',
+   '21d086fe-e441-ee11-bdf3-0022482a4e0c',
+   'Brian Smith duplicate Dynamics systemuser; verified same person (shared Royal Gold book).'),
+  -- Blair Mutschler: alias …4e0c (1 mtg, 2026-03, L3 Harris) -> canonical …4b51
+  -- (362 host since 2020; L3 Harris is a top client).
+  ('6aaa104f-dd0b-ee11-8f6e-0022482a4e0c',
+   'cc5afa45-a5ee-ed11-8849-0022482a4b51',
+   'Blair Mutschler duplicate Dynamics systemuser; verified same person (shared L3 Harris).');
+
+-- canonical_user_id(id) -> the canonical id for a person, or the id itself when
+-- it is not an alias. STABLE so the planner can cache it within a query. This is
+-- the single identity resolver for the whole app.
+CREATE FUNCTION public.canonical_user_id(p_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT COALESCE(
+    (SELECT a.canonical_user_id FROM public.user_id_aliases a WHERE a.alias_user_id = p_id),
+    p_id
+  );
+$$;

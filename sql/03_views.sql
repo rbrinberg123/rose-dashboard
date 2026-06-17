@@ -817,6 +817,10 @@ ORDER BY (
 -- Productivity Detail dashboard.
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW public.v_productivity_detail_summary AS
+-- Wrapped: inner `base` computes per raw user_id; outer folds duplicate Dynamics
+-- ids into one person via public.canonical_user_id (see public.user_id_aliases),
+-- summing the counts and recomputing the feedback rate from the merged totals.
+WITH base AS (
 WITH user_universe AS (
   SELECT DISTINCT booker_id AS user_id
   FROM public.meetings
@@ -863,7 +867,19 @@ meeting_stats AS (
         AND m.meeting_date <= now()
         AND m.meeting_status_label = 'Confirmed'
         AND m.feedback_status_label = 'Closed - All in'
-    )::int AS feedback_collected_12m
+    )::int AS feedback_collected_12m,
+    -- Denominator of the feedback rate: confirmed host meetings whose feedback
+    -- reached a closed status ('Closed - All in' + 'Closed - No Feedback').
+    -- Same closed-set definition as the Client / Institution Detail views;
+    -- counted raw (per institution-level record) so it reconciles with the
+    -- Statistics "Feedback by Person" view. 'Awaiting Additional' / null excluded.
+    COUNT(*) FILTER (
+      WHERE m.host_id = uu.user_id
+        AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+        AND m.meeting_date <= now()
+        AND m.meeting_status_label = 'Confirmed'
+        AND m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
+    )::int AS feedback_closed_12m
   FROM user_universe uu
   LEFT JOIN public.meetings m
     ON (m.booker_id = uu.user_id OR m.host_id = uu.user_id)
@@ -890,9 +906,12 @@ SELECT
   COALESCE(ms.meetings_hosted_12m, 0) AS meetings_hosted_12m,
   COALESCE(ms.meetings_in_person_12m, 0) AS meetings_in_person_12m,
   COALESCE(ms.feedback_collected_12m, 0) AS feedback_collected_12m,
+  COALESCE(ms.feedback_closed_12m, 0) AS feedback_closed_12m,
+  -- collected ÷ closed (NOT ÷ hosted) — matches Client / Institution Detail
+  -- and the Statistics "Feedback by Person" view.
   CASE
-    WHEN COALESCE(ms.meetings_hosted_12m, 0) = 0 THEN NULL
-    ELSE ms.feedback_collected_12m::numeric / ms.meetings_hosted_12m
+    WHEN COALESCE(ms.feedback_closed_12m, 0) = 0 THEN NULL
+    ELSE ms.feedback_collected_12m::numeric / NULLIF(ms.feedback_closed_12m, 0)
   END AS feedback_collection_rate_12m,
   COALESCE(sls.active_clients_as_sales_lead, 0) AS active_clients_as_sales_lead,
   COALESCE(sls.sales_lead_book_annualized, 0) AS sales_lead_book_annualized
@@ -901,7 +920,26 @@ JOIN public.users u ON u.user_id = uu.user_id
 LEFT JOIN meeting_stats ms ON ms.user_id = uu.user_id
 LEFT JOIN sales_lead_stats sls ON sls.user_id = uu.user_id
 WHERE u.display_name IS NOT NULL
-  AND u.display_name != 'CRM Administration';
+  AND u.display_name != 'CRM Administration'
+)
+SELECT
+  public.canonical_user_id(b.user_id) AS user_id,
+  cu.display_name,
+  SUM(b.meetings_scheduled_12m)::int  AS meetings_scheduled_12m,
+  SUM(b.meetings_hosted_12m)::int     AS meetings_hosted_12m,
+  SUM(b.meetings_in_person_12m)::int  AS meetings_in_person_12m,
+  SUM(b.feedback_collected_12m)::int  AS feedback_collected_12m,
+  SUM(b.feedback_closed_12m)::int     AS feedback_closed_12m,
+  -- collected ÷ closed recomputed from the merged totals.
+  CASE
+    WHEN SUM(b.feedback_closed_12m) = 0 THEN NULL
+    ELSE SUM(b.feedback_collected_12m)::numeric / NULLIF(SUM(b.feedback_closed_12m), 0)
+  END AS feedback_collection_rate_12m,
+  SUM(b.active_clients_as_sales_lead)::int      AS active_clients_as_sales_lead,
+  SUM(b.sales_lead_book_annualized)::numeric    AS sales_lead_book_annualized
+FROM base b
+JOIN public.users cu ON cu.user_id = public.canonical_user_id(b.user_id)
+GROUP BY public.canonical_user_id(b.user_id), cu.display_name;
 
 
 -- -----------------------------------------------------------------------------
@@ -913,6 +951,11 @@ WHERE u.display_name IS NOT NULL
 -- "today" follow the same conventions as the other productivity views.
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW public.v_person_role_ttm AS
+-- Wrapped: the inner `base` computes counts per raw user_id; the outer query
+-- folds duplicate Dynamics ids for one person into a single row via
+-- public.canonical_user_id (see public.user_id_aliases). Non-aliased ids
+-- resolve to themselves, so only the curated duplicates collapse.
+WITH base AS (
 WITH user_universe AS (
   SELECT DISTINCT booker_id AS user_id
   FROM public.meetings
@@ -959,7 +1002,15 @@ SELECT
 FROM user_universe uu
 LEFT JOIN public.meetings m
   ON (m.booker_id = uu.user_id OR m.host_id = uu.user_id)
-GROUP BY uu.user_id;
+GROUP BY uu.user_id
+)
+SELECT
+  public.canonical_user_id(b.user_id) AS user_id,
+  SUM(b.booked_ttm)::int AS booked_ttm,
+  SUM(b.hosted_ttm)::int AS hosted_ttm,
+  SUM(b.total_ttm)::int  AS total_ttm
+FROM base b
+GROUP BY public.canonical_user_id(b.user_id);
 
 
 -- -----------------------------------------------------------------------------
@@ -968,6 +1019,18 @@ GROUP BY uu.user_id;
 -- Powers the monthly bar charts on the Productivity Detail page.
 -- Aggregates by display_name (not user_id) so duplicate user records collapse.
 -- -----------------------------------------------------------------------------
+-- IDENTITY CAVEAT (name-merge, not canonical-id): this view collapses a person's
+-- multiple Dynamics user_ids by display_name (user_ids_by_name). That is correct
+-- TODAY only because the sole duplicate user records — Brian Smith and Blair
+-- Mutschler — are each a single human, so a name-merge equals a canonical-id
+-- merge for them (see public.user_id_aliases / public.canonical_user_id).
+-- RISK: if a genuine same-name collision ever appears (two DIFFERENT active
+-- people sharing one display_name), this view would wrongly fuse them.
+-- FIX WHEN THAT HAPPENS: group by public.canonical_user_id(user_id) instead of
+-- display_name here, AND switch the Productivity Detail page's monthly matching
+-- (monthlyRows.filter on display_name) + the MastheadSelector to user_id so the
+-- app keys identity by id, not name. The same applies to v_client_detail_top_hosts
+-- and v_institution_detail_top_hosts. Deliberately deferred — defensive only.
 CREATE OR REPLACE VIEW public.v_analyst_monthly_activity AS
 WITH user_ids_by_name AS (
   SELECT
@@ -995,28 +1058,57 @@ SELECT
   mu.period_year,
   mu.period_month,
   to_char(make_date(mu.period_year, mu.period_month, 1), 'YYYY-MM') AS period_label,
+  -- All display counts are Confirmed-only, matching the Productivity Detail
+  -- headline tiles (v_productivity_detail_summary) and every other booked /
+  -- hosted surface. Non-final statuses (e.g. 'TBR') and 'Cancelled' are
+  -- excluded so the monthly bars reconcile with the tiles.
   COUNT(*) FILTER (
     WHERE m.booker_id = ANY(n.user_ids)
-      AND m.meeting_status_label != 'Cancelled'
+      AND m.meeting_status_label = 'Confirmed'
   )::int AS meetings_scheduled,
-  COUNT(*) FILTER (WHERE m.host_id = ANY(n.user_ids))::int AS meetings_hosted,
   COUNT(*) FILTER (
-    WHERE m.host_id = ANY(n.user_ids) AND m.is_in_person = true
+    WHERE m.host_id = ANY(n.user_ids)
+      AND m.meeting_status_label = 'Confirmed'
+  )::int AS meetings_hosted,
+  COUNT(*) FILTER (
+    WHERE m.host_id = ANY(n.user_ids)
+      AND m.meeting_status_label = 'Confirmed'
+      AND m.is_in_person = true
   )::int AS meetings_in_person,
   COUNT(*) FILTER (
-    WHERE m.host_id = ANY(n.user_ids) AND m.is_in_person = false
+    WHERE m.host_id = ANY(n.user_ids)
+      AND m.meeting_status_label = 'Confirmed'
+      AND m.is_in_person = false
   )::int AS meetings_virtual,
   COUNT(*) FILTER (
     WHERE m.host_id = ANY(n.user_ids)
+      AND m.meeting_status_label = 'Confirmed'
       AND m.feedback_status_label = 'Closed - All in'
   )::int AS feedback_collected,
+  COUNT(*) FILTER (
+    WHERE m.host_id = ANY(n.user_ids)
+      AND m.meeting_status_label = 'Confirmed'
+      AND m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
+  )::int AS feedback_closed,
+  -- collected ÷ closed, confirmed only — same closed-set definition and the
+  -- same Confirmed universe as the 12-month headline
+  -- (v_productivity_detail_summary), so the monthly bars reconcile with it.
   CASE
-    WHEN COUNT(*) FILTER (WHERE m.host_id = ANY(n.user_ids)) = 0 THEN NULL
+    WHEN COUNT(*) FILTER (
+      WHERE m.host_id = ANY(n.user_ids)
+        AND m.meeting_status_label = 'Confirmed'
+        AND m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
+    ) = 0 THEN NULL
     ELSE COUNT(*) FILTER (
       WHERE m.host_id = ANY(n.user_ids)
+        AND m.meeting_status_label = 'Confirmed'
         AND m.feedback_status_label = 'Closed - All in'
     )::numeric
-       / COUNT(*) FILTER (WHERE m.host_id = ANY(n.user_ids))
+       / COUNT(*) FILTER (
+         WHERE m.host_id = ANY(n.user_ids)
+           AND m.meeting_status_label = 'Confirmed'
+           AND m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
+       )
   END AS feedback_collection_rate
 FROM month_universe mu
 JOIN user_ids_by_name n ON n.display_name = mu.display_name
@@ -1044,6 +1136,10 @@ GROUP BY mu.display_name, mu.period_year, mu.period_month;
 -- v_institution_summary). Meetings with NULL institution_name are excluded.
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW public.v_productivity_detail_institutions AS
+-- Wrapped: per-institution counts folded by public.canonical_user_id so a person
+-- split across duplicate Dynamics ids gets one combined per-institution
+-- breakdown (matches the canonical user_id now used by the Detail summary).
+WITH base AS (
 WITH recent_meetings AS (
   SELECT
     booker_id,
@@ -1089,7 +1185,16 @@ SELECT
 FROM booked b
 FULL OUTER JOIN hosted h
   ON b.user_id          = h.user_id
- AND b.institution_name = h.institution_name;
+ AND b.institution_name = h.institution_name
+)
+SELECT
+  public.canonical_user_id(base.user_id) AS user_id,
+  base.institution_name,
+  (array_agg(base.institution_id ORDER BY base.institution_id NULLS LAST))[1] AS institution_id,
+  SUM(base.booked_count)::int AS booked_count,
+  SUM(base.hosted_count)::int AS hosted_count
+FROM base
+GROUP BY public.canonical_user_id(base.user_id), base.institution_name;
 
 
 -- -----------------------------------------------------------------------------
@@ -1440,6 +1545,12 @@ FROM inst_counts;
 -- Top 5 hosts per client in the trailing 12 months, excluding the
 -- 'CRM Administration' service-account host.
 -- -----------------------------------------------------------------------------
+-- IDENTITY CAVEAT (name-merge, not canonical-id): groups hosts by host_name, so a
+-- person with duplicate Dynamics user_ids is merged by NAME. Correct today (the
+-- only duplicates, Brian Smith / Blair Mutschler, are same-person → name-merge ==
+-- canonical-merge). If a genuine same-name collision of two DIFFERENT active
+-- people ever appears, convert to public.canonical_user_id grouping. See the note
+-- on public.user_id_aliases and v_analyst_monthly_activity's header.
 CREATE OR REPLACE VIEW public.v_client_detail_top_hosts AS
 WITH host_counts AS (
   SELECT
@@ -2037,6 +2148,12 @@ FROM region_rows;
 -- Top 5 hosts per institution in the trailing 12 months,
 -- excluding 'CRM Administration' and NULL host_name.
 -- -----------------------------------------------------------------------------
+-- IDENTITY CAVEAT (name-merge, not canonical-id): groups hosts by host_name, so a
+-- person with duplicate Dynamics user_ids is merged by NAME. Correct today (the
+-- only duplicates, Brian Smith / Blair Mutschler, are same-person → name-merge ==
+-- canonical-merge). If a genuine same-name collision of two DIFFERENT active
+-- people ever appears, convert to public.canonical_user_id grouping. See the note
+-- on public.user_id_aliases and v_analyst_monthly_activity's header.
 CREATE OR REPLACE VIEW public.v_institution_detail_top_hosts AS
 WITH inst_id AS (
   SELECT
@@ -2218,7 +2335,12 @@ SELECT
   pm.meeting_status_label,
   pm.feedback_status_label,
   pm.group_meeting,
-  pm.attributed_cost
+  pm.attributed_cost,
+  -- Canonical identity for the person (booker or host) this row attributes to.
+  -- The JS aggregations (Productivity Summary, Capacity) group by this so a
+  -- person split across duplicate Dynamics ids collapses to one row, without
+  -- re-deriving the alias map in JS. Non-aliased ids resolve to themselves.
+  public.canonical_user_id(pm.user_id) AS canonical_user_id
 FROM (
   SELECT * FROM booker_attribution
   UNION ALL
@@ -2237,6 +2359,9 @@ LEFT JOIN public.users u ON u.user_id = pm.user_id;
 -- drop people who aren't currently managers.
 -- -----------------------------------------------------------------------------
 CREATE VIEW public.v_productivity_person_manager_stats AS
+-- Wrapped: folded by public.canonical_user_id so a person with duplicate Dynamics
+-- ids has one manager-stats row (counts summed across the ids).
+WITH base AS (
 WITH primary_counts AS (
   SELECT sales_lead_primary_id AS user_id, COUNT(*)::int AS primary_count
   FROM public.accounts
@@ -2256,7 +2381,16 @@ SELECT
   COALESCE(sc.secondary_count, 0) AS secondary_manager_account_count
 FROM public.users u
 LEFT JOIN primary_counts   pc ON pc.user_id = u.user_id
-LEFT JOIN secondary_counts sc ON sc.user_id = u.user_id;
+LEFT JOIN secondary_counts sc ON sc.user_id = u.user_id
+)
+SELECT
+  public.canonical_user_id(b.user_id) AS user_id,
+  cu.display_name,
+  SUM(b.primary_manager_account_count)::int   AS primary_manager_account_count,
+  SUM(b.secondary_manager_account_count)::int AS secondary_manager_account_count
+FROM base b
+JOIN public.users cu ON cu.user_id = public.canonical_user_id(b.user_id)
+GROUP BY public.canonical_user_id(b.user_id), cu.display_name;
 
 
 -- -----------------------------------------------------------------------------
@@ -2333,7 +2467,12 @@ SELECT
     ELSE 'Unknown'::text
   END AS region_bucket,
   (m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
-   AND m.meeting_date <= now()) AS is_ltm
+   AND m.meeting_date <= now()) AS is_ltm,
+  -- Unique per-row id. Appended last (Postgres forbids reordering existing view
+  -- columns under CREATE OR REPLACE). The institution-style page paginates this
+  -- view; meeting_id gives its fetch a stable unique total order so no row is
+  -- dropped/duplicated across 1000-row page boundaries.
+  m.meeting_id
 FROM public.meetings m
 JOIN inst_id i ON i.institution_name = m.institution_name
 LEFT JOIN public.accounts a
@@ -2528,6 +2667,9 @@ GROUP BY 1, 2, 3;
 -- columns equal v_person_role_ttm.booked_ttm / hosted_ttm by construction.
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW public.v_person_activity_windows AS
+-- Wrapped: inner `base` counts per raw user_id; outer folds duplicate Dynamics
+-- ids into one person via public.canonical_user_id (see public.user_id_aliases).
+WITH base AS (
 WITH active_users AS (
   SELECT DISTINCT booker_id AS user_id
   FROM public.meetings
@@ -2568,7 +2710,18 @@ LEFT JOIN public.meetings m
 WHERE u.display_name IS NOT NULL
   AND u.display_name != 'CRM Administration'
   AND u.display_name NOT LIKE '#%'
-GROUP BY au.user_id, u.display_name;
+GROUP BY au.user_id, u.display_name
+)
+SELECT
+  public.canonical_user_id(b.user_id) AS user_id,
+  cu.display_name,
+  SUM(b.booked_30d)::int AS booked_30d,
+  SUM(b.hosted_30d)::int AS hosted_30d,
+  SUM(b.booked_1y)::int  AS booked_1y,
+  SUM(b.hosted_1y)::int  AS hosted_1y
+FROM base b
+JOIN public.users cu ON cu.user_id = public.canonical_user_id(b.user_id)
+GROUP BY public.canonical_user_id(b.user_id), cu.display_name;
 
 
 -- -----------------------------------------------------------------------------
@@ -2597,6 +2750,11 @@ GROUP BY au.user_id, u.display_name;
 -- spans 24 months so prior-year-only hosts still contribute to the firm-wide
 -- prior total (they fall out of the chart via the <25 assigned_1y filter).
 CREATE OR REPLACE VIEW public.v_person_feedback_windows AS
+-- Wrapped: inner `base` counts per raw host user_id; outer folds duplicate
+-- Dynamics ids into one person via public.canonical_user_id (see
+-- public.user_id_aliases). Firm-wide sums are unchanged (sum is associative);
+-- only per-person rows for the curated duplicates collapse.
+WITH base AS (
 WITH active_hosts AS (
   SELECT DISTINCT host_id AS user_id
   FROM public.meetings
@@ -2648,4 +2806,17 @@ LEFT JOIN public.meetings m
 WHERE u.display_name IS NOT NULL
   AND u.display_name != 'CRM Administration'
   AND u.display_name NOT LIKE '#%'
-GROUP BY ah.user_id, u.display_name;
+GROUP BY ah.user_id, u.display_name
+)
+SELECT
+  public.canonical_user_id(b.user_id) AS user_id,
+  cu.display_name,
+  SUM(b.assigned_30d)::int      AS assigned_30d,
+  SUM(b.collected_30d)::int     AS collected_30d,
+  SUM(b.assigned_1y)::int       AS assigned_1y,
+  SUM(b.collected_1y)::int      AS collected_1y,
+  SUM(b.assigned_prev_1y)::int  AS assigned_prev_1y,
+  SUM(b.collected_prev_1y)::int AS collected_prev_1y
+FROM base b
+JOIN public.users cu ON cu.user_id = public.canonical_user_id(b.user_id)
+GROUP BY public.canonical_user_id(b.user_id), cu.display_name;

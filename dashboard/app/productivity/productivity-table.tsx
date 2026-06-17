@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/table"
 import { SortHeader } from "@/components/sort-header"
 import { CARD_CLASS } from "@/lib/design"
-import { formatPercent } from "@/lib/format"
+import { formatPercent0 } from "@/lib/format"
 import type { PersonRole, ProductivityRoleRow } from "@/lib/types"
 import { ROLE_STYLES } from "@/lib/person-role"
 
@@ -244,7 +244,7 @@ const columns: ColumnDef<ProductivityRoleRow>[] = [
     ),
     cell: ({ row }) => (
       <div className="text-right tabular-nums">
-        {formatPercent(row.original.feedback_rate)}
+        {formatPercent0(row.original.feedback_rate)}
       </div>
     ),
   },

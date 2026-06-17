@@ -35,11 +35,22 @@ function ymdUtc(d: Date): string {
 function defaultRange(): { from: string; to: string } {
   // Trailing 12 *calendar* months ending today — matches the canonical booked
   // LTM window (interval '12 months', not 365 days) used by the SQL views, so
-  // the default-range booked figure lines up with the other pages. The upper
-  // bound is today (date-granular), so future meetings are excluded; a sub-day
-  // boundary difference vs the views' now() timestamp is accepted by design
-  // rather than fragmenting this adjustable range tool.
-  const today = new Date()
+  // the default-range booked figure lines up with the other pages.
+  //
+  // The basis is the Eastern-time calendar date, matching the SQL views'
+  // (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'. Using
+  // UTC here made the lower bound land a day late in the evening (ET) — once UTC
+  // has rolled to the next day while ET hasn't — which dropped a meeting sitting
+  // exactly on the 12-month boundary from the Summary while Detail / Statistics
+  // (ET-based) still counted it. Anchoring to the ET date keeps "today minus 12
+  // months" identical across all surfaces.
+  const etYmd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date()) // "YYYY-MM-DD" in Eastern time
+  const today = new Date(`${etYmd}T00:00:00Z`)
   const start = new Date(today)
   start.setUTCMonth(start.getUTCMonth() - 12)
   return { from: ymdUtc(start), to: ymdUtc(today) }
@@ -60,12 +71,21 @@ type SalaryActiveRow = {
 }
 
 function aggregate(rows: ProductivityPersonMeetingRow[]): ProductivityAggregateRow[] {
-  type HostFlags = { in_person: boolean; feedback: boolean }
+  // hostKeyed tracks deduped *events* (group meetings collapse to one) and is
+  // used ONLY for hosted / in-person / virtual counts. Feedback is counted
+  // separately, raw, below — see feedbackRaw / feedbackClosedRaw.
+  type HostFlags = { in_person: boolean }
   type Acc = {
     user_id: string
     display_name: string | null
     booked: number
     laborCost: number
+    // Raw feedback counts — NOT group-deduped. Feedback is owed per institution
+    // in attendance, so a 5-institution group meeting is 5 feedback items. Same
+    // collected ÷ closed definition as the detail / Statistics views; closed =
+    // 'Closed - All in' + 'Closed - No Feedback'.
+    feedbackRaw: number
+    feedbackClosedRaw: number
     hostKeyed: Map<string, HostFlags>
     /** (client_account_id, meeting_date) keys for group-meeting host rows
      *  whose attributed_cost has already been counted for this user. A group
@@ -77,13 +97,20 @@ function aggregate(rows: ProductivityPersonMeetingRow[]): ProductivityAggregateR
   const byUser = new Map<string, Acc>()
 
   for (const r of rows) {
-    let acc = byUser.get(r.user_id)
+    // Group by canonical identity so a person split across duplicate Dynamics
+    // ids collapses to one row. canonical_user_id is resolved in the SQL view
+    // (one source of truth); fall back to user_id if the column is absent
+    // (e.g. before the view migration is applied).
+    const cuid = r.canonical_user_id ?? r.user_id
+    let acc = byUser.get(cuid)
     if (!acc) {
       acc = {
-        user_id: r.user_id,
+        user_id: cuid,
         display_name: r.display_name,
         booked: 0,
         laborCost: 0,
+        feedbackRaw: 0,
+        feedbackClosedRaw: 0,
         hostKeyed: new Map(),
         groupHostCostSeen: new Set(),
       }
@@ -121,16 +148,27 @@ function aggregate(rows: ProductivityPersonMeetingRow[]): ProductivityAggregateR
 
     if (r.meeting_status_label !== "Confirmed") continue
 
+    // Feedback — counted RAW (per institution-level record, no group dedup).
+    // collected = 'Closed - All in'; closed = the resolved closed-feedback set
+    // ('Closed - All in' + 'Closed - No Feedback'). Same collected ÷ closed
+    // definition as the Client / Institution Detail and Statistics views;
+    // 'Awaiting Additional' and null/blank are excluded. Counting raw (not
+    // event-deduped) matches those views so all surfaces reconcile.
+    if (r.feedback_status_label === "Closed - All in") acc.feedbackRaw += 1
+    if (
+      r.feedback_status_label === "Closed - All in" ||
+      r.feedback_status_label === "Closed - No Feedback"
+    ) {
+      acc.feedbackClosedRaw += 1
+    }
+
+    // hosted / in-person / virtual — counted by deduped EVENT (a group meeting
+    // is one hosted event). Deliberately a different unit than feedback above.
     const key = r.group_meeting
       ? `g|${r.client_account_id ?? "NULL"}|${r.meeting_date}`
       : `m|${r.meeting_id}`
-    const existing = acc.hostKeyed.get(key)
-    const isFeedback = r.feedback_status_label === "Closed - All in"
-    if (existing) {
-      // Collapse: keep first row's in_person, OR feedback (any closed counts).
-      if (isFeedback) existing.feedback = true
-    } else {
-      acc.hostKeyed.set(key, { in_person: r.is_in_person, feedback: isFeedback })
+    if (!acc.hostKeyed.has(key)) {
+      acc.hostKeyed.set(key, { in_person: r.is_in_person })
     }
   }
 
@@ -138,13 +176,13 @@ function aggregate(rows: ProductivityPersonMeetingRow[]): ProductivityAggregateR
   for (const acc of byUser.values()) {
     let inPerson = 0
     let virtual = 0
-    let feedback = 0
     for (const v of acc.hostKeyed.values()) {
       if (v.in_person) inPerson += 1
       else virtual += 1
-      if (v.feedback) feedback += 1
     }
     const hosted = acc.hostKeyed.size
+    const feedback = acc.feedbackRaw
+    const feedbackClosed = acc.feedbackClosedRaw
     out.push({
       user_id: acc.user_id,
       display_name: acc.display_name,
@@ -155,7 +193,11 @@ function aggregate(rows: ProductivityPersonMeetingRow[]): ProductivityAggregateR
       in_person_hosted: inPerson,
       virtual_hosted: virtual,
       feedback,
-      feedback_rate: hosted > 0 ? feedback / hosted : null,
+      feedback_closed: feedbackClosed,
+      // collected ÷ closed (raw, not event-deduped) — matches Client /
+      // Institution Detail and Statistics. Null when there are no
+      // closed-feedback records (denominator 0).
+      feedback_rate: feedbackClosed > 0 ? feedback / feedbackClosed : null,
       labor_cost: acc.laborCost,
     })
   }
@@ -193,7 +235,15 @@ export default async function ProductivityPage({
       .select("*")
       .gte("meeting_date", from)
       .lte("meeting_date", to)
+      // Stable TOTAL order for pagination. v_productivity_person_meeting is
+      // booker_attribution UNION ALL host_attribution, so each meeting emits two
+      // rows sharing the same meeting_id — meeting_id alone is NOT unique, and
+      // ordering by it leaves ties whose order can differ between the separate
+      // range() queries, silently dropping/duplicating rows at page boundaries.
+      // (meeting_id, role) IS unique in this view, so adding role as a tiebreaker
+      // guarantees no row falls between or repeats across pages.
       .order("meeting_id", { ascending: true })
+      .order("role", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1)
 
     if (error) {
@@ -302,6 +352,7 @@ export default async function ProductivityPage({
       in_person_hosted: 0,
       virtual_hosted: 0,
       feedback: 0,
+      feedback_closed: 0,
       feedback_rate: null,
       labor_cost: info.manager_cost,
     })

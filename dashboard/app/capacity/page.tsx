@@ -90,7 +90,10 @@ function aggregateMeetings(
     // (matches the Assumptions panel's "Confirmed meetings only").
     if (r.meeting_status_label !== "Confirmed") continue
 
-    let acc = byUser.get(r.user_id)
+    // Group by canonical identity (folds duplicate Dynamics ids for one person);
+    // resolved in the SQL view. Fall back to user_id pre-migration.
+    const cuid = r.canonical_user_id ?? r.user_id
+    let acc = byUser.get(cuid)
     if (!acc) {
       acc = {
         display_name: r.display_name,
@@ -98,7 +101,7 @@ function aggregateMeetings(
         booked_live: 0,
         hostKeyed: new Map(),
       }
-      byUser.set(r.user_id, acc)
+      byUser.set(cuid, acc)
     }
     if (acc.display_name == null && r.display_name != null) {
       acc.display_name = r.display_name
@@ -152,7 +155,13 @@ export default async function CapacityPage({
       .select("*")
       .gte("meeting_date", from)
       .lte("meeting_date", to)
+      // Stable TOTAL order for pagination. v_productivity_person_meeting emits
+      // two rows per meeting (booker + host) sharing meeting_id, so meeting_id
+      // alone is not unique; (meeting_id, role) is. Without the role tiebreaker,
+      // ties can be ordered inconsistently across the separate range() queries,
+      // silently dropping/duplicating rows at page boundaries.
       .order("meeting_id", { ascending: true })
+      .order("role", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1)
 
     if (error) {

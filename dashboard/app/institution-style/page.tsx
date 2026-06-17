@@ -23,7 +23,12 @@ export default async function InstitutionStylePage() {
     const { data, error } = await sb
       .from("v_institution_style_meetings")
       .select("*")
+      // institution_name is not unique (many meetings per institution); add
+      // meeting_id (unique per row, added to the view for this purpose) as a
+      // tiebreaker so pagination has a stable total order and can't drop or
+      // duplicate rows across page boundaries.
       .order("institution_name", { ascending: true })
+      .order("meeting_id", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1)
 
     if (error) {

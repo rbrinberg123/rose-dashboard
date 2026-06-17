@@ -3,7 +3,7 @@
 import * as React from "react"
 import { ListTitleCard } from "@/components/page-masthead"
 import { StatCard } from "@/components/stat-card"
-import { formatDate, formatPercent } from "@/lib/format"
+import { formatDate, formatPercent, formatPercent0 } from "@/lib/format"
 import type { ProductivityRoleRow } from "@/lib/types"
 import { DateRangeControl } from "./date-range-control"
 import { ProductivityTable } from "./productivity-table"
@@ -24,12 +24,14 @@ export function ProductivityView({
     let hosted = 0
     let inPerson = 0
     let feedback = 0
+    let feedbackClosed = 0
     let active = 0
     for (const r of rows) {
       booked += r.booked
       hosted += r.hosted
       inPerson += r.in_person_hosted
       feedback += r.feedback
+      feedbackClosed += r.feedback_closed
       if (r.booked > 0 || r.hosted > 0) active += 1
     }
     return {
@@ -37,9 +39,11 @@ export function ProductivityView({
       hosted,
       inPerson,
       feedback,
+      feedbackClosed,
       active,
       inPersonShare: hosted > 0 ? inPerson / hosted : null,
-      feedbackRate: hosted > 0 ? feedback / hosted : null,
+      // collected ÷ closed — same definition as Client / Institution Detail.
+      feedbackRate: feedbackClosed > 0 ? feedback / feedbackClosed : null,
     }
   }, [rows])
 
@@ -70,8 +74,8 @@ export function ProductivityView({
         <StatCard
           floating
           label="Feedback rate"
-          value={formatPercent(summary.feedbackRate)}
-          hint="feedback ÷ hosted"
+          value={formatPercent0(summary.feedbackRate)}
+          hint={`${summary.feedback.toLocaleString()} of ${summary.feedbackClosed.toLocaleString()} closed`}
         />
         <StatCard
           floating

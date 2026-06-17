@@ -20,7 +20,11 @@ export default async function SchedulerPage() {
     const { data, error } = await sb
       .from("v_scheduler_meetings")
       .select("*")
+      // meeting_day is not unique (many meetings per day); add meeting_id (one
+      // row per meeting in this view) as a tiebreaker so pagination has a stable
+      // total order and can't drop/duplicate rows across page boundaries.
       .order("meeting_day", { ascending: true })
+      .order("meeting_id", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1)
 
     if (error) {

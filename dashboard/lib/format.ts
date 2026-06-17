@@ -42,6 +42,21 @@ export function formatPercent(value: number | null | undefined): string {
   return pct1.format(value)
 }
 
+const pct0 = new Intl.NumberFormat("en-US", {
+  style: "percent",
+  maximumFractionDigits: 0,
+})
+
+/**
+ * Accepts a fraction (0.956 → "96%") — integer percent. Used for the feedback
+ * rate so Productivity Summary / Detail and Statistics render it identically
+ * (all integer %, no surface showing an extra decimal).
+ */
+export function formatPercent0(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "—"
+  return pct0.format(value)
+}
+
 /** "Apr 29, 2026" — for table cells and labels. */
 export function formatDate(value: string | Date | null | undefined): string {
   if (!value) return "—"

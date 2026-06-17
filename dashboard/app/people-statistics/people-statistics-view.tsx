@@ -1101,7 +1101,7 @@ function FeedbackByPersonCard({ feedback }: { feedback: PersonFeedbackWindowsRow
               Feedback by Person
             </div>
             <div className="text-xs" style={{ color: TEXT_MUTED }}>
-              Completion = “Closed - All in” ÷ resolved assignments (Closed - All in +
+              Completion = “Closed - All in” ÷ closed feedback (Closed - All in +
               Closed - No Feedback) · host-attributed · ≥{FEEDBACK_MIN_ASSIGNED} in{" "}
               {window === "1y" ? "last 12 months" : "last 30 days"}
             </div>
@@ -1122,7 +1122,7 @@ function FeedbackByPersonCard({ feedback }: { feedback: PersonFeedbackWindowsRow
           className="flex h-[120px] items-center justify-center text-center text-sm"
           style={{ color: TEXT_MUTED }}
         >
-          No one with ≥{FEEDBACK_MIN_ASSIGNED} feedback assignments in this window.
+          No one with ≥{FEEDBACK_MIN_ASSIGNED} closed feedback in this window.
         </div>
       ) : (
         <div>
@@ -1140,9 +1140,9 @@ function FeedbackByPersonCard({ feedback }: { feedback: PersonFeedbackWindowsRow
       {/* Legend */}
       <div className="mt-4 flex flex-wrap items-center gap-4 text-xs" style={{ color: TEXT_MUTED }}>
         <LegendItem swatch={FEEDBACK_GREEN} label="Collected" />
-        <LegendItem swatch="#E3E6EC" label="Assigned (not collected)" />
+        <LegendItem swatch="#E3E6EC" label="Closed (not collected)" />
         <span className="flex items-center gap-1.5">
-          bar length ∝ assignments · green ∝ completion
+          bar length ∝ closed · green ∝ completion
         </span>
       </div>
     </div>

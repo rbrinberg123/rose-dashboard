@@ -21,7 +21,12 @@ export default async function FeedbackPage() {
     const { data, error } = await sb
       .from("v_feedback_outstanding")
       .select("*")
+      // days_since is not unique (many meetings share a day count); add
+      // meeting_id (one row per meeting in this view) as a tiebreaker so
+      // pagination has a stable total order and can't drop/duplicate rows
+      // across page boundaries.
       .order("days_since", { ascending: false })
+      .order("meeting_id", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1)
 
     if (error) {

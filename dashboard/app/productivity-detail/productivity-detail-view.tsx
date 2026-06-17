@@ -298,7 +298,9 @@ export function ProductivityDetailView({
     {
       label: "Feedback Rec'd",
       value: feedbackPctText,
-      hint: "Of hosted meetings",
+      // feedback_closed_12m is a newer view column; tolerate its absence until
+      // the v_productivity_detail_summary migration is applied (see sql/03_views.sql).
+      hint: `${selected.feedback_collected_12m.toLocaleString()} of ${(selected.feedback_closed_12m ?? 0).toLocaleString()} closed`,
       valueColor: TEAL,
       sparkline:
         feedbackPctNum != null ? (
@@ -489,7 +491,7 @@ export function ProductivityDetailView({
               Feedback Collection
             </div>
             <div className="text-xs text-muted-foreground">
-              % of hosted meetings with feedback collected
+              Collected ÷ closed feedback
             </div>
           </div>
           <div>

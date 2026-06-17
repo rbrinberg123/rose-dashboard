@@ -172,6 +172,9 @@ export type AnalystActivityRow = {
 
 export type ProductivityPersonMeetingRow = {
   user_id: string
+  // Canonical identity (folds duplicate Dynamics ids for the same person via
+  // public.canonical_user_id). Group per-person aggregates by THIS, not user_id.
+  canonical_user_id: string
   display_name: string | null
   meeting_id: string
   meeting_date: string
@@ -194,6 +197,12 @@ export type ProductivityAggregateRow = {
   in_person_hosted: number
   virtual_hosted: number
   feedback: number
+  // Confirmed host feedback records whose feedback reached a closed status
+  // (feedback_status_label IN 'Closed - All in', 'Closed - No Feedback') —
+  // the denominator of feedback_rate. Counted RAW (per institution-level
+  // record, not group-deduped), matching the Client / Institution Detail and
+  // Statistics views (ltm_feedback_total_closed / assigned).
+  feedback_closed: number
   feedback_rate: number | null
   labor_cost: number
 }
@@ -382,6 +391,7 @@ export type ProductivityDetailRow = {
   meetings_hosted_12m: number
   meetings_in_person_12m: number
   feedback_collected_12m: number
+  feedback_closed_12m: number
   feedback_collection_rate_12m: number | null
   active_clients_as_sales_lead: number
   sales_lead_book_annualized: number
@@ -405,6 +415,7 @@ export type AnalystMonthlyActivityRow = {
   meetings_in_person: number
   meetings_virtual: number
   feedback_collected: number
+  feedback_closed: number
   feedback_collection_rate: number | null
 }
 
@@ -667,6 +678,7 @@ export type InstitutionStyleMeetingRow = {
   sector_bucket: string
   region_bucket: string
   is_ltm: boolean
+  meeting_id: string
 }
 
 /** Minimal active-client record for the Institution Style client picker. */
