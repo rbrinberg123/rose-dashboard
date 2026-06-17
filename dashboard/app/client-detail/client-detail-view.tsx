@@ -88,6 +88,12 @@ function safeParseDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
+/** True when the date is after right now — i.e. a scheduled/upcoming meeting. */
+function isFutureDate(value: string | null | undefined): boolean {
+  const d = safeParseDate(value)
+  return d ? d.getTime() > Date.now() : false
+}
+
 function formatMonthYear(value: string | null | undefined): string {
   const d = safeParseDate(value)
   return d ? format(d, "MMM yyyy") : "—"
@@ -341,7 +347,7 @@ export function ClientDetailView({
   }
   const tiles: Tile[] = [
     {
-      label: "Meetings (LTM)",
+      label: "Meetings (LTM / All-time)",
       value: `${selected.ltm_meetings.toLocaleString()} / ${selected.lifetime_meetings.toLocaleString()}`,
       hint: <span style={{ color: deltaColor }}>{deltaText}</span>,
       sparkline: <Sparkline values={quarterly.map((q) => q.total)} color={NAVY_DEEP} />,
@@ -412,6 +418,11 @@ export function ClientDetailView({
   }))
   const reachTotal = reachRows.reduce((sum, r) => sum + r.count, 0)
   const reachMax = Math.max(1, ...reachRows.map((r) => r.count))
+
+  // Any top-institution whose most-recent meeting is in the future (scheduled).
+  const hasScheduledInstitution = topInstitutions.some((i) =>
+    isFutureDate(i.last_met),
+  )
 
   // Institutions grouped by reach-depth bucket (same boundaries as the view),
   // for the drawer. Already ordered by the query (last_met desc, then name).
@@ -837,7 +848,7 @@ export function ClientDetailView({
               Meetings by Quarter
             </CardTitle>
             <div className="text-xs text-muted-foreground">
-              Last 8 quarters · stacked: virtual + live
+              Lifetime · 8 quarters · stacked: virtual + live
             </div>
           </div>
           <div className="flex items-center gap-3 text-xs">
@@ -918,7 +929,7 @@ export function ClientDetailView({
             No confirmed meetings on record.
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 items-start gap-x-6 gap-y-4 lg:grid-cols-2">
             {[topInstitutions.slice(0, 10), topInstitutions.slice(10, 20)].map(
               (rows, colIdx) =>
                 rows.length === 0 ? null : (
@@ -962,6 +973,15 @@ export function ClientDetailView({
                           </td>
                           <td className="px-2 py-2 text-right text-muted-foreground">
                             {formatMonthYear(row.last_met)}
+                            {isFutureDate(row.last_met) ? (
+                              <span
+                                className="font-semibold text-[#1C8C9C]"
+                                title="Scheduled (upcoming) meeting"
+                              >
+                                {" "}
+                                *
+                              </span>
+                            ) : null}
                           </td>
                         </tr>
                       ))}
@@ -971,6 +991,12 @@ export function ClientDetailView({
             )}
           </div>
         )}
+        {hasScheduledInstitution ? (
+          <div className="mt-3 text-xs text-muted-foreground">
+            <span className="font-semibold text-[#1C8C9C]">*</span> scheduled
+            (upcoming) meeting
+          </div>
+        ) : null}
       </div>
 
       {/* Section 6: Reach Depth + Top Hosts side by side */}

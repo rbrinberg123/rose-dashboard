@@ -822,11 +822,13 @@ WITH user_universe AS (
   FROM public.meetings
   WHERE booker_id IS NOT NULL
     AND meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    AND meeting_date <= now()
   UNION
   SELECT DISTINCT host_id
   FROM public.meetings
   WHERE host_id IS NOT NULL
     AND meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    AND meeting_date <= now()
   UNION
   SELECT DISTINCT u.user_id
   FROM public.users u
@@ -839,22 +841,26 @@ meeting_stats AS (
     COUNT(*) FILTER (
       WHERE m.booker_id = uu.user_id
         AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
         AND m.meeting_status_label != 'Cancelled'
     )::int AS meetings_scheduled_12m,
     COUNT(*) FILTER (
       WHERE m.host_id = uu.user_id
         AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
         AND m.meeting_status_label != 'Cancelled'
     )::int AS meetings_hosted_12m,
     COUNT(*) FILTER (
       WHERE m.host_id = uu.user_id
         AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
         AND m.meeting_status_label != 'Cancelled'
         AND m.is_in_person = true
     )::int AS meetings_in_person_12m,
     COUNT(*) FILTER (
       WHERE m.host_id = uu.user_id
         AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
         AND m.meeting_status_label != 'Cancelled'
         AND m.feedback_status_label = 'Closed - All in'
     )::int AS feedback_collected_12m
@@ -913,12 +919,14 @@ WITH user_universe AS (
   WHERE booker_id IS NOT NULL
     AND meeting_status_label = 'Confirmed'
     AND meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+    AND meeting_date <= now()
   UNION
   SELECT DISTINCT host_id
   FROM public.meetings
   WHERE host_id IS NOT NULL
     AND meeting_status_label = 'Confirmed'
     AND meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+    AND meeting_date <= now()
 )
 SELECT
   uu.user_id,
@@ -926,22 +934,26 @@ SELECT
     WHERE m.booker_id = uu.user_id
       AND m.meeting_status_label = 'Confirmed'
       AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+      AND m.meeting_date <= now()
   )::int AS booked_ttm,
   COUNT(*) FILTER (
     WHERE m.host_id = uu.user_id
       AND m.meeting_status_label = 'Confirmed'
       AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+      AND m.meeting_date <= now()
   )::int AS hosted_ttm,
   (
     COUNT(*) FILTER (
       WHERE m.booker_id = uu.user_id
         AND m.meeting_status_label = 'Confirmed'
         AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+        AND m.meeting_date <= now()
     )
     + COUNT(*) FILTER (
       WHERE m.host_id = uu.user_id
         AND m.meeting_status_label = 'Confirmed'
         AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+        AND m.meeting_date <= now()
     )
   )::int AS total_ttm
 FROM user_universe uu
@@ -976,6 +988,7 @@ month_universe AS (
   JOIN user_ids_by_name n
     ON m.booker_id = ANY(n.user_ids) OR m.host_id = ANY(n.user_ids)
   WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    AND m.meeting_date <= now()
 )
 SELECT
   mu.display_name,
@@ -1012,6 +1025,7 @@ LEFT JOIN public.meetings m
   AND EXTRACT(YEAR FROM m.meeting_date)::int = mu.period_year
   AND EXTRACT(MONTH FROM m.meeting_date)::int = mu.period_month
   AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+  AND m.meeting_date <= now()
 GROUP BY mu.display_name, mu.period_year, mu.period_month;
 
 
@@ -1040,6 +1054,7 @@ WITH recent_meetings AS (
     meeting_date
   FROM public.meetings
   WHERE meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    AND meeting_date <= now()
     AND institution_name IS NOT NULL
 ),
 booked AS (
@@ -1166,6 +1181,7 @@ meeting_agg AS (
     COUNT(*)::int AS lifetime_meetings,
     COUNT(*) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_meetings,
     COUNT(*) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '24 months'
@@ -1173,17 +1189,21 @@ meeting_agg AS (
     )::int AS prior_12mo_meetings,
     COUNT(DISTINCT m.institution_name) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_unique_institutions,
     COUNT(DISTINCT NULLIF(COALESCE(m.investor_text, ''), '')) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_unique_investors,
     COUNT(*) FILTER (
       WHERE m.feedback_status_label = 'Closed - All in'
         AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_feedback_collected,
     COUNT(*) FILTER (
       WHERE m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
         AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_feedback_total_closed,
     MIN(m.meeting_date)::date AS client_since
   FROM public.meetings m
@@ -1273,6 +1293,7 @@ FROM public.meetings m
 WHERE m.meeting_status_label = 'Confirmed'
   AND m.client_account_id IS NOT NULL
   AND m.meeting_date >= date_trunc('quarter', CURRENT_DATE) - INTERVAL '21 months'
+  AND m.meeting_date <= now()
 GROUP BY 1, 2, 3, 4;
 
 
@@ -1290,9 +1311,10 @@ WITH inst_counts AS (
     COUNT(*)::int AS lifetime_count,
     COUNT(*) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_count,
     MIN(m.meeting_date)::date AS first_met,
-    MAX(m.meeting_date)::date AS last_met
+    (MAX(m.meeting_date) FILTER (WHERE m.meeting_date <= now()))::date AS last_met
   FROM public.meetings m
   WHERE m.meeting_status_label = 'Confirmed'
     AND m.client_account_id IS NOT NULL
@@ -1385,9 +1407,10 @@ WITH inst_counts AS (
     COUNT(*)::int AS lifetime_count,
     COUNT(*) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_count,
     MIN(m.meeting_date)::date AS first_met,
-    MAX(m.meeting_date)::date AS last_met
+    (MAX(m.meeting_date) FILTER (WHERE m.meeting_date <= now()))::date AS last_met
   FROM public.meetings m
   WHERE m.meeting_status_label = 'Confirmed'
     AND m.client_account_id IS NOT NULL
@@ -1430,6 +1453,7 @@ WITH host_counts AS (
     AND m.host_name IS NOT NULL
     AND m.host_name <> 'CRM Administration'
     AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    AND m.meeting_date <= now()
   GROUP BY m.client_account_id, m.host_name
 ),
 ranked AS (
@@ -1659,6 +1683,7 @@ WITH agg AS (
     COUNT(*)::int AS lifetime_meetings,
     COUNT(*) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_meetings,
     COUNT(*) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '24 months'
@@ -1668,7 +1693,7 @@ WITH agg AS (
     COUNT(DISTINCT NULLIF(COALESCE(m.investor_text, ''), ''))::int
       AS unique_people_lifetime,
     MIN(m.meeting_date)::date AS first_met,
-    MAX(m.meeting_date)::date AS last_met
+    (MAX(m.meeting_date) FILTER (WHERE m.meeting_date <= now()))::date AS last_met
   FROM public.meetings m
   WHERE m.meeting_status_label = 'Confirmed'
     AND m.institution_name IS NOT NULL
@@ -1706,6 +1731,7 @@ WITH agg AS (
     COUNT(*)::int AS lifetime_meetings,
     COUNT(*) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_meetings,
     COUNT(*) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '24 months'
@@ -1714,22 +1740,26 @@ WITH agg AS (
     COUNT(DISTINCT m.client_account_id)::int AS lifetime_clients,
     COUNT(DISTINCT m.client_account_id) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_clients,
     COUNT(DISTINCT NULLIF(COALESCE(m.investor_text, ''), ''))::int
       AS lifetime_people,
     COUNT(DISTINCT NULLIF(COALESCE(m.investor_text, ''), '')) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_people,
     COUNT(*) FILTER (
       WHERE m.feedback_status_label = 'Closed - All in'
         AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_feedback_collected,
     COUNT(*) FILTER (
       WHERE m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
         AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_feedback_total_closed,
     MIN(m.meeting_date)::date AS first_met,
-    MAX(m.meeting_date)::date AS last_met
+    (MAX(m.meeting_date) FILTER (WHERE m.meeting_date <= now()))::date AS last_met
   FROM public.meetings m
   WHERE m.meeting_status_label = 'Confirmed'
     AND m.institution_name IS NOT NULL
@@ -1747,6 +1777,7 @@ ranked_recent AS (
   FROM public.meetings m
   WHERE m.meeting_status_label = 'Confirmed'
     AND m.institution_name IS NOT NULL
+    AND m.meeting_date <= now()
 ),
 last_met_info AS (
   SELECT
@@ -1814,6 +1845,7 @@ JOIN inst_id i ON i.institution_name = m.institution_name
 WHERE m.meeting_status_label = 'Confirmed'
   AND m.institution_name IS NOT NULL
   AND m.meeting_date >= date_trunc('quarter', CURRENT_DATE) - INTERVAL '21 months'
+  AND m.meeting_date <= now()
 GROUP BY i.institution_id, 2, 3, 4;
 
 
@@ -1840,8 +1872,9 @@ client_counts AS (
     COUNT(*)::int AS lifetime_count,
     COUNT(*) FILTER (
       WHERE m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date <= now()
     )::int AS ltm_count,
-    MAX(m.meeting_date)::date AS last_met
+    (MAX(m.meeting_date) FILTER (WHERE m.meeting_date <= now()))::date AS last_met
   FROM public.meetings m
   JOIN inst_id i ON i.institution_name = m.institution_name
   WHERE m.meeting_status_label = 'Confirmed'
@@ -2030,6 +2063,7 @@ host_counts AS (
     AND m.host_name IS NOT NULL
     AND m.host_name <> 'CRM Administration'
     AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+    AND m.meeting_date <= now()
   GROUP BY i.institution_id, m.host_name
 ),
 ranked AS (
@@ -2298,7 +2332,8 @@ SELECT
     ]) THEN 'APAC'::text
     ELSE 'Unknown'::text
   END AS region_bucket,
-  (m.meeting_date >= CURRENT_DATE - INTERVAL '12 months') AS is_ltm
+  (m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+   AND m.meeting_date <= now()) AS is_ltm
 FROM public.meetings m
 JOIN inst_id i ON i.institution_name = m.institution_name
 LEFT JOIN public.accounts a
@@ -2478,6 +2513,7 @@ FROM public.meetings m
 WHERE m.meeting_status_label = 'Confirmed'
   AND m.meeting_date IS NOT NULL
   AND m.meeting_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '47 months'
+  AND m.meeting_date <= now()
 GROUP BY 1, 2, 3;
 
 
@@ -2498,12 +2534,14 @@ WITH active_users AS (
   WHERE booker_id IS NOT NULL
     AND meeting_status_label = 'Confirmed'
     AND meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+    AND meeting_date <= now()
   UNION
   SELECT DISTINCT host_id
   FROM public.meetings
   WHERE host_id IS NOT NULL
     AND meeting_status_label = 'Confirmed'
     AND meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+    AND meeting_date <= now()
 )
 SELECT
   au.user_id,
@@ -2511,10 +2549,12 @@ SELECT
   COUNT(*) FILTER (
     WHERE m.booker_id = au.user_id
       AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '30 days'
+      AND m.meeting_date <= now()
   )::int AS booked_30d,
   COUNT(*) FILTER (
     WHERE m.host_id = au.user_id
       AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '30 days'
+      AND m.meeting_date <= now()
   )::int AS hosted_30d,
   COUNT(*) FILTER (WHERE m.booker_id = au.user_id)::int AS booked_1y,
   COUNT(*) FILTER (WHERE m.host_id  = au.user_id)::int AS hosted_1y
@@ -2524,6 +2564,7 @@ LEFT JOIN public.meetings m
   ON (m.booker_id = au.user_id OR m.host_id = au.user_id)
   AND m.meeting_status_label = 'Confirmed'
   AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+  AND m.meeting_date <= now()
 WHERE u.display_name IS NOT NULL
   AND u.display_name != 'CRM Administration'
   AND u.display_name NOT LIKE '#%'
@@ -2562,6 +2603,7 @@ WITH active_hosts AS (
   WHERE host_id IS NOT NULL
     AND meeting_status_label = 'Confirmed'
     AND meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '24 months'
+    AND meeting_date <= now()
 )
 SELECT
   ah.user_id,
@@ -2569,18 +2611,22 @@ SELECT
   COUNT(*) FILTER (
     WHERE m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
       AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '30 days'
+      AND m.meeting_date <= now()
   )::int AS assigned_30d,
   COUNT(*) FILTER (
     WHERE m.feedback_status_label = 'Closed - All in'
       AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '30 days'
+      AND m.meeting_date <= now()
   )::int AS collected_30d,
   COUNT(*) FILTER (
     WHERE m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
       AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+      AND m.meeting_date <= now()
   )::int AS assigned_1y,
   COUNT(*) FILTER (
     WHERE m.feedback_status_label = 'Closed - All in'
       AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
+      AND m.meeting_date <= now()
   )::int AS collected_1y,
   COUNT(*) FILTER (
     WHERE m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
@@ -2598,6 +2644,7 @@ LEFT JOIN public.meetings m
   ON m.host_id = ah.user_id
   AND m.meeting_status_label = 'Confirmed'
   AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '24 months'
+  AND m.meeting_date <= now()
 WHERE u.display_name IS NOT NULL
   AND u.display_name != 'CRM Administration'
   AND u.display_name NOT LIKE '#%'
