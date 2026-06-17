@@ -848,7 +848,7 @@ export function ClientDetailView({
               Meetings by Quarter
             </CardTitle>
             <div className="text-xs text-muted-foreground">
-              Lifetime · 8 quarters · stacked: virtual + live
+              Last 8 quarters · stacked: virtual + live
             </div>
           </div>
           <div className="flex items-center gap-3 text-xs">
