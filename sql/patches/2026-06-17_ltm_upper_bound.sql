@@ -19,6 +19,12 @@
 -- Source of truth: sql/03_views.sql
 -- =============================================================================
 
+-- NOTE: the live view predates the leading `user_id` column, so a bare
+-- CREATE OR REPLACE (which cannot insert/reorder columns) errors with
+-- "cannot change name of view column display_name to user_id". Drop it
+-- first — nothing else in the DB depends on it.
+DROP VIEW IF EXISTS public.v_productivity_detail_summary;
+
 CREATE OR REPLACE VIEW public.v_productivity_detail_summary AS
 WITH user_universe AS (
   SELECT DISTINCT booker_id AS user_id
