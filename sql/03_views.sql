@@ -840,28 +840,28 @@ meeting_stats AS (
     uu.user_id,
     COUNT(*) FILTER (
       WHERE m.booker_id = uu.user_id
-        AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
         AND m.meeting_date <= now()
-        AND m.meeting_status_label != 'Cancelled'
+        AND m.meeting_status_label = 'Confirmed'
     )::int AS meetings_scheduled_12m,
     COUNT(*) FILTER (
       WHERE m.host_id = uu.user_id
-        AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
         AND m.meeting_date <= now()
-        AND m.meeting_status_label != 'Cancelled'
+        AND m.meeting_status_label = 'Confirmed'
     )::int AS meetings_hosted_12m,
     COUNT(*) FILTER (
       WHERE m.host_id = uu.user_id
-        AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
         AND m.meeting_date <= now()
-        AND m.meeting_status_label != 'Cancelled'
+        AND m.meeting_status_label = 'Confirmed'
         AND m.is_in_person = true
     )::int AS meetings_in_person_12m,
     COUNT(*) FILTER (
       WHERE m.host_id = uu.user_id
-        AND m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+        AND m.meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
         AND m.meeting_date <= now()
-        AND m.meeting_status_label != 'Cancelled'
+        AND m.meeting_status_label = 'Confirmed'
         AND m.feedback_status_label = 'Closed - All in'
     )::int AS feedback_collected_12m
   FROM user_universe uu
@@ -1053,8 +1053,9 @@ WITH recent_meetings AS (
     institution_name,
     meeting_date
   FROM public.meetings
-  WHERE meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+  WHERE meeting_date >= (now() AT TIME ZONE 'America/New_York')::date - interval '12 months'
     AND meeting_date <= now()
+    AND meeting_status_label = 'Confirmed'
     AND institution_name IS NOT NULL
 ),
 booked AS (
@@ -1077,7 +1078,6 @@ hosted AS (
     COUNT(*)::int AS hosted_count
   FROM recent_meetings
   WHERE host_id IS NOT NULL
-    AND meeting_status_label != 'Cancelled'
   GROUP BY host_id, institution_name
 )
 SELECT

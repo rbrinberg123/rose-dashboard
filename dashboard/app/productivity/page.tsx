@@ -33,9 +33,15 @@ function ymdUtc(d: Date): string {
 }
 
 function defaultRange(): { from: string; to: string } {
+  // Trailing 12 *calendar* months ending today — matches the canonical booked
+  // LTM window (interval '12 months', not 365 days) used by the SQL views, so
+  // the default-range booked figure lines up with the other pages. The upper
+  // bound is today (date-granular), so future meetings are excluded; a sub-day
+  // boundary difference vs the views' now() timestamp is accepted by design
+  // rather than fragmenting this adjustable range tool.
   const today = new Date()
   const start = new Date(today)
-  start.setUTCDate(start.getUTCDate() - 365)
+  start.setUTCMonth(start.getUTCMonth() - 12)
   return { from: ymdUtc(start), to: ymdUtc(today) }
 }
 
@@ -104,7 +110,12 @@ function aggregate(rows: ProductivityPersonMeetingRow[]): ProductivityAggregateR
     }
 
     if (r.role === "booker") {
-      acc.booked += 1
+      // Booked counts Confirmed meetings only — a Cancelled meeting wasn't
+      // really booked. NB the labor-cost accumulation above runs regardless of
+      // status (cost accrues even on cancelled meetings), so we gate the count
+      // here, not the view. Keep the `continue`: booker rows must not fall into
+      // the host-dedup logic below.
+      if (r.meeting_status_label === "Confirmed") acc.booked += 1
       continue
     }
 

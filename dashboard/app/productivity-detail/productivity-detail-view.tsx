@@ -271,7 +271,7 @@ export function ProductivityDetailView({
     sparkline?: React.ReactNode
   }> = [
     {
-      label: "Scheduled",
+      label: "Booked",
       value: selected.meetings_scheduled_12m.toLocaleString(),
       hint: "As booker",
       valueColor: "#0154A6",
@@ -371,7 +371,7 @@ export function ProductivityDetailView({
         <div className={`p-5 ${CARD_CLASS}`}>
           <div className="mb-3">
             <div className="text-sm font-medium" style={{ color: NAVY }}>
-              Meetings Scheduled
+              Meetings Booked
             </div>
             <div className="text-xs text-muted-foreground">
               Booked by this person

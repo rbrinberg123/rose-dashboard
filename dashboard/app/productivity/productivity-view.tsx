@@ -20,20 +20,20 @@ export function ProductivityView({
   // Firm-wide totals for the selected range — recomputed whenever the
   // in-range rows change (i.e. when the date range is changed).
   const summary = React.useMemo(() => {
-    let scheduled = 0
+    let booked = 0
     let hosted = 0
     let inPerson = 0
     let feedback = 0
     let active = 0
     for (const r of rows) {
-      scheduled += r.booked
+      booked += r.booked
       hosted += r.hosted
       inPerson += r.in_person_hosted
       feedback += r.feedback
       if (r.booked > 0 || r.hosted > 0) active += 1
     }
     return {
-      scheduled,
+      booked,
       hosted,
       inPerson,
       feedback,
@@ -57,8 +57,8 @@ export function ProductivityView({
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
           floating
-          label="Meetings scheduled"
-          value={summary.scheduled.toLocaleString()}
+          label="Meetings booked"
+          value={summary.booked.toLocaleString()}
         />
         <StatCard floating label="Hosted" value={summary.hosted.toLocaleString()} />
         <StatCard
