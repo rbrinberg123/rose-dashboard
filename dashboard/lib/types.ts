@@ -372,6 +372,17 @@ export type ClientPortfolioRow = {
   last_event_date: string | null
   last_note_date: string | null
   account_state: string | null
+  // Contract fields. Not exposed by v_client_portfolio; merged in page-side from
+  // v_contract_management, keyed by account_id. Mirrors the Contract tab's source.
+  // has_active_contract / total_contract_count drive the DaysLeftPill's
+  // Terminated-vs-No-contract distinction; null when the client has no row in
+  // v_contract_management at all.
+  initial_term_end: string | null
+  days_to_expiry: number | null
+  auto_renew: boolean | null
+  contract_status_label: string | null
+  has_active_contract: boolean | null
+  total_contract_count: number | null
 }
 
 export type ClientStatisticsRow = {

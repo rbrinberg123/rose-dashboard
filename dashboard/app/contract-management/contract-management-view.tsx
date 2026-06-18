@@ -7,6 +7,7 @@ import { ListTitleCard } from "@/components/page-masthead"
 import { StatCard } from "@/components/stat-card"
 import { CARD_CLASS } from "@/lib/design"
 import { formatCurrency, formatDate } from "@/lib/format"
+import { DaysLeftPill, AutoRenewFlag } from "@/components/contract-fields"
 import type { ContractManagementRow } from "@/lib/types"
 
 const NAVY = "#1E2858"
@@ -29,46 +30,6 @@ function daysFromToday(dateStr: string | null): number | null {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   return Math.round((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-}
-
-function DaysLeftPill({
-  days,
-  hasContract,
-  totalContractCount,
-}: {
-  days: number | null
-  hasContract: boolean
-  totalContractCount: number
-}) {
-  if (days === null) {
-    const label =
-      !hasContract && totalContractCount > 0 ? "Terminated" : "No contract"
-    return (
-      <span
-        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-        style={{ backgroundColor: GRAY_BG, color: GRAY_FG }}
-      >
-        {label}
-      </span>
-    )
-  }
-  let bg = GREEN_BG
-  let fg = GREEN
-  if (days < 30) {
-    bg = RED_BG
-    fg = RED
-  } else if (days < 90) {
-    bg = AMBER_BG
-    fg = AMBER
-  }
-  return (
-    <span
-      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium tabular-nums"
-      style={{ backgroundColor: bg, color: fg }}
-    >
-      {days} d
-    </span>
-  )
 }
 
 export function ContractManagementView({
@@ -363,19 +324,7 @@ export function ContractManagementView({
                           : formatDate(r.renewal_check_in_date)}
                       </td>
                       <td className="px-3 py-2 text-center text-base">
-                        {inactive ? (
-                          <span className="text-sm text-muted-foreground">
-                            —
-                          </span>
-                        ) : r.auto_renew === true ? (
-                          <span style={{ color: GREEN }}>●</span>
-                        ) : r.auto_renew === false ? (
-                          <span style={{ color: RED }}>○</span>
-                        ) : (
-                          <span className="text-sm text-muted-foreground">
-                            —
-                          </span>
-                        )}
+                        <AutoRenewFlag value={inactive ? null : r.auto_renew} />
                       </td>
                       <td className="px-3 py-2 text-left">
                         {inactive

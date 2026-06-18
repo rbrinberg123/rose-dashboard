@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { format, parseISO } from "date-fns"
-import { ArrowUpDown, ArrowUp, ArrowDown, Search } from "lucide-react"
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, Lock } from "lucide-react"
 
 import {
   Table,
@@ -17,7 +17,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { ListTitleCard } from "@/components/page-masthead"
 import { CARD_CLASS } from "@/lib/design"
+import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { DaysLeftPill, AutoRenewFlag, ContractDash } from "@/components/contract-fields"
 import type { ClientPortfolioRow } from "@/lib/types"
 
 const ALL = "__all__"
@@ -32,6 +34,65 @@ const COLD_FG = "#C53030"
 const NAVY = "#1E2858"
 const GREEN = "#2D7A2D"
 const RED = "#C53030"
+
+// Two-tier header: the top row shows section bands spanning their columns. The
+// bands read as a quiet grouping strip — centered, small, uppercase, muted, on a
+// faint tint — with a light vertical rule separating one group from the next.
+// Opaque tint (≈ navy 4% over white) so frozen band cells hide content scrolling
+// underneath them.
+const BAND_TINT = "#F6F6F8"
+// Faint, soft vertical rule marking group boundaries. Runs through both header
+// tiers (band + column labels) so where one section ends and the next begins
+// reads clearly without a hard line.
+const GROUP_DIVIDER = "#EEF0F4"
+const GROUP_BAND_CLASS =
+  "px-3 py-1 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+const GROUP_BAND_STYLE: React.CSSProperties = {
+  backgroundColor: BAND_TINT,
+}
+const GROUP_BAND_SEP_STYLE: React.CSSProperties = {
+  ...GROUP_BAND_STYLE,
+  borderLeft: `1px solid ${GROUP_DIVIDER}`,
+}
+// Left border for the first column-label cell of each group, aligning with the
+// band separator above it to continue the divider down through the second tier.
+const GROUP_START_STYLE: React.CSSProperties = {
+  borderLeft: `1px solid ${GROUP_DIVIDER}`,
+}
+
+// Toggleable column sections, in table order. Core (Client + Account Team) is
+// always shown and not in this list — it's the locked identity group. `cols` is
+// the column count, used for the band colSpan and the empty-state colSpan.
+const TOGGLE_SECTIONS = [
+  { id: "classification", label: "Classification", cols: 3 },
+  { id: "contract", label: "Contract", cols: 4 },
+  { id: "financials", label: "Financials", cols: 1 },
+  { id: "meetings", label: "Meetings", cols: 4 },
+  { id: "activity", label: "Activity", cols: 2 },
+] as const
+
+type SectionId = (typeof TOGGLE_SECTIONS)[number]["id"]
+const VALID_SECTION_IDS = new Set<string>(TOGGLE_SECTIONS.map((s) => s.id))
+// Default view: Contract + Meetings on; Classification/Financials/Activity off.
+const DEFAULT_SECTIONS: SectionId[] = ["contract", "meetings"]
+
+// Frozen Core columns: when the table overflows horizontally, Client and Account
+// Team stay pinned on the left. Fixed widths give the second column a stable left
+// offset. Header cells sit above body cells; the sticky thead (z-20) stays above
+// both so vertical scroll still tucks rows under the header.
+const CLIENT_COL_W = 220
+const TEAM_COL_W = 132
+function frozenStyle(left: number, z: number): React.CSSProperties {
+  return {
+    position: "sticky",
+    left,
+    zIndex: z,
+    width: left === 0 ? CLIENT_COL_W : TEAM_COL_W,
+    minWidth: left === 0 ? CLIENT_COL_W : TEAM_COL_W,
+    maxWidth: left === 0 ? CLIENT_COL_W : TEAM_COL_W,
+    backgroundColor: "var(--card)",
+  }
+}
 
 // Account-team roles, in display order. Account mgr = the sales lead. Colors are
 // drawn from the shared navy→teal palette; Logistics is light so it uses dark text.
@@ -91,6 +152,10 @@ type SortKey =
   | "market_cap_label"
   | "region_label"
   | "sector_label"
+  | "initial_term_end"
+  | "days_to_expiry"
+  | "auto_renew"
+  | "contract_status_label"
   | "annualized_retainer"
   | "meetings_last_365d"
   | "unique_institutions_last_365d"
@@ -251,6 +316,53 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
   const [staleNotes, setStaleNotes] = React.useState(false)
   const [coldNotes, setColdNotes] = React.useState(false)
   const [blankNotes, setBlankNotes] = React.useState(false)
+
+  // Visible column sections. Read once from ?sections= on mount; an explicit but
+  // empty value (?sections=) means "only Core". Absent means default view.
+  const [activeSections, setActiveSections] = React.useState<Set<SectionId>>(() => {
+    const raw = searchParams.get("sections")
+    if (raw == null) return new Set(DEFAULT_SECTIONS)
+    const ids = raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => VALID_SECTION_IDS.has(s)) as SectionId[]
+    return new Set(ids)
+  })
+
+  // Mirror the active sections into the URL (canonical order) without a server
+  // roundtrip, so the view survives refresh and is shareable. replaceState keeps
+  // toggling out of the back-button history.
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const ordered = TOGGLE_SECTIONS.filter((s) => activeSections.has(s.id)).map(
+      (s) => s.id,
+    )
+    params.set("sections", ordered.join(","))
+    window.history.replaceState(null, "", `?${params.toString()}`)
+  }, [activeSections])
+
+  function toggleSection(id: SectionId) {
+    setActiveSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const show = {
+    classification: activeSections.has("classification"),
+    contract: activeSections.has("contract"),
+    financials: activeSections.has("financials"),
+    meetings: activeSections.has("meetings"),
+    activity: activeSections.has("activity"),
+  }
+  const visibleColCount =
+    2 +
+    TOGGLE_SECTIONS.reduce(
+      (n, s) => n + (activeSections.has(s.id) ? s.cols : 0),
+      0,
+    )
 
   const sectors = React.useMemo(() => {
     const set = new Set<string>()
@@ -548,100 +660,222 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
         ))}
       </div>
 
+      {/* Section visibility toggles — segmented control matching the app's
+          SegmentedFilter look (light tray, navy-filled active pills), but
+          multi-select: any number of sections can be active at once, each pill
+          toggling independently. Core is a locked, always-on pill. Persists to
+          ?sections= in the URL. */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">Sections</span>
+        <div
+          className="flex h-9 items-center rounded-md bg-card p-0.5"
+          style={{ border: "0.5px solid var(--border)" }}
+        >
+          <button
+            type="button"
+            disabled
+            title="Always shown"
+            className="inline-flex cursor-default items-center gap-1 rounded bg-[#1E2858] px-2.5 py-1 text-xs font-medium text-white opacity-70"
+          >
+            <Lock className="size-3" aria-hidden="true" />
+            Client
+          </button>
+          {TOGGLE_SECTIONS.map((s) => {
+            const active = activeSections.has(s.id)
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => toggleSection(s.id)}
+                aria-pressed={active}
+                className={
+                  "rounded px-2.5 py-1 text-xs font-medium transition-colors " +
+                  (active ? "bg-[#1E2858] text-white" : "text-foreground hover:bg-slate-50")
+                }
+              >
+                {s.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       <div
         className={`${CARD_CLASS} [&_thead_tr:first-child_th:first-child]:rounded-tl-[14px] [&_thead_tr:first-child_th:last-child]:rounded-tr-[14px] [&_tbody_tr:last-child_td:first-child]:rounded-bl-[14px] [&_tbody_tr:last-child_td:last-child]:rounded-br-[14px]`}
       >
         <Table>
-          <TableHeader className="sticky top-0 z-10 bg-card">
+          <TableHeader className="sticky top-0 z-20 bg-card">
+            {/* Top tier: section bands. Only active sections render; each band's
+                colSpan equals its visible column count so it sits exactly over its
+                columns. Core (Client, 2 cols) is always shown and frozen left. */}
             <TableRow>
-              <TableHead className="px-3">
+              <TableHead
+                colSpan={2}
+                className={GROUP_BAND_CLASS}
+                style={{ ...GROUP_BAND_STYLE, position: "sticky", left: 0, zIndex: 30 }}
+              >
+                Client
+              </TableHead>
+              {show.classification && (
+                <TableHead colSpan={3} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
+                  Classification
+                </TableHead>
+              )}
+              {show.contract && (
+                <TableHead colSpan={4} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
+                  Contract
+                </TableHead>
+              )}
+              {show.financials && (
+                <TableHead colSpan={1} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
+                  Financials
+                </TableHead>
+              )}
+              {show.meetings && (
+                <TableHead colSpan={4} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
+                  Meetings
+                </TableHead>
+              )}
+              {show.activity && (
+                <TableHead colSpan={2} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
+                  Activity
+                </TableHead>
+              )}
+            </TableRow>
+            <TableRow>
+              {/* Core — frozen left */}
+              <TableHead className="px-3" style={frozenStyle(0, 30)}>
                 <SortHeader label="Client" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               </TableHead>
-              <TableHead className="px-3">
+              <TableHead className="px-3" style={frozenStyle(CLIENT_COL_W, 30)}>
                 <span className="text-xs font-medium text-muted-foreground">Account Team</span>
               </TableHead>
-              <TableHead className="px-3">
-                <SortHeader label="Mkt Cap" sortKey="market_cap_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-              </TableHead>
-              <TableHead className="px-3">
-                <SortHeader label="Region" sortKey="region_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-              </TableHead>
-              <TableHead className="px-3">
-                <SortHeader label="Sector" sortKey="sector_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-              </TableHead>
-              <TableHead className="px-3">
-                <SortHeader
-                  label="Annualized Ret."
-                  sortKey="annualized_retainer"
-                  currentKey={sortKey}
-                  currentDir={sortDir}
-                  onSort={handleSort}
-                  align="right"
-                />
-              </TableHead>
-              <TableHead className="px-3">
-                <SortHeader
-                  label="L12M Mtgs"
-                  sortKey="meetings_last_365d"
-                  currentKey={sortKey}
-                  currentDir={sortDir}
-                  onSort={handleSort}
-                  align="center"
-                />
-              </TableHead>
-              <TableHead className="px-3">
-                <SortHeader
-                  label="L12M Inst"
-                  sortKey="unique_institutions_last_365d"
-                  currentKey={sortKey}
-                  currentDir={sortDir}
-                  onSort={handleSort}
-                  align="center"
-                />
-              </TableHead>
-              <TableHead className="px-3">
-                <SortHeader
-                  label="L3M Mtgs"
-                  sortKey="meetings_last_90d"
-                  currentKey={sortKey}
-                  currentDir={sortDir}
-                  onSort={handleSort}
-                  align="center"
-                />
-              </TableHead>
-              <TableHead className="px-3">
-                <SortHeader
-                  label="Last Meeting"
-                  sortKey="last_meeting_date"
-                  currentKey={sortKey}
-                  currentDir={sortDir}
-                  onSort={handleSort}
-                />
-              </TableHead>
-              <TableHead className="px-3">
-                <SortHeader
-                  label="Last Event"
-                  sortKey="last_event_date"
-                  currentKey={sortKey}
-                  currentDir={sortDir}
-                  onSort={handleSort}
-                />
-              </TableHead>
-              <TableHead className="px-3">
-                <SortHeader
-                  label="Last Note"
-                  sortKey="last_note_date"
-                  currentKey={sortKey}
-                  currentDir={sortDir}
-                  onSort={handleSort}
-                />
-              </TableHead>
+              {show.classification && (
+                <>
+                  <TableHead className="px-3" style={GROUP_START_STYLE}>
+                    <SortHeader label="Mkt Cap" sortKey="market_cap_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  </TableHead>
+                  <TableHead className="px-3">
+                    <SortHeader label="Region" sortKey="region_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  </TableHead>
+                  <TableHead className="px-3">
+                    <SortHeader label="Sector" sortKey="sector_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  </TableHead>
+                </>
+              )}
+              {show.contract && (
+                <>
+                  <TableHead className="px-3" style={GROUP_START_STYLE}>
+                    <SortHeader label="Term End" sortKey="initial_term_end" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  </TableHead>
+                  <TableHead className="px-3">
+                    <SortHeader
+                      label="Days Left"
+                      sortKey="days_to_expiry"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      align="center"
+                    />
+                  </TableHead>
+                  <TableHead className="px-3">
+                    <SortHeader
+                      label="Auto-Renew"
+                      sortKey="auto_renew"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      align="center"
+                    />
+                  </TableHead>
+                  <TableHead className="px-3">
+                    <SortHeader label="Status" sortKey="contract_status_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  </TableHead>
+                </>
+              )}
+              {show.financials && (
+                <TableHead className="px-3" style={GROUP_START_STYLE}>
+                  <SortHeader
+                    label="Annualized Ret."
+                    sortKey="annualized_retainer"
+                    currentKey={sortKey}
+                    currentDir={sortDir}
+                    onSort={handleSort}
+                    align="right"
+                  />
+                </TableHead>
+              )}
+              {show.meetings && (
+                <>
+                  <TableHead className="px-3" style={GROUP_START_STYLE}>
+                    <SortHeader
+                      label="L12M Mtgs"
+                      sortKey="meetings_last_365d"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      align="center"
+                    />
+                  </TableHead>
+                  <TableHead className="px-3">
+                    <SortHeader
+                      label="L12M Inst"
+                      sortKey="unique_institutions_last_365d"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      align="center"
+                    />
+                  </TableHead>
+                  <TableHead className="px-3">
+                    <SortHeader
+                      label="L3M Mtgs"
+                      sortKey="meetings_last_90d"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      align="center"
+                    />
+                  </TableHead>
+                  <TableHead className="px-3">
+                    <SortHeader
+                      label="Last Meeting"
+                      sortKey="last_meeting_date"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                    />
+                  </TableHead>
+                </>
+              )}
+              {show.activity && (
+                <>
+                  <TableHead className="px-3" style={GROUP_START_STYLE}>
+                    <SortHeader
+                      label="Last Event"
+                      sortKey="last_event_date"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                    />
+                  </TableHead>
+                  <TableHead className="px-3">
+                    <SortHeader
+                      label="Last Note"
+                      sortKey="last_note_date"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                    />
+                  </TableHead>
+                </>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={12} className="h-32 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={visibleColCount} className="h-32 text-center text-sm text-muted-foreground">
                   {rows.length === 0 ? "No clients on record yet." : "No clients match the current filters."}
                 </TableCell>
               </TableRow>
@@ -649,6 +883,10 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
               sortedRows.map((r) => {
                 const meetings365 = r.meetings_last_365d ?? 0
                 const meetings90 = r.meetings_last_90d ?? 0
+                // Mirrors the Contract tab: a client with no active contract shows
+                // dashes for Term End / Auto-Renew / Status, and the gray badge for
+                // Days Left.
+                const inactive = !r.has_active_contract
                 let velocity: { glyph: string; color: string } | null = null
                 if (meetings365 > 0) {
                   const projected = meetings90 * 4
@@ -658,8 +896,11 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
 
                 return (
                   <TableRow key={r.account_id}>
-                    {/* Client */}
-                    <TableCell className="px-3 align-top">
+                    {/* Client — frozen left */}
+                    <TableCell
+                      className="px-3 align-top whitespace-normal break-words"
+                      style={frozenStyle(0, 10)}
+                    >
                       <div>
                         <Link
                           href={`/client-detail?account_id=${r.account_id}`}
@@ -677,69 +918,111 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       </div>
                     </TableCell>
 
-                    {/* Account Team */}
-                    <TableCell className="px-3 align-top">
+                    {/* Account Team — frozen left */}
+                    <TableCell className="px-3 align-top" style={frozenStyle(CLIENT_COL_W, 10)}>
                       <AccountTeamAvatars row={r} />
                     </TableCell>
 
-                    {/* Mkt Cap */}
-                    <TableCell className="px-3 align-top">{r.market_cap_label ?? "—"}</TableCell>
+                    {show.classification && (
+                      <>
+                        {/* Mkt Cap */}
+                        <TableCell className="px-3 align-top">{r.market_cap_label ?? "—"}</TableCell>
 
-                    {/* Region */}
-                    <TableCell className="px-3 align-top">
-                      <div>{r.hq_country_name ?? "—"}</div>
-                      <div
-                        className="text-muted-foreground"
-                        style={{ fontSize: "10px", marginTop: 2 }}
-                      >
-                        {r.region_label ?? "—"}
-                      </div>
-                    </TableCell>
+                        {/* Region */}
+                        <TableCell className="px-3 align-top">
+                          <div>{r.hq_country_name ?? "—"}</div>
+                          <div
+                            className="text-muted-foreground"
+                            style={{ fontSize: "10px", marginTop: 2 }}
+                          >
+                            {r.region_label ?? "—"}
+                          </div>
+                        </TableCell>
 
-                    {/* Sector */}
-                    <TableCell
-                      className="px-3 align-top"
-                      style={{ maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                      title={r.sector_label ?? ""}
-                    >
-                      {r.sector_label ?? "—"}
-                    </TableCell>
+                        {/* Sector */}
+                        <TableCell
+                          className="px-3 align-top"
+                          style={{ maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                          title={r.sector_label ?? ""}
+                        >
+                          {r.sector_label ?? "—"}
+                        </TableCell>
+                      </>
+                    )}
 
-                    {/* Annualized Retainer */}
-                    <TableCell className="px-3 align-top text-right tabular-nums">
-                      {formatCompactDollars(r.annualized_retainer)}
-                    </TableCell>
+                    {show.contract && (
+                      <>
+                        {/* Term End */}
+                        <TableCell className="px-3 align-top whitespace-nowrap">
+                          {inactive ? <ContractDash /> : formatDate(r.initial_term_end)}
+                        </TableCell>
 
-                    {/* Mtgs L12M */}
-                    <TableCell className="px-3 align-top text-center tabular-nums">{meetings365}</TableCell>
+                        {/* Days Left */}
+                        <TableCell className="px-3 align-top text-center">
+                          <DaysLeftPill
+                            days={inactive ? null : r.days_to_expiry}
+                            hasContract={!!r.has_active_contract}
+                            totalContractCount={r.total_contract_count ?? 0}
+                          />
+                        </TableCell>
 
-                    {/* Inst L12M */}
-                    <TableCell className="px-3 align-top text-center tabular-nums text-muted-foreground">
-                      {r.unique_institutions_last_365d ?? 0}
-                    </TableCell>
+                        {/* Auto-Renew */}
+                        <TableCell className="px-3 align-top text-center text-base">
+                          <AutoRenewFlag value={inactive ? null : r.auto_renew} />
+                        </TableCell>
 
-                    {/* Mtgs L3M with velocity */}
-                    <TableCell className="px-3 align-top text-center tabular-nums">
-                      <span className="inline-flex items-center justify-center gap-1">
-                        {velocity && <span style={{ color: velocity.color }}>{velocity.glyph}</span>}
-                        <span>{meetings90}</span>
-                      </span>
-                    </TableCell>
+                        {/* Status */}
+                        <TableCell className="px-3 align-top">
+                          {inactive ? <ContractDash /> : r.contract_status_label ?? "—"}
+                        </TableCell>
+                      </>
+                    )}
 
-                    {/* Last Meeting */}
-                    <TableCell className="px-3 align-top">
-                      <DateCell value={r.last_meeting_date} />
-                    </TableCell>
+                    {show.financials && (
+                      /* Annualized Retainer */
+                      <TableCell className="px-3 align-top text-right tabular-nums">
+                        {formatCompactDollars(r.annualized_retainer)}
+                      </TableCell>
+                    )}
 
-                    {/* Last Event */}
-                    <TableCell className="px-3 align-top">
-                      <DateCell value={r.last_event_date} />
-                    </TableCell>
+                    {show.meetings && (
+                      <>
+                        {/* Mtgs L12M */}
+                        <TableCell className="px-3 align-top text-center tabular-nums">{meetings365}</TableCell>
 
-                    {/* Last Note */}
-                    <TableCell className="px-3 align-top">
-                      <DateCell value={r.last_note_date} />
-                    </TableCell>
+                        {/* Inst L12M */}
+                        <TableCell className="px-3 align-top text-center tabular-nums text-muted-foreground">
+                          {r.unique_institutions_last_365d ?? 0}
+                        </TableCell>
+
+                        {/* Mtgs L3M with velocity */}
+                        <TableCell className="px-3 align-top text-center tabular-nums">
+                          <span className="inline-flex items-center justify-center gap-1">
+                            {velocity && <span style={{ color: velocity.color }}>{velocity.glyph}</span>}
+                            <span>{meetings90}</span>
+                          </span>
+                        </TableCell>
+
+                        {/* Last Meeting */}
+                        <TableCell className="px-3 align-top">
+                          <DateCell value={r.last_meeting_date} />
+                        </TableCell>
+                      </>
+                    )}
+
+                    {show.activity && (
+                      <>
+                        {/* Last Event */}
+                        <TableCell className="px-3 align-top">
+                          <DateCell value={r.last_event_date} />
+                        </TableCell>
+
+                        {/* Last Note */}
+                        <TableCell className="px-3 align-top">
+                          <DateCell value={r.last_note_date} />
+                        </TableCell>
+                      </>
+                    )}
                   </TableRow>
                 )
               })

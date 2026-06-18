@@ -40,14 +40,33 @@ export default async function ClientPortfolioPage() {
     (teamData ?? []).map((t) => [t.account_id as string, t]),
   )
 
+  // Contract fields aren't on v_client_portfolio either. Pull them from
+  // v_contract_management (the same view the Contract tab uses) in one bulk read
+  // and merge by account_id, so Term End / Days Left / Auto-Renew / Status match.
+  const { data: contractData } = await sb
+    .from("v_contract_management")
+    .select(
+      "account_id, initial_term_end, days_to_expiry, auto_renew, contract_status_label, has_active_contract, total_contract_count",
+    )
+  const contractById = new Map(
+    (contractData ?? []).map((c) => [c.account_id as string, c]),
+  )
+
   const rows = ((data ?? []) as ClientPortfolioRow[]).map((r) => {
     const t = teamById.get(r.account_id)
+    const c = contractById.get(r.account_id)
     return {
       ...r,
       secondary_manager_name: (t?.secondary_manager_name ?? null) as string | null,
       associate_name: (t?.associate_name ?? null) as string | null,
       logistics_coordinator_name:
         (t?.logistics_coordinator_name ?? null) as string | null,
+      initial_term_end: (c?.initial_term_end ?? null) as string | null,
+      days_to_expiry: (c?.days_to_expiry ?? null) as number | null,
+      auto_renew: (c?.auto_renew ?? null) as boolean | null,
+      contract_status_label: (c?.contract_status_label ?? null) as string | null,
+      has_active_contract: (c?.has_active_contract ?? null) as boolean | null,
+      total_contract_count: (c?.total_contract_count ?? null) as number | null,
     }
   })
 
