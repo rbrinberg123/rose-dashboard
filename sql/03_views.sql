@@ -811,6 +811,32 @@ ORDER BY (
 
 
 -- -----------------------------------------------------------------------------
+-- v_client_stats_by_manager
+-- One row per primary Account Manager (sales_lead_primary_name) across active
+-- accounts, count desc, with 'Unassigned' (NULL or blank name) sorted last.
+-- Only the PRIMARY manager is counted — secondary/associate roles are ignored
+-- — so each active client is counted exactly once and the bucket counts sum to
+-- v_client_statistics.active_account_count. The name string is passed through
+-- unchanged so it exact-matches v_client_portfolio.sales_lead_primary_name,
+-- letting the stats page deep-link to /portfolio?sales_lead=<name>. 'Unassigned'
+-- is surfaced as its own bucket but is treated as non-clickable on the page.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_stats_by_manager AS
+SELECT
+  COALESCE(NULLIF(TRIM(BOTH FROM sales_lead_primary_name), ''::text), 'Unassigned'::text) AS bucket,
+  COUNT(*)::int AS count
+FROM public.accounts
+WHERE state_label = 'Active'::text
+GROUP BY (COALESCE(NULLIF(TRIM(BOTH FROM sales_lead_primary_name), ''::text), 'Unassigned'::text))
+ORDER BY (
+  CASE
+    WHEN COALESCE(NULLIF(TRIM(BOTH FROM sales_lead_primary_name), ''::text), 'Unassigned'::text) = 'Unassigned'::text THEN 1
+    ELSE 0
+  END
+), (COUNT(*)) DESC;
+
+
+-- -----------------------------------------------------------------------------
 -- v_productivity_detail_summary
 -- One row per user with any meeting activity in the trailing 12 months OR
 -- who is a sales lead on any active account. Powers the per-person

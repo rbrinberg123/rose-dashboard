@@ -239,7 +239,9 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
   const [sector, setSector] = React.useState<string>(
     () => searchParams.get("sector") ?? ALL,
   )
-  const [salesLead, setSalesLead] = React.useState<string>(ALL)
+  const [salesLead, setSalesLead] = React.useState<string>(
+    () => searchParams.get("sales_lead") ?? ALL,
+  )
   const [staleMeetings, setStaleMeetings] = React.useState(false)
   const [coldMeetings, setColdMeetings] = React.useState(false)
   const [blankMeetings, setBlankMeetings] = React.useState(false)

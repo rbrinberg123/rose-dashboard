@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Info } from "lucide-react"
+import { ChevronRight, Info, Users } from "lucide-react"
 import {
   Cell,
   Pie,
@@ -23,11 +23,31 @@ import { CARD_CLASS, MONEY_GREEN } from "@/lib/design"
 import { formatCurrency } from "@/lib/format"
 import type { ClientStatisticsRow, ClientStatsBucketRow } from "@/lib/types"
 
-function portfolioHref(param: "market_cap" | "region" | "sector", bucket: string): string {
+function portfolioHref(
+  param: "market_cap" | "region" | "sector" | "sales_lead",
+  bucket: string,
+): string {
   return `/portfolio?${param}=${encodeURIComponent(bucket)}`
 }
 
 const NAVY = "#1E2858"
+
+// Rank-based fade for the manager bars: the manager with the most clients gets
+// the deepest navy, fading to light teal down the list. Interpolated across the
+// actual manager count so every bar stays distinct even when the list runs
+// long (matches the rankColors treatment used on Institution Detail).
+const RANK_FROM = [30, 40, 88] as const // #1E2858 navy
+const RANK_TO = [196, 232, 232] as const // #C4E8E8 light teal
+
+function rankColor(rank: number, total: number): string {
+  const t = total <= 1 ? 0 : rank / (total - 1)
+  const ch = (i: number) => Math.round(RANK_FROM[i] + (RANK_TO[i] - RANK_FROM[i]) * t)
+  return `rgb(${ch(0)}, ${ch(1)}, ${ch(2)})`
+}
+
+// Muted neutral fill for the non-clickable "Unassigned" bar (matches the
+// 'Unknown' donut neutral on this page).
+const UNASSIGNED_FILL = "#C8DEDB"
 
 /** Donut slice color for a market-cap bucket (navy→teal, larger caps darker). */
 function marketCapColor(bucket: string): string {
@@ -53,11 +73,13 @@ export function ClientStatisticsView({
   marketCap,
   region,
   sector,
+  manager,
 }: {
   row: ClientStatisticsRow
   marketCap: ClientStatsBucketRow[]
   region: ClientStatsBucketRow[]
   sector: ClientStatsBucketRow[]
+  manager: ClientStatsBucketRow[]
 }) {
   const router = useRouter()
   const kpis = [
@@ -99,6 +121,19 @@ export function ClientStatisticsView({
   const sectorRest = sortedSector.slice(SECTOR_TOP_N)
   const sectorRestCount = sectorRest.reduce((s, r) => s + r.count, 0)
   const sectorTotal = sortedSector.reduce((s, r) => s + r.count, 0)
+
+  // Manager: count desc, 'Unassigned' always last. The view already sorts this
+  // way, but re-sort defensively so the rank colors track display order. Bar
+  // width is scaled to the largest manager (managerMax) for visual ranking;
+  // the % shown is share of all active clients (sums to 100%).
+  const sortedManager = [...manager].sort((a, b) => {
+    const aUnassigned = a.bucket === "Unassigned"
+    const bUnassigned = b.bucket === "Unassigned"
+    if (aUnassigned !== bUnassigned) return aUnassigned ? 1 : -1
+    return b.count - a.count
+  })
+  const managerTotal = sortedManager.reduce((s, r) => s + r.count, 0)
+  const managerMax = sortedManager.reduce((m, r) => Math.max(m, r.count), 0)
 
   return (
     <>
@@ -365,6 +400,81 @@ export function ClientStatisticsView({
                 + {sectorRest.length} more sectors ({sectorRestCount} accounts)
               </p>
             )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Full-width manager distribution — spans the page below the 3-col grid */}
+      <div className="mt-3">
+        <Card className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
+          <CardHeader className="pb-2">
+            <CardTitle
+              className="flex items-center gap-2 text-sm font-medium"
+              style={{ color: NAVY }}
+            >
+              <Users className="size-4 shrink-0" aria-hidden="true" />
+              Distribution by Client Manager
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Active clients by Account Manager · click a row to view them in Portfolio
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {sortedManager.map((m, i) => {
+                const pct =
+                  managerTotal > 0 ? Math.round((m.count / managerTotal) * 100) : 0
+                const barWidth =
+                  managerMax > 0 ? Math.round((m.count / managerMax) * 100) : 0
+                const isUnassigned = m.bucket === "Unassigned"
+                const fill = isUnassigned ? UNASSIGNED_FILL : rankColor(i, sortedManager.length)
+                const inner = (
+                  <>
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate font-medium" style={{ color: NAVY }}>
+                        {m.bucket}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <span className="tabular-nums text-muted-foreground">
+                          {m.count} · {pct}%
+                        </span>
+                        {!isUnassigned && (
+                          <ChevronRight
+                            className="size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </span>
+                    </div>
+                    <div
+                      className="h-[7px] w-full overflow-hidden rounded-full"
+                      style={{ backgroundColor: BAR_TRACK }}
+                    >
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${barWidth}%`, backgroundColor: fill }}
+                      />
+                    </div>
+                  </>
+                )
+                return (
+                  <li key={m.bucket}>
+                    {isUnassigned ? (
+                      <div className="flex flex-col gap-1.5 rounded-sm px-1 py-1">
+                        {inner}
+                      </div>
+                    ) : (
+                      <Link
+                        href={portfolioHref("sales_lead", m.bucket)}
+                        className="group flex cursor-pointer flex-col gap-1.5 rounded-sm px-1 py-1 hover:bg-slate-100"
+                      >
+                        {inner}
+                      </Link>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
           </CardContent>
         </Card>
       </div>

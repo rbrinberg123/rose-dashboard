@@ -11,15 +11,16 @@ export const metadata: Metadata = { title: "Client Statistics" }
 export default async function Home() {
   const sb = getSupabaseServer()
 
-  const [statsRes, marketCapRes, regionRes, sectorRes] = await Promise.all([
+  const [statsRes, marketCapRes, regionRes, sectorRes, managerRes] = await Promise.all([
     sb.from("v_client_statistics").select("*").single(),
     sb.from("v_client_stats_by_market_cap").select("*").order("display_order"),
     sb.from("v_client_stats_by_region").select("*").order("display_order"),
     sb.from("v_client_stats_by_sector").select("*"),
+    sb.from("v_client_stats_by_manager").select("*"),
   ])
 
   const firstError =
-    statsRes.error ?? marketCapRes.error ?? regionRes.error ?? sectorRes.error
+    statsRes.error ?? marketCapRes.error ?? regionRes.error ?? sectorRes.error ?? managerRes.error
   if (firstError) {
     return (
       <PageShell title="Client Statistics" description="Top-line numbers across the client book">
@@ -35,6 +36,7 @@ export default async function Home() {
   const marketCap = (marketCapRes.data ?? []) as ClientStatsBucketRow[]
   const region = (regionRes.data ?? []) as ClientStatsBucketRow[]
   const sector = (sectorRes.data ?? []) as ClientStatsBucketRow[]
+  const manager = (managerRes.data ?? []) as ClientStatsBucketRow[]
 
   return (
     <PageShell title="Client Statistics" description="Top-line numbers across the client book" hideHeader canvas>
@@ -43,6 +45,7 @@ export default async function Home() {
         marketCap={marketCap}
         region={region}
         sector={sector}
+        manager={manager}
       />
     </PageShell>
   )
