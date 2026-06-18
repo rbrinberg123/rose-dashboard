@@ -407,6 +407,37 @@ recent_contract AS (
   FROM public.contracts
   WHERE state_code = 0
   ORDER BY client_account_id, contract_start_date DESC
+),
+-- Each client's most recent client_notes row, used only for its status flag.
+-- Ranking mirrors v_client_detail_recent_note (note_date, then modified_on,
+-- then created_on — all DESC) so the portfolio flag and the Client Detail page
+-- always agree on which note is "latest".
+--
+-- NB: note_date here is the client_notes date, which is a DIFFERENT source from
+-- the portfolio's "Last Note" column (that one is accounts.last_touchpoint_date,
+-- aliased last_note_date). They need not coincide; note_status_date is exposed so
+-- the UI can show the flag's own as-of date.
+--
+-- status_text is free text that carries trailing newlines, stray punctuation and
+-- case drift (e.g. 'Stable\n', 'At Risk. '), so it is normalized to one of the
+-- five canonical flags by a cleaned, lowercased prefix match. Anything that does
+-- not match a known flag passes through trimmed (so a future status value is
+-- surfaced rather than silently dropped); blank/null becomes NULL.
+recent_note AS (
+  SELECT DISTINCT ON (client_account_id)
+    client_account_id,
+    note_date,
+    CASE
+      WHEN lower(btrim(status_text)) LIKE 'at risk%'    THEN 'At Risk'
+      WHEN lower(btrim(status_text)) LIKE 'stable%'     THEN 'Stable'
+      WHEN lower(btrim(status_text)) LIKE 'lost%'       THEN 'Lost'
+      WHEN lower(btrim(status_text)) LIKE 'new client%' THEN 'New Client'
+      WHEN lower(btrim(status_text)) LIKE 'strong%'     THEN 'Strong'
+      ELSE NULLIF(btrim(status_text, E' \t\n\r'), '')
+    END AS note_status
+  FROM public.client_notes
+  WHERE client_account_id IS NOT NULL
+  ORDER BY client_account_id, note_date DESC, modified_on DESC NULLS LAST, created_on DESC NULLS LAST
 )
 SELECT
   a.account_id,
@@ -454,11 +485,19 @@ SELECT
   a.last_event_date::date       AS last_event_date,
   a.last_touchpoint_date::date  AS last_note_date,
 
-  a.state_label AS account_state
+  a.state_label AS account_state,
+
+  -- Latest client-note status flag (and that note's own date). NULL when the
+  -- client has no note on record. Appended at the end of the column list so
+  -- CREATE OR REPLACE VIEW can add them without a DROP (it forbids inserting a
+  -- column in the middle of an existing view's column order).
+  rn.note_status,
+  rn.note_date::date AS note_status_date
 
 FROM public.accounts a
 LEFT JOIN meeting_agg ma ON ma.client_account_id = a.account_id
 LEFT JOIN recent_contract rc ON rc.client_account_id = a.account_id
+LEFT JOIN recent_note rn ON rn.client_account_id = a.account_id
 WHERE a.state_label = 'Active';
 
 

@@ -371,6 +371,12 @@ export type ClientPortfolioRow = {
   last_meeting_date: string | null
   last_event_date: string | null
   last_note_date: string | null
+  // Latest client-note status flag (At Risk / Stable / Lost / New Client /
+  // Strong), normalized in v_client_portfolio; null when the client has no note.
+  // note_status_date is that note's own date (a different source from
+  // last_note_date above, which is the last touchpoint).
+  note_status: string | null
+  note_status_date: string | null
   account_state: string | null
   // Contract fields. Not exposed by v_client_portfolio; merged in page-side from
   // v_contract_management, keyed by account_id. Mirrors the Contract tab's source.

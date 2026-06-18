@@ -76,20 +76,25 @@ const VALID_SECTION_IDS = new Set<string>(TOGGLE_SECTIONS.map((s) => s.id))
 // Default view: Contract + Meetings on; Classification/Financials/Activity off.
 const DEFAULT_SECTIONS: SectionId[] = ["contract", "meetings"]
 
-// Frozen Core columns: when the table overflows horizontally, Client and Account
-// Team stay pinned on the left. Fixed widths give the second column a stable left
-// offset. Header cells sit above body cells; the sticky thead (z-20) stays above
-// both so vertical scroll still tucks rows under the header.
+// Frozen Core columns: when the table overflows horizontally, Client, Status and
+// Account Team stay pinned on the left. Fixed widths give each subsequent column
+// a stable left offset (computed cumulatively below). Header cells sit above body
+// cells; the sticky thead (z-20) stays above both so vertical scroll still tucks
+// rows under the header.
 const CLIENT_COL_W = 220
+const STATUS_COL_W = 116
 const TEAM_COL_W = 132
-function frozenStyle(left: number, z: number): React.CSSProperties {
+// Cumulative left offsets for the three frozen columns.
+const STATUS_LEFT = CLIENT_COL_W
+const TEAM_LEFT = CLIENT_COL_W + STATUS_COL_W
+function frozenStyle(left: number, width: number, z: number): React.CSSProperties {
   return {
     position: "sticky",
     left,
     zIndex: z,
-    width: left === 0 ? CLIENT_COL_W : TEAM_COL_W,
-    minWidth: left === 0 ? CLIENT_COL_W : TEAM_COL_W,
-    maxWidth: left === 0 ? CLIENT_COL_W : TEAM_COL_W,
+    width,
+    minWidth: width,
+    maxWidth: width,
     backgroundColor: "var(--card)",
   }
 }
@@ -146,8 +151,53 @@ function AccountTeamAvatars({ row }: { row: ClientPortfolioRow }) {
   )
 }
 
+// Note-status flag colors, drawn from the same palette as the contract pills
+// (see components/contract-fields.tsx). At Risk = urgent red, Lost = muted gray
+// (churned, not actionable — reads like "Terminated"), Stable/Strong = healthy
+// green, New Client = informational navy tint. Unknown/future values fall back to
+// gray so a new status surfaces rather than vanishing.
+const NOTE_STATUS_STYLES: Record<string, { bg: string; fg: string }> = {
+  "At Risk": { bg: "#FED7D7", fg: "#C53030" },
+  Lost: { bg: "#E5E7EB", fg: "#6B7280" },
+  Stable: { bg: "#C6F6D5", fg: "#2D7A2D" },
+  Strong: { bg: "#C6F6D5", fg: "#2D7A2D" },
+  "New Client": { bg: "#E6E9F5", fg: "#1E2858" },
+}
+const NOTE_STATUS_FALLBACK = { bg: "#E5E7EB", fg: "#6B7280" }
+
+// Sort + filter order, most-urgent first. Drives both the severity sort and the
+// filter dropdown so "At Risk" always surfaces at the top / front.
+const NOTE_STATUS_ORDER = ["At Risk", "Lost", "New Client", "Stable", "Strong"] as const
+const NOTE_STATUS_RANK: Record<string, number> = Object.fromEntries(
+  NOTE_STATUS_ORDER.map((s, i) => [s, i]),
+)
+// Filter sentinel for "client has no note on record".
+const NONE = "__none__"
+
+function NoteStatusPill({
+  status,
+  date,
+}: {
+  status: string | null | undefined
+  date: string | null | undefined
+}) {
+  if (!status) return <span className="text-muted-foreground">—</span>
+  const style = NOTE_STATUS_STYLES[status] ?? NOTE_STATUS_FALLBACK
+  const title = date ? `${status} — as of ${formatShortDate(date)}` : status
+  return (
+    <span
+      title={title}
+      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: style.bg, color: style.fg }}
+    >
+      {status}
+    </span>
+  )
+}
+
 type SortKey =
   | "name"
+  | "note_status"
   | "ticker_symbol"
   | "market_cap_label"
   | "region_label"
@@ -307,6 +357,9 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
   const [salesLead, setSalesLead] = React.useState<string>(
     () => searchParams.get("sales_lead") ?? ALL,
   )
+  const [noteStatus, setNoteStatus] = React.useState<string>(
+    () => searchParams.get("note_status") ?? ALL,
+  )
   const [staleMeetings, setStaleMeetings] = React.useState(false)
   const [coldMeetings, setColdMeetings] = React.useState(false)
   const [blankMeetings, setBlankMeetings] = React.useState(false)
@@ -358,7 +411,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
     activity: activeSections.has("activity"),
   }
   const visibleColCount =
-    2 +
+    3 +
     TOGGLE_SECTIONS.reduce(
       (n, s) => n + (activeSections.has(s.id) ? s.cols : 0),
       0,
@@ -396,6 +449,11 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
       if (region !== ALL && (r.region_label ?? "") !== region) return false
       if (sector !== ALL && (r.sector_label ?? "") !== sector) return false
       if (salesLead !== ALL && (r.sales_lead_primary_name ?? "") !== salesLead) return false
+      if (noteStatus !== ALL) {
+        if (noteStatus === NONE) {
+          if (r.note_status) return false
+        } else if ((r.note_status ?? "") !== noteStatus) return false
+      }
       if (!matchCategory(r.last_meeting_date, staleMeetings, coldMeetings, blankMeetings)) return false
       if (!matchCategory(r.last_event_date, staleEvents, coldEvents, blankEvents)) return false
       if (!matchCategory(r.last_note_date, staleNotes, coldNotes, blankNotes)) return false
@@ -413,6 +471,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
     region,
     sector,
     salesLead,
+    noteStatus,
     staleMeetings,
     coldMeetings,
     blankMeetings,
@@ -426,7 +485,22 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
 
   const sortedRows = React.useMemo(() => {
     const arr = [...filteredRows]
-    arr.sort((a, b) => compareValues(a[sortKey] as never, b[sortKey] as never, sortDir))
+    arr.sort((a, b) => {
+      // Status sorts by severity (At Risk → … → Strong), not alphabetically, so
+      // ascending surfaces the most urgent clients first. Nulls (no note) always
+      // last, matching compareValues' null handling.
+      if (sortKey === "note_status") {
+        const an = !a.note_status
+        const bn = !b.note_status
+        if (an && bn) return 0
+        if (an) return 1
+        if (bn) return -1
+        const ar = NOTE_STATUS_RANK[a.note_status!] ?? NOTE_STATUS_ORDER.length
+        const br = NOTE_STATUS_RANK[b.note_status!] ?? NOTE_STATUS_ORDER.length
+        return sortDir === "asc" ? ar - br : br - ar
+      }
+      return compareValues(a[sortKey] as never, b[sortKey] as never, sortDir)
+    })
     return arr
   }, [filteredRows, sortKey, sortDir])
 
@@ -444,6 +518,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
     setRegion(ALL)
     setSector(ALL)
     setSalesLead(ALL)
+    setNoteStatus(ALL)
     setSearch("")
     setStaleMeetings(false)
     setColdMeetings(false)
@@ -522,6 +597,32 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
         ))}
       </div>
 
+      {/* Note-status color key — mirrors the Status pills (latest client note) */}
+      <div
+        className="flex flex-wrap items-center gap-2 text-muted-foreground"
+        style={{ fontSize: "11px" }}
+      >
+        <span>Status (latest note):</span>
+        {NOTE_STATUS_ORDER.map((s) => {
+          const style = NOTE_STATUS_STYLES[s]
+          return (
+            <span
+              key={s}
+              style={{
+                backgroundColor: style.bg,
+                color: style.fg,
+                padding: "1px 6px",
+                borderRadius: "10px",
+                fontSize: "9px",
+                fontWeight: 500,
+              }}
+            >
+              {s}
+            </span>
+          )
+        })}
+      </div>
+
       {/* Filter row */}
       <div className="flex flex-wrap items-center gap-2">
         <select
@@ -574,6 +675,20 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
               {s}
             </option>
           ))}
+        </select>
+
+        <select
+          value={noteStatus}
+          onChange={(e) => setNoteStatus(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+        >
+          <option value={ALL}>All statuses</option>
+          {NOTE_STATUS_ORDER.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+          <option value={NONE}>No note</option>
         </select>
 
         <button
@@ -710,7 +825,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                 columns. Core (Client, 2 cols) is always shown and frozen left. */}
             <TableRow>
               <TableHead
-                colSpan={2}
+                colSpan={3}
                 className={GROUP_BAND_CLASS}
                 style={{ ...GROUP_BAND_STYLE, position: "sticky", left: 0, zIndex: 30 }}
               >
@@ -744,10 +859,13 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
             </TableRow>
             <TableRow>
               {/* Core — frozen left */}
-              <TableHead className="px-3" style={frozenStyle(0, 30)}>
+              <TableHead className="px-3" style={frozenStyle(0, CLIENT_COL_W, 30)}>
                 <SortHeader label="Client" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               </TableHead>
-              <TableHead className="px-3" style={frozenStyle(CLIENT_COL_W, 30)}>
+              <TableHead className="px-3" style={frozenStyle(STATUS_LEFT, STATUS_COL_W, 30)}>
+                <SortHeader label="Status" sortKey="note_status" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              </TableHead>
+              <TableHead className="px-3" style={frozenStyle(TEAM_LEFT, TEAM_COL_W, 30)}>
                 <span className="text-xs font-medium text-muted-foreground">Account Team</span>
               </TableHead>
               {show.classification && (
@@ -899,7 +1017,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                     {/* Client — frozen left */}
                     <TableCell
                       className="px-3 align-top whitespace-normal break-words"
-                      style={frozenStyle(0, 10)}
+                      style={frozenStyle(0, CLIENT_COL_W, 10)}
                     >
                       <div>
                         <Link
@@ -918,8 +1036,13 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       </div>
                     </TableCell>
 
+                    {/* Status — frozen left */}
+                    <TableCell className="px-3 align-top" style={frozenStyle(STATUS_LEFT, STATUS_COL_W, 10)}>
+                      <NoteStatusPill status={r.note_status} date={r.note_status_date} />
+                    </TableCell>
+
                     {/* Account Team — frozen left */}
-                    <TableCell className="px-3 align-top" style={frozenStyle(CLIENT_COL_W, 10)}>
+                    <TableCell className="px-3 align-top" style={frozenStyle(TEAM_LEFT, TEAM_COL_W, 10)}>
                       <AccountTeamAvatars row={r} />
                     </TableCell>
 
