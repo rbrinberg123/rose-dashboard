@@ -41,29 +41,41 @@ const GREEN = "#2D7A2D"
 const RED = "#C53030"
 
 // Two-tier header: the top row shows section bands spanning their columns. The
-// bands read as a quiet grouping strip — centered, small, uppercase, muted, on a
-// faint tint — with a light vertical rule separating one group from the next.
-// Opaque tint (≈ navy 4% over white) so frozen band cells hide content scrolling
-// underneath them.
-const BAND_TINT = "#F6F6F8"
-// Faint, soft vertical rule marking group boundaries. Runs through both header
-// tiers (band + column labels) so where one section ends and the next begins
-// reads clearly without a hard line.
+// bands read as distinct labeled blocks — centered, uppercase, semibold dark
+// text on a medium-gray fill with rounded top caps, each separated from the
+// next by a thin card-colored gap so the caps read as their own blocks.
+//
+// Corner blend: the band row itself is painted bg-card (white, see the
+// <TableRow> below), so each band's rounded top corners reveal that white — the
+// real background behind the header on the white card — and no mismatched sliver
+// peeks around the caps.
+const BAND_BG = "#DDE1E8"
+// Faint, soft vertical rule marking group boundaries in the column-label row and
+// the body rows below the bands. (The dark bands themselves are separated by a
+// card-colored gap instead — see GROUP_BAND_SEP_STYLE.)
 const GROUP_DIVIDER = "#EEF0F4"
 const GROUP_BAND_CLASS =
-  "px-3 py-1 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+  "rounded-t-md h-8 px-3 text-center text-[11px] font-semibold uppercase tracking-wider text-[#1A2233]"
 const GROUP_BAND_STYLE: React.CSSProperties = {
-  backgroundColor: BAND_TINT,
+  backgroundColor: BAND_BG,
 }
 const GROUP_BAND_SEP_STYLE: React.CSSProperties = {
   ...GROUP_BAND_STYLE,
-  borderLeft: `1px solid ${GROUP_DIVIDER}`,
+  // 3px card-colored gap between adjacent dark caps so each reads as its own
+  // block. Card-white is the true background behind the header, so the gap (and
+  // the rounded corners beside it) blend cleanly with no leftover tint.
+  borderLeft: "3px solid var(--card)",
 }
 // Left border for the first column-label cell of each group, aligning with the
 // band separator above it to continue the divider down through the second tier.
 const GROUP_START_STYLE: React.CSSProperties = {
   borderLeft: `1px solid ${GROUP_DIVIDER}`,
 }
+// Subtle gray for the second header tier (the column-labels row) so it reads as a
+// distinct header strip between the navy bands above and the white data rows
+// below. Also applied to that row's sticky Client/Status/Team cells (overriding
+// their white frozen background) so they don't flash a white seam when scrolling.
+const SUBHEADER_BG = "#F7F8FA"
 
 // Toggleable column sections, in table order. Core (Client + Account Team) is
 // always shown and not in this list — it's the locked identity group. `cols` is
@@ -72,7 +84,7 @@ const TOGGLE_SECTIONS = [
   { id: "classification", label: "Classification", cols: 3 },
   { id: "contract", label: "Contract", cols: 4 },
   { id: "financials", label: "Financials", cols: 1 },
-  { id: "meetings", label: "Meetings", cols: 4 },
+  { id: "meetings", label: "Meetings", cols: 5 },
   { id: "activity", label: "Activity", cols: 2 },
 ] as const
 
@@ -86,7 +98,7 @@ const DEFAULT_SECTIONS: SectionId[] = ["contract", "meetings", "activity", "fina
 // a stable left offset (computed cumulatively below). Header cells sit above body
 // cells; the sticky thead (z-20) stays above both so vertical scroll still tucks
 // rows under the header.
-const CLIENT_COL_W = 220
+const CLIENT_COL_W = 200
 const STATUS_COL_W = 116
 const TEAM_COL_W = 132
 // Cumulative left offsets for the three frozen columns.
@@ -207,6 +219,7 @@ type SortKey =
   | "meetings_last_365d"
   | "unique_institutions_last_365d"
   | "meetings_last_90d"
+  | "meetings_next_3m"
   | "last_meeting_date"
   | "last_event_date"
   | "last_note_date"
@@ -546,87 +559,94 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
         />
       </div>
       <div className="space-y-3">
-      {/* Activity flag legend */}
+      {/* Combined legend strip: Activity flags · Account Team · Status laid out
+          on one horizontal row (was three stacked rows) to reclaim vertical
+          space, with faint vertical hairlines separating the three labeled
+          groups. flex-wrap lets whole groups drop to a second line on narrow
+          widths, and each group wraps internally so nothing overflows. */}
       <div
-        className="flex flex-wrap items-center gap-2 text-muted-foreground"
+        className="flex flex-wrap items-center gap-x-3 gap-y-2 text-muted-foreground"
         style={{ fontSize: "11px" }}
       >
-        <span>Activity flags:</span>
-        <span
-          style={{
-            backgroundColor: STALE_BG,
-            color: STALE_FG,
-            padding: "1px 6px",
-            borderRadius: "10px",
-            fontSize: "9px",
-            fontWeight: 500,
-          }}
-        >
-          Stale
-        </span>
-        <span>30-90 days since</span>
-        <span
-          style={{
-            backgroundColor: COLD_BG,
-            color: COLD_FG,
-            padding: "1px 6px",
-            borderRadius: "10px",
-            fontSize: "9px",
-            fontWeight: 500,
-          }}
-        >
-          Cold
-        </span>
-        <span>90+ days since</span>
-      </div>
-
-      {/* Account Team color key — mirrors the avatar colors in the team column */}
-      <div
-        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground"
-        style={{ fontSize: "11px" }}
-      >
-        <span>Account Team:</span>
-        {ACCOUNT_TEAM_ROLES.map((m) => (
-          <span key={m.key} className="inline-flex items-center gap-1.5">
-            <span
-              aria-hidden="true"
-              style={{
-                width: 9,
-                height: 9,
-                borderRadius: "50%",
-                backgroundColor: m.bg,
-                display: "inline-block",
-              }}
-            />
-            {m.role}
+        {/* Activity flags */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-foreground">Activity flags:</span>
+          <span
+            style={{
+              backgroundColor: STALE_BG,
+              color: STALE_FG,
+              padding: "1px 6px",
+              borderRadius: "10px",
+              fontSize: "9px",
+              fontWeight: 500,
+            }}
+          >
+            Stale
           </span>
-        ))}
-      </div>
+          <span>30-90 days since</span>
+          <span
+            style={{
+              backgroundColor: COLD_BG,
+              color: COLD_FG,
+              padding: "1px 6px",
+              borderRadius: "10px",
+              fontSize: "9px",
+              fontWeight: 500,
+            }}
+          >
+            Cold
+          </span>
+          <span>90+ days since</span>
+        </div>
 
-      {/* Note-status color key — mirrors the Status pills (latest client note) */}
-      <div
-        className="flex flex-wrap items-center gap-2 text-muted-foreground"
-        style={{ fontSize: "11px" }}
-      >
-        <span>Status (latest note):</span>
-        {NOTE_STATUS_ORDER.map((s) => {
-          const style = NOTE_STATUS_STYLES[s]
-          return (
-            <span
-              key={s}
-              style={{
-                backgroundColor: style.bg,
-                color: style.fg,
-                padding: "1px 6px",
-                borderRadius: "10px",
-                fontSize: "9px",
-                fontWeight: 500,
-              }}
-            >
-              {s}
+        {/* Faint vertical divider between groups */}
+        <span aria-hidden="true" className="h-5 w-px shrink-0" style={{ backgroundColor: "#D1D7E0" }} />
+
+        {/* Account Team color key — mirrors the avatar colors in the team column */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="font-semibold text-foreground">Account Team:</span>
+          {ACCOUNT_TEAM_ROLES.map((m) => (
+            <span key={m.key} className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 9,
+                  height: 9,
+                  borderRadius: "50%",
+                  backgroundColor: m.bg,
+                  display: "inline-block",
+                }}
+              />
+              {m.role}
             </span>
-          )
-        })}
+          ))}
+        </div>
+
+        {/* Faint vertical divider between groups */}
+        <span aria-hidden="true" className="h-5 w-px shrink-0" style={{ backgroundColor: "#D1D7E0" }} />
+
+        {/* Note-status color key — mirrors the Status pills (latest client note) */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-foreground">Status (latest note):</span>
+          {NOTE_STATUS_ORDER.map((s) => {
+            const style = NOTE_STATUS_STYLES[s]
+            return (
+              <span
+                key={s}
+                style={{
+                  backgroundColor: style.bg,
+                  color: style.fg,
+                  padding: "1px 6px",
+                  borderRadius: "10px",
+                  fontSize: "9px",
+                  fontWeight: 500,
+                }}
+              >
+                {s}
+              </span>
+            )
+          })}
+        </div>
       </div>
 
       {/* Filter row */}
@@ -847,7 +867,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
             {/* Top tier: section bands. Only active sections render; each band's
                 colSpan equals its visible column count so it sits exactly over its
                 columns. Core (Client, 2 cols) is always shown and frozen left. */}
-            <TableRow>
+            <TableRow className="bg-card">
               <TableHead
                 colSpan={3}
                 className={GROUP_BAND_CLASS}
@@ -871,7 +891,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                 </TableHead>
               )}
               {show.meetings && (
-                <TableHead colSpan={4} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
+                <TableHead colSpan={5} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
                   Meetings
                 </TableHead>
               )}
@@ -881,36 +901,36 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                 </TableHead>
               )}
             </TableRow>
-            <TableRow>
+            <TableRow style={{ backgroundColor: SUBHEADER_BG }}>
               {/* Core — frozen left */}
-              <TableHead className="px-3" style={frozenStyle(0, CLIENT_COL_W, 30)}>
+              <TableHead className="h-8 px-2.5" style={{ ...frozenStyle(0, CLIENT_COL_W, 30), backgroundColor: SUBHEADER_BG }}>
                 <SortHeader label="Client" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               </TableHead>
-              <TableHead className="px-3" style={frozenStyle(STATUS_LEFT, STATUS_COL_W, 30)}>
+              <TableHead className="h-8 px-2.5" style={{ ...frozenStyle(STATUS_LEFT, STATUS_COL_W, 30), backgroundColor: SUBHEADER_BG }}>
                 <SortHeader label="Status" sortKey="note_status" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               </TableHead>
-              <TableHead className="px-3" style={frozenStyle(TEAM_LEFT, TEAM_COL_W, 30)}>
+              <TableHead className="h-8 px-2.5" style={{ ...frozenStyle(TEAM_LEFT, TEAM_COL_W, 30), backgroundColor: SUBHEADER_BG }}>
                 <span className="text-xs font-medium text-muted-foreground">Account Team</span>
               </TableHead>
               {show.classification && (
                 <>
-                  <TableHead className="px-3" style={GROUP_START_STYLE}>
+                  <TableHead className="h-8 px-2.5" style={GROUP_START_STYLE}>
                     <SortHeader label="Mkt Cap" sortKey="market_cap_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </TableHead>
-                  <TableHead className="px-3">
+                  <TableHead className="h-8 px-2.5">
                     <SortHeader label="Region" sortKey="region_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </TableHead>
-                  <TableHead className="px-3">
+                  <TableHead className="h-8 px-2.5">
                     <SortHeader label="Sector" sortKey="sector_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </TableHead>
                 </>
               )}
               {show.contract && (
                 <>
-                  <TableHead className="px-3" style={GROUP_START_STYLE}>
+                  <TableHead className="h-8 px-2.5" style={GROUP_START_STYLE}>
                     <SortHeader label="Term End" sortKey="initial_term_end" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </TableHead>
-                  <TableHead className="px-3">
+                  <TableHead className="h-8 px-2.5">
                     <SortHeader
                       label="Days Left"
                       sortKey="days_to_expiry"
@@ -920,7 +940,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       align="center"
                     />
                   </TableHead>
-                  <TableHead className="px-3">
+                  <TableHead className="h-8 px-2.5">
                     <SortHeader
                       label="Auto-Renew"
                       sortKey="auto_renew"
@@ -930,13 +950,13 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       align="center"
                     />
                   </TableHead>
-                  <TableHead className="px-3">
+                  <TableHead className="h-8 px-2.5">
                     <SortHeader label="Status" sortKey="contract_status_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </TableHead>
                 </>
               )}
               {show.financials && (
-                <TableHead className="px-3" style={GROUP_START_STYLE}>
+                <TableHead className="h-8 px-2.5" style={GROUP_START_STYLE}>
                   <SortHeader
                     label="Annualized Ret."
                     sortKey="annualized_retainer"
@@ -949,7 +969,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
               )}
               {show.meetings && (
                 <>
-                  <TableHead className="px-3" style={GROUP_START_STYLE}>
+                  <TableHead className="h-8 px-2.5" style={GROUP_START_STYLE}>
                     <SortHeader
                       label="L12M"
                       sortKey="meetings_last_365d"
@@ -959,7 +979,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       align="center"
                     />
                   </TableHead>
-                  <TableHead className="px-3">
+                  <TableHead className="h-8 px-2.5">
                     <SortHeader
                       label="L12M Inst"
                       sortKey="unique_institutions_last_365d"
@@ -969,7 +989,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       align="center"
                     />
                   </TableHead>
-                  <TableHead className="px-3">
+                  <TableHead className="h-8 px-2.5">
                     <SortHeader
                       label="L3M"
                       sortKey="meetings_last_90d"
@@ -979,7 +999,17 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       align="center"
                     />
                   </TableHead>
-                  <TableHead className="px-3">
+                  <TableHead className="h-8 px-2.5">
+                    <SortHeader
+                      label="Next 3M"
+                      sortKey="meetings_next_3m"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      align="center"
+                    />
+                  </TableHead>
+                  <TableHead className="h-8 px-2.5">
                     <SortHeader
                       label="Last"
                       sortKey="last_meeting_date"
@@ -992,7 +1022,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
               )}
               {show.activity && (
                 <>
-                  <TableHead className="px-3" style={GROUP_START_STYLE}>
+                  <TableHead className="h-8 px-2.5" style={GROUP_START_STYLE}>
                     <SortHeader
                       label="Last Event"
                       sortKey="last_event_date"
@@ -1001,7 +1031,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       onSort={handleSort}
                     />
                   </TableHead>
-                  <TableHead className="px-3">
+                  <TableHead className="h-8 px-2.5">
                     <SortHeader
                       label="Last Note"
                       sortKey="last_note_date"
@@ -1040,10 +1070,10 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                   <TableRow key={r.account_id}>
                     {/* Client — frozen left */}
                     <TableCell
-                      className="px-3 align-top whitespace-normal break-words"
+                      className="px-2.5 py-1 align-top"
                       style={frozenStyle(0, CLIENT_COL_W, 10)}
                     >
-                      <div>
+                      <div className="truncate" title={r.name}>
                         <Link
                           href={`/client-detail?account_id=${r.account_id}`}
                           className="font-medium hover:underline"
@@ -1061,25 +1091,27 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                     </TableCell>
 
                     {/* Status — frozen left */}
-                    <TableCell className="px-3 align-top" style={frozenStyle(STATUS_LEFT, STATUS_COL_W, 10)}>
+                    <TableCell className="px-2.5 py-1 align-top" style={frozenStyle(STATUS_LEFT, STATUS_COL_W, 10)}>
                       <NoteStatusPill status={r.note_status} date={r.note_status_date} />
                     </TableCell>
 
                     {/* Account Team — frozen left */}
-                    <TableCell className="px-3 align-top" style={frozenStyle(TEAM_LEFT, TEAM_COL_W, 10)}>
+                    <TableCell className="px-2.5 py-1 align-top" style={frozenStyle(TEAM_LEFT, TEAM_COL_W, 10)}>
                       <AccountTeamAvatars row={r} />
                     </TableCell>
 
                     {show.classification && (
                       <>
                         {/* Mkt Cap */}
-                        <TableCell className="px-3 align-top" style={GROUP_START_STYLE}>{r.market_cap_label ?? "—"}</TableCell>
+                        <TableCell className="px-2.5 py-1 align-top" style={GROUP_START_STYLE}>{r.market_cap_label ?? "—"}</TableCell>
 
                         {/* Region */}
-                        <TableCell className="px-3 align-top">
-                          <div>{r.hq_country_name ?? "—"}</div>
+                        <TableCell className="px-2.5 py-1 align-top" style={{ maxWidth: 132 }}>
+                          <div className="truncate" title={r.hq_country_name ?? ""}>
+                            {r.hq_country_name ?? "—"}
+                          </div>
                           <div
-                            className="text-muted-foreground"
+                            className="text-muted-foreground truncate"
                             style={{ fontSize: "10px", marginTop: 2 }}
                           >
                             {r.region_label ?? "—"}
@@ -1088,7 +1120,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
 
                         {/* Sector */}
                         <TableCell
-                          className="px-3 align-top"
+                          className="px-2.5 py-1 align-top"
                           style={{ maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                           title={r.sector_label ?? ""}
                         >
@@ -1100,12 +1132,12 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                     {show.contract && (
                       <>
                         {/* Term End */}
-                        <TableCell className="px-3 align-top whitespace-nowrap" style={GROUP_START_STYLE}>
+                        <TableCell className="px-2.5 py-1 align-top whitespace-nowrap" style={GROUP_START_STYLE}>
                           {inactive ? <ContractDash /> : formatDate(r.initial_term_end)}
                         </TableCell>
 
                         {/* Days Left */}
-                        <TableCell className="px-3 align-top text-center">
+                        <TableCell className="px-2.5 py-1 align-top text-center">
                           <DaysLeftPill
                             days={inactive ? null : r.days_to_expiry}
                             hasContract={!!r.has_active_contract}
@@ -1114,12 +1146,16 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                         </TableCell>
 
                         {/* Auto-Renew */}
-                        <TableCell className="px-3 align-top text-center text-base">
+                        <TableCell className="px-2.5 py-1 align-top text-center text-base">
                           <AutoRenewFlag value={inactive ? null : r.auto_renew} />
                         </TableCell>
 
                         {/* Status */}
-                        <TableCell className="px-3 align-top">
+                        <TableCell
+                          className="px-2.5 py-1 align-top"
+                          style={{ maxWidth: 124, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                          title={r.contract_status_label ?? ""}
+                        >
                           {inactive ? <ContractDash /> : r.contract_status_label ?? "—"}
                         </TableCell>
                       </>
@@ -1127,7 +1163,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
 
                     {show.financials && (
                       /* Annualized Retainer */
-                      <TableCell className="px-3 align-top text-right tabular-nums" style={GROUP_START_STYLE}>
+                      <TableCell className="px-2.5 py-1 align-top text-right tabular-nums" style={GROUP_START_STYLE}>
                         {formatCompactDollars(r.annualized_retainer)}
                       </TableCell>
                     )}
@@ -1135,23 +1171,28 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                     {show.meetings && (
                       <>
                         {/* Mtgs L12M */}
-                        <TableCell className="px-3 align-top text-center tabular-nums" style={GROUP_START_STYLE}>{meetings365}</TableCell>
+                        <TableCell className="px-2.5 py-1 align-top text-center tabular-nums" style={GROUP_START_STYLE}>{meetings365}</TableCell>
 
                         {/* Inst L12M */}
-                        <TableCell className="px-3 align-top text-center tabular-nums text-muted-foreground">
+                        <TableCell className="px-2.5 py-1 align-top text-center tabular-nums text-muted-foreground">
                           {r.unique_institutions_last_365d ?? 0}
                         </TableCell>
 
                         {/* Mtgs L3M with velocity */}
-                        <TableCell className="px-3 align-top text-center tabular-nums">
+                        <TableCell className="px-2.5 py-1 align-top text-center tabular-nums">
                           <span className="inline-flex items-center justify-center gap-1">
                             {velocity && <span style={{ color: velocity.color }}>{velocity.glyph}</span>}
                             <span>{meetings90}</span>
                           </span>
                         </TableCell>
 
+                        {/* Mtgs Next 3M — forward-looking confirmed count */}
+                        <TableCell className="px-2.5 py-1 align-top text-center tabular-nums">
+                          {r.meetings_next_3m ?? 0}
+                        </TableCell>
+
                         {/* Last Meeting */}
-                        <TableCell className="px-3 align-top">
+                        <TableCell className="px-2.5 py-1 align-top">
                           <DateCell value={r.last_meeting_date} />
                         </TableCell>
                       </>
@@ -1160,12 +1201,12 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                     {show.activity && (
                       <>
                         {/* Last Event */}
-                        <TableCell className="px-3 align-top" style={GROUP_START_STYLE}>
+                        <TableCell className="px-2.5 py-1 align-top" style={GROUP_START_STYLE}>
                           <DateCell value={r.last_event_date} />
                         </TableCell>
 
                         {/* Last Note */}
-                        <TableCell className="px-3 align-top">
+                        <TableCell className="px-2.5 py-1 align-top">
                           <DateCell value={r.last_note_date} />
                         </TableCell>
                       </>

@@ -390,6 +390,15 @@ WITH meeting_agg AS (
       WHERE meeting_date >= CURRENT_DATE - interval '90 days'
         AND meeting_date <= CURRENT_DATE
     ) AS meetings_last_90d,
+    -- Forward-looking: confirmed meetings scheduled AFTER this instant through
+    -- 3 months out. Deliberate OPPOSITE of the trailing fields above — it is NOT
+    -- bounded by <= now() and intentionally INCLUDES future meetings (the
+    -- upcoming window). now() is timestamptz like meeting_date, so the
+    -- comparison is absolute with no timezone drift.
+    COUNT(*) FILTER (
+      WHERE meeting_date > now()
+        AND meeting_date <= now() + interval '3 months'
+    ) AS meetings_next_3m,
     COUNT(DISTINCT institution_name) FILTER (
       WHERE meeting_date >= CURRENT_DATE - interval '365 days'
         AND meeting_date <= CURRENT_DATE
@@ -492,7 +501,12 @@ SELECT
   -- CREATE OR REPLACE VIEW can add them without a DROP (it forbids inserting a
   -- column in the middle of an existing view's column order).
   rn.note_status,
-  rn.note_date::date AS note_status_date
+  rn.note_date::date AS note_status_date,
+
+  -- Forward-looking upcoming-meeting count (confirmed, next 3 months). Appended
+  -- at the very end of the column list so CREATE OR REPLACE VIEW can add it
+  -- without a DROP (Postgres forbids inserting a column mid-list on REPLACE).
+  COALESCE(ma.meetings_next_3m, 0)::int AS meetings_next_3m
 
 FROM public.accounts a
 LEFT JOIN meeting_agg ma ON ma.client_account_id = a.account_id

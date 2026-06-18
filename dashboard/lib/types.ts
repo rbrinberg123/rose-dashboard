@@ -367,6 +367,10 @@ export type ClientPortfolioRow = {
   annualized_retainer: number | null
   meetings_last_365d: number | null
   meetings_last_90d: number | null
+  // Forward-looking: confirmed meetings scheduled in the next 3 months
+  // (v_client_portfolio.meetings_next_3m). The only forward meeting field — the
+  // counterpart to the trailing meetings_last_* counts above.
+  meetings_next_3m: number | null
   unique_institutions_last_365d: number | null
   last_meeting_date: string | null
   last_event_date: string | null
