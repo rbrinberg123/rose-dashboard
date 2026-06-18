@@ -73,8 +73,8 @@ const TOGGLE_SECTIONS = [
 
 type SectionId = (typeof TOGGLE_SECTIONS)[number]["id"]
 const VALID_SECTION_IDS = new Set<string>(TOGGLE_SECTIONS.map((s) => s.id))
-// Default view: Contract + Meetings on; Classification/Financials/Activity off.
-const DEFAULT_SECTIONS: SectionId[] = ["contract", "meetings"]
+// Default view: Contract + Meetings + Activity + Financials on; Classification off.
+const DEFAULT_SECTIONS: SectionId[] = ["contract", "meetings", "activity", "financials"]
 
 // Frozen Core columns: when the table overflows horizontally, Client, Status and
 // Account Team stay pinned on the left. Fixed widths give each subsequent column
@@ -715,8 +715,12 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
         </div>
       </div>
 
-      {/* Activity flag toggles */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Sections toggle (left) + activity-flag pills (right) share one row,
+          pinned to opposite edges via justify-between. order-* drives the visual
+          order so Sections sits left even though the pills come first in markup. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* Activity flag toggles — pinned right */}
+      <div className="order-2 flex flex-wrap items-center gap-2">
         <span className="text-muted-foreground" style={{ fontSize: "11px" }}>
           Activity flags:
         </span>
@@ -779,8 +783,8 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
           SegmentedFilter look (light tray, navy-filled active pills), but
           multi-select: any number of sections can be active at once, each pill
           toggling independently. Core is a locked, always-on pill. Persists to
-          ?sections= in the URL. */}
-      <div className="flex items-center gap-2">
+          ?sections= in the URL. Pinned left within the shared row. */}
+      <div className="order-1 flex items-center gap-2">
         <span className="text-sm text-muted-foreground">Sections</span>
         <div
           className="flex h-9 items-center rounded-md bg-card p-0.5"
@@ -813,6 +817,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
             )
           })}
         </div>
+      </div>
       </div>
 
       <div
@@ -927,7 +932,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                 <>
                   <TableHead className="px-3" style={GROUP_START_STYLE}>
                     <SortHeader
-                      label="L12M Mtgs"
+                      label="L12M"
                       sortKey="meetings_last_365d"
                       currentKey={sortKey}
                       currentDir={sortDir}
@@ -947,7 +952,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                   </TableHead>
                   <TableHead className="px-3">
                     <SortHeader
-                      label="L3M Mtgs"
+                      label="L3M"
                       sortKey="meetings_last_90d"
                       currentKey={sortKey}
                       currentDir={sortDir}
@@ -957,7 +962,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                   </TableHead>
                   <TableHead className="px-3">
                     <SortHeader
-                      label="Last Meeting"
+                      label="Last"
                       sortKey="last_meeting_date"
                       currentKey={sortKey}
                       currentDir={sortDir}
@@ -1049,7 +1054,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                     {show.classification && (
                       <>
                         {/* Mkt Cap */}
-                        <TableCell className="px-3 align-top">{r.market_cap_label ?? "—"}</TableCell>
+                        <TableCell className="px-3 align-top" style={GROUP_START_STYLE}>{r.market_cap_label ?? "—"}</TableCell>
 
                         {/* Region */}
                         <TableCell className="px-3 align-top">
@@ -1076,7 +1081,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                     {show.contract && (
                       <>
                         {/* Term End */}
-                        <TableCell className="px-3 align-top whitespace-nowrap">
+                        <TableCell className="px-3 align-top whitespace-nowrap" style={GROUP_START_STYLE}>
                           {inactive ? <ContractDash /> : formatDate(r.initial_term_end)}
                         </TableCell>
 
@@ -1103,7 +1108,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
 
                     {show.financials && (
                       /* Annualized Retainer */
-                      <TableCell className="px-3 align-top text-right tabular-nums">
+                      <TableCell className="px-3 align-top text-right tabular-nums" style={GROUP_START_STYLE}>
                         {formatCompactDollars(r.annualized_retainer)}
                       </TableCell>
                     )}
@@ -1111,7 +1116,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                     {show.meetings && (
                       <>
                         {/* Mtgs L12M */}
-                        <TableCell className="px-3 align-top text-center tabular-nums">{meetings365}</TableCell>
+                        <TableCell className="px-3 align-top text-center tabular-nums" style={GROUP_START_STYLE}>{meetings365}</TableCell>
 
                         {/* Inst L12M */}
                         <TableCell className="px-3 align-top text-center tabular-nums text-muted-foreground">
@@ -1136,7 +1141,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                     {show.activity && (
                       <>
                         {/* Last Event */}
-                        <TableCell className="px-3 align-top">
+                        <TableCell className="px-3 align-top" style={GROUP_START_STYLE}>
                           <DateCell value={r.last_event_date} />
                         </TableCell>
 
