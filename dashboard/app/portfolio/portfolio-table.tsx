@@ -16,10 +16,15 @@ import {
 } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { ListTitleCard } from "@/components/page-masthead"
-import { CARD_CLASS } from "@/lib/design"
+import {
+  CARD_CLASS,
+  NOTE_STATUS_PILL as NOTE_STATUS_STYLES,
+  NOTE_STATUS_PILL_FALLBACK as NOTE_STATUS_FALLBACK,
+} from "@/lib/design"
 import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { DaysLeftPill, AutoRenewFlag, ContractDash } from "@/components/contract-fields"
+import { EXPIRY_BUCKETS, EXPIRY_BUCKET_BY_KEY } from "@/lib/contract-expiry"
 import type { ClientPortfolioRow } from "@/lib/types"
 
 const ALL = "__all__"
@@ -151,19 +156,11 @@ function AccountTeamAvatars({ row }: { row: ClientPortfolioRow }) {
   )
 }
 
-// Note-status flag colors, drawn from the same palette as the contract pills
-// (see components/contract-fields.tsx). At Risk = urgent red, Lost = muted gray
-// (churned, not actionable — reads like "Terminated"), Stable/Strong = healthy
-// green, New Client = informational navy tint. Unknown/future values fall back to
-// gray so a new status surfaces rather than vanishing.
-const NOTE_STATUS_STYLES: Record<string, { bg: string; fg: string }> = {
-  "At Risk": { bg: "#FED7D7", fg: "#C53030" },
-  Lost: { bg: "#E5E7EB", fg: "#6B7280" },
-  Stable: { bg: "#C6F6D5", fg: "#2D7A2D" },
-  Strong: { bg: "#C6F6D5", fg: "#2D7A2D" },
-  "New Client": { bg: "#E6E9F5", fg: "#1E2858" },
-}
-const NOTE_STATUS_FALLBACK = { bg: "#E5E7EB", fg: "#6B7280" }
+// Note-status flag colors now live in lib/design.ts (NOTE_STATUS_PILL), imported
+// above as NOTE_STATUS_STYLES so the Portfolio pills and the Client Statistics
+// "Clients by Status" donut share one palette. At Risk = urgent red, Lost = muted
+// gray, Stable/Strong = healthy green, New Client = navy tint; unknown values fall
+// back to gray so a new status surfaces rather than vanishing.
 
 // Sort + filter order, most-urgent first. Drives both the severity sort and the
 // filter dropdown so "At Risk" always surfaces at the top / front.
@@ -360,6 +357,9 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
   const [noteStatus, setNoteStatus] = React.useState<string>(
     () => searchParams.get("note_status") ?? ALL,
   )
+  const [expiry, setExpiry] = React.useState<string>(
+    () => searchParams.get("expiry") ?? ALL,
+  )
   const [staleMeetings, setStaleMeetings] = React.useState(false)
   const [coldMeetings, setColdMeetings] = React.useState(false)
   const [blankMeetings, setBlankMeetings] = React.useState(false)
@@ -454,6 +454,10 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
           if (r.note_status) return false
         } else if ((r.note_status ?? "") !== noteStatus) return false
       }
+      if (expiry !== ALL) {
+        const bucket = EXPIRY_BUCKET_BY_KEY[expiry]
+        if (bucket && !bucket.match(r.days_to_expiry ?? null)) return false
+      }
       if (!matchCategory(r.last_meeting_date, staleMeetings, coldMeetings, blankMeetings)) return false
       if (!matchCategory(r.last_event_date, staleEvents, coldEvents, blankEvents)) return false
       if (!matchCategory(r.last_note_date, staleNotes, coldNotes, blankNotes)) return false
@@ -472,6 +476,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
     sector,
     salesLead,
     noteStatus,
+    expiry,
     staleMeetings,
     coldMeetings,
     blankMeetings,
@@ -519,6 +524,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
     setSector(ALL)
     setSalesLead(ALL)
     setNoteStatus(ALL)
+    setExpiry(ALL)
     setSearch("")
     setStaleMeetings(false)
     setColdMeetings(false)
@@ -689,6 +695,19 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
             </option>
           ))}
           <option value={NONE}>No note</option>
+        </select>
+
+        <select
+          value={expiry}
+          onChange={(e) => setExpiry(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+        >
+          <option value={ALL}>Days left (all)</option>
+          {EXPIRY_BUCKETS.map((b) => (
+            <option key={b.key} value={b.key}>
+              {b.label}
+            </option>
+          ))}
         </select>
 
         <button

@@ -19,18 +19,52 @@ import {
   BAR_TRACK,
   BAR_FILLS,
 } from "@/lib/gradients"
-import { CARD_CLASS, MONEY_GREEN } from "@/lib/design"
+import {
+  CARD_CLASS,
+  MONEY_GREEN,
+  NOTE_STATUS_PILL,
+  NOTE_STATUS_PILL_FALLBACK,
+  DAYS_LEFT_PILL,
+} from "@/lib/design"
+import { EXPIRY_KEY_BY_LABEL } from "@/lib/contract-expiry"
 import { formatCurrency } from "@/lib/format"
 import type { ClientStatisticsRow, ClientStatsBucketRow } from "@/lib/types"
 
 function portfolioHref(
-  param: "market_cap" | "region" | "sector" | "sales_lead",
+  param: "market_cap" | "region" | "sector" | "sales_lead" | "note_status" | "expiry",
   bucket: string,
 ): string {
   return `/portfolio?${param}=${encodeURIComponent(bucket)}`
 }
 
 const NAVY = "#1E2858"
+
+// Status donut segment color = the saturated `fg` from the SHARED Portfolio status
+// pill palette (lib/design.ts NOTE_STATUS_PILL), so the donut and the Portfolio
+// Status pills are guaranteed identical (NB Stable & Strong share one green there).
+// 'No Status' (no note on record) has no pill, so it uses this page's own no-data
+// neutral — the same teal-gray as the 'Unknown'/'Unassigned' markers elsewhere here.
+const STATUS_NO_DATA_FILL = "#C8DEDB"
+function statusFill(bucket: string): string {
+  if (bucket === "No Status") return STATUS_NO_DATA_FILL
+  return (NOTE_STATUS_PILL[bucket] ?? NOTE_STATUS_PILL_FALLBACK).fg
+}
+
+// Days-left bar fill = the saturated `fg` from the SHARED Days-Left pill palette
+// (lib/design.ts DAYS_LEFT_PILL): red < 30, amber 30-89, green >= 90 (one green for
+// all longer buckets, exactly as the pills), gray for Expired / none. Keyed off the
+// bucket label so it tracks the SQL view's buckets.
+function daysLeftFill(bucket: string): string {
+  if (bucket === "Expired / none") return DAYS_LEFT_PILL.gray.fg
+  if (bucket === "< 30 days") return DAYS_LEFT_PILL.red.fg
+  if (bucket === "30-89 days") return DAYS_LEFT_PILL.amber.fg
+  return DAYS_LEFT_PILL.green.fg
+}
+
+// Clients-by-Manager reads best at 1/3 width as a short ranked list: show the top
+// managers as bars and roll the long tail into a muted footer line (mirrors the
+// Sector chart's SECTOR_TOP_N treatment on this same page).
+const MANAGER_TOP_N = 6
 
 // Rank-based fade for the manager bars: the manager with the most clients gets
 // the deepest navy, fading to light teal down the list. Interpolated across the
@@ -74,12 +108,16 @@ export function ClientStatisticsView({
   region,
   sector,
   manager,
+  status,
+  daysLeft,
 }: {
   row: ClientStatisticsRow
   marketCap: ClientStatsBucketRow[]
   region: ClientStatsBucketRow[]
   sector: ClientStatsBucketRow[]
   manager: ClientStatsBucketRow[]
+  status: ClientStatsBucketRow[]
+  daysLeft: ClientStatsBucketRow[]
 }) {
   const router = useRouter()
   const kpis = [
@@ -134,6 +172,17 @@ export function ClientStatisticsView({
   })
   const managerTotal = sortedManager.reduce((s, r) => s + r.count, 0)
   const managerMax = sortedManager.reduce((m, r) => Math.max(m, r.count), 0)
+  // At 1/3 width, show only the top managers as bars; roll the rest into a footer.
+  const managerTop = sortedManager.slice(0, MANAGER_TOP_N)
+  const managerRest = sortedManager.slice(MANAGER_TOP_N)
+  const managerRestCount = managerRest.reduce((s, r) => s + r.count, 0)
+
+  // Status donut + days-left bars. Both views already sum to active clients (the
+  // null buckets — 'No Status' / 'Expired / none' — are explicit rows), so the
+  // totals shown reconcile to active_account_count without dropping anyone.
+  const statusTotal = status.reduce((s, r) => s + r.count, 0)
+  const daysLeftTotal = daysLeft.reduce((s, r) => s + r.count, 0)
+  const daysLeftMax = daysLeft.reduce((m, r) => Math.max(m, r.count), 0)
 
   return (
     <>
@@ -160,18 +209,7 @@ export function ClientStatisticsView({
         ))}
       </div>
 
-      {/* Understated single-line methodology note — muted, italic, no wrap. */}
-      <p
-        className="mt-3 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap text-[11px] italic"
-        style={{ color: "#9AA1AD" }}
-      >
-        <Info className="size-3.5 shrink-0" aria-hidden="true" />
-        <span>
-          Figures are based on active clients in the CRM. Annualized retainer revenue may slightly overstate the true run-rate (not all in-contract clients are renewing).
-        </span>
-      </p>
-
-      <div className="my-6 flex items-center gap-3">
+      <div className="my-5 flex items-center gap-3">
         <span
           className="shrink-0 text-base font-medium"
           style={{ color: NAVY }}
@@ -182,8 +220,8 @@ export function ClientStatisticsView({
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <Card className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
-          <CardHeader className="pb-2">
+        <Card size="sm" className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
+          <CardHeader className="pb-1">
             <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
               Clients by Market Cap
             </CardTitle>
@@ -192,7 +230,7 @@ export function ClientStatisticsView({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="relative h-56 w-full">
+            <div className="relative h-44 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -201,8 +239,8 @@ export function ClientStatisticsView({
                     nameKey="bucket"
                     cx="50%"
                     cy="50%"
-                    innerRadius={69}
-                    outerRadius={88}
+                    innerRadius={54}
+                    outerRadius={70}
                     onClick={(_, index) => {
                       const bucket = marketCap[index]?.bucket
                       if (bucket && bucket !== "Unknown") {
@@ -231,15 +269,15 @@ export function ClientStatisticsView({
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                 <div
-                  className="text-3xl font-semibold leading-none tabular-nums"
+                  className="text-2xl font-semibold leading-none tabular-nums"
                   style={{ color: NAVY }}
                 >
                   {marketCapTotal.toLocaleString()}
                 </div>
-                <div className="mt-1 text-xs text-muted-foreground">accounts</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">accounts</div>
               </div>
             </div>
-            <ul className="mt-4 space-y-1">
+            <ul className="mt-3 space-y-1">
               {marketCap.map((m) => {
                 const pct =
                   marketCapTotal > 0
@@ -266,13 +304,13 @@ export function ClientStatisticsView({
                 return (
                   <li key={m.bucket}>
                     {m.bucket === "Unknown" ? (
-                      <div className="flex items-center gap-2 rounded-sm px-1 py-1 text-xs">
+                      <div className="flex items-center gap-2 rounded-sm px-1 py-0.5 text-xs">
                         {inner}
                       </div>
                     ) : (
                       <Link
                         href={portfolioHref("market_cap", m.bucket)}
-                        className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 text-xs hover:bg-slate-100"
+                        className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-slate-100"
                       >
                         {inner}
                       </Link>
@@ -284,8 +322,8 @@ export function ClientStatisticsView({
           </CardContent>
         </Card>
 
-        <Card className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
-          <CardHeader className="pb-2">
+        <Card size="sm" className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
+          <CardHeader className="pb-1">
             <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
               Clients by Region
             </CardTitle>
@@ -294,7 +332,7 @@ export function ClientStatisticsView({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-2">
+            <ul className="space-y-1.5">
               {region.map((r) => {
                 const pct =
                   regionTotal > 0
@@ -304,7 +342,7 @@ export function ClientStatisticsView({
                   <li key={r.bucket}>
                     <Link
                       href={portfolioHref("region", r.bucket)}
-                      className="flex cursor-pointer flex-col gap-1.5 rounded-sm px-1 py-1 hover:bg-slate-100"
+                      className="flex cursor-pointer flex-col gap-1.5 rounded-sm px-1 py-0.5 hover:bg-slate-100"
                     >
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-medium" style={{ color: NAVY }}>
@@ -334,8 +372,8 @@ export function ClientStatisticsView({
           </CardContent>
         </Card>
 
-        <Card className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
-          <CardHeader className="pb-2">
+        <Card size="sm" className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
+          <CardHeader className="pb-1">
             <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
               Clients by Sector
             </CardTitle>
@@ -344,7 +382,7 @@ export function ClientStatisticsView({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-2">
+            <ul className="space-y-1.5">
               {sectorTop.map((s) => {
                 const pct =
                   sectorTotal > 0
@@ -380,13 +418,13 @@ export function ClientStatisticsView({
                 return (
                   <li key={s.bucket}>
                     {s.bucket === "Unknown" ? (
-                      <div className="flex flex-col gap-1.5 rounded-sm px-1 py-1">
+                      <div className="flex flex-col gap-1.5 rounded-sm px-1 py-0.5">
                         {inner}
                       </div>
                     ) : (
                       <Link
                         href={portfolioHref("sector", s.bucket)}
-                        className="flex cursor-pointer flex-col gap-1.5 rounded-sm px-1 py-1 hover:bg-slate-100"
+                        className="flex cursor-pointer flex-col gap-1.5 rounded-sm px-1 py-0.5 hover:bg-slate-100"
                       >
                         {inner}
                       </Link>
@@ -404,30 +442,40 @@ export function ClientStatisticsView({
         </Card>
       </div>
 
-      {/* Full-width manager distribution — spans the page below the 3-col grid */}
-      <div className="mt-3">
-        <Card className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
-          <CardHeader className="pb-2">
+      <div className="my-5 flex items-center gap-3">
+        <span
+          className="shrink-0 text-base font-medium"
+          style={{ color: NAVY }}
+        >
+          Relationship &amp; Contract Health
+        </span>
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        {/* Chart 1 — Clients by Manager (top managers, ranked) */}
+        <Card size="sm" className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
+          <CardHeader className="pb-1">
             <CardTitle
               className="flex items-center gap-2 text-sm font-medium"
               style={{ color: NAVY }}
             >
               <Users className="size-4 shrink-0" aria-hidden="true" />
-              Distribution by Client Manager
+              Clients by Manager
             </CardTitle>
             <CardDescription className="text-xs">
               Active clients by Account Manager · click a row to view them in Portfolio
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-2">
-              {sortedManager.map((m, i) => {
+            <ul className="space-y-1.5">
+              {managerTop.map((m, i) => {
                 const pct =
                   managerTotal > 0 ? Math.round((m.count / managerTotal) * 100) : 0
                 const barWidth =
                   managerMax > 0 ? Math.round((m.count / managerMax) * 100) : 0
                 const isUnassigned = m.bucket === "Unassigned"
-                const fill = isUnassigned ? UNASSIGNED_FILL : rankColor(i, sortedManager.length)
+                const fill = isUnassigned ? UNASSIGNED_FILL : rankColor(i, managerTop.length)
                 const inner = (
                   <>
                     <div className="flex items-center justify-between gap-2 text-xs">
@@ -460,13 +508,13 @@ export function ClientStatisticsView({
                 return (
                   <li key={m.bucket}>
                     {isUnassigned ? (
-                      <div className="flex flex-col gap-1.5 rounded-sm px-1 py-1">
+                      <div className="flex flex-col gap-1.5 rounded-sm px-1 py-0.5">
                         {inner}
                       </div>
                     ) : (
                       <Link
                         href={portfolioHref("sales_lead", m.bucket)}
-                        className="group flex cursor-pointer flex-col gap-1.5 rounded-sm px-1 py-1 hover:bg-slate-100"
+                        className="group flex cursor-pointer flex-col gap-1.5 rounded-sm px-1 py-0.5 hover:bg-slate-100"
                       >
                         {inner}
                       </Link>
@@ -475,9 +523,179 @@ export function ClientStatisticsView({
                 )
               })}
             </ul>
+            {managerRest.length > 0 && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                + {managerRest.length} more managers ({managerRestCount} clients)
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Chart 2 — Clients by Status (donut) */}
+        <Card size="sm" className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
+          <CardHeader className="pb-1">
+            <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
+              Clients by Status
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Latest client-note status flag
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="relative h-44 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={status}
+                    dataKey="count"
+                    nameKey="bucket"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={54}
+                    outerRadius={70}
+                    onClick={(_, index) => {
+                      const bucket = status[index]?.bucket
+                      if (bucket === "No Status") {
+                        router.push(portfolioHref("note_status", "__none__"))
+                      } else if (bucket) {
+                        router.push(portfolioHref("note_status", bucket))
+                      }
+                    }}
+                  >
+                    {status.map((s, i) => (
+                      <Cell
+                        key={i}
+                        fill={statusFill(s.bucket)}
+                        style={{ cursor: "pointer" }}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--card)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      fontSize: 12,
+                    }}
+                    formatter={(v) => Number(v).toLocaleString()}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <div
+                  className="text-2xl font-semibold leading-none tabular-nums"
+                  style={{ color: NAVY }}
+                >
+                  {statusTotal.toLocaleString()}
+                </div>
+                <div className="mt-0.5 text-xs text-muted-foreground">clients</div>
+              </div>
+            </div>
+            <ul className="mt-3 space-y-1">
+              {status.map((s) => {
+                const pct =
+                  statusTotal > 0 ? Math.round((s.count / statusTotal) * 100) : 0
+                const href =
+                  s.bucket === "No Status"
+                    ? portfolioHref("note_status", "__none__")
+                    : portfolioHref("note_status", s.bucket)
+                return (
+                  <li key={s.bucket}>
+                    <Link
+                      href={href}
+                      className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-slate-100"
+                    >
+                      <span
+                        className="h-3 w-3 shrink-0 rounded-sm"
+                        style={{ backgroundColor: statusFill(s.bucket) }}
+                        aria-hidden="true"
+                      />
+                      <span className="flex-1 truncate" style={{ color: NAVY }}>
+                        {s.bucket}
+                      </span>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                        {s.count} · {pct}%
+                      </span>
+                    </Link>
+                  </li>
+                )
+              })}
+            </ul>
+          </CardContent>
+        </Card>
+
+        {/* Chart 3 — Clients by Days Left on Contract (grouped bars) */}
+        <Card size="sm" className={`relative !border-0 !ring-0 ${CARD_CLASS}`}>
+          <CardHeader className="pb-1">
+            <CardTitle className="text-sm font-medium" style={{ color: NAVY }}>
+              Clients by Days Left on Contract
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Active clients by time to expiry · click a row to view them in Portfolio
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1.5">
+              {daysLeft.map((d) => {
+                const pct =
+                  daysLeftTotal > 0 ? Math.round((d.count / daysLeftTotal) * 100) : 0
+                const barWidth =
+                  daysLeftMax > 0 ? Math.round((d.count / daysLeftMax) * 100) : 0
+                const fill = daysLeftFill(d.bucket)
+                const key = EXPIRY_KEY_BY_LABEL[d.bucket]
+                const inner = (
+                  <>
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate font-medium" style={{ color: NAVY }}>
+                        {d.bucket}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <span className="tabular-nums text-muted-foreground">
+                          {d.count} · {pct}%
+                        </span>
+                        <ChevronRight
+                          className="size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </div>
+                    <div
+                      className="h-[7px] w-full overflow-hidden rounded-full"
+                      style={{ backgroundColor: BAR_TRACK }}
+                    >
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${barWidth}%`, backgroundColor: fill }}
+                      />
+                    </div>
+                  </>
+                )
+                return (
+                  <li key={d.bucket}>
+                    <Link
+                      href={portfolioHref("expiry", key)}
+                      className="group flex cursor-pointer flex-col gap-1.5 rounded-sm px-1 py-0.5 hover:bg-slate-100"
+                    >
+                      {inner}
+                    </Link>
+                  </li>
+                )
+              })}
+            </ul>
           </CardContent>
         </Card>
       </div>
+
+      {/* Page-footer methodology note — quiet muted footnote below all charts. */}
+      <p
+        className="mt-6 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap text-[11px] italic"
+        style={{ color: "#9AA1AD" }}
+      >
+        <Info className="size-3.5 shrink-0" aria-hidden="true" />
+        <span>
+          Figures are based on active clients in the CRM. Annualized retainer revenue may slightly overstate the true run-rate (not all in-contract clients are renewing).
+        </span>
+      </p>
     </>
   )
 }

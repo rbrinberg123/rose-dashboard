@@ -1,18 +1,22 @@
 import * as React from "react"
 
+import { DAYS_LEFT_PILL } from "@/lib/design"
+
 // Shared rendering for the four contract fields (Days Left, Auto-Renew, plus the
 // muted dash used for Term End / Status when a row is inactive). Used by both the
 // Contract Management tab and the Client Portfolio table so the columns stay
 // visually identical and the day-badge thresholds live in exactly one place.
-
-const RED = "#C53030"
-const AMBER = "#B7791F"
-const GREEN = "#2D7A2D"
-const GRAY_BG = "#E5E7EB"
-const GRAY_FG = "#6B7280"
-const RED_BG = "#FED7D7"
-const AMBER_BG = "#FEEBC8"
-const GREEN_BG = "#C6F6D5"
+//
+// Colors are the shared DAYS_LEFT_PILL palette (lib/design.ts), so these pills
+// and the Client Statistics "Clients by Days Left" chart can never drift.
+const RED = DAYS_LEFT_PILL.red.fg
+const AMBER = DAYS_LEFT_PILL.amber.fg
+const GREEN = DAYS_LEFT_PILL.green.fg
+const GRAY_BG = DAYS_LEFT_PILL.gray.bg
+const GRAY_FG = DAYS_LEFT_PILL.gray.fg
+const RED_BG = DAYS_LEFT_PILL.red.bg
+const AMBER_BG = DAYS_LEFT_PILL.amber.bg
+const GREEN_BG = DAYS_LEFT_PILL.green.bg
 
 // The em-dash shown when a contract field has no value to display (inactive row,
 // or a null Term End / Status). Matches the Contract tab's `dash`.

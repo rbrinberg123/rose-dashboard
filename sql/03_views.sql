@@ -876,6 +876,77 @@ ORDER BY (
 
 
 -- -----------------------------------------------------------------------------
+-- v_client_stats_by_status
+-- One row per client-relationship status on the Client Statistics donut. The
+-- status is the latest client-note flag already computed by v_client_portfolio
+-- (note_status), so this view can never drift from the Portfolio's Status column
+-- or its ?note_status= filter. Selecting from the portfolio view (which is itself
+-- restricted to active accounts) means the counts sum to
+-- v_client_statistics.active_account_count. Clients with no note on record fall
+-- into an explicit 'No Status' bucket rather than being dropped. display_order
+-- mirrors the Portfolio's severity order (At Risk → Lost → New Client → Stable →
+-- Strong); any future/unrecognized flag sorts between the known flags and
+-- 'No Status' so it surfaces rather than vanishing.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_stats_by_status AS
+SELECT
+  COALESCE(p.note_status, 'No Status'::text) AS bucket,
+  COUNT(*)::int AS count,
+  CASE COALESCE(p.note_status, 'No Status'::text)
+    WHEN 'At Risk'    THEN 1
+    WHEN 'Lost'       THEN 2
+    WHEN 'New Client' THEN 3
+    WHEN 'Stable'     THEN 4
+    WHEN 'Strong'     THEN 5
+    WHEN 'No Status'  THEN 99
+    ELSE 50
+  END AS display_order
+FROM public.v_client_portfolio p
+GROUP BY COALESCE(p.note_status, 'No Status'::text)
+ORDER BY display_order;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_stats_by_days_left
+-- One row per "days left on contract" bucket on the Client Statistics page. The
+-- source is v_contract_management.days_to_expiry (initial_term_end - CURRENT_DATE,
+-- one row per active client), so the counts sum to active_account_count. Bucket
+-- boundaries are aligned to the Portfolio Days-Left pill thresholds (red < 30,
+-- amber 30-89, green >= 90) so the color cue reads identically. NULL (no active
+-- contract) and <= 0 (past initial term) are folded into a single 'Expired / none'
+-- bucket rather than being dropped.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_client_stats_by_days_left AS
+WITH bucketed AS (
+  SELECT
+    CASE
+      WHEN cm.days_to_expiry IS NULL OR cm.days_to_expiry <= 0 THEN 'Expired / none'::text
+      WHEN cm.days_to_expiry < 30                              THEN '< 30 days'::text
+      WHEN cm.days_to_expiry < 90                              THEN '30-89 days'::text
+      WHEN cm.days_to_expiry <= 180                            THEN '90-180 days'::text
+      WHEN cm.days_to_expiry <= 365                            THEN '181-365 days'::text
+      ELSE                                                          '365+ days'::text
+    END AS bucket,
+    CASE
+      WHEN cm.days_to_expiry IS NULL OR cm.days_to_expiry <= 0 THEN 1
+      WHEN cm.days_to_expiry < 30                              THEN 2
+      WHEN cm.days_to_expiry < 90                              THEN 3
+      WHEN cm.days_to_expiry <= 180                            THEN 4
+      WHEN cm.days_to_expiry <= 365                            THEN 5
+      ELSE                                                          6
+    END AS display_order
+  FROM public.v_contract_management cm
+)
+SELECT
+  bucket,
+  COUNT(*)::int AS count,
+  display_order
+FROM bucketed
+GROUP BY bucket, display_order
+ORDER BY display_order;
+
+
+-- -----------------------------------------------------------------------------
 -- v_productivity_detail_summary
 -- One row per user with any meeting activity in the trailing 12 months OR
 -- who is a sales lead on any active account. Powers the per-person

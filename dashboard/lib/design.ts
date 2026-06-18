@@ -72,3 +72,36 @@ export const STATUS_PILL_LIGHT: Record<
   atRisk: { bg: "#FDECEC", text: "#B42318" },
   neutral: { bg: "#F1F3F7", text: "#5B6472" },
 }
+
+// ---- Client relationship-status flag colors ------------------------------
+// THE single source of truth for the latest-client-note status flag colors.
+// `bg` is the pill fill, `fg` the saturated text/segment color. Imported by the
+// Portfolio Status column + filter legend (portfolio-table.tsx) AND the Client
+// Statistics "Clients by Status" donut, so the two can never drift. NB Stable and
+// Strong intentionally share one green here — change it in this one place to
+// re-color both the pills and the donut at once.
+export const NOTE_STATUS_PILL: Record<string, { bg: string; fg: string }> = {
+  "At Risk": { bg: "#FED7D7", fg: "#C53030" },
+  Lost: { bg: "#E5E7EB", fg: "#6B7280" },
+  Stable: { bg: "#C6F6D5", fg: "#2D7A2D" },
+  Strong: { bg: "#C6F6D5", fg: "#2D7A2D" },
+  "New Client": { bg: "#E6E9F5", fg: "#1E2858" },
+}
+/** Fallback pill colors for an unrecognized / future status flag. */
+export const NOTE_STATUS_PILL_FALLBACK = { bg: "#E5E7EB", fg: "#6B7280" }
+
+// ---- Contract Days-Left pill colors --------------------------------------
+// THE single source of truth for the contract days-to-expiry urgency colors:
+// red < 30, amber 30-89, green >= 90, gray for terminated / no contract. `bg` is
+// the pill fill, `fg` the saturated text/bar color. Imported by the Days-Left
+// pill (contract-fields.tsx) AND the Client Statistics "Clients by Days Left"
+// chart so they stay in lockstep.
+export const DAYS_LEFT_PILL: Record<
+  "red" | "amber" | "green" | "gray",
+  { bg: string; fg: string }
+> = {
+  red: { bg: "#FED7D7", fg: "#C53030" },
+  amber: { bg: "#FEEBC8", fg: "#B7791F" },
+  green: { bg: "#C6F6D5", fg: "#2D7A2D" },
+  gray: { bg: "#E5E7EB", fg: "#6B7280" },
+}

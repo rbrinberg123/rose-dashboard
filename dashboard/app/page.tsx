@@ -11,16 +11,25 @@ export const metadata: Metadata = { title: "Client Statistics" }
 export default async function Home() {
   const sb = getSupabaseServer()
 
-  const [statsRes, marketCapRes, regionRes, sectorRes, managerRes] = await Promise.all([
-    sb.from("v_client_statistics").select("*").single(),
-    sb.from("v_client_stats_by_market_cap").select("*").order("display_order"),
-    sb.from("v_client_stats_by_region").select("*").order("display_order"),
-    sb.from("v_client_stats_by_sector").select("*"),
-    sb.from("v_client_stats_by_manager").select("*"),
-  ])
+  const [statsRes, marketCapRes, regionRes, sectorRes, managerRes, statusRes, daysLeftRes] =
+    await Promise.all([
+      sb.from("v_client_statistics").select("*").single(),
+      sb.from("v_client_stats_by_market_cap").select("*").order("display_order"),
+      sb.from("v_client_stats_by_region").select("*").order("display_order"),
+      sb.from("v_client_stats_by_sector").select("*"),
+      sb.from("v_client_stats_by_manager").select("*"),
+      sb.from("v_client_stats_by_status").select("*").order("display_order"),
+      sb.from("v_client_stats_by_days_left").select("*").order("display_order"),
+    ])
 
   const firstError =
-    statsRes.error ?? marketCapRes.error ?? regionRes.error ?? sectorRes.error ?? managerRes.error
+    statsRes.error ??
+    marketCapRes.error ??
+    regionRes.error ??
+    sectorRes.error ??
+    managerRes.error ??
+    statusRes.error ??
+    daysLeftRes.error
   if (firstError) {
     return (
       <PageShell title="Client Statistics" description="Top-line numbers across the client book">
@@ -37,6 +46,8 @@ export default async function Home() {
   const region = (regionRes.data ?? []) as ClientStatsBucketRow[]
   const sector = (sectorRes.data ?? []) as ClientStatsBucketRow[]
   const manager = (managerRes.data ?? []) as ClientStatsBucketRow[]
+  const status = (statusRes.data ?? []) as ClientStatsBucketRow[]
+  const daysLeft = (daysLeftRes.data ?? []) as ClientStatsBucketRow[]
 
   return (
     <PageShell title="Client Statistics" description="Top-line numbers across the client book" hideHeader canvas>
@@ -46,6 +57,8 @@ export default async function Home() {
         region={region}
         sector={sector}
         manager={manager}
+        status={status}
+        daysLeft={daysLeft}
       />
     </PageShell>
   )
