@@ -82,16 +82,15 @@ const SUBHEADER_BG = "#F7F8FA"
 // the column count, used for the band colSpan and the empty-state colSpan.
 const TOGGLE_SECTIONS = [
   { id: "classification", label: "Classification", cols: 3 },
-  { id: "contract", label: "Contract", cols: 4 },
-  { id: "financials", label: "Financials", cols: 1 },
+  { id: "contract", label: "Contract", cols: 5 },
   { id: "meetings", label: "Meetings", cols: 5 },
   { id: "activity", label: "Activity", cols: 2 },
 ] as const
 
 type SectionId = (typeof TOGGLE_SECTIONS)[number]["id"]
 const VALID_SECTION_IDS = new Set<string>(TOGGLE_SECTIONS.map((s) => s.id))
-// Default view: Contract + Meetings + Activity + Financials on; Classification off.
-const DEFAULT_SECTIONS: SectionId[] = ["contract", "meetings", "activity", "financials"]
+// Default view: Contract + Meetings + Activity on; Classification off.
+const DEFAULT_SECTIONS: SectionId[] = ["contract", "meetings", "activity"]
 
 // Frozen Core columns: when the table overflows horizontally, Client, Status and
 // Account Team stay pinned on the left. Fixed widths give each subsequent column
@@ -241,9 +240,20 @@ function formatShortDate(value: string | null | undefined): string {
 function formatCompactDollars(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—"
   const abs = Math.abs(value)
-  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
-  if (abs >= 1_000) return `$${(value / 1_000).toFixed(1)}K`
+  if (abs >= 1_000_000) return `$${Math.round(value / 1_000_000)}M`
+  if (abs >= 1_000) return `$${Math.round(value / 1_000)}K`
   return `$${Math.round(value).toLocaleString()}`
+}
+
+// Display-only shortening for the Contract "Term" column. The underlying
+// contract_status_label values are "Initial Term" / "Renewal Term" (plus
+// "Terminated" / "Contract Expired"); since the column is now headed "Term",
+// strip a redundant trailing " Term" so they read "Initial" / "Renewal". Values
+// that don't end in " Term" (Terminated, Contract Expired) pass through as-is,
+// and null shows the em-dash. The full value is kept in the cell's title tooltip.
+function shortenContractTerm(value: string | null | undefined): string {
+  if (!value) return "—"
+  return value.replace(/ Term$/, "")
 }
 
 function daysSince(value: string | null | undefined): number | null {
@@ -419,7 +429,6 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
   const show = {
     classification: activeSections.has("classification"),
     contract: activeSections.has("contract"),
-    financials: activeSections.has("financials"),
     meetings: activeSections.has("meetings"),
     activity: activeSections.has("activity"),
   }
@@ -862,7 +871,13 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
       <div
         className={`${CARD_CLASS} [&_thead_tr:first-child_th:first-child]:rounded-tl-[14px] [&_thead_tr:first-child_th:last-child]:rounded-tr-[14px] [&_tbody_tr:last-child_td:first-child]:rounded-bl-[14px] [&_tbody_tr:last-child_td:last-child]:rounded-br-[14px]`}
       >
-        <Table>
+        {/* w-auto overrides the shared Table's w-full: width:100% is what makes
+            the table stretch to fill the card and (under table-layout:auto) spread
+            the leftover width as slack *between* columns — the dead gap between
+            Term and Retainer. Sizing to content gives every column a uniform
+            padding-only gap; the wrapping div's overflow-x-auto + sticky columns
+            handle horizontal scroll when sections make the table wide. */}
+        <Table className="w-auto">
           <TableHeader className="sticky top-0 z-20 bg-card">
             {/* Top tier: section bands. Only active sections render; each band's
                 colSpan equals its visible column count so it sits exactly over its
@@ -881,13 +896,8 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                 </TableHead>
               )}
               {show.contract && (
-                <TableHead colSpan={4} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
+                <TableHead colSpan={5} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
                   Contract
-                </TableHead>
-              )}
-              {show.financials && (
-                <TableHead colSpan={1} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
-                  Financials
                 </TableHead>
               )}
               {show.meetings && (
@@ -951,21 +961,19 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                     />
                   </TableHead>
                   <TableHead className="h-8 px-2.5">
-                    <SortHeader label="Status" sortKey="contract_status_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortHeader label="Term" sortKey="contract_status_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  </TableHead>
+                  <TableHead className="h-8 px-2.5">
+                    <SortHeader
+                      label="Retainer"
+                      sortKey="annualized_retainer"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      align="right"
+                    />
                   </TableHead>
                 </>
-              )}
-              {show.financials && (
-                <TableHead className="h-8 px-2.5" style={GROUP_START_STYLE}>
-                  <SortHeader
-                    label="Annualized Ret."
-                    sortKey="annualized_retainer"
-                    currentKey={sortKey}
-                    currentDir={sortDir}
-                    onSort={handleSort}
-                    align="right"
-                  />
-                </TableHead>
               )}
               {show.meetings && (
                 <>
@@ -1156,16 +1164,14 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                           style={{ maxWidth: 124, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                           title={r.contract_status_label ?? ""}
                         >
-                          {inactive ? <ContractDash /> : r.contract_status_label ?? "—"}
+                          {inactive ? <ContractDash /> : shortenContractTerm(r.contract_status_label)}
+                        </TableCell>
+
+                        {/* Annualized Retainer */}
+                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums">
+                          {formatCompactDollars(r.annualized_retainer)}
                         </TableCell>
                       </>
-                    )}
-
-                    {show.financials && (
-                      /* Annualized Retainer */
-                      <TableCell className="px-2.5 py-1 align-top text-right tabular-nums" style={GROUP_START_STYLE}>
-                        {formatCompactDollars(r.annualized_retainer)}
-                      </TableCell>
                     )}
 
                     {show.meetings && (
