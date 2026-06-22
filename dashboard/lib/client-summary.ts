@@ -141,6 +141,108 @@ export async function listActiveClientIds(
   return (data ?? []).map((r) => r.account_id as string)
 }
 
+/** One active client plus the timestamp of its last cached summary (null if never). */
+export type ClientRefreshCandidate = {
+  account_id: string
+  ai_summary_generated_at: string | null
+}
+
+/**
+ * The active clients to consider for a refresh, each paired with when its
+ * summary was last generated. Same active set as listActiveClientIds (the
+ * v_client_detail_summary view), joined to the cache timestamp on accounts.
+ */
+export async function listActiveClientsForRefresh(
+  sb: SupabaseClient,
+): Promise<ClientRefreshCandidate[]> {
+  const accountIds = await listActiveClientIds(sb)
+  if (accountIds.length === 0) return []
+
+  const { data, error } = await sb
+    .from("accounts")
+    .select("account_id, ai_summary_generated_at")
+    .in("account_id", accountIds)
+  if (error) {
+    throw new ClientSummaryError(
+      `Failed to read summary timestamps: ${error.message}`,
+      500,
+    )
+  }
+
+  const generatedAtById = new Map<string, string | null>(
+    (data ?? []).map((r) => [
+      r.account_id as string,
+      (r.ai_summary_generated_at as string | null) ?? null,
+    ]),
+  )
+  // Drive off the active list so order is stable and every active client is
+  // present even if its accounts row somehow lacks a timestamp.
+  return accountIds.map((id) => ({
+    account_id: id,
+    ai_summary_generated_at: generatedAtById.get(id) ?? null,
+  }))
+}
+
+// The Dynamics-mirrored tables that feed a client summary. Each has a
+// client_account_id and a modified_on (Dynamics' own modifiedon, refreshed by
+// the 07:00 sync before this batch runs at 08:00), so "any row modified after
+// the last summary" is our change signal.
+const CHANGE_SOURCE_TABLES = [
+  "meetings",
+  "touchpoints",
+  "client_notes",
+  "contracts",
+] as const
+
+/** True if any row for this client in `table` was modified after `since`. */
+async function hasChangeSince(
+  sb: SupabaseClient,
+  table: string,
+  accountId: string,
+  since: string,
+): Promise<boolean> {
+  const { count, error } = await sb
+    .from(table)
+    .select("*", { count: "exact", head: true })
+    .eq("client_account_id", accountId)
+    .gt("modified_on", since)
+  if (error) {
+    throw new ClientSummaryError(
+      `Failed to check ${table} for changes: ${error.message}`,
+      500,
+    )
+  }
+  return (count ?? 0) > 0
+}
+
+/**
+ * Decide whether a client's summary needs regenerating. Stale when it has never
+ * been generated, when it is older than `thresholdDays` (a freshness floor), or
+ * when any underlying record (meeting / touchpoint / note / contract) changed
+ * since it was generated. Otherwise fresh-and-unchanged → skip the paid call.
+ *
+ * Uses only cheap Supabase count queries (not the Anthropic API), short-circuit-
+ * ing on the first source table that shows a change.
+ */
+export async function isClientSummaryStale(
+  sb: SupabaseClient,
+  candidate: ClientRefreshCandidate,
+  thresholdDays: number,
+): Promise<boolean> {
+  const generatedAt = candidate.ai_summary_generated_at
+  if (!generatedAt) return true
+
+  const ageMs = Date.now() - new Date(generatedAt).getTime()
+  if (ageMs > thresholdDays * 24 * 60 * 60 * 1000) return true
+
+  for (const table of CHANGE_SOURCE_TABLES) {
+    if (await hasChangeSince(sb, table, candidate.account_id, generatedAt)) {
+      return true
+    }
+  }
+  return false
+}
+
 /**
  * Generate the summary for ONE client and write it to the cache columns
  * (accounts.ai_summary / ai_summary_generated_at). Throws ClientSummaryError on
