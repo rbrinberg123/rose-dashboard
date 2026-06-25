@@ -73,6 +73,25 @@ export const STATUS_PILL_LIGHT: Record<
   neutral: { bg: "#F1F3F7", text: "#5B6472" },
 }
 
+// ---- Profile pipeline-stage colors ---------------------------------------
+// THE single source of truth for the Logistics → Profiles dashboard stage
+// colors and ordering. `order` drives the By-Stage column order and the
+// By-Week tag sort; `bg`/`text` are the pill fill + text (reusing the same
+// tints as STATUS_PILL_LIGHT so stages read as part of the site palette).
+// Keyed by meetings.profile_label exactly.
+export const PROFILE_STAGE: Record<
+  string,
+  { order: number; bg: string; text: string }
+> = {
+  New: { order: 0, bg: "#EEF2FB", text: "#2D4A8A" },
+  "Created/Under Review": { order: 1, bg: "#FCF4E6", text: "#92600B" },
+  Approved: { order: 2, bg: "#E7F5EE", text: "#0E7C56" },
+  Sent: { order: 3, bg: "#E6E9F5", text: "#1E2858" },
+  "Not Needed": { order: 4, bg: "#F1F3F7", text: "#5B6472" },
+}
+/** Fallback for an unrecognized / future stage value. */
+export const PROFILE_STAGE_FALLBACK = { order: 99, bg: "#F1F3F7", text: "#5B6472" }
+
 // ---- Client relationship-status flag colors ------------------------------
 // THE single source of truth for the latest-client-note status flag colors.
 // `bg` is the pill fill, `fg` the saturated text/segment color. Imported by the

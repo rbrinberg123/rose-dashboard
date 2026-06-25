@@ -766,3 +766,25 @@ export type FeedbackOutstandingRow = {
   feedback_status_label: string | null
   days_since: number
 }
+
+// -----------------------------------------------------------------------------
+// v_profiles_upcoming — one row per upcoming meeting for the Logistics →
+// Profiles dashboard. week_index is 0 (this week) / 1 (next) / 2 (week after);
+// profile_label is the pipeline stage. primary/secondary manager come from the
+// client account (meetings carry no manager), so both can be null.
+// -----------------------------------------------------------------------------
+export type ProfileUpcomingRow = {
+  meeting_id: string
+  meeting_date: string
+  meeting_day: string
+  week_index: number
+  profile_label: string
+  profile_code: number | null
+  is_in_person: boolean
+  client_account_id: string | null
+  client_account_name: string | null
+  institution_name: string | null
+  primary_manager_name: string | null
+  secondary_manager_name: string | null
+  event_name: string | null
+}

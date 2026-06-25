@@ -2970,3 +2970,86 @@ SELECT
 FROM base b
 JOIN public.users cu ON cu.user_id = public.canonical_user_id(b.user_id)
 GROUP BY public.canonical_user_id(b.user_id), cu.display_name;
+
+
+-- -----------------------------------------------------------------------------
+-- v_profiles_upcoming
+-- One row per UPCOMING meeting for the Logistics -> Profiles dashboard, a board
+-- of the next three BUSINESS weeks tracking each meeting's "profile" pipeline
+-- stage (meetings.profile_label).
+--
+-- The stage is profile_label, ordered by profile_code:
+--   New (0) -> Created/Under Review (1) -> Approved (2) -> Sent (3) ->
+--   Not Needed (4, terminal "no profile required").
+-- ALL stages are included here; the UI multi-select hides Sent by default. The
+-- view does not special-case any stage.
+--
+-- Forward-only: only meetings whose date is today or later are included, for
+-- EVERY stage, so the board never shows anything behind us.
+--
+-- Cancelled meetings are excluded; TBR/Pending/Confirmed are kept (a TBR or
+-- pending meeting is still upcoming work the team is staging a profile for).
+--
+-- Business weeks (Mon-Fri only): weekend meetings are excluded (ISODOW <= 5),
+-- and the window is anchored to a Monday:
+--   * Mon-Fri today  -> anchor = this week's Monday.
+--   * Sat/Sun today  -> anchor = NEXT Monday, so once Friday completes the whole
+--     board shifts forward a week (the finished week drops off, a new 3rd week
+--     appears). This is the "shift after Friday" rule.
+-- week_index is whole-weeks from that anchor: 0 = current business week,
+-- 1 = next, 2 = the week after. Capped at <= 2 (three weeks).
+--
+-- Dates follow the v_scheduler_* convention: the stored timestamptz is read as
+-- its wall-clock value via AT TIME ZONE 'UTC' (NOT shifted into a local zone),
+-- so meeting_day is stable regardless of server timezone. CURRENT_DATE is the
+-- DB session date (Supabase runs UTC), so the anchor and meeting_day share one
+-- clock.
+--
+-- Account managers come from the client account (meetings have none): the join
+-- meeting.client_account_id -> accounts.account_id exposes the primary
+-- (sales_lead_primary_name) and secondary (secondary_manager_name) managers
+-- that power the two manager filters. Most clients have no secondary manager,
+-- so secondary_manager_name is frequently NULL.
+--
+-- This set is small (a three-week forward window), so the page fetches it in a
+-- single request with no pagination.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_profiles_upcoming AS
+WITH anchor AS (
+  -- Monday that begins the current business week, rolled forward to next Monday
+  -- on weekends so the board advances the moment Friday is done.
+  SELECT CASE
+    WHEN EXTRACT(ISODOW FROM CURRENT_DATE) IN (6, 7)
+      THEN date_trunc('week', CURRENT_DATE)::date + 7
+    ELSE date_trunc('week', CURRENT_DATE)::date
+  END AS monday
+)
+SELECT
+  m.meeting_id,
+  m.meeting_date,
+  (m.meeting_date AT TIME ZONE 'UTC')::date AS meeting_day,
+  (((m.meeting_date AT TIME ZONE 'UTC')::date - anchor.monday) / 7)::int AS week_index,
+  m.profile_label,
+  m.profile_code,
+  m.is_in_person,
+  m.client_account_id,
+  m.client_account_name,
+  m.institution_name,
+  a.sales_lead_primary_name AS primary_manager_name,
+  a.secondary_manager_name  AS secondary_manager_name,
+  -- Event name is not a mirrored column; it lives in the Dynamics lookup's
+  -- formatted value inside _raw. Trim trailing/double spaces and treat blanks
+  -- as NULL so the UI's event dropdown lists clean, de-duplicated names.
+  -- Appended last so CREATE OR REPLACE VIEW only ADDS a column.
+  NULLIF(TRIM(m._raw ->> '_bcs_event_value@OData.Community.Display.V1.FormattedValue'), '')
+    AS event_name
+FROM public.meetings m
+CROSS JOIN anchor
+LEFT JOIN public.accounts a ON a.account_id = m.client_account_id
+WHERE m.meeting_date IS NOT NULL
+  AND m.profile_label IS NOT NULL
+  AND COALESCE(m.meeting_status_label, '') <> 'Cancelled'
+  AND (m.meeting_date AT TIME ZONE 'UTC')::date >= CURRENT_DATE
+  AND EXTRACT(ISODOW FROM (m.meeting_date AT TIME ZONE 'UTC')::date) <= 5
+  AND (((m.meeting_date AT TIME ZONE 'UTC')::date - anchor.monday) / 7)::int
+      BETWEEN 0 AND 2;
