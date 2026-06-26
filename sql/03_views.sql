@@ -3053,3 +3053,112 @@ WHERE m.meeting_date IS NOT NULL
   AND EXTRACT(ISODOW FROM (m.meeting_date AT TIME ZONE 'UTC')::date) <= 5
   AND (((m.meeting_date AT TIME ZONE 'UTC')::date - anchor.monday) / 7)::int
       BETWEEN 0 AND 2;
+
+
+-- -----------------------------------------------------------------------------
+-- v_planning_events
+-- One row per Confirmed meeting belonging to an UPCOMING event, for the
+-- Logistics -> Planning tracker. The page is a master-detail board: each
+-- upcoming event lists its meetings chronologically and tracks every meeting
+-- across four planning stages (Profiles, Calendars, Hosts, Feedback).
+--
+-- Event identity is meetings.event_id (a stable Dynamics lookup id), NOT the
+-- event NAME. The display name lives in the lookup's formatted value inside
+-- _raw (same source as v_profiles_upcoming.event_name), but that string embeds
+-- an editable date list, so the SAME event_id can carry slightly different name
+-- strings over time. Grouping by name would split one event into several;
+-- grouping by event_id keeps it whole. Meetings with no event_id are not part
+-- of any event and are excluded.
+--
+-- Scope (the event LIST): an event is "upcoming" iff it has >= 1 Confirmed
+-- meeting dated today-or-later (meeting_day >= CURRENT_DATE).
+--
+-- Rows returned (the event DETAIL): for every upcoming event, ALL of its
+-- Confirmed meetings -- past AND future -- so opening an event shows the full
+-- picture including already-completed meetings. is_past flags the completed
+-- ones for the UI to dim. Only Confirmed meetings are tracked (Cancelled / TBR /
+-- Pending are not part of the plan).
+--
+-- The four stage VALUES are returned raw (profile_label, calendar_label,
+-- host_name, feedback_status_label); the UI decides the checkmark per stage:
+--   * Profiles  : check if profile_label IN ('Sent','Not Needed')
+--   * Calendars : check if calendar_label CONTAINS the word 'Sent'
+--                 ('Calendar Sent' / 'Management Sent' / 'Investor Sent').
+--                 NB 'Send to Management' contains 'Send' but NOT 'Sent', so it
+--                 must NOT check -- the UI uses a case-sensitive 'Sent' match.
+--   * Hosts     : check if host_name is present
+--   * Feedback  : check if feedback_status_label starts with 'Closed'
+--                 ('Closed - All in' / 'Closed - No Feedback')
+--
+-- Dates follow the v_profiles_upcoming convention: the stored timestamptz is
+-- read as its UTC wall-clock value (AT TIME ZONE 'UTC', not shifted), so
+-- meeting_day shares one clock with CURRENT_DATE (Supabase runs UTC).
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS public.v_planning_events CASCADE;
+CREATE VIEW public.v_planning_events AS
+WITH ev AS (
+  SELECT
+    m.meeting_id,
+    m.event_id,
+    m.meeting_date,
+    (m.meeting_date AT TIME ZONE 'UTC')::date AS meeting_day,
+    m.institution_name,
+    m.client_account_id,
+    m.client_account_name,
+    m.is_in_person,
+    m.profile_label,
+    m.calendar_label,
+    m.host_id,
+    m.host_name,
+    m.feedback_status_label,
+    -- Account managers come from the client account (meetings carry none), the
+    -- same meeting -> client -> AM join the Profiles page uses. One client per
+    -- event, so an event has a single primary AM; secondary AM is usually NULL.
+    a.sales_lead_primary_name AS primary_manager_name,
+    a.secondary_manager_name  AS secondary_manager_name,
+    NULLIF(TRIM(m._raw ->> '_bcs_event_value@OData.Community.Display.V1.FormattedValue'), '')
+      AS event_name
+  FROM public.meetings m
+  LEFT JOIN public.accounts a ON a.account_id = m.client_account_id
+  WHERE m.event_id IS NOT NULL
+    AND m.meeting_date IS NOT NULL
+    AND m.meeting_status_label = 'Confirmed'
+),
+upcoming_events AS (
+  -- Event list scope: >= 1 Confirmed meeting today-or-later.
+  SELECT DISTINCT event_id
+  FROM ev
+  WHERE meeting_day >= CURRENT_DATE
+),
+event_label AS (
+  -- One representative display name per event_id: the name on the latest-dated
+  -- meeting (the most current label), with a deterministic meeting_id tiebreak.
+  SELECT DISTINCT ON (event_id)
+    event_id,
+    event_name
+  FROM ev
+  WHERE event_name IS NOT NULL
+  ORDER BY event_id, meeting_date DESC, meeting_id
+)
+SELECT
+  ev.event_id,
+  COALESCE(el.event_name, '(Unnamed event)') AS event_name,
+  ev.meeting_id,
+  ev.meeting_date,
+  ev.meeting_day,
+  ev.institution_name,
+  ev.client_account_id,
+  ev.client_account_name,
+  ev.is_in_person,
+  ev.profile_label,
+  ev.calendar_label,
+  ev.host_id,
+  ev.host_name,
+  ev.feedback_status_label,
+  ev.primary_manager_name,
+  ev.secondary_manager_name,
+  (ev.meeting_day < CURRENT_DATE) AS is_past
+FROM ev
+JOIN upcoming_events ue ON ue.event_id = ev.event_id
+LEFT JOIN event_label el ON el.event_id = ev.event_id
+ORDER BY ev.event_id, ev.meeting_date, ev.meeting_id;

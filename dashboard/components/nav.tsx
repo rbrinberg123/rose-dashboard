@@ -66,6 +66,7 @@ const sections: NavSection[] = [
     icon: CalendarDays,
     items: [
       { href: "/scheduler", label: "Scheduler" },
+      { href: "/planning", label: "Planning" },
       { href: "/profiles", label: "Profiles" },
       { href: "/feedback", label: "Feedback" },
       { href: "/pipeline", label: "Pipeline" },

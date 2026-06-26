@@ -788,3 +788,26 @@ export type ProfileUpcomingRow = {
   secondary_manager_name: string | null
   event_name: string | null
 }
+
+// One row per Confirmed meeting of an upcoming event, from v_planning_events.
+// Powers the Logistics → Planning tracker (master-detail). The four stage
+// VALUES come raw; the UI decides each checkmark (see planning-view.tsx).
+export type PlanningEventRow = {
+  event_id: string
+  event_name: string
+  meeting_id: string
+  meeting_date: string
+  meeting_day: string
+  institution_name: string | null
+  client_account_id: string | null
+  client_account_name: string | null
+  is_in_person: boolean
+  profile_label: string | null
+  calendar_label: string | null
+  host_id: string | null
+  host_name: string | null
+  feedback_status_label: string | null
+  primary_manager_name: string | null
+  secondary_manager_name: string | null
+  is_past: boolean
+}
