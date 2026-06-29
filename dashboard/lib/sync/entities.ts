@@ -25,7 +25,7 @@ import {
   mapMeeting,
   mapSystemUser,
   mapTouchpoint,
-  mapTask
+  mapTask,
   mapOOO
 } from "./mappers"
 
