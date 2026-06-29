@@ -338,3 +338,153 @@ export function mapSystemUser(row: Row, lastSeenAt: string): Row {
     is_active: row["isdisabled"] === undefined ? true : !row["isdisabled"],
   }
 }
+export function mapTask(row: Row): Row {
+  return {
+    // PK (Dataverse activityid)
+    task_id: row["activityid"],
+
+    // Core activity fields
+    subject: str(row["subject"]),
+    description: str(row["description"]),
+    category: str(row["category"]),
+    subcategory: str(row["subcategory"]),
+    scheduled_start: parseDt(row["scheduledstart"]),
+    scheduled_end: parseDt(row["scheduledend"]),
+    scheduled_duration_minutes: num(row["scheduleddurationminutes"]),
+    actual_start: parseDt(row["actualstart"]),
+    actual_end: parseDt(row["actualend"]),
+    actual_duration_minutes: num(row["actualdurationminutes"]),
+    percent_complete: num(row["percentcomplete"]),
+    priority_code: num(row["prioritycode"]),
+    priority_label: fv(row, "prioritycode"),
+    activity_type_code: str(row["activitytypecode"]),
+    is_regular_activity: bool(row["isregularactivity"]),
+    is_workflow_created: bool(row["isworkflowcreated"]),
+    is_billed: bool(row["isbilled"]),
+    on_hold_time: num(row["onholdtime"]),
+    last_on_hold_time: parseDt(row["lastonholdtime"]),
+    sort_date: parseDt(row["sortdate"]),
+    overridden_created_on: parseDt(row["overriddencreatedon"]),
+
+    // regardingobjectid: polymorphic (account / event / contact / ...)
+    regarding_id: lookupId(row, "_regardingobjectid_value"),
+    regarding_name: lookupName(row, "_regardingobjectid_value"),
+    regarding_type: str(
+      row["_regardingobjectid_value@Microsoft.Dynamics.CRM.lookuplogicalname"],
+    ),
+
+    // Rose custom choice fields
+    bcs_task_type_code: num(row["bcs_tasktype"]),
+    bcs_task_type_label: fv(row, "bcs_tasktype"),
+    bcs_task_subtype_code: num(row["bcs_tasksubtype"]),
+    bcs_task_subtype_label: fv(row, "bcs_tasksubtype"),
+    bcs_task_priority_code: num(row["bcs_taskpriority"]),
+    bcs_task_priority_label: fv(row, "bcs_taskpriority"),
+    bcs_legacy_task_type_code: num(row["bcs_legacytasktype"]),
+    bcs_legacy_task_type_label: fv(row, "bcs_legacytasktype"),
+    bcs_outreach_task_status_code: num(row["bcs_outreachtaskstatus"]),
+    bcs_outreach_task_status_label: fv(row, "bcs_outreachtaskstatus"),
+
+    // Rose custom lookups (no FK)
+    bcs_account_id: lookupId(row, "_bcs_account_value"),
+    bcs_account_name: lookupName(row, "_bcs_account_value"),
+    bcs_event_id: lookupId(row, "_bcs_event_value"),
+    bcs_event_name: lookupName(row, "_bcs_event_value"),
+    bcs_project_id: lookupId(row, "_bcs_project_value"),
+    bcs_project_name: lookupName(row, "_bcs_project_value"),
+    bcs_master_company_id: lookupId(row, "_bcs_mastercompany_value"),
+    bcs_master_company_name: lookupName(row, "_bcs_mastercompany_value"),
+    bcs_claimed_by_id: lookupId(row, "_bcs_claimedby_value"),
+    bcs_claimed_by_name: lookupName(row, "_bcs_claimedby_value"),
+    bcs_current_assignment_id: lookupId(row, "_bcs_currentassignment_value"),
+    bcs_current_assignment_name: lookupName(row, "_bcs_currentassignment_value"),
+
+    // Rose custom workflow booleans
+    bcs_wc: bool(row["bcs_wc"]),
+    bcs_drafting: bool(row["bcs_drafting"]),
+    bcs_draft_complete: bool(row["bcs_draftcomplete"]),
+    bcs_processed: bool(row["bcs_processed"]),
+    bcs_review_complete: bool(row["bcs_reviewcomplete"]),
+    bcs_feedback_received: bool(row["bcs_feedbackreceived"]),
+    bcs_notified: bool(row["bcs_notified"]),
+    bcs_fix_last_activity: bool(row["bcs_fixlastactivity"]),
+    bcs_invalid_duration_save: bool(row["bcs_invaliddurationsave"]),
+    bcs_claim_it: bool(row["bcs_claimit"]),
+    bcs_earnings_release: bool(row["bcs_earningsrelease"]),
+    bcs_corporate_calendar: bool(row["bcs_corporatecalendar"]),
+    bcs_marketing_presentation: bool(row["bcs_marketingpresentation"]),
+    bcs_meeting_history: bool(row["bcs_meetinghistory"]),
+    bcs_peer_group: bool(row["bcs_peergroup"]),
+    bcs_perception_study: bool(row["bcs_perceptionstudy"]),
+    bcs_shareholder_register: bool(row["bcs_shareholderregister"]),
+    bcs_analyst_research: bool(row["bcs_analystresearch"]),
+    bcs_irplan: bool(row["bcs_irplan"]),
+
+    // Rose custom other-typed fields
+    bcs_duration: num(row["bcs_duration"]),
+    bcs_document: str(row["bcs_document"]),
+    bcs_onboarding_notes: str(row["bcs_onboardingnotes"]),
+    bcs_bulk_upload: parseDt(row["bcs_bulkupload"]),
+    bcs_manual_upload: parseDt(row["bcs_manualupload"]),
+    bcs_last_scheduled_process: parseDt(row["bcs_lastscheduledprocess"]),
+    crdfa_feedback_received_date: parseDt(row["crdfa_feedbackreceiveddate"]),
+
+    // Standard Dataverse system fields
+    owner_id: lookupId(row, "_ownerid_value"),
+    owner_name: lookupName(row, "_ownerid_value"),
+    created_by_id: lookupId(row, "_createdby_value"),
+    created_by_name: lookupName(row, "_createdby_value"),
+    modified_by_id: lookupId(row, "_modifiedby_value"),
+    modified_by_name: lookupName(row, "_modifiedby_value"),
+    state_code: num(row["statecode"]),
+    state_label: fv(row, "statecode"),
+    status_code: num(row["statuscode"]),
+    status_label: fv(row, "statuscode"),
+    created_on: parseDt(row["createdon"]),
+    modified_on: parseDt(row["modifiedon"]),
+
+    _raw: row,
+  }
+}
+
+export function mapOOO(row: Row): Row {
+  return {
+    // PK (Dataverse new_vacationrequestid)
+    ooo_id: row["new_vacationrequestid"],
+
+    // Core OOO fields
+    name: str(row["new_name"]),
+    start_date: parseDt(row["new_startdate"]),
+    end_date: parseDt(row["new_enddate"]),
+    duration: num(row["new_duration"]),
+    pto_type: str(row["new_ptotype"]),
+    request_status_code: num(row["new_requeststatus"]),
+    request_status_label: fv(row, "new_requeststatus"),
+    request_type_code: num(row["new_requesttype"]),
+    request_type_label: fv(row, "new_requesttype"),
+    description_comments: str(row["new_descriptioncomments"]),
+    review_comments: str(row["new_reviewcomments"]),
+    reviewed_by: str(row["new_reviewedby"]),
+    reviewing_team_id: lookupId(row, "_new_reviewingteam_value"),
+    reviewing_team_name: lookupName(row, "_new_reviewingteam_value"),
+
+    // ownerid == "Requested By" (Decision 12)
+    requested_by_id: lookupId(row, "_ownerid_value"),
+    requested_by_name: lookupName(row, "_ownerid_value"),
+
+    // Standard Dataverse system fields
+    created_by_id: lookupId(row, "_createdby_value"),
+    created_by_name: lookupName(row, "_createdby_value"),
+    modified_by_id: lookupId(row, "_modifiedby_value"),
+    modified_by_name: lookupName(row, "_modifiedby_value"),
+    state_code: num(row["statecode"]),
+    state_label: fv(row, "statecode"),
+    status_code: num(row["statuscode"]),
+    status_label: fv(row, "statuscode"),
+    created_on: parseDt(row["createdon"]),
+    modified_on: parseDt(row["modifiedon"]),
+    overridden_created_on: parseDt(row["overriddencreatedon"]),
+
+    _raw: row,
+  }
+}
