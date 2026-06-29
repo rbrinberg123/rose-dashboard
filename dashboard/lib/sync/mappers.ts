@@ -143,6 +143,8 @@ export function mapMeeting(row: Row): Row {
     host_name: lookupName(row, "_bcs_host_value"),
     booker_id: lookupId(row, "_bcs_booker_value"),
     booker_name: lookupName(row, "_bcs_booker_value"),
+    feedback_id: lookupId(row, "_bcs_feedback_value"),
+    feedback_name: lookupName(row, "_bcs_feedback_value"),
 
     meeting_type_code: num(row["bcs_meetingtype"]),
     meeting_type_label: meetingTypeLabel,
