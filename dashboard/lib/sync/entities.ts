@@ -49,6 +49,6 @@ export const ENTITIES: EntityConfig[] = [
   { name: "touchpoints", entitySet: "phonecalls", table: "touchpoints", pk: "touchpoint_id", map: mapTouchpoint },
   { name: "client_notes", entitySet: "bcs_clientnotes", table: "client_notes", pk: "note_id", map: mapClientNote },
   { name: "contracts", entitySet: "bcs_contracts", table: "contracts", pk: "contract_id", map: mapContract },
-{ name: "tasks", entitySet: "tasks",              table: "tasks", pk: "task_id", map: mapTask },
-  { name: "ooo",   entitySet: "new_vacationrequests", table: "ooo",   pk: "ooo_id",  map: mapOOO  },
+  { name: "tasks", entitySet: "tasks", table: "tasks", pk: "task_id", map: mapTask },
+  { name: "ooo", entitySet: "new_vacationrequests", table: "new_vacationrequest", pk: "ooo_id", map: mapOOO },
 ]

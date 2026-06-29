@@ -11,7 +11,7 @@
 --
 -- "Mirror everything" per Decision 12.
 
-CREATE TABLE IF NOT EXISTS public.ooo (
+CREATE TABLE IF NOT EXISTS public.new_vacationrequest (
   -- Primary key (Dataverse new_vacationrequestid)
   ooo_id                    uuid PRIMARY KEY,
 
@@ -54,10 +54,10 @@ CREATE TABLE IF NOT EXISTS public.ooo (
 );
 
 -- Indexes for common access patterns + the incremental watermark
-CREATE INDEX IF NOT EXISTS idx_ooo_modified_on    ON public.ooo (modified_on DESC);
-CREATE INDEX IF NOT EXISTS idx_ooo_requested_by   ON public.ooo (requested_by_id);
-CREATE INDEX IF NOT EXISTS idx_ooo_dates          ON public.ooo (start_date, end_date);
-CREATE INDEX IF NOT EXISTS idx_ooo_status         ON public.ooo (request_status_code);
+CREATE INDEX IF NOT EXISTS idx_ooo_modified_on    ON public.new_vacationrequest (modified_on DESC);
+CREATE INDEX IF NOT EXISTS idx_ooo_requested_by   ON public.new_vacationrequest (requested_by_id);
+CREATE INDEX IF NOT EXISTS idx_ooo_dates          ON public.new_vacationrequest (start_date, end_date);
+CREATE INDEX IF NOT EXISTS idx_ooo_status         ON public.new_vacationrequest (request_status_code);
 
 -- Sync writes via service_role
 GRANT INSERT, UPDATE, SELECT ON public.ooo TO service_role;
