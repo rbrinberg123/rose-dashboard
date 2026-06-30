@@ -6,6 +6,7 @@ import { format } from "date-fns"
 import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { LiveOutreachRow, LiveOutreachMeeting } from "@/lib/types"
+import { CopyEmailButton } from "./copy-email-button"
 
 // ---- small formatters (page-local; the shared ones don't cover these) ------
 
@@ -226,6 +227,7 @@ export function LiveOutreachView({ rows }: { rows: LiveOutreachRow[] }) {
               ? "No events are currently in Live Outreach."
               : `${rows.length} event${rows.length === 1 ? "" : "s"} in active outreach · ${totalMeetings} confirmed meeting${totalMeetings === 1 ? "" : "s"}`
           }
+          rightSlot={<CopyEmailButton rows={rows} />}
         />
       </div>
 
