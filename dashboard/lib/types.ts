@@ -824,6 +824,46 @@ export type FeedbackManagerRow = {
   state: FeedbackManagerState
 }
 
+/**
+ * One confirmed meeting inside a Live Outreach card's right panel. Comes from the
+ * jsonb array v_live_outreach.confirmed_meetings (built from public.meetings where
+ * meeting_status_label = 'Confirmed'). `contact` is meetings.investor_text and may
+ * hold several comma-separated names.
+ */
+export type LiveOutreachMeeting = {
+  meeting_id: string
+  meeting_date: string
+  institution_name: string | null
+  contact: string | null
+}
+
+/**
+ * One row per event in the 'Live Outreach' state (v_live_outreach). Powers the
+ * Logistics → Live Outreach two-panel cards. See sql/03_views.sql for field
+ * provenance; notable points: div_yield comes from accounts._raw (a percent),
+ * market_cap_b is in $B, urgency is binary ('High' | 'Standard' | null), and
+ * event_mode is derived from the event_location free text.
+ */
+export type LiveOutreachRow = {
+  event_id: string
+  event_name: string | null
+  client_account_id: string | null
+  client_account_name: string | null
+  ticker: string | null
+  industry: string | null
+  div_yield: number | null
+  market_cap_b: number | null
+  sales_lead_name: string | null
+  urgency: "High" | "Standard" | null
+  slots_remaining: number | null
+  of_slots: number | null
+  event_dates: string | null
+  event_location: string | null
+  event_mode: "Virtual" | "Live" | "Hybrid" | null
+  confirmed_meeting_count: number
+  confirmed_meetings: LiveOutreachMeeting[]
+}
+
 // -----------------------------------------------------------------------------
 // v_profiles_upcoming — one row per upcoming meeting for the Logistics →
 // Profiles dashboard. week_index is 0 (this week) / 1 (next) / 2 (week after);

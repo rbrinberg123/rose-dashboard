@@ -12,7 +12,7 @@ import { FeedbackManagerView } from "./feedback-manager-view"
 
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = { title: "Feedback Manager" }
+export const metadata: Metadata = { title: "Feedback Report Pipeline" }
 
 export default async function FeedbackManagerPage() {
   const sb = getSupabaseServer()
@@ -31,7 +31,7 @@ export default async function FeedbackManagerPage() {
 
     if (error) {
       return (
-        <PageShell title="Feedback Manager">
+        <PageShell title="Feedback Report Pipeline">
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
             <div className="font-medium text-destructive">
               Could not load v_feedback_manager
@@ -48,7 +48,7 @@ export default async function FeedbackManagerPage() {
   }
 
   return (
-    <PageShell title="Feedback Manager" hideHeader canvas>
+    <PageShell title="Feedback Report Pipeline" hideHeader canvas>
       <FeedbackManagerView rows={rows} />
     </PageShell>
   )

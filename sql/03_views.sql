@@ -3350,4 +3350,81 @@ WHERE v.requested_by_name IS NOT NULL
   AND v.end_date IS NOT NULL
 ORDER BY v.start_date, v.requested_by_name;
 
+
+-- -----------------------------------------------------------------------------
+-- v_live_outreach
+-- One row per event in the "Live Outreach" workflow state, for the Logistics →
+-- Live Outreach page. Powers a two-panel card per client: client/event facts on
+-- the left, the event's Confirmed meetings on the right.
+--
+-- Primary filter: events.event_state_label = 'Live Outreach' (the bcs_eventstate
+-- option set; sibling states are Complete / Pre-Launch / Preparing Feedback /
+-- Schedule Closed / Meetings Ongoing / Pause). Event-level, NOT a meeting field.
+--
+-- Field notes:
+--   - div_yield is NOT a first-class column; it lives in accounts._raw as the
+--     Dynamics bcs_divyield numeric (already a percent, e.g. 4.34 = 4.34%).
+--   - market_cap_b is accounts.market_cap_b, already expressed in $B.
+--   - industry uses accounts.industry_option_label (the specific industry, e.g.
+--     'Metals & Mining'), not the broader sector_label.
+--   - urgency (events.urgency_label / bcs_urgency) is binary in the data:
+--     'High' or 'Standard' (or NULL when unset). There is no Medium/Low.
+--   - event_mode is DERIVED from the event_location free text, because the
+--     bcs_eventtype option set is empty for every event. 'Live - New York' →
+--     Live, 'Virtual' → Virtual, 'Virtual, Live - New York' → Hybrid.
+--   - slots_remaining / of_slots are the real Dynamics counters (bcs_slotsremaining
+--     / bcs_ofslots). slots_remaining can be 0 or NEGATIVE (overbooked); the UI
+--     clamps the display. meeting_slots_max / spaces_available are always NULL.
+--   - confirmed_meetings is a JSON array (date / institution / contact) built from
+--     public.meetings on event_id where meeting_status_label = 'Confirmed'. The
+--     contact is meetings.investor_text (the individual investor; may list several
+--     names). confirmed_meeting_count is taken from the SAME subquery as the list,
+--     so the count badge can never drift from the rendered rows.
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS public.v_live_outreach CASCADE;
+CREATE VIEW public.v_live_outreach AS
+SELECT
+  e.event_id,
+  e.name                                          AS event_name,
+  e.client_account_id,
+  COALESCE(e.client_account_name, a.name)         AS client_account_name,
+  COALESCE(a.ticker_symbol, e.client_ticker)      AS ticker,
+  a.industry_option_label                         AS industry,
+  NULLIF(a._raw ->> 'bcs_divyield', '')::numeric  AS div_yield,
+  a.market_cap_b,
+  e.sales_lead_primary_name                       AS sales_lead_name,
+  e.urgency_label                                 AS urgency,
+  e.slots_remaining,
+  e.of_slots,
+  e.dates                                         AS event_dates,
+  e.event_location,
+  CASE
+    WHEN e.event_location ILIKE '%virtual%' AND e.event_location ILIKE '%live%' THEN 'Hybrid'
+    WHEN e.event_location ILIKE '%virtual%' THEN 'Virtual'
+    WHEN e.event_location ILIKE '%live%'    THEN 'Live'
+    ELSE NULL
+  END                                             AS event_mode,
+  COALESCE(cm.cnt, 0)                             AS confirmed_meeting_count,
+  COALESCE(cm.meetings, '[]'::jsonb)              AS confirmed_meetings
+FROM public.events e
+LEFT JOIN public.accounts a ON a.account_id = e.client_account_id
+LEFT JOIN LATERAL (
+  SELECT
+    COUNT(*) AS cnt,
+    jsonb_agg(
+      jsonb_build_object(
+        'meeting_id',       m.meeting_id,
+        'meeting_date',     m.meeting_date,
+        'institution_name', m.institution_name,
+        'contact',          m.investor_text
+      )
+      ORDER BY m.meeting_date
+    ) AS meetings
+  FROM public.meetings m
+  WHERE m.event_id = e.event_id
+    AND m.meeting_status_label = 'Confirmed'
+) cm ON true
+WHERE e.event_state_label = 'Live Outreach'
+ORDER BY a.ticker_symbol NULLS LAST, e.name;
+
 GRANT SELECT ON public.v_time_off TO service_role;

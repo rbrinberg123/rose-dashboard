@@ -25,9 +25,6 @@ const TODAY_TINT = "#F2F4FB"
 // Prominent divider between week rows (darker + thicker than a hairline).
 const ROW_DIVIDER = "#D1D7E0"
 
-// Max pills shown per day in the banner's week list before collapsing to "+N".
-const WEEK_AHEAD_PILLS = 6
-
 // ---- date helpers (local, date-only) --------------------------------------
 function parseYmd(s: string): Date {
   const [y, m, d] = s.split("-").map(Number)
@@ -289,33 +286,20 @@ export function TimeOffView({ entries }: { entries: TimeOffRow[] }) {
           </div>
 
           <div className="space-y-1.5">
-            {weekView.days.map((dc) => {
-              const shown = dc.items.slice(0, WEEK_AHEAD_PILLS)
-              const more = dc.items.length - shown.length
-              return (
-                <div key={dc.ymd} className="flex items-start gap-2">
-                  <span className="mt-0.5 w-16 shrink-0 text-xs font-medium text-muted-foreground">
-                    {dc.label} {dc.day}
-                  </span>
-                  <div className="flex flex-wrap items-center gap-1">
-                    {dc.items.length === 0 ? (
-                      <span className="text-xs text-muted-foreground/50">—</span>
-                    ) : (
-                      <>
-                        {shown.map((e) => (
-                          <Pill key={e.ooo_id} e={e} />
-                        ))}
-                        {more > 0 && (
-                          <span className="text-[11px] font-medium text-muted-foreground">
-                            +{more}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
+            {weekView.days.map((dc) => (
+              <div key={dc.ymd} className="flex items-start gap-2">
+                <span className="mt-0.5 w-16 shrink-0 text-xs font-medium text-muted-foreground">
+                  {dc.label} {dc.day}
+                </span>
+                <div className="flex flex-wrap items-center gap-1">
+                  {dc.items.length === 0 ? (
+                    <span className="text-xs text-muted-foreground/50">—</span>
+                  ) : (
+                    dc.items.map((e) => <Pill key={e.ooo_id} e={e} />)
+                  )}
                 </div>
-              )
-            })}
+              </div>
+            ))}
           </div>
         </div>
       </div>
