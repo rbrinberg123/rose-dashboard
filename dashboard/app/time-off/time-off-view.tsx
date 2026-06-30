@@ -7,21 +7,26 @@ import { cn } from "@/lib/utils"
 import type { TimeOffRow } from "@/lib/types"
 
 // Two time-off styles — differentiated by BOTH color and fill style:
-//   OOO    = solid light-green pill with dark-green text (distinct from the
-//            money-green #0E7C56 and the success greens used elsewhere).
-//   Remote = outlined pill — white fill, slate-blue border + text.
-const OOO_STYLE = { fill: "#C0DD97", border: "#97C459", text: "#27500A" }
+//   OOO    = filled light-green pill/bar with dark-green text.
+//   Remote = outlined — white fill, slate-blue border + text.
+const OOO_STYLE = { fill: "#D6EBD9", border: "#6FAE78", text: "#2E6B3A" }
 const REMOTE_STYLE = { fill: "#FFFFFF", border: "#3D5599", text: "#34487F" }
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ]
+const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 // Business-week grid: Monday–Friday only (no weekend columns).
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri"]
 
-// Today's-cell accent + a faint tint so the current day clearly stands out.
 const TODAY_TINT = "#F2F4FB"
+
+// Prominent divider between week rows (darker + thicker than a hairline).
+const ROW_DIVIDER = "#D1D7E0"
+
+// Max pills shown per day in the banner's week list before collapsing to "+N".
+const WEEK_AHEAD_PILLS = 6
 
 // ---- date helpers (local, date-only) --------------------------------------
 function parseYmd(s: string): Date {
@@ -41,8 +46,8 @@ function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate())
 }
 
-// Short display name for the narrow pills: drop credentials after a comma, then
-// first name + last initial. "Scott Grossman, CFA" -> "Scott G."
+// Short display name: drop credentials after a comma, then first name + last
+// initial. "Scott Grossman, CFA" -> "Scott G."
 function shortName(name: string): string {
   const base = name.split(",")[0].trim()
   const parts = base.split(/\s+/).filter(Boolean)
@@ -51,7 +56,6 @@ function shortName(name: string): string {
   return `${parts[0]} ${parts[parts.length - 1][0]}.`
 }
 
-// Human range for the pill tooltip.
 function rangeLabel(e: TimeOffRow): string {
   const fmt = (s: string) => {
     const d = parseYmd(s)
@@ -68,12 +72,31 @@ function tooltipFor(e: TimeOffRow): string {
   return `${e.person} · ${type} · ${rangeLabel(e)}`
 }
 
-// OOO before Remote, then by person name — stable, readable per-day ordering.
+// OOO before Remote, then by person name — stable, readable ordering.
 function sortDayEntries(arr: TimeOffRow[]): void {
   arr.sort(
     (a, b) =>
       (a.time_off_type === b.time_off_type ? 0 : a.time_off_type === "OOO" ? -1 : 1) ||
       a.person.localeCompare(b.person),
+  )
+}
+
+// A small color-coded name pill — used in the banner (today + week-ahead).
+function Pill({ e }: { e: TimeOffRow }) {
+  const remote = e.time_off_type === "Remote"
+  const s = remote ? REMOTE_STYLE : OOO_STYLE
+  return (
+    <span
+      title={tooltipFor(e)}
+      className="inline-block max-w-[150px] truncate rounded px-1.5 py-0.5 align-middle text-[11px] font-medium leading-tight"
+      style={{
+        backgroundColor: s.fill,
+        color: s.text,
+        border: `${remote ? "1.5px" : "1px"} solid ${s.border}`,
+      }}
+    >
+      {shortName(e.person)}
+    </span>
   )
 }
 
@@ -84,6 +107,9 @@ export function TimeOffView({ entries }: { entries: TimeOffRow[] }) {
     return new Date(n.getFullYear(), n.getMonth(), 1)
   })
   const [hostsOnly, setHostsOnly] = React.useState(false)
+  // Paging for the banner's week view only (0 = current week). The "Out Today"
+  // count above stays pinned to the real today regardless of this.
+  const [weekOffset, setWeekOffset] = React.useState(0)
 
   // Active working set — optionally narrowed to people who host meetings.
   const active = React.useMemo(
@@ -98,42 +124,38 @@ export function TimeOffView({ entries }: { entries: TimeOffRow[] }) {
   const year = viewMonth.getFullYear()
   const month = viewMonth.getMonth()
 
-  // Build the calendar grid — Monday-first, Mon–Fri only (5 columns/week).
-  const cells = React.useMemo(() => {
+  // ---- Month grid as weeks (Monday-first, Mon–Fri only) -------------------
+  const weeks = React.useMemo(() => {
     const first = new Date(year, month, 1)
-    const daysFromMonday = (first.getDay() + 6) % 7 // Mon=0 … Sun=6
+    const daysFromMonday = (first.getDay() + 6) % 7
     const gridStart = addDays(first, -daysFromMonday)
     const daysInMonth = new Date(year, month + 1, 0).getDate()
-    const weeks = Math.ceil((daysFromMonday + daysInMonth) / 7)
-    const out: {
-      date: Date
-      ymd: string
-      day: number
-      inMonth: boolean
-      isToday: boolean
-    }[] = []
-    for (let w = 0; w < weeks; w++) {
-      for (let dow = 0; dow < 5; dow++) {
-        // dow 0..4 = Mon..Fri; weekend days are simply never emitted.
-        const d = addDays(gridStart, w * 7 + dow)
-        out.push({
+    const nWeeks = Math.ceil((daysFromMonday + daysInMonth) / 7)
+    const out = []
+    for (let w = 0; w < nWeeks; w++) {
+      const weekStart = addDays(gridStart, w * 7) // Monday
+      const days = WEEKDAY_LABELS.map((_, i) => {
+        const d = addDays(weekStart, i)
+        return {
           date: d,
           ymd: ymd(d),
           day: d.getDate(),
           inMonth: d.getMonth() === month,
           isToday: d.getTime() === today.getTime(),
-        })
-      }
+        }
+      })
+      out.push({ weekStart, weekEnd: days[4].date, days })
     }
     return out
   }, [year, month, today])
 
-  // Map ymd -> entries out that day. Multi-day spans land on every weekday in
-  // range; weekend days are dropped (no cell renders them).
+  // ---- Per-day entries (ymd -> people out that weekday) -------------------
+  // A multi-day entry lands on every weekday in its range, so its pill repeats
+  // on each day it covers. Weekend days are skipped (no cell renders them).
   const byDay = React.useMemo(() => {
     const map = new Map<string, TimeOffRow[]>()
-    const winStart = cells[0].date
-    const winEnd = cells[cells.length - 1].date
+    const winStart = weeks[0].days[0].date
+    const winEnd = weeks[weeks.length - 1].days[4].date
     for (const { e, start, end } of parsed) {
       if (end < winStart || start > winEnd) continue
       let d = start < winStart ? winStart : start
@@ -151,13 +173,14 @@ export function TimeOffView({ entries }: { entries: TimeOffRow[] }) {
     }
     for (const arr of map.values()) sortDayEntries(arr)
     return map
-  }, [parsed, cells])
+  }, [weeks, parsed])
 
-  // Current Mon–Fri business week (based on the real today, independent of the
-  // month being viewed). Drives the "This Week" strip; respects the same
-  // hosts-only filter via `parsed`.
-  const thisWeek = React.useMemo(() => {
-    const monday = addDays(today, -((today.getDay() + 6) % 7))
+  // ---- Banner week view (pageable via weekOffset) -------------------------
+  // "Out Today" always reflects the real today; the Mon–Fri grid below reflects
+  // the week the user has paged to (current week + weekOffset).
+  const weekView = React.useMemo(() => {
+    const thisMonday = addDays(today, -((today.getDay() + 6) % 7))
+    const monday = addDays(thisMonday, weekOffset * 7)
     const days = WEEKDAY_LABELS.map((label, i) => {
       const d = addDays(monday, i)
       return {
@@ -169,26 +192,18 @@ export function TimeOffView({ entries }: { entries: TimeOffRow[] }) {
         items: [] as TimeOffRow[],
       }
     })
-    const winStart = days[0].date
-    const winEnd = days[4].date
-    let total = 0
     for (const { e, start, end } of parsed) {
-      if (end < winStart || start > winEnd) continue
-      let counted = false
-      for (const dc of days) {
-        if (start <= dc.date && dc.date <= end) {
-          dc.items.push(e)
-          counted = true
-        }
-      }
-      if (counted) total++
+      for (const dc of days) if (start <= dc.date && dc.date <= end) dc.items.push(e)
     }
     days.forEach((dc) => sortDayEntries(dc.items))
-    const fmt = (d: Date) => `${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}`
-    return { days, total, rangeLabel: `${fmt(monday)} – ${fmt(days[4].date)}` }
-  }, [parsed, today])
+    const todayItems: TimeOffRow[] = []
+    for (const { e, start, end } of parsed) if (start <= today && today <= end) todayItems.push(e)
+    sortDayEntries(todayItems)
+    const weekOfLabel = `${MONTHS[monday.getMonth()].slice(0, 3)} ${monday.getDate()}`
+    return { todayItems, days, weekOfLabel }
+  }, [parsed, today, weekOffset])
 
-  // Month-level summary: distinct entries overlapping the actual month, by type.
+  // ---- Month summary ------------------------------------------------------
   const summary = React.useMemo(() => {
     const monthStart = new Date(year, month, 1)
     const monthEnd = new Date(year, month + 1, 0)
@@ -203,6 +218,7 @@ export function TimeOffView({ entries }: { entries: TimeOffRow[] }) {
   }, [parsed, year, month])
 
   const monthLabel = `${MONTHS[month]} ${year}`
+  const todayLabel = `${DOW_SHORT[today.getDay()]} ${MONTHS[today.getMonth()].slice(0, 3)} ${today.getDate()}`
 
   const goPrev = () => setViewMonth(new Date(year, month - 1, 1))
   const goNext = () => setViewMonth(new Date(year, month + 1, 1))
@@ -217,95 +233,97 @@ export function TimeOffView({ entries }: { entries: TimeOffRow[] }) {
       <div className="mb-4">
         <ListTitleCard
           title="Time Off"
-          subtitle="Approved time off across the team. Each pill marks a day someone is out — color-coded by type."
+          subtitle="Approved time off across the team — today at a glance, plus the month ahead."
         />
       </div>
 
-      {/* This Week — accented "right now" strip above the month calendar. Uses
-          the real current Mon–Fri week and respects the hosts-only filter. */}
-      <div className="mb-4 overflow-hidden rounded-[14px] border border-[#C9D3EC] bg-[#F5F8FD] shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.05)]">
-        <div className="flex items-center justify-between gap-3 border-b border-[#DCE3F3] px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className="inline-block h-4 w-1 rounded-full"
-              style={{ background: ACCENT_STRIP }}
-            />
-            <span className="text-sm font-semibold" style={{ color: BRAND_NAVY }}>
-              This Week
+      {/* This Week banner (B1): Out Today + Week Ahead, navy-accented card */}
+      <div className="mb-4 flex overflow-hidden rounded-[14px] border border-[#D9DFEC] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.05)]">
+        <div aria-hidden="true" className="w-[5px] shrink-0" style={{ background: ACCENT_STRIP }} />
+        <div className="min-w-0 flex-1 p-4">
+          {/* Out Today */}
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-bold leading-none" style={{ color: BRAND_NAVY }}>
+              {weekView.todayItems.length}
             </span>
-            <span className="text-xs text-muted-foreground">{thisWeek.rangeLabel}</span>
+            <span className="text-sm font-medium text-foreground">
+              {weekView.todayItems.length === 1 ? "person" : "people"} out or remote today
+            </span>
+            <span className="text-xs text-muted-foreground">
+              · {todayLabel}
+              {hostsOnly ? " · hosts" : ""}
+            </span>
           </div>
-          <span className="text-xs text-muted-foreground">
-            {thisWeek.total === 0
-              ? "no one out"
-              : `${thisWeek.total} out${hostsOnly ? " · hosts" : ""}`}
-          </span>
-        </div>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {weekView.todayItems.length === 0 ? (
+              <span className="text-sm text-muted-foreground">No one is out today.</span>
+            ) : (
+              weekView.todayItems.map((e) => <Pill key={e.ooo_id} e={e} />)
+            )}
+          </div>
 
-        {thisWeek.total === 0 ? (
-          <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-            No one is out this week{hostsOnly ? " (hosts)" : ""}.
+          {/* Divider */}
+          <div className="my-3 border-t border-border" />
+
+          {/* Week of [Monday] — pageable Mon–Fri grid, everyone shown */}
+          <div className="mb-2 flex items-center gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Week of {weekView.weekOfLabel}
+            </span>
+            <button
+              type="button"
+              onClick={() => setWeekOffset((o) => o - 1)}
+              aria-label="Previous week"
+              className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-slate-100 hover:text-foreground"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              onClick={() => setWeekOffset((o) => o + 1)}
+              aria-label="Next week"
+              className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-slate-100 hover:text-foreground"
+            >
+              ›
+            </button>
           </div>
-        ) : (
-          <div className="grid grid-cols-5">
-            {thisWeek.days.map((dc) => (
-              <div
-                key={dc.ymd}
-                className={cn(
-                  "border-r border-border/60 p-2 [&:nth-child(5n)]:border-r-0",
-                  dc.isToday && "bg-[#E8EEFB]",
-                )}
-              >
-                <div className="mb-1.5 flex items-center justify-between">
-                  <span
-                    className={cn(
-                      "text-[11px] font-medium uppercase tracking-wide",
-                      dc.isToday ? "text-[#1E2858]" : "text-muted-foreground",
-                    )}
-                  >
-                    {dc.label}
+
+          <div className="space-y-1.5">
+            {weekView.days.map((dc) => {
+              const shown = dc.items.slice(0, WEEK_AHEAD_PILLS)
+              const more = dc.items.length - shown.length
+              return (
+                <div key={dc.ymd} className="flex items-start gap-2">
+                  <span className="mt-0.5 w-16 shrink-0 text-xs font-medium text-muted-foreground">
+                    {dc.label} {dc.day}
                   </span>
-                  {dc.isToday ? (
-                    <span
-                      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-semibold text-white"
-                      style={{ backgroundColor: BRAND_NAVY }}
-                    >
-                      {dc.day}
-                    </span>
-                  ) : (
-                    <span className="text-[11px] tabular-nums text-muted-foreground">{dc.day}</span>
-                  )}
+                  <div className="flex flex-wrap items-center gap-1">
+                    {dc.items.length === 0 ? (
+                      <span className="text-xs text-muted-foreground/50">—</span>
+                    ) : (
+                      <>
+                        {shown.map((e) => (
+                          <Pill key={e.ooo_id} e={e} />
+                        ))}
+                        {more > 0 && (
+                          <span className="text-[11px] font-medium text-muted-foreground">
+                            +{more}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="max-h-[160px] space-y-0.5 overflow-y-auto pr-0.5">
-                  {dc.items.length === 0 ? (
-                    <div className="px-1 py-0.5 text-[11px] text-muted-foreground/50">—</div>
-                  ) : (
-                    dc.items.map((e) => {
-                      const remote = e.time_off_type === "Remote"
-                      const s = remote ? REMOTE_STYLE : OOO_STYLE
-                      return (
-                        <div
-                          key={e.ooo_id}
-                          title={tooltipFor(e)}
-                          className="truncate rounded px-1 py-[1px] text-[10px] font-medium leading-tight"
-                          style={{
-                            backgroundColor: s.fill,
-                            color: s.text,
-                            border: `${remote ? "1.5px" : "1px"} solid ${s.border}`,
-                          }}
-                        >
-                          {shortName(e.person)}
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
-        )}
+        </div>
       </div>
+
+      {/* Monthly Calendar section header */}
+      <h2 className="mb-2 mt-1 text-base font-semibold" style={{ color: TEXT_PRIMARY }}>
+        Monthly Calendar
+      </h2>
 
       {/* Controls + legend */}
       <div className={`mb-4 p-4 ${CARD_CLASS}`}>
@@ -387,7 +405,7 @@ export function TimeOffView({ entries }: { entries: TimeOffRow[] }) {
         </div>
       </div>
 
-      {/* Calendar */}
+      {/* Spanning-bar month calendar */}
       <div className={`overflow-hidden ${CARD_CLASS}`}>
         {/* Weekday header (Mon–Fri) */}
         <div className="grid grid-cols-5 border-b border-border bg-slate-50">
@@ -401,83 +419,70 @@ export function TimeOffView({ entries }: { entries: TimeOffRow[] }) {
           ))}
         </div>
 
-        {/* Day cells */}
-        <div className="grid grid-cols-5">
-          {cells.map((c) => {
-            const items = byDay.get(c.ymd) ?? []
-            return (
-              <div
-                key={c.ymd}
-                className={cn(
-                  "relative flex h-[224px] flex-col border-b border-r border-border/60 p-1.5 [&:nth-child(5n)]:border-r-0",
-                  c.inMonth ? "bg-white" : "bg-[#F7F8FA]",
-                )}
-                style={c.isToday ? { backgroundColor: TODAY_TINT, boxShadow: `inset 0 0 0 2px ${BRAND_NAVY}` } : undefined}
-              >
-                {/* Date number (today gets a navy chip) */}
+        {/* Week rows — each a Mon–Fri row of per-day cells */}
+        {weeks.map((week, wi) => (
+          <div
+            key={week.weekStart.getTime()}
+            className="grid grid-cols-5"
+            style={{
+              borderBottom: wi === weeks.length - 1 ? undefined : `2px solid ${ROW_DIVIDER}`,
+            }}
+          >
+            {week.days.map((d) => {
+              const items = byDay.get(d.ymd) ?? []
+              return (
                 <div
+                  key={d.ymd}
                   className={cn(
-                    "mb-1 flex shrink-0 items-center justify-between text-[11px] tabular-nums",
-                    c.inMonth ? "text-foreground" : "text-muted-foreground/40",
+                    "flex h-[224px] flex-col border-r border-border/60 p-1.5 [&:nth-child(5n)]:border-r-0",
+                    d.inMonth ? "bg-white" : "bg-[#F7F8FA]",
                   )}
+                  style={
+                    d.isToday
+                      ? { backgroundColor: TODAY_TINT, boxShadow: `inset 0 0 0 2px ${BRAND_NAVY}` }
+                      : undefined
+                  }
                 >
-                  {/* "Today" tag on the left of the current day */}
-                  {c.isToday ? (
-                    <span
-                      className="rounded px-1 text-[9px] font-semibold uppercase tracking-wide text-white"
-                      style={{ backgroundColor: BRAND_NAVY }}
-                    >
-                      Today
-                    </span>
-                  ) : (
-                    <span />
-                  )}
-                  {c.isToday ? (
-                    <span
-                      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 font-semibold text-white"
-                      style={{ backgroundColor: BRAND_NAVY }}
-                    >
-                      {c.day}
-                    </span>
-                  ) : (
-                    <span className="px-0.5">{c.day}</span>
-                  )}
-                </div>
-
-                {/* Name pills — scrolls within the cell when a busy day has more
-                    entries than fit (handles 10+ people out cleanly). */}
-                <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-0.5">
-                  {items.map((e) => {
-                    const remote = e.time_off_type === "Remote"
-                    const s = remote ? REMOTE_STYLE : OOO_STYLE
-                    return (
-                      <div
-                        key={e.ooo_id}
-                        title={tooltipFor(e)}
-                        className="truncate rounded px-1 py-[1px] text-[10px] font-medium leading-tight"
-                        style={{
-                          backgroundColor: s.fill,
-                          color: s.text,
-                          border: `${remote ? "1.5px" : "1px"} solid ${s.border}`,
-                        }}
+                  {/* Date number (today gets a navy chip) */}
+                  <div
+                    className={cn(
+                      "mb-1 flex shrink-0 items-center justify-end text-sm font-bold tabular-nums",
+                      d.inMonth ? "text-foreground" : "text-muted-foreground/40",
+                    )}
+                  >
+                    {d.isToday ? (
+                      <span
+                        className="inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[13px] font-bold text-white"
+                        style={{ backgroundColor: BRAND_NAVY }}
                       >
-                        {shortName(e.person)}
-                      </div>
-                    )
-                  })}
+                        {d.day}
+                      </span>
+                    ) : (
+                      <span>{d.day}</span>
+                    )}
+                  </div>
+
+                  {/* Per-day name pills — individual inline pills that wrap, so
+                      several people fit per row (same as the banner). Scrolls
+                      within the cell on busy days. */}
+                  <div className="flex min-h-0 flex-1 flex-wrap content-start gap-1 overflow-y-auto pr-0.5">
+                    {items.map((e) => (
+                      <Pill key={e.ooo_id} e={e} />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        ))}
       </div>
 
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-        Shows approved time off only, Monday–Friday (weekend days are not shown). A multi-day entry
-        appears on each weekday in its range. Names are shortened to first name + last initial; hover
-        any pill for the full name, type, and dates. OOO (filled green) covers vacation, personal,
-        sick, and other non-remote time; Remote (outlined blue) is remote-work days. &ldquo;Hosts
-        only&rdquo; limits the view to people who host meetings.
+        Shows approved time off only, Monday–Friday (weekends are not shown). A multi-day entry
+        appears as a pill on each weekday in its range. Names are shortened to first name + last
+        initial; hover any pill for the full name, type, and dates. OOO (filled green) covers
+        vacation, personal, sick, and other non-remote time; Remote (outlined blue) is remote-work
+        days. &ldquo;Hosts only&rdquo; limits the view to people who host meetings.
       </p>
     </>
   )
