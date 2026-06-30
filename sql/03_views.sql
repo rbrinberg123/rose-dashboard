@@ -3301,3 +3301,53 @@ WHERE COALESCE(r.report_completed, false) = false          -- drop Done (report 
   -- Recency cutoff: derived Meeting End (UTC date) on/after 2026-05-01. Null
   -- end (no Confirmed meetings) compares as NULL → excluded.
   AND (mt.meeting_end AT TIME ZONE 'UTC')::date >= DATE '2026-05-01';
+
+
+-- -----------------------------------------------------------------------------
+-- v_time_off
+-- One row per approved time-off entry for the Logistics → Time Off calendar.
+-- Source: public.new_vacationrequest (the Dynamics new_vacationrequest mirror).
+--
+-- type bucket (exactly two values):
+--   'Remote' when the Dynamics Request Type is 'Remote Work'
+--   'OOO'    for everything else (Vacation, Personal, Sick Leave, Jury Duty,
+--            Other, or a missing type) — i.e. anything that is NOT remote.
+--
+-- Dates are reduced to a calendar day in UTC. The mirror stores some rows at
+-- UTC midnight (…T00:00:00Z) and others at Eastern midnight (…T04:00:00Z);
+-- taking the UTC wall-clock date yields the intended day for both encodings.
+-- All entries are full-day (durations are whole-day; there are no half-days).
+--
+-- Approval: the dedicated Request Status choice (new_requeststatus) is empty for
+-- every mirrored row, so there is currently NO approval filter here — every
+-- entry is treated as approved (product decision, 2026-06-30). When the real
+-- approval status is wired into the sync, add a WHERE clause on it below.
+--
+-- is_host: true when this person hosts meetings — derived as "the person's
+-- Dynamics user id (requested_by_id) appears as host_id on at least one meeting".
+-- There is no host flag on public.users, so this id match is the host signal.
+-- Drives the Time Off page's "Hosts only" filter.
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS public.v_time_off CASCADE;
+CREATE VIEW public.v_time_off AS
+SELECT
+  v.ooo_id,
+  v.requested_by_name                       AS person,
+  (v.start_date AT TIME ZONE 'UTC')::date    AS start_date,
+  (v.end_date   AT TIME ZONE 'UTC')::date    AS end_date,
+  CASE
+    WHEN v.request_type_label = 'Remote Work' THEN 'Remote'
+    ELSE 'OOO'
+  END                                        AS time_off_type,
+  v.request_type_label                       AS request_type_label,
+  EXISTS (
+    SELECT 1 FROM public.meetings m
+    WHERE m.host_id = v.requested_by_id
+  )                                          AS is_host
+FROM public.new_vacationrequest v
+WHERE v.requested_by_name IS NOT NULL
+  AND v.start_date IS NOT NULL
+  AND v.end_date IS NOT NULL
+ORDER BY v.start_date, v.requested_by_name;
+
+GRANT SELECT ON public.v_time_off TO service_role;

@@ -74,6 +74,7 @@ const sections: NavSection[] = [
       // ⚗️ CONCEPT page — remove with the app/feedback-manager folder.
       { href: "/feedback-manager", label: "Feedback Reports" },
       { href: "/pipeline", label: "Pipeline" },
+      { href: "/time-off", label: "Time Off" },
     ],
   },
   {

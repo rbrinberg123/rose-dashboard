@@ -730,6 +730,26 @@ export type SchedulerMeetingRow = {
 }
 
 /**
+ * One row per approved time-off entry for the Logistics → Time Off calendar
+ * (v_time_off). start_date / end_date are calendar days ('YYYY-MM-DD'),
+ * inclusive of both ends; a single-day entry has start_date === end_date.
+ * time_off_type is the derived two-value bucket: 'Remote' for Remote Work,
+ * 'OOO' for everything else. request_type_label is the underlying Dynamics
+ * Request Type (e.g. 'Vacation', 'Sick Leave') for tooltips/detail. is_host is
+ * true when the person hosts meetings (their user id appears as host_id on >=1
+ * meeting) — drives the "Hosts only" filter.
+ */
+export type TimeOffRow = {
+  ooo_id: string
+  person: string
+  start_date: string
+  end_date: string
+  time_off_type: "OOO" | "Remote"
+  request_type_label: string | null
+  is_host: boolean
+}
+
+/**
  * One row per confirmed, upcoming, host-less meeting for the Scheduler page's
  * "Unassigned meetings" section (v_scheduler_unassigned). Same Eastern-time
  * basis as SchedulerMeetingRow so occupied-interval conflict checks line up.
