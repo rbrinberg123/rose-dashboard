@@ -67,8 +67,12 @@ const sections: NavSection[] = [
     items: [
       { href: "/scheduler", label: "Scheduler" },
       { href: "/planning", label: "Planning" },
+      // ⚗️ TEMPORARY experimental sandbox — remove with the app/planning-v2 folder.
+      { href: "/planning-v2", label: "Planning Lab ⚗️" },
       { href: "/profiles", label: "Profiles" },
-      { href: "/feedback", label: "Feedback" },
+      { href: "/feedback", label: "Feedback Outstanding" },
+      // ⚗️ CONCEPT page — remove with the app/feedback-manager folder.
+      { href: "/feedback-manager", label: "Feedback Manager" },
       { href: "/pipeline", label: "Pipeline" },
     ],
   },

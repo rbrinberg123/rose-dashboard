@@ -3162,3 +3162,142 @@ FROM ev
 JOIN upcoming_events ue ON ue.event_id = ev.event_id
 LEFT JOIN event_label el ON el.event_id = ev.event_id
 ORDER BY ev.event_id, ev.meeting_date, ev.meeting_id;
+
+
+-- -----------------------------------------------------------------------------
+-- v_feedback_manager
+-- One row per EVENT that has at least one "Feedback" task (tasks linked to the
+-- event by bcs_event_id, bcs_task_subtype_label = 'Feedback'). Powers the
+-- Feedback Manager concept page. Returns ONLY events in an ACTIVE pipeline
+-- state — "Done" events (the event's "Feedback Report Sent" task Completed) are
+-- EXCLUDED entirely.
+--
+-- Meeting Start / Meeting End are DERIVED here as min/max meeting_date across
+-- the event's Confirmed meetings (meetings.event_id = task.bcs_event_id),
+-- because the real bcs_event Meeting Start/End fields are not yet mirrored.
+-- Swap to the real fields when they are synced.
+--
+-- DATE CUTOFF: the Feedback Report Sent process is recent, so older events lack
+-- that task. The view only includes events whose DERIVED Meeting End (UTC date)
+-- is on/after 2026-05-01. Events with no Confirmed meetings (null end) are also
+-- excluded, since their recency can't be established.
+--
+-- NOTE: meeting tally / % Closed / date range count only CONFIRMED meetings
+-- (meeting_status_label = 'Confirmed'), matching v_feedback_outstanding and the
+-- rest of the app's feedback logic. To count every linked meeting regardless of
+-- status, drop the "AND m.meeting_status_label = 'Confirmed'" line in mtg.
+--
+-- Two tasks track each event's feedback:
+--   * "Feedback"             — drives most of the lifecycle (received / claimed /
+--                              open-vs-closed). One representative task is chosen
+--                              per event: prefer non-Canceled, then latest by
+--                              created_on (16 events have >1 Feedback task).
+--   * "Feedback Report Sent" — the deliverable; its Completed state marks the
+--                              event Done (and therefore EXCLUDED here).
+--
+-- state (mutually exclusive & exhaustive for active events, evaluated top-down;
+-- Done is filtered out in WHERE):
+--   Done (excluded)         report task Completed
+--   Reports Pending Review  Feedback task Completed AND report not Completed
+--                           (report Open or absent)
+--   Waiting on Feedback     Feedback task Open AND NOT feedback_received
+--                           (regardless of claim)
+--   Reports Not Started     Feedback task Open AND feedback_received AND NOT claimed
+--   Reports In Progress     Feedback task Open AND feedback_received AND claimed
+--   (Not Started vs In Progress is purely the claim; both have feedback_received.)
+--   (a Canceled Feedback task with no Completed report has no state → excluded)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_feedback_manager AS
+WITH fb_task AS (
+  SELECT DISTINCT ON (t.bcs_event_id)
+    t.bcs_event_id,
+    t.bcs_event_name,
+    t.bcs_account_id,
+    t.bcs_account_name,
+    t.state_label                            AS feedback_task_state_label,
+    COALESCE(t.bcs_feedback_received, false)  AS feedback_received,
+    t.crdfa_feedback_received_date            AS feedback_received_date,
+    (t.bcs_claimed_by_id IS NOT NULL)         AS claimed,
+    t.bcs_claimed_by_name                     AS claimed_by_name
+  FROM public.tasks t
+  WHERE t.bcs_task_subtype_label = 'Feedback'
+    AND t.bcs_event_id IS NOT NULL
+  ORDER BY
+    t.bcs_event_id,
+    (t.state_label <> 'Canceled') DESC,
+    t.created_on DESC,
+    t.task_id
+),
+report_task AS (
+  SELECT
+    t.bcs_event_id,
+    bool_or(t.state_label = 'Completed')      AS report_completed,
+    CASE
+      WHEN bool_or(t.state_label = 'Completed') THEN 'Completed'
+      WHEN bool_or(t.state_label = 'Open')      THEN 'Open'
+      ELSE max(t.state_label)
+    END                                       AS report_task_state_label
+  FROM public.tasks t
+  WHERE t.bcs_task_subtype_label = 'Feedback Report Sent'
+    AND t.bcs_event_id IS NOT NULL
+  GROUP BY t.bcs_event_id
+),
+mtg AS (
+  SELECT
+    m.event_id,
+    min(m.meeting_date)                       AS meeting_start,
+    max(m.meeting_date)                       AS meeting_end,
+    count(*)::int                             AS meeting_count,
+    count(*) FILTER (WHERE m.feedback_status_label = 'Closed - All in')::int      AS fb_closed_all_in,
+    count(*) FILTER (WHERE m.feedback_status_label = 'Closed - No Feedback')::int AS fb_closed_no_feedback,
+    count(*) FILTER (WHERE m.feedback_status_label = 'Awaiting Additional')::int  AS fb_awaiting_additional,
+    count(*) FILTER (WHERE m.feedback_status_label IS NULL)::int                  AS fb_no_status,
+    ROUND(
+      count(*) FILTER (
+        WHERE m.feedback_status_label IN ('Closed - All in', 'Closed - No Feedback')
+      )::numeric
+      / NULLIF(count(*), 0),
+      4
+    )                                         AS pct_closed
+  FROM public.meetings m
+  WHERE m.event_id IS NOT NULL
+    AND m.meeting_status_label = 'Confirmed'
+  GROUP BY m.event_id
+)
+SELECT
+  f.bcs_event_id                              AS event_id,
+  COALESCE(f.bcs_event_name, '(Unnamed event)') AS event_name,
+  f.bcs_account_id                            AS client_account_id,
+  f.bcs_account_name                          AS client_account_name,
+  mt.meeting_start,
+  mt.meeting_end,
+  COALESCE(mt.meeting_count, 0)               AS meeting_count,
+  COALESCE(mt.fb_closed_all_in, 0)            AS fb_closed_all_in,
+  COALESCE(mt.fb_closed_no_feedback, 0)       AS fb_closed_no_feedback,
+  COALESCE(mt.fb_awaiting_additional, 0)      AS fb_awaiting_additional,
+  COALESCE(mt.fb_no_status, 0)                AS fb_no_status,
+  mt.pct_closed,
+  f.feedback_received,
+  f.feedback_received_date,
+  f.feedback_task_state_label,
+  f.claimed,
+  f.claimed_by_name,
+  r.report_task_state_label                   AS report_sent_state_label,
+  CASE
+    WHEN f.feedback_task_state_label = 'Completed'
+      THEN 'Reports Pending Review'
+    WHEN f.feedback_task_state_label = 'Open' AND NOT f.feedback_received
+      THEN 'Waiting on Feedback'
+    WHEN f.feedback_task_state_label = 'Open' AND f.feedback_received AND NOT f.claimed
+      THEN 'Reports Not Started'
+    WHEN f.feedback_task_state_label = 'Open' AND f.feedback_received AND f.claimed
+      THEN 'Reports In Progress'
+  END                                         AS state
+FROM fb_task f
+LEFT JOIN report_task r ON r.bcs_event_id = f.bcs_event_id
+LEFT JOIN mtg mt        ON mt.event_id    = f.bcs_event_id
+WHERE COALESCE(r.report_completed, false) = false          -- drop Done (report sent)
+  AND f.feedback_task_state_label IN ('Open', 'Completed')  -- drop Canceled Feedback w/o report
+  -- Recency cutoff: derived Meeting End (UTC date) on/after 2026-05-01. Null
+  -- end (no Confirmed meetings) compares as NULL → excluded.
+  AND (mt.meeting_end AT TIME ZONE 'UTC')::date >= DATE '2026-05-01';

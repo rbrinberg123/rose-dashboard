@@ -767,6 +767,43 @@ export type FeedbackOutstandingRow = {
   days_since: number
 }
 
+/**
+ * One row per active-pipeline event that has a "Feedback" task, from
+ * v_feedback_manager. Powers the Feedback Manager concept page. "Done" events
+ * (the event's "Feedback Report Sent" task Completed) are EXCLUDED by the view,
+ * so `state` is always one of the four active states. meeting_start/end and the
+ * meeting tally / pct_closed count only the event's Confirmed meetings, and are
+ * DERIVED until the real bcs_event date fields are mirrored. report_sent_state_label
+ * is null when the event has no "Feedback Report Sent" task.
+ */
+export type FeedbackManagerState =
+  | "Waiting on Feedback"
+  | "Reports Not Started"
+  | "Reports In Progress"
+  | "Reports Pending Review"
+
+export type FeedbackManagerRow = {
+  event_id: string
+  event_name: string
+  client_account_id: string | null
+  client_account_name: string | null
+  meeting_start: string | null
+  meeting_end: string | null
+  meeting_count: number
+  fb_closed_all_in: number
+  fb_closed_no_feedback: number
+  fb_awaiting_additional: number
+  fb_no_status: number
+  pct_closed: number | null
+  feedback_received: boolean
+  feedback_received_date: string | null
+  feedback_task_state_label: string
+  claimed: boolean
+  claimed_by_name: string | null
+  report_sent_state_label: string | null
+  state: FeedbackManagerState
+}
+
 // -----------------------------------------------------------------------------
 // v_profiles_upcoming — one row per upcoming meeting for the Logistics →
 // Profiles dashboard. week_index is 0 (this week) / 1 (next) / 2 (week after);
