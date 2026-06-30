@@ -130,7 +130,6 @@ export function mapAccount(row: Row): Row {
     current_project_name: lookupName(row, "_bcs_currentproject_value"),
 
     last_data_upload: parseDt(row["bcs_lastdataupload"]),
-    last_sg_touchpoint: parseDt(row["bcs_lastsgtouchpoint"]),
     onboarding_call: parseDt(row["bcs_onboardingcall"]),
     original_start_date: parseDt(row["bcs_originalstartdate"]),
     shareholder_report_received_date: parseDt(row["bcs_shareholderreportreceiveddate"]),
