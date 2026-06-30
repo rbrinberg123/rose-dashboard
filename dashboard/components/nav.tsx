@@ -70,9 +70,9 @@ const sections: NavSection[] = [
       // ⚗️ TEMPORARY experimental sandbox — remove with the app/planning-v2 folder.
       { href: "/planning-v2", label: "Planning Lab ⚗️" },
       { href: "/profiles", label: "Profiles" },
-      { href: "/feedback", label: "Feedback Outstanding" },
+      { href: "/feedback", label: "Feedback Collection" },
       // ⚗️ CONCEPT page — remove with the app/feedback-manager folder.
-      { href: "/feedback-manager", label: "Feedback Manager" },
+      { href: "/feedback-manager", label: "Feedback Reports" },
       { href: "/pipeline", label: "Pipeline" },
     ],
   },
