@@ -112,6 +112,35 @@ export function mapAccount(row: Row): Row {
 
     do_not_call: bool(row["bcs_donotcall"]),
     ir_only: bool(row["bcs_ironly"]),
+    // --- Additional account fields ---
+    bda_peers: bool(row["bcs_bdapeers"]),
+    calendar: bool(row["bcs_calendar"]),
+    calendar_confirmed: bool(row["bcs_calendarconfirmed"]),
+    distro: bool(row["bcs_distro"]),
+    meeting_history_received: bool(row["bcs_meetinghistoryrecd"]),
+    mgmt_review: bool(row["bcs_mgmtreview"]),
+    recurring_call_scheduled: bool(row["bcs_recurringcallscheduled"]),
+    report: bool(row["bcs_report"]),
+    rep_short_interest: bool(row["bcs_repshortinterest"]),
+    sh_report: bool(row["bcs_shreport"]),
+
+    current_event_id: lookupId(row, "_bcs_currentevent_value"),
+    current_event_name: lookupName(row, "_bcs_currentevent_value"),
+    current_project_id: lookupId(row, "_bcs_currentproject_value"),
+    current_project_name: lookupName(row, "_bcs_currentproject_value"),
+
+    last_data_upload: parseDt(row["bcs_lastdataupload"]),
+    last_sg_touchpoint: parseDt(row["bcs_lastsgtouchpoint"]),
+    onboarding_call: parseDt(row["bcs_onboardingcall"]),
+    original_start_date: parseDt(row["bcs_originalstartdate"]),
+    shareholder_report_received_date: parseDt(row["bcs_shareholderreportreceiveddate"]),
+    teach_in: parseDt(row["bcs_teachin"]),
+    teach_in_date: parseDt(row["bcs_teachindate"]),
+
+    dietary_restrictions: str(row["bcs_dietaryrestrictions"]),
+    ipreo_ticker: str(row["bcs_ipreoticker"]),
+    onboarding_notes: str(row["bcs_onboardingnotes"]),
+    peers: str(row["bcs_peers"]),
 
     state_code: num(row["statecode"]),
     state_label: fv(row, "statecode"),
