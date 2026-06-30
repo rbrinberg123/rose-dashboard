@@ -516,3 +516,168 @@ export function mapOOO(row: Row): Row {
     _raw: row,
   }
 }
+export function mapEvent(row: Row): Row {
+  return {
+    event_id: row["bcs_eventid"],
+
+    // Identity / naming
+    name: str(row["bcs_name"]),
+    event_auto_num: str(row["bcs_eventautonum"]),
+    event_unique_id: str(row["bcs_eventuniqueid"]),
+    client_ticker: str(row["bcs_clientticker"]),
+    dates: str(row["bcs_dates"]),
+    event_location: str(row["bcs_eventlocation"]),
+
+    // Core event dates
+    event_start_actual: parseDt(row["bcs_eventstartactual"]),
+    event_end_actual: parseDt(row["bcs_eventendactual"]),
+    event_duration_days: num(row["bcs_eventdurationdays"]),
+    proposed_launch_date: parseDt(row["bcs_proposedlaunchdate"]),
+    first_save_date: parseDt(row["bcs_firstsavedate"]),
+    targeting_date: parseDt(row["bcs_targetingdate"]),
+    contact_targeting: parseDt(row["bcs_contacttargeting"]),
+    teaser_date: parseDt(row["bcs_teaserdate"]),
+    last_update_teaser: parseDt(row["bcs_lastupdateteaser"]),
+    last_update_targeting: parseDt(row["bcs_lastupdatetargeting"]),
+    last_data_upload: parseDt(row["bcs_lastdataupload"]),
+    last_event_past: parseDt(row["bcs_lasteventpast"]),
+    next_event_upcoming: parseDt(row["bcs_nexteventupcoming"]),
+    shareholder_report_received_date: parseDt(row["bcs_shareholderreportreceiveddate"]),
+
+    // Business lookups (id + name, no FK)
+    client_account_id: lookupId(row, "_bcs_clientname_value"),
+    client_account_name: lookupName(row, "_bcs_clientname_value"),
+    sales_lead_primary_id: lookupId(row, "_bcs_salesleadprimary_value"),
+    sales_lead_primary_name: lookupName(row, "_bcs_salesleadprimary_value"),
+    manager_id: lookupId(row, "_bcs_manager_value"),
+    manager_name: lookupName(row, "_bcs_manager_value"),
+    logistics_coordinator_id: lookupId(row, "_bcs_logisticscoordinator_value"),
+    logistics_coordinator_name: lookupName(row, "_bcs_logisticscoordinator_value"),
+    feedback_team_id: lookupId(row, "_bcs_feedbackteam_value"),
+    feedback_team_name: lookupName(row, "_bcs_feedbackteam_value"),
+    feedback_report_id: lookupId(row, "_bcs_feedbackreport_value"),
+    feedback_report_name: lookupName(row, "_bcs_feedbackreport_value"),
+    contact_targeting_by_id: lookupId(row, "_bcs_contacttargetingby_value"),
+    contact_targeting_by_name: lookupName(row, "_bcs_contacttargetingby_value"),
+    lead_id: lookupId(row, "_bcs_lead_value"),
+    lead_name: lookupName(row, "_bcs_lead_value"),
+    targeting_id: lookupId(row, "_bcs_targeting_value"),
+    targeting_name: lookupName(row, "_bcs_targeting_value"),
+    teaser_id: lookupId(row, "_bcs_teaser_value"),
+    teaser_name: lookupName(row, "_bcs_teaser_value"),
+
+    // Coverage initials (text)
+    cag_sales_lead: str(row["bcs_cagsaleslead"]),
+    cag_coordinator: str(row["bcs_cagcoordinator"]),
+    cag_targeting: str(row["bcs_cagtargeting"]),
+    cag_teaser: str(row["bcs_cagteaser"]),
+    cag_fb_rep: str(row["bcs_cagfbrep"]),
+    logistic_coordi: str(row["bcs_logisticcoordi"]),
+    user_team_lead: str(row["bcs_userteamlead"]),
+
+    // Multi-select picklist: raw comma-separated codes + resolved labels
+    leads_codes: str(row["bcs_leads"]),
+    leads_labels: fv(row, "bcs_leads"),
+
+    // Choice / option-set fields (code + label)
+    event_state_code: num(row["bcs_eventstate"]),
+    event_state_label: fv(row, "bcs_eventstate"),
+    marketing_state_code: num(row["bcs_marketingstate"]),
+    marketing_state_label: fv(row, "bcs_marketingstate"),
+    feedback_report_sent_code: num(row["bcs_feedbackreportsent"]),
+    feedback_report_sent_label: fv(row, "bcs_feedbackreportsent"),
+    event_type_code: num(row["bcs_eventtype"]),
+    event_type_label: fv(row, "bcs_eventtype"),
+    feedback_status_code: num(row["bcs_feedbackstatus"]),
+    feedback_status_label: fv(row, "bcs_feedbackstatus"),
+    feedback_report_status_code: num(row["bcs_feedbackreportstatus"]),
+    feedback_report_status_label: fv(row, "bcs_feedbackreportstatus"),
+    feedback_collection_code: num(row["bcs_feedbackcollection"]),
+    feedback_collection_label: fv(row, "bcs_feedbackcollection"),
+    targeting_status_code: num(row["bcs_targetingstatus"]),
+    targeting_status_label: fv(row, "bcs_targetingstatus"),
+    urgency_code: num(row["bcs_urgency"]),
+    urgency_label: fv(row, "bcs_urgency"),
+    last_teaser_code: num(row["bcs_lastteaser"]),
+    last_teaser_label: fv(row, "bcs_lastteaser"),
+
+    // Rollups (value + companion _date / _state)
+    confirmed_meetings: num(row["bcs_confirmedmeetings"]),
+    confirmed_meetings_date: parseDt(row["bcs_confirmedmeetings_date"]),
+    confirmed_meetings_state: num(row["bcs_confirmedmeetings_state"]),
+    pending_meetings: num(row["bcs_pendingmeetings"]),
+    pending_meetings_date: parseDt(row["bcs_pendingmeetings_date"]),
+    pending_meetings_state: num(row["bcs_pendingmeetings_state"]),
+    meeting_count_assigned: num(row["bcs_meetingcountassigned"]),
+    meeting_count_assigned_date: parseDt(row["bcs_meetingcountassigned_date"]),
+    meeting_count_assigned_state: num(row["bcs_meetingcountassigned_state"]),
+
+    // Slot / capacity counters
+    slots_remaining: num(row["bcs_slotsremaining"]),
+    of_slots: num(row["bcs_ofslots"]),
+    meeting_slots_max: num(row["bcs_meetingslotsmax"]),
+    spaces_available: num(row["bcs_spacesavailable"]),
+    age_targeting: num(row["bcs_agetargeting"]),
+    age_teaser: num(row["bcs_ageteaser"]),
+
+    // Booleans / workflow flags
+    launch: bool(row["bcs_launch"]),
+    paused: bool(row["bcs_paused"]),
+    outreach_complete: bool(row["bcs_outreachcomplete"]),
+    profiles_created: bool(row["bcs_profilescreated"]),
+    manager_signoff: bool(row["bcs_managersignoff"]),
+    schedule_approved: bool(row["bcs_scheduleapproved"]),
+    collateral_sent: bool(row["bcs_collateralsent"]),
+    contact_level_targeting: bool(row["bcs_contactleveltargeting"]),
+    teaser_task_created: bool(row["bcs_teasertaskcreated"]),
+    teaser_not_required: bool(row["bcs_teasernotrequired"]),
+    targeting_not_required: bool(row["bcs_targetingnotrequired"]),
+    update_required_teaser: bool(row["bcs_updaterequiredteaser"]),
+    update_required_targeting: bool(row["bcs_updaterequiredtargeting"]),
+    priority: bool(row["bcs_priority"]),
+    team: bool(row["bcs_team"]),
+    tbc: bool(row["bcs_tbc"]),
+
+    // Free-text notes / urls / params
+    event_notes: str(row["bcs_eventnotes"]),
+    targeting_notes: str(row["bcs_targetingnotes"]),
+    scheduling_notes: str(row["bcs_schedulingnotes"]),
+    notes_or_mandates: str(row["bcs_notesormandates"]),
+    event_parameters: str(row["bcs_eventparameters"]),
+    targeting_url: str(row["bcs_targetingurl"]),
+
+    // Standard Dataverse system columns
+    owner_id: lookupId(row, "_ownerid_value"),
+    owner_name: lookupName(row, "_ownerid_value"),
+    owning_user_id: lookupId(row, "_owninguser_value"),
+    owning_user_name: lookupName(row, "_owninguser_value"),
+    owning_team_id: lookupId(row, "_owningteam_value"),
+    owning_team_name: lookupName(row, "_owningteam_value"),
+    owning_business_unit_id: lookupId(row, "_owningbusinessunit_value"),
+    owning_business_unit_name: lookupName(row, "_owningbusinessunit_value"),
+    created_by_id: lookupId(row, "_createdby_value"),
+    created_by_name: lookupName(row, "_createdby_value"),
+    created_on_behalf_by_id: lookupId(row, "_createdonbehalfby_value"),
+    created_on_behalf_by_name: lookupName(row, "_createdonbehalfby_value"),
+    modified_by_id: lookupId(row, "_modifiedby_value"),
+    modified_by_name: lookupName(row, "_modifiedby_value"),
+    modified_on_behalf_by_id: lookupId(row, "_modifiedonbehalfby_value"),
+    modified_on_behalf_by_name: lookupName(row, "_modifiedonbehalfby_value"),
+    state_code: num(row["statecode"]),
+    state_label: fv(row, "statecode"),
+    status_code: num(row["statuscode"]),
+    status_label: fv(row, "statuscode"),
+    created_on: parseDt(row["createdon"]),
+    modified_on: parseDt(row["modifiedon"]),
+    overridden_created_on: parseDt(row["overriddencreatedon"]),
+
+    // Dataverse internals
+    import_sequence_number: num(row["importsequencenumber"]),
+    timezone_rule_version_number: num(row["timezoneruleversionnumber"]),
+    utc_conversion_timezone_code: num(row["utcconversiontimezonecode"]),
+    version_number: num(row["versionnumber"]),
+
+    // Catch-all + bookkeeping
+    _raw: row,
+  }
+}

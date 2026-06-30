@@ -26,7 +26,8 @@ import {
   mapSystemUser,
   mapTouchpoint,
   mapTask,
-  mapOOO
+  mapOOO,
+  mapEvent
 } from "./mappers"
 
 export type EntityConfig = {
@@ -51,4 +52,5 @@ export const ENTITIES: EntityConfig[] = [
   { name: "contracts", entitySet: "bcs_contracts", table: "contracts", pk: "contract_id", map: mapContract },
   { name: "tasks", entitySet: "tasks", table: "tasks", pk: "task_id", map: mapTask },
   { name: "new_vacationrequest", entitySet: "new_vacationrequests", table: "new_vacationrequest", pk: "ooo_id", map: mapOOO },
+  { name: "events", entitySet: "bcs_events", table: "events", pk: "event_id", map: mapEvent },
 ]
