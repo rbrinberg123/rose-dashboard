@@ -418,7 +418,7 @@ export function TimeOffView({ entries }: { entries: TimeOffRow[] }) {
                 <div
                   key={d.ymd}
                   className={cn(
-                    "flex h-[224px] flex-col border-r border-border/60 p-1.5 [&:nth-child(5n)]:border-r-0",
+                    "flex min-h-[157px] flex-col border-r border-border/60 p-1.5 [&:nth-child(5n)]:border-r-0",
                     d.inMonth ? "bg-white" : "bg-[#F7F8FA]",
                   )}
                   style={

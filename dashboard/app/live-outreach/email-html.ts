@@ -48,11 +48,22 @@ const MODE_STYLE: Record<string, { bg: string; text: string }> = {
   Hybrid: { bg: "#F3ECFB", text: "#6B3FA0" },
 }
 
+// Text colors are set on a <span> (not the wrapping <div>) so they survive the
+// browser-copy → Outlook paste; Outlook keeps inline color on span/td text.
 function statCell(label: string, value: string, danger?: boolean, title?: string | null): string {
+  const valColor = danger ? "#A32D2D" : "#1A2233"
   return `<td width="50%" valign="top" style="padding:3px 0;vertical-align:top;">
-    <div style="font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:#9AA1AD;">${esc(label)}</div>
-    <div style="font-size:13px;font-weight:bold;color:${danger ? "#A32D2D" : "#1A2233"};"${title ? ` title="${esc(title)}"` : ""}>${esc(value)}</div>
+    <div style="font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;"><span style="color:#9AA1AD;">${esc(label)}</span></div>
+    <div style="font-size:13px;"${title ? ` title="${esc(title)}"` : ""}><span style="color:${valColor};">${esc(value)}</span></div>
   </td>`
+}
+
+// Pills render their fill via <td bgcolor> inside a tiny nested table — the only
+// Outlook-reliable way to keep a background color (Outlook's Word engine drops
+// background-color from inline <span>). NB Outlook squares off border-radius, so
+// the badge is a colored rectangle there (color survives, rounded corners don't).
+function pill(bg: string, fg: string, label: string, radius: number, padding: string): string {
+  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr><td bgcolor="${bg}" style="background-color:${bg};font-size:11px;font-weight:bold;padding:${padding};border-radius:${radius}px;white-space:nowrap;color:${fg};"><span style="color:${fg};">${label}</span></td></tr></table>`
 }
 
 function urgencyPill(urgency: LiveOutreachRow["urgency"]): string {
@@ -60,14 +71,13 @@ function urgencyPill(urgency: LiveOutreachRow["urgency"]): string {
   const high = urgency === "High"
   const bg = high ? "#FDE7E7" : "#F1F3F7"
   const fg = high ? "#A32D2D" : "#5B6472"
-  const label = high ? "High Urgency" : "Standard"
-  return `<span style="background-color:${bg};color:${fg};font-size:11px;font-weight:bold;padding:3px 9px;border-radius:10px;white-space:nowrap;">${label}</span>`
+  return pill(bg, fg, high ? "High Urgency" : "Standard", 10, "3px 9px")
 }
 
 function modeTag(mode: LiveOutreachRow["event_mode"]): string {
   if (!mode || !MODE_STYLE[mode]) return ""
   const s = MODE_STYLE[mode]
-  return `<span style="background-color:${s.bg};color:${s.text};font-size:11px;font-weight:bold;padding:2px 8px;border-radius:6px;white-space:nowrap;">${esc(mode)}</span>`
+  return pill(s.bg, s.text, esc(mode), 6, "2px 8px")
 }
 
 function openSlots(remaining: number | null, total: number | null) {
@@ -85,9 +95,9 @@ function meetingsBlock(row: LiveOutreachRow): string {
   const count = row.confirmed_meeting_count ?? 0
   // Plain-text count in parentheses — renders reliably in Outlook (a styled
   // navy pill rendered as a dark box with a barely-visible number).
-  const header = `<div style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:#5B6472;margin-bottom:6px;">Confirmed Meetings (${count})</div>`
+  const header = `<div style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;"><span style="color:#5B6472;">Confirmed Meetings (${count})</span></div>`
   if (meetings.length === 0) {
-    return header + `<div style="font-size:13px;color:#9AA1AD;padding:4px 0;">No confirmed meetings yet.</div>`
+    return header + `<div style="font-size:13px;padding:4px 0;"><span style="color:#9AA1AD;">No confirmed meetings yet.</span></div>`
   }
   const rowsHtml = meetings
     .map((m, i) => {
@@ -107,7 +117,7 @@ function meetingsBlock(row: LiveOutreachRow): string {
 function card(row: LiveOutreachRow): string {
   const slots = openSlots(row.slots_remaining, row.of_slots)
   const tickerHtml = row.ticker ? `<span style="color:#1E2858;">${esc(row.ticker)}</span>&nbsp; ` : ""
-  const industryHtml = row.industry ? `<div style="font-size:12px;color:#6B7280;margin-top:2px;">${esc(row.industry)}</div>` : ""
+  const industryHtml = row.industry ? `<div style="font-size:12px;margin-top:2px;"><span style="color:#6B7280;">${esc(row.industry)}</span></div>` : ""
   const pill = urgencyPill(row.urgency)
   const pillRow = pill ? `<div style="margin-top:7px;">${pill}</div>` : ""
   const datesHtml = row.event_dates
@@ -115,10 +125,13 @@ function card(row: LiveOutreachRow): string {
     : `<span style="font-size:12px;color:#9AA1AD;">No dates set</span>`
   const mode = modeTag(row.event_mode)
 
-  return `<table width="${CARD}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;border:1px solid #E6EAF0;margin:0 0 14px 0;width:${CARD}px;font-family:Arial,Helvetica,sans-serif;">
+  // No box border: the two panels read as one clean card, separated only by the
+  // subtle right-panel shading (#F7F8FA) — mirroring the live page. Cards are set
+  // apart by the 14px gap, which shows the canvas tint behind them (see wrapper).
+  return `<table width="${CARD}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin:0 0 14px 0;width:${CARD}px;font-family:Arial,Helvetica,sans-serif;">
     <tr>
       <td width="${LEFT}" valign="top" bgcolor="#FFFFFF" style="width:${LEFT}px;vertical-align:top;background-color:#FFFFFF;padding:16px 18px;">
-        <div style="font-size:15px;font-weight:bold;color:#1A2233;line-height:1.3;">${tickerHtml}${esc(row.client_account_name ?? row.event_name ?? "—")}</div>
+        <div style="font-size:15px;font-weight:bold;line-height:1.3;">${tickerHtml}<span style="color:#1A2233;">${esc(row.client_account_name ?? row.event_name ?? "—")}</span></div>
         ${industryHtml}
         ${pillRow}
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin-top:12px;border-collapse:collapse;">
@@ -132,7 +145,12 @@ function card(row: LiveOutreachRow): string {
           </tr>
         </table>
         <div style="margin-top:12px;padding-top:10px;border-top:1px solid #EFF1F5;">
-          ${mode ? mode + "&nbsp; " : ""}${datesHtml}
+          <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;">
+            <tr>
+              ${mode ? `<td valign="middle" style="padding-right:8px;vertical-align:middle;">${mode}</td>` : ""}
+              <td valign="middle" style="vertical-align:middle;">${datesHtml}</td>
+            </tr>
+          </table>
         </div>
       </td>
       <td width="${RIGHT}" valign="top" bgcolor="#F7F8FA" style="width:${RIGHT}px;vertical-align:top;background-color:#F7F8FA;padding:16px 18px;">
@@ -149,10 +167,10 @@ export function buildEmailHtml(rows: LiveOutreachRow[], todayLabel: string): str
   return `<div style="font-family:Arial,Helvetica,sans-serif;background-color:#FFFFFF;color:#1A2233;">
 <table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
   <tr><td style="padding:0 0 4px 0;">
-    <div style="font-size:22px;font-weight:bold;color:#1A2233;">Non-Deal Roadshow Update - ${esc(todayLabel)}</div>
-    <div style="font-size:12px;color:#6B7280;padding:4px 0 16px 0;">${rows.length} event${rows.length === 1 ? "" : "s"} in active outreach &middot; ${totalMeetings} confirmed meeting${totalMeetings === 1 ? "" : "s"}</div>
+    <div style="font-size:22px;font-weight:bold;"><span style="color:#1A2233;">Non-Deal Roadshow Update - ${esc(todayLabel)}</span></div>
+    <div style="font-size:12px;padding:4px 0 16px 0;"><span style="color:#6B7280;">${rows.length} event${rows.length === 1 ? "" : "s"} in active outreach &middot; ${totalMeetings} confirmed meeting${totalMeetings === 1 ? "" : "s"}</span></div>
   </td></tr>
-  <tr><td>
+  <tr><td bgcolor="#F4F6F9" style="background-color:#F4F6F9;padding:14px 0 2px 0;">
 ${cards}
   </td></tr>
 </table>

@@ -3425,6 +3425,10 @@ LEFT JOIN LATERAL (
     AND m.meeting_status_label = 'Confirmed'
 ) cm ON true
 WHERE e.event_state_label = 'Live Outreach'
+  -- Exclude deactivated events. state_label is the Dataverse statecode
+  -- ('Active' = 0 / 'Inactive' = 1), distinct from the event_state_label
+  -- workflow field above. Only Active events should appear on the page.
+  AND e.state_label = 'Active'
 ORDER BY a.ticker_symbol NULLS LAST, e.name;
 
 GRANT SELECT ON public.v_time_off TO service_role;
