@@ -3042,10 +3042,16 @@ SELECT
   -- as NULL so the UI's event dropdown lists clean, de-duplicated names.
   -- Appended last so CREATE OR REPLACE VIEW only ADDS a column.
   NULLIF(TRIM(m._raw ->> '_bcs_event_value@OData.Community.Display.V1.FormattedValue'), '')
-    AS event_name
+    AS event_name,
+  -- Event-level SharePoint document link, joined from the event via
+  -- meetings.event_id. NULL for every event until events.sharepoint_url is
+  -- populated; the Profiles card shows a muted placeholder icon meanwhile.
+  -- Appended last so CREATE OR REPLACE VIEW only ADDS a column.
+  e.sharepoint_url AS event_sharepoint_url
 FROM public.meetings m
 CROSS JOIN anchor
 LEFT JOIN public.accounts a ON a.account_id = m.client_account_id
+LEFT JOIN public.events e ON e.event_id = m.event_id
 WHERE m.meeting_date IS NOT NULL
   AND m.profile_label IS NOT NULL
   AND COALESCE(m.meeting_status_label, '') <> 'Cancelled'

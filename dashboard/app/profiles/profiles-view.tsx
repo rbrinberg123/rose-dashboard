@@ -1,8 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { MapPin, Video } from "lucide-react"
+import { FileText, MapPin, Video } from "lucide-react"
 import { ListTitleCard } from "@/components/page-masthead"
+import { AccountTeamAvatars } from "@/components/account-team-avatars"
 import {
   BRAND_BLUE,
   CARD_CLASS,
@@ -430,6 +431,20 @@ function MeetingCard({ row, today }: { row: ProfileUpcomingRow; today: string })
   const accent = isLive ? LIVE_COLOR : VIRTUAL_COLOR
   const days = daysUntil(row.meeting_day, today)
   const daysPill = daysPillStyle(days)
+  // Account-team initials — primary (navy) + secondary (blue), same treatment as
+  // the Portfolio Account Team column. Secondary drops out when absent; the whole
+  // cluster is hidden if neither manager is set (rather than showing a dash).
+  const amMembers = [
+    { role: "Account mgr", name: row.primary_manager_name, bg: "#1E2858", fg: "#FFFFFF" },
+    { role: "Secondary", name: row.secondary_manager_name, bg: "#3D5599", fg: "#FFFFFF" },
+  ]
+  const hasAM = amMembers.some((m) => m.name && m.name.trim())
+  // Event-level SharePoint document link. When present, an active FileText link
+  // (muted → navy on hover, same treatment as the Portfolio contract icon). When
+  // absent, a muted, non-clickable placeholder icon holds the spot until the
+  // field is populated. To hide-when-empty instead, change the null branch below
+  // to render `null`.
+  const sharepointUrl = row.event_sharepoint_url?.trim()
   return (
     <div
       className="rounded-md border border-[#EDEFF3] bg-white px-2.5 py-1.5 shadow-sm"
@@ -464,12 +479,35 @@ function MeetingCard({ row, today }: { row: ProfileUpcomingRow; today: string })
           {fmtTime(row.meeting_date)}
           <span style={{ color: accent }}>· {isLive ? "Live" : "Virtual"}</span>
         </span>
-        <span
-          className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-          style={{ backgroundColor: sty.bg, color: sty.text }}
-        >
-          {row.profile_label}
-        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {sharepointUrl ? (
+            <a
+              href={sharepointUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open event document"
+              aria-label="Open event document"
+              className="text-muted-foreground transition-colors hover:text-[#1E2858]"
+            >
+              <FileText className="size-3.5" aria-hidden="true" />
+            </a>
+          ) : (
+            <span
+              title="No event document yet"
+              aria-label="No event document"
+              className="text-muted-foreground/40"
+            >
+              <FileText className="size-3.5" aria-hidden="true" />
+            </span>
+          )}
+          {hasAM && <AccountTeamAvatars members={amMembers} />}
+          <span
+            className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+            style={{ backgroundColor: sty.bg, color: sty.text }}
+          >
+            {row.profile_label}
+          </span>
+        </div>
       </div>
     </div>
   )

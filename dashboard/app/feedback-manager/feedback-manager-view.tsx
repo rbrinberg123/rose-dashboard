@@ -22,9 +22,9 @@ const STATE_STYLE: Record<
   FeedbackManagerState,
   { bg: string; text: string; short: string }
 > = {
-  "Reports Pending Review": { bg: "#E7F5EE", text: "#0E7C56", short: "Pending Review" },
-  "Reports In Progress": { bg: "#EEF2FB", text: "#2D4A8A", short: "In Progress" },
-  "Reports Not Started": { bg: "#FCF4E6", text: "#92600B", short: "Not Started" },
+  "Reports Pending Review": { bg: "#E7F5EE", text: "#0E7C56", short: "Pending Account Manager Review" },
+  "Reports In Progress": { bg: "#EEF2FB", text: "#2D4A8A", short: "Claimed Reports In Progress (Feedback Received)" },
+  "Reports Not Started": { bg: "#FCF4E6", text: "#92600B", short: "Unclaimed Reports (Feedback Received)" },
   "Waiting on Feedback": { bg: "#F1F3F7", text: "#5B6472", short: "Waiting on Feedback" },
 }
 

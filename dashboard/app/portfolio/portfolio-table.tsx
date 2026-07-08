@@ -24,6 +24,7 @@ import {
 import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { DaysLeftPill, AutoRenewFlag, ContractDash } from "@/components/contract-fields"
+import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { EXPIRY_BUCKETS, EXPIRY_BUCKET_BY_KEY } from "@/lib/contract-expiry"
 import type { ClientPortfolioRow } from "@/lib/types"
 
@@ -124,47 +125,17 @@ const ACCOUNT_TEAM_ROLES = [
   { role: "Logistics", key: "logistics_coordinator_name", bg: "#4FC6BC", fg: "#0A3B36" },
 ] as const
 
-function initialsOf(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean)
-  if (words.length === 0) return ""
-  if (words.length === 1) return words[0][0].toUpperCase()
-  return (words[0][0] + words[words.length - 1][0]).toUpperCase()
-}
-
+// Maps a Portfolio row's four account-team roles into the shared avatar cluster.
+// Rendering (initials, 24px overlapping circles, colors) lives in the shared
+// component so Portfolio and Profiles stay identical.
 function AccountTeamAvatars({ row }: { row: ClientPortfolioRow }) {
-  // Only render roles with an assigned (non-blank) name; show a dash if none.
-  const members = ACCOUNT_TEAM_ROLES.map((r) => ({ ...r, name: row[r.key] })).filter(
-    (m): m is (typeof m) & { name: string } => Boolean(m.name && m.name.trim()),
-  )
-  if (members.length === 0) return <>—</>
-  return (
-    <div className="flex items-center">
-      {members.map((m, i) => (
-        <span
-          key={m.key}
-          title={`${m.role}: ${m.name}`}
-          aria-label={`${m.role}: ${m.name}`}
-          className="flex shrink-0 items-center justify-center rounded-full"
-          style={{
-            width: 24,
-            height: 24,
-            fontSize: "9px",
-            fontWeight: 600,
-            lineHeight: 1,
-            backgroundColor: m.bg,
-            color: m.fg,
-            // Thin border in the row background so overlapping avatars read cleanly.
-            border: "2px solid var(--card)",
-            marginLeft: i === 0 ? 0 : -8,
-            // Earlier roles sit on top of later ones.
-            zIndex: members.length - i,
-          }}
-        >
-          {initialsOf(m.name)}
-        </span>
-      ))}
-    </div>
-  )
+  const members = ACCOUNT_TEAM_ROLES.map((r) => ({
+    role: r.role,
+    name: row[r.key],
+    bg: r.bg,
+    fg: r.fg,
+  }))
+  return <TeamAvatars members={members} />
 }
 
 // Note-status flag colors now live in lib/design.ts (NOTE_STATUS_PILL), imported

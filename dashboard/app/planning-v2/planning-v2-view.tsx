@@ -99,6 +99,16 @@ const STAGES: Stage[] = [
   },
 ]
 
+// Singular labels for the "Missing:" filter checkboxes, keyed by stage. A checked
+// box narrows the table to meetings where that stage is NOT done (the inverse of
+// the column's checkmark), so the two can never drift.
+const MISSING_LABELS: Record<Stage["key"], string> = {
+  calendars: "Calendar",
+  profiles: "Profile",
+  hosts: "Host",
+  feedback: "Feedback",
+}
+
 // meeting_date is a +00 wall clock read as-is (see the view), so format in UTC
 // to show the stored local time, never shifting zones.
 const TIME_FMT = new Intl.DateTimeFormat("en-US", {
@@ -458,7 +468,7 @@ function MeetingTableHeader({ meetings }: { meetings: PlanningEventRow[] }) {
   )
 }
 
-type View = "event" | "week" | "day"
+type View = "event" | "week" | "day" | "client"
 
 export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
   const groups = React.useMemo(() => buildGroups(rows), [rows])
@@ -489,6 +499,25 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
   const [primaryAM, setPrimaryAM] = React.useState<string>(ALL)
   const [secondaryAM, setSecondaryAM] = React.useState<string>(ALL)
 
+  // "Missing:" stage filters — a set of stage keys whose checkmark must be EMPTY.
+  // OR semantics: a meeting passes if it is missing ANY of the checked stages.
+  // Reuses each stage's own done() (negated) so it can't drift from the columns.
+  const [missing, setMissing] = React.useState<Set<string>>(() => new Set())
+  const missingActive = missing.size > 0
+  const passesMissing = React.useCallback(
+    (r: PlanningEventRow) =>
+      !missingActive || STAGES.some((s) => missing.has(s.key) && !s.done(r)),
+    [missing, missingActive],
+  )
+  function toggleMissing(key: string) {
+    setMissing((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
   const primaryOptions = React.useMemo(
     () =>
       Array.from(
@@ -507,14 +536,20 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
   // An event passes a manager filter if any of its meetings carry that manager
   // (they all share one client, so this is just a robust uniform match).
   const filteredGroups = React.useMemo(() => {
-    if (primaryAM === ALL && secondaryAM === ALL) return groups
-    return groups.filter(
-      (g) =>
-        (primaryAM === ALL || g.meetings.some((m) => m.primary_manager_name === primaryAM)) &&
-        (secondaryAM === ALL ||
-          g.meetings.some((m) => m.secondary_manager_name === secondaryAM)),
-    )
-  }, [groups, primaryAM, secondaryAM])
+    let gs = groups
+    if (primaryAM !== ALL || secondaryAM !== ALL) {
+      gs = gs.filter(
+        (g) =>
+          (primaryAM === ALL || g.meetings.some((m) => m.primary_manager_name === primaryAM)) &&
+          (secondaryAM === ALL ||
+            g.meetings.some((m) => m.secondary_manager_name === secondaryAM)),
+      )
+    }
+    // By Event narrowing: only offer events that still have a meeting matching the
+    // Missing filter, so the picker never lands on an event with nothing to show.
+    if (missingActive) gs = gs.filter((g) => g.meetings.some(passesMissing))
+    return gs
+  }, [groups, primaryAM, secondaryAM, missingActive, passesMissing])
 
   // Only the user's explicit pick is stored. The EFFECTIVE selection is derived
   // during render from the FILTERED list: the picked event if it survives the
@@ -542,10 +577,40 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
 
   // The meeting rows visible in the Week/Day lists: AM-filtered, then optionally
   // narrowed to in-person only.
-  const meetingRows = React.useMemo(
-    () => (inPersonOnly ? amFilteredRows.filter((r) => r.is_in_person) : amFilteredRows),
-    [amFilteredRows, inPersonOnly],
-  )
+  const meetingRows = React.useMemo(() => {
+    let rs = amFilteredRows
+    if (inPersonOnly) rs = rs.filter((r) => r.is_in_person)
+    if (missingActive) rs = rs.filter(passesMissing)
+    return rs
+  }, [amFilteredRows, inPersonOnly, missingActive, passesMissing])
+
+  // ---- By Client state: pick a client, show its meetings chronologically. The
+  // client list and shown meetings both derive from meetingRows, so By Client
+  // combines with the AM / In-person / Missing filters just like By Week/Day. The
+  // picked id is only a preference; the effective client is derived during render
+  // (picked if it survives the filters, else the first) — no effect, no cascade.
+  const [pickedClientId, setPickedClientId] = React.useState<string | null>(null)
+  const clientOptions = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const r of meetingRows) {
+      if (r.client_account_id && r.client_account_name) {
+        map.set(r.client_account_id, r.client_account_name)
+      }
+    }
+    return Array.from(map, ([id, name]) => ({ id, name })).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    )
+  }, [meetingRows])
+  const selectedClient =
+    clientOptions.find((c) => c.id === pickedClientId) ??
+    (clientOptions.length ? clientOptions[0] : null)
+  const selectedClientId = selectedClient?.id ?? null
+  const clientMeetings = React.useMemo(() => {
+    if (!selectedClientId) return []
+    return meetingRows
+      .filter((r) => r.client_account_id === selectedClientId)
+      .sort((a, b) => a.meeting_date.localeCompare(b.meeting_date))
+  }, [meetingRows, selectedClientId])
 
   // Earliest day in the data (preferring upcoming) — a stable, prop-derived
   // anchor used to default the Week and (as a last resort) the Day views with no
@@ -642,9 +707,10 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
                 value={view}
                 onChange={setView}
                 options={[
-                  { value: "event", label: "By Event" },
-                  { value: "week", label: "By Week" },
                   { value: "day", label: "By Day" },
+                  { value: "week", label: "By Week" },
+                  { value: "event", label: "By Event" },
+                  { value: "client", label: "By Client" },
                 ]}
               />
             </div>
@@ -668,6 +734,28 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
                     filteredGroups.map((g) => (
                       <option key={g.eventId} value={g.eventId}>
                         {g.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            ) : view === "client" ? (
+              <div className="flex min-w-0 flex-col gap-1">
+                <label htmlFor="planning-v2-client" className={FILTER_LABEL}>
+                  Client
+                </label>
+                <select
+                  id="planning-v2-client"
+                  value={selectedClientId ?? ""}
+                  onChange={(e) => setPickedClientId(e.target.value)}
+                  className="h-9 w-full min-w-[240px] max-w-[420px] rounded-md border border-input bg-background px-2 text-sm"
+                >
+                  {clientOptions.length === 0 ? (
+                    <option value="">No clients match these filters</option>
+                  ) : (
+                    clientOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
                       </option>
                     ))
                   )}
@@ -802,13 +890,61 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
             </div>
           </div>
 
+          {/* ---- "Missing:" stage filters — right-aligned, under the Account
+              Manager filter. Checking a box narrows every view (By Event / By Week
+              / By Day) to meetings missing that stage; OR across checked boxes. ---- */}
+          <div className="mb-4 -mt-1 flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+            <span className={FILTER_LABEL}>Missing:</span>
+            {STAGES.map((s) => (
+              <label
+                key={s.key}
+                className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-sm text-foreground"
+              >
+                <input
+                  type="checkbox"
+                  checked={missing.has(s.key)}
+                  onChange={() => toggleMissing(s.key)}
+                  className="size-4 rounded border-input accent-[#1C8C9C]"
+                />
+                {MISSING_LABELS[s.key]}
+              </label>
+            ))}
+          </div>
+
           {/* ---- Full-width content ---- */}
           {view === "event" ? (
             selected ? (
-              <EventDetail group={selected} now={now} onOpenEvent={openEvent} />
+              <EventDetail
+                group={selected}
+                meetings={
+                  missingActive ? selected.meetings.filter(passesMissing) : selected.meetings
+                }
+                now={now}
+                onOpenEvent={openEvent}
+              />
             ) : (
               <div className={`p-10 text-center text-sm text-muted-foreground ${CARD_CLASS}`}>
                 No events match these filters.
+              </div>
+            )
+          ) : view === "client" ? (
+            selectedClient ? (
+              <div>
+                {/* Scope note — caption only, no effect on which meetings show. */}
+                <p className="mb-2 text-[11px] italic text-muted-foreground">
+                  * Displays meetings for active events only (an event is active if it
+                  has at least one upcoming meeting).
+                </p>
+                <ClientTable
+                  title={selectedClient.name}
+                  meetings={clientMeetings}
+                  now={now}
+                  onOpenEvent={openEvent}
+                />
+              </div>
+            ) : (
+              <div className={`p-10 text-center text-sm text-muted-foreground ${CARD_CLASS}`}>
+                No clients match these filters.
               </div>
             )
           ) : view === "week" ? (
@@ -839,27 +975,37 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
 // ---- By Event: one section (the event's meetings) + a Now divider. ----
 function EventDetail({
   group,
+  meetings,
   now,
   onOpenEvent,
 }: {
   group: EventGroup
+  meetings: PlanningEventRow[]
   now: number | null
   onOpenEvent: (eventId: string) => void
 }) {
+  // Counts / date range reflect the meetings actually shown, so they stay honest
+  // when the Missing filter narrows this event to just its incomplete meetings.
+  // meetings arrive sorted by date (buildGroups), so [0] / [last] give the range.
+  const total = meetings.length
+  const upcoming = meetings.filter((m) => !m.is_past).length
+  const firstDay = meetings[0]?.meeting_day ?? group.firstDay
+  const lastDay = meetings[meetings.length - 1]?.meeting_day ?? group.lastDay
   return (
     <MeetingTable
       title={group.name}
       subtitle={
         <>
-          <span>{fmtRange(group.firstDay, group.lastDay)}</span>
+          <span>{fmtRange(firstDay, lastDay)}</span>
           <span>·</span>
-          <span>{group.total} meetings</span>
+          <span>{total} meetings</span>
           <span>·</span>
-          <span>{group.upcoming} upcoming</span>
+          <span>{upcoming} upcoming</span>
         </>
       }
-      meetings={group.meetings}
-      sections={[{ key: group.eventId, meetings: group.meetings, showNowDivider: true }]}
+      meetings={meetings}
+      sections={[{ key: group.eventId, meetings, showNowDivider: true }]}
+      emptyMessage="No meetings match the Missing filter for this event."
       now={now}
       onOpenEvent={onOpenEvent}
     />
@@ -1117,6 +1263,33 @@ function DayTable({
       meetings={meetings}
       sections={meetings.length ? [{ key: "day", meetings }] : []}
       emptyMessage="No meetings on this day. Use the arrows above to move to another day."
+      now={now}
+      onOpenEvent={onOpenEvent}
+    />
+  )
+}
+
+// ---- By Client: one section (the chosen client's meetings), chronological, with
+// the same Now divider as By Event since a client's meetings span past + future. ----
+function ClientTable({
+  title,
+  meetings,
+  now,
+  onOpenEvent,
+}: {
+  title: string
+  meetings: PlanningEventRow[]
+  now: number | null
+  onOpenEvent: (eventId: string) => void
+}) {
+  const upcoming = meetings.filter((m) => !m.is_past).length
+  return (
+    <MeetingTable
+      title={title}
+      subtitle={`${meetings.length} meeting${meetings.length === 1 ? "" : "s"} · ${upcoming} upcoming`}
+      meetings={meetings}
+      sections={meetings.length ? [{ key: "client", meetings, showNowDivider: true }] : []}
+      emptyMessage="No meetings for this client match the current filters."
       now={now}
       onOpenEvent={onOpenEvent}
     />

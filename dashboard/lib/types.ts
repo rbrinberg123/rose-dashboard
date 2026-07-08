@@ -887,6 +887,9 @@ export type ProfileUpcomingRow = {
   primary_manager_name: string | null
   secondary_manager_name: string | null
   event_name: string | null
+  // Event-level SharePoint document link (v_profiles_upcoming, joined from the
+  // event). NULL until populated; the card shows a muted placeholder meanwhile.
+  event_sharepoint_url: string | null
 }
 
 // One row per Confirmed meeting of an upcoming event, from v_planning_events.
