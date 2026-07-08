@@ -46,15 +46,39 @@ export default async function ClientPortfolioPage() {
   const { data: contractData } = await sb
     .from("v_contract_management")
     .select(
-      "account_id, initial_term_end, days_to_expiry, auto_renew, contract_status_label, has_active_contract, total_contract_count",
+      "account_id, contract_id, initial_term_end, days_to_expiry, auto_renew, contract_status_label, has_active_contract, total_contract_count",
     )
   const contractById = new Map(
     (contractData ?? []).map((c) => [c.account_id as string, c]),
   )
 
+  // contract_url isn't on v_contract_management, so look it up from the contracts
+  // table by contract_id and attach it per client. Mirrors the Contract tab.
+  const contractIds = Array.from(
+    new Set(
+      (contractData ?? [])
+        .map((c) => c.contract_id as string | null)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  )
+  const urlByContractId = new Map<string, string | null>()
+  if (contractIds.length > 0) {
+    const urlRes = await sb
+      .from("contracts")
+      .select("contract_id, contract_url")
+      .in("contract_id", contractIds)
+    for (const c of (urlRes.data ?? []) as {
+      contract_id: string
+      contract_url: string | null
+    }[]) {
+      urlByContractId.set(c.contract_id, c.contract_url ?? null)
+    }
+  }
+
   const rows = ((data ?? []) as ClientPortfolioRow[]).map((r) => {
     const t = teamById.get(r.account_id)
     const c = contractById.get(r.account_id)
+    const contractId = (c?.contract_id ?? null) as string | null
     return {
       ...r,
       secondary_manager_name: (t?.secondary_manager_name ?? null) as string | null,
@@ -67,6 +91,9 @@ export default async function ClientPortfolioPage() {
       contract_status_label: (c?.contract_status_label ?? null) as string | null,
       has_active_contract: (c?.has_active_contract ?? null) as boolean | null,
       total_contract_count: (c?.total_contract_count ?? null) as number | null,
+      contract_url: contractId
+        ? urlByContractId.get(contractId) ?? null
+        : null,
     }
   })
 

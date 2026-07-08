@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { format, parseISO } from "date-fns"
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, Lock } from "lucide-react"
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, Lock, FileText } from "lucide-react"
 
 import {
   Table,
@@ -82,7 +82,7 @@ const SUBHEADER_BG = "#F7F8FA"
 // the column count, used for the band colSpan and the empty-state colSpan.
 const TOGGLE_SECTIONS = [
   { id: "classification", label: "Classification", cols: 3 },
-  { id: "contract", label: "Contract", cols: 5 },
+  { id: "contract", label: "Contract", cols: 6 },
   { id: "meetings", label: "Meetings", cols: 5 },
   { id: "activity", label: "Activity", cols: 2 },
 ] as const
@@ -896,7 +896,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                 </TableHead>
               )}
               {show.contract && (
-                <TableHead colSpan={5} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
+                <TableHead colSpan={6} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
                   Contract
                 </TableHead>
               )}
@@ -972,6 +972,9 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       onSort={handleSort}
                       align="right"
                     />
+                  </TableHead>
+                  <TableHead className="h-8 px-2.5 text-center">
+                    <span className="text-xs font-medium text-muted-foreground">Doc</span>
                   </TableHead>
                 </>
               )}
@@ -1170,6 +1173,22 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                         {/* Annualized Retainer */}
                         <TableCell className="px-2.5 py-1 align-top text-right tabular-nums">
                           {formatCompactDollars(r.annualized_retainer)}
+                        </TableCell>
+
+                        {/* Contract doc — SharePoint link, same treatment as Contract Management */}
+                        <TableCell className="px-2.5 py-1 align-top text-center">
+                          {r.contract_url?.trim() ? (
+                            <a
+                              href={r.contract_url.trim()}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Open contract"
+                              aria-label="Open contract"
+                              className="text-muted-foreground transition-colors hover:text-[#1E2858]"
+                            >
+                              <FileText className="size-3.5" aria-hidden="true" />
+                            </a>
+                          ) : null}
                         </TableCell>
                       </>
                     )}

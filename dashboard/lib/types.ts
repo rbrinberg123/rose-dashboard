@@ -393,6 +393,9 @@ export type ClientPortfolioRow = {
   contract_status_label: string | null
   has_active_contract: boolean | null
   total_contract_count: number | null
+  // SharePoint contract file link. Not on either view; looked up page-side from
+  // the contracts table by contract_id, same as the Contract Management page.
+  contract_url: string | null
 }
 
 export type ClientStatisticsRow = {
