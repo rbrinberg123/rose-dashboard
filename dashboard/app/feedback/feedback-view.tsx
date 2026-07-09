@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useSearchParams } from "next/navigation"
 import {
   ChevronDown,
   ChevronRight,
@@ -18,6 +19,10 @@ import type { FeedbackOutstandingRow } from "@/lib/types"
 // amber (awaiting additional), and red (30+ days stale) accents used across the
 // summary strip, group headers, status pills, and the Days column.
 const NAVY_DEEP = "#1E2858"
+
+// DOM id + ring applied to the client card a deep-link (?client=<id>) targets, so
+// it can be scrolled into view and visually picked out on arrival.
+const DEEPLINK_ANCHOR = "feedback-client-deeplink"
 
 const CORAL = { text: "#993C1D", border: "#D85A30", pillBg: "#FAECE7" }
 const AMBER = { text: "#854F0B", border: "#EF9F27", pillBg: "#FAEEDA" }
@@ -124,11 +129,35 @@ function buildGroups(view: ViewKey, sort: SortKey, rows: FeedbackOutstandingRow[
 }
 
 export function FeedbackView({ rows }: { rows: FeedbackOutstandingRow[] }) {
-  const [view, setView] = React.useState<ViewKey>("person")
+  // Deep-link support: /feedback?client=<account_id> lands on that client in the
+  // By-client view with its card expanded and scrolled into view — used by the
+  // Client Marketing Status page's Feedback Collection pill. The link carries the
+  // account_id; groups are keyed by name, so resolve the name from the rows.
+  const searchParams = useSearchParams()
+  const deepLinkClientId = searchParams.get("client")
+  const deepLinkClientName = deepLinkClientId
+    ? rows.find((r) => r.client_account_id === deepLinkClientId)?.client_account_name ?? null
+    : null
+
+  const [view, setView] = React.useState<ViewKey>(deepLinkClientName ? "client" : "person")
   const [sort, setSort] = React.useState<SortKey>("open")
   // Expanded groups, keyed by `${view}::${name}` so toggles don't bleed across
-  // views. Default is empty → every group starts collapsed.
-  const [expanded, setExpanded] = React.useState<Set<string>>(new Set())
+  // views. Default is empty (all collapsed) — unless a deep-link pre-expands the
+  // targeted client's card.
+  const [expanded, setExpanded] = React.useState<Set<string>>(() =>
+    deepLinkClientName ? new Set([`client::${deepLinkClientName}`]) : new Set(),
+  )
+
+  // On a deep-link, scroll the targeted (pre-expanded) client card into view once.
+  React.useEffect(() => {
+    if (!deepLinkClientName) return
+    document.getElementById(DEEPLINK_ANCHOR)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    })
+    // Mount-only: the deep-link is read from the initial URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ---- Firm-wide summary (static, regardless of active view) --------------
   const summary = React.useMemo(() => {
@@ -327,6 +356,11 @@ export function FeedbackView({ rows }: { rows: FeedbackOutstandingRow[] }) {
               view={view}
               expanded={expanded.has(keyOf(g.name))}
               onToggle={() => toggle(g.name)}
+              anchorId={
+                view === "client" && g.name === deepLinkClientName
+                  ? DEEPLINK_ANCHOR
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -344,14 +378,20 @@ function GroupCard({
   view,
   expanded,
   onToggle,
+  anchorId,
 }: {
   group: Group
   view: ViewKey
   expanded: boolean
   onToggle: () => void
+  /** Set on the deep-link target card: adds the scroll anchor id + a highlight ring. */
+  anchorId?: string
 }) {
   return (
-    <div className={`overflow-hidden ${CARD_CLASS}`}>
+    <div
+      id={anchorId}
+      className={`overflow-hidden ${CARD_CLASS}${anchorId ? " ring-2 ring-[#1E2858]/25" : ""}`}
+    >
       <button
         type="button"
         onClick={onToggle}

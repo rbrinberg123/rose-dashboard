@@ -892,6 +892,45 @@ export type ProfileUpcomingRow = {
   event_sharepoint_url: string | null
 }
 
+/**
+ * One row per ACTIVE client for the Logistics → Marketing Status page
+ * (v_client_marketing_status). Same client set as v_client_portfolio. All dates
+ * are `date` columns serialized as 'YYYY-MM-DD' (no time component). See
+ * sql/03_views.sql for the full provenance of each column; in brief:
+ *
+ *   current_event_name  — event whose [start, end] contains today (ET), earliest
+ *                         starting if several; null when none is live.
+ *   next_event_date     — soonest future event start date.
+ *   last_event_date     — end date of the most recently ended past event.
+ *   feedback_collection — count of not-closed meeting-level feedbacks (Confirmed,
+ *                         hosted, past; feedback_status_label NULL / 'Awaiting
+ *                         Additional'). Same scope as v_feedback_outstanding.
+ *   reports_in_creation — count of the client's OPEN 'Feedback' tasks with
+ *                         bcs_feedback_received = true; reports_in_creation_due is
+ *                         the soonest due date (scheduled_end) among them.
+ *   reports_in_review   — count of the client's COMPLETED 'Feedback' tasks whose
+ *                         event still has an OPEN 'Feedback Report Sent' task.
+ *   report_sent_date    — most recent completed 'Feedback Report Sent' close date
+ *                         (actual_end); null until a report has been sent.
+ */
+export type ClientMarketingStatusRow = {
+  account_id: string
+  name: string
+  ticker_symbol: string | null
+  /** Account Manager (accounts.sales_lead_primary_name) — drives the AM filter. */
+  sales_lead_primary_name: string | null
+  current_event_name: string | null
+  /** Current event's id — deep-links the Current Event to Planning's By Event view. */
+  current_event_id: string | null
+  next_event_date: string | null
+  last_event_date: string | null
+  feedback_collection: number
+  reports_in_creation: number
+  reports_in_creation_due: string | null
+  reports_in_review: number
+  report_sent_date: string | null
+}
+
 // One row per Confirmed meeting of an upcoming event, from v_planning_events.
 // Powers the Logistics → Planning tracker (master-detail). The four stage
 // VALUES come raw; the UI decides each checkmark (see planning-view.tsx).

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useSearchParams } from "next/navigation"
 import { Check, FileText, CalendarCheck, UserRound, MessageSquare, Clock, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
 import { ListTitleCard } from "@/components/page-masthead"
 import { SegmentedToggle } from "@/components/segmented-toggle"
@@ -473,7 +474,14 @@ type View = "event" | "week" | "day" | "client"
 export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
   const groups = React.useMemo(() => buildGroups(rows), [rows])
 
-  // By Event / By Week toggle.
+  // Deep-link: /planning-v2?event=<event_id> opens By Event with that event
+  // pre-selected (used by the Client Marketing Status "Current Event" link). Read
+  // once for the initial pickedId below; if the id isn't among the (filtered)
+  // events, the selection falls back to the first, as usual.
+  const searchParams = useSearchParams()
+  const deepLinkEventId = searchParams.get("event")
+
+  // By Event / By Week toggle. Defaults to By Event, so a deep-link lands here.
   const [view, setView] = React.useState<View>("event")
 
   // Client clock for the OCCURRED check (feature #1). Starts null so the first
@@ -554,7 +562,7 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
   // Only the user's explicit pick is stored. The EFFECTIVE selection is derived
   // during render from the FILTERED list: the picked event if it survives the
   // filters, else the first filtered event. No effect, no setState cascade.
-  const [pickedId, setPickedId] = React.useState<string | null>(null)
+  const [pickedId, setPickedId] = React.useState<string | null>(deepLinkEventId)
   const selected =
     filteredGroups.find((g) => g.eventId === pickedId) ??
     (filteredGroups.length ? filteredGroups[0] : null)
