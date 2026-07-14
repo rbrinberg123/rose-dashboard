@@ -6,10 +6,69 @@ import { HostSelectCell } from "@/components/host-select-cell"
 import { CARD_CLASS } from "@/lib/design"
 import { analyzeHost, buildAffinity, isHostBusy } from "@/lib/host-suggestion"
 import type { HostPick } from "@/lib/host-suggestion"
-import type { SchedulerMeetingRow, SchedulerUnassignedRow } from "@/lib/types"
+import type {
+  SchedulerMeetingRow,
+  SchedulerTimeOffRow,
+  SchedulerUnassignedRow,
+} from "@/lib/types"
 
 // Brand palette
 const NAVY_DEEP = "#1E2858"
+
+// ---------------------------------------------------------------------------
+// OOO / Remote indicators. Colors reuse the Time Off page's exact language so
+// the two pages read identically:
+//   OOO    = filled light-green badge (unavailable — also blocks the slots).
+//   Remote = outlined slate badge (still bookable — informational only).
+// ---------------------------------------------------------------------------
+const OOO_STYLE = { fill: "#D6EBD9", border: "#6FAE78", text: "#2E6B3A" }
+const REMOTE_STYLE = { fill: "#FFFFFF", border: "#3D5599", text: "#34487F" }
+
+// Subtle diagonal hatch used to visually block an OOO host's slots (day-view
+// row / week-view day column). Low-alpha green over transparent so meeting
+// blocks (opaque) stay fully legible on top. Remote never hatches.
+const OOO_HATCH = `repeating-linear-gradient(45deg, ${OOO_STYLE.border}26, ${OOO_STYLE.border}26 6px, ${OOO_STYLE.border}0D 6px, ${OOO_STYLE.border}0D 12px)`
+
+type TimeOffType = "OOO" | "Remote"
+
+// Time-off status for a host on a given calendar day ('YYYY-MM-DD'). Ranges are
+// inclusive on both ends; ISO day strings compare correctly as text. OOO wins
+// if a host somehow has both on one day.
+function timeOffOn(
+  entries: SchedulerTimeOffRow[],
+  hostId: string,
+  dayYmd: string,
+): TimeOffType | null {
+  let result: TimeOffType | null = null
+  for (const e of entries) {
+    if (e.host_id !== hostId) continue
+    if (e.start_date <= dayYmd && dayYmd <= e.end_date) {
+      if (e.time_off_type === "OOO") return "OOO"
+      result = "Remote"
+    }
+  }
+  return result
+}
+
+// Small OOO/Remote badge — same fill/border/text treatment as the Time Off
+// page's name pills (Remote is outlined with a slightly heavier border).
+function TimeOffBadge({ type }: { type: TimeOffType }) {
+  const remote = type === "Remote"
+  const s = remote ? REMOTE_STYLE : OOO_STYLE
+  return (
+    <span
+      className="inline-block shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wide"
+      style={{
+        backgroundColor: s.fill,
+        color: s.text,
+        border: `${remote ? "1.5px" : "1px"} solid ${s.border}`,
+      }}
+      title={remote ? "Working remotely — still bookable" : "Out of office — unavailable"}
+    >
+      {remote ? "Remote" : "OOO"}
+    </span>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Meeting-block palette — ONE source of truth, shared by all three views (Day,
@@ -264,9 +323,11 @@ const selectClass = "h-9 rounded-md border border-border bg-card px-2 text-sm"
 export function SchedulerView({
   meetings,
   unassigned,
+  timeOff,
 }: {
   meetings: SchedulerMeetingRow[]
   unassigned: SchedulerUnassignedRow[]
+  timeOff: SchedulerTimeOffRow[]
 }) {
   const today = React.useMemo(() => new Date(), [])
 
@@ -346,9 +407,10 @@ export function SchedulerView({
         .sort((a, b) => a.start_minutes - b.start_minutes)
       const bands = mergeIntervals(ms.map(occupiedInterval))
       const free = freeAt == null ? null : !isBusyAt(bands, freeAt)
-      return { ...h, meetings: ms, free }
+      const timeOffType = timeOffOn(timeOff, h.host_id, dayYmd)
+      return { ...h, meetings: ms, free, timeOffType }
     })
-  }, [hosts, dayMeetings, freeAt])
+  }, [hosts, dayMeetings, freeAt, timeOff, dayYmd])
 
   // Default order is already L12M-desc (hosts is pre-sorted). With a "Free at"
   // time, free hosts float to the top, then within each free/busy group keep
@@ -408,6 +470,18 @@ export function SchedulerView({
     return meetings.filter((m) => m.host_id === effectiveHost && set.has(m.meeting_day))
   }, [meetings, effectiveHost, weekDays])
   const weekWindow = React.useMemo(() => computeWindow(weekHostMeetings), [weekHostMeetings])
+
+  // Selected host's OOO/Remote per weekday (ymd -> type), for the day-header
+  // badges and OOO slot-hatching in the single-person week view.
+  const weekTimeOff = React.useMemo(() => {
+    const map = new Map<string, TimeOffType>()
+    if (!effectiveHost) return map
+    for (const d of weekDays) {
+      const t = timeOffOn(timeOff, effectiveHost, d.ymd)
+      if (t) map.set(d.ymd, t)
+    }
+    return map
+  }, [timeOff, effectiveHost, weekDays])
 
   const selectedHostName = hosts.find((h) => h.host_id === effectiveHost)?.host_name ?? ""
 
@@ -695,7 +769,7 @@ export function SchedulerView({
           pctOf={pctOf}
         />
       ) : mode === "week" ? (
-        <WeekGrid host={selectedHostName} meetings={weekHostMeetings} weekDays={weekDays} win={weekWindow} />
+        <WeekGrid host={selectedHostName} meetings={weekHostMeetings} weekDays={weekDays} win={weekWindow} timeOffByDay={weekTimeOff} />
       ) : (
         <FirmWeekGrid weekDays={weekDays} win={firmWeek.win} perDay={firmWeek.perDay} />
       )}
@@ -712,7 +786,13 @@ function DayGrid({
   freeAt,
   pctOf,
 }: {
-  rows: { host_id: string; host_name: string; free: boolean | null; meetings: SchedulerMeetingRow[] }[]
+  rows: {
+    host_id: string
+    host_name: string
+    free: boolean | null
+    meetings: SchedulerMeetingRow[]
+    timeOffType: TimeOffType | null
+  }[]
   win: Interval
   freeAt: number | null
   pctOf: (win: Interval, t: number) => number
@@ -753,14 +833,24 @@ function DayGrid({
           return (
             <div key={row.host_id} className={"flex border-b last:border-0 " + (dim ? "opacity-40" : "")}>
               <div className="flex w-44 shrink-0 items-center gap-1.5 px-3 py-2">
-                <span className="truncate text-sm">{row.host_name}</span>
+                <span className="min-w-0 flex-1 truncate text-sm">{row.host_name}</span>
+                {row.timeOffType && <TimeOffBadge type={row.timeOffType} />}
                 {freeAt != null && row.free && (
-                  <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                  <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
                     free
                   </span>
                 )}
               </div>
               <div className="relative h-11 flex-1">
+                {/* OOO blocks the slots: subtle hatch behind gridlines/blocks.
+                    Remote is informational only (no hatch). */}
+                {row.timeOffType === "OOO" && (
+                  <div
+                    className="pointer-events-none absolute inset-0"
+                    style={{ background: OOO_HATCH }}
+                    aria-hidden="true"
+                  />
+                )}
                 {/* Hour gridlines */}
                 {ticks.map((t) => (
                   <div
@@ -823,11 +913,13 @@ function WeekGrid({
   meetings,
   weekDays,
   win,
+  timeOffByDay,
 }: {
   host: string
   meetings: SchedulerMeetingRow[]
   weekDays: { label: string; date: Date; ymd: string }[]
   win: Interval
+  timeOffByDay: Map<string, TimeOffType>
 }) {
   const ticks = hourTicks(win)
   const pxPerMin = PX_PER_HOUR / 60
@@ -866,12 +958,25 @@ function WeekGrid({
           const dayMeetings = meetings
             .filter((m) => m.meeting_day === d.ymd)
             .sort((a, b) => a.start_minutes - b.start_minutes)
+          const off = timeOffByDay.get(d.ymd)
           return (
             <div key={d.ymd} className="flex-1 border-l">
-              <div className="flex h-7 items-center justify-center border-b text-xs font-medium text-muted-foreground">
-                {d.label} {d.date.getDate()}
+              <div className="flex h-7 items-center justify-center gap-1 border-b text-xs font-medium text-muted-foreground">
+                <span>
+                  {d.label} {d.date.getDate()}
+                </span>
+                {off && <TimeOffBadge type={off} />}
               </div>
               <div className="relative" style={{ height: gridHeight }}>
+                {/* OOO blocks the day's slots: subtle hatch behind gridlines and
+                    meeting blocks. Remote is informational only (no hatch). */}
+                {off === "OOO" && (
+                  <div
+                    className="pointer-events-none absolute inset-0"
+                    style={{ background: OOO_HATCH }}
+                    aria-hidden="true"
+                  />
+                )}
                 {/* Hour gridlines */}
                 {ticks.map((t) => (
                   <div
@@ -1134,6 +1239,20 @@ function Legend() {
             free
           </span>
           Free at the selected time
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span
+            className="inline-block h-3 w-6 rounded"
+            style={{ backgroundColor: OOO_STYLE.fill, border: `1px solid ${OOO_STYLE.border}` }}
+          />
+          OOO — unavailable
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span
+            className="inline-block h-3 w-6 rounded"
+            style={{ backgroundColor: REMOTE_STYLE.fill, border: `1.5px solid ${REMOTE_STYLE.border}` }}
+          />
+          Remote — available, working remotely
         </span>
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">

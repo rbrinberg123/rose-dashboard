@@ -733,6 +733,22 @@ export type SchedulerMeetingRow = {
 }
 
 /**
+ * One row per (host, approved time-off entry) for the Host Calendar
+ * (v_scheduler_time_off) — approved time off restricted to people who host
+ * meetings, keyed by host_id (the Dynamics systemuser GUID =
+ * meetings.host_id = new_vacationrequest.requested_by_id). Built on v_time_off
+ * so the OOO/Remote bucketing is shared (one source of truth). start_date /
+ * end_date are inclusive calendar days ('YYYY-MM-DD'); all entries are full-day.
+ */
+export type SchedulerTimeOffRow = {
+  host_id: string
+  person: string
+  start_date: string
+  end_date: string
+  time_off_type: "OOO" | "Remote"
+}
+
+/**
  * One row per approved time-off entry for the Logistics → Time Off calendar
  * (v_time_off). start_date / end_date are calendar days ('YYYY-MM-DD'),
  * inclusive of both ends; a single-day entry has start_date === end_date.

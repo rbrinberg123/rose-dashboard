@@ -3359,6 +3359,11 @@ DROP VIEW IF EXISTS public.v_time_off CASCADE;
 CREATE VIEW public.v_time_off AS
 SELECT
   v.ooo_id,
+  -- Dynamics systemuser GUID of the person the time off belongs to (ownerid /
+  -- "Requested By"). Same id space as meetings.host_id — exposed so the Host
+  -- Calendar can join time off to hosts by id (never by name). The Time Off
+  -- page ignores this column.
+  v.requested_by_id                         AS person_id,
   v.requested_by_name                       AS person,
   (v.start_date AT TIME ZONE 'UTC')::date    AS start_date,
   (v.end_date   AT TIME ZONE 'UTC')::date    AS end_date,
@@ -3376,6 +3381,35 @@ WHERE v.requested_by_name IS NOT NULL
   AND v.start_date IS NOT NULL
   AND v.end_date IS NOT NULL
 ORDER BY v.start_date, v.requested_by_name;
+
+
+-- -----------------------------------------------------------------------------
+-- v_scheduler_time_off
+-- Approved time off for the people who host meetings, keyed by host_id, for the
+-- Host Calendar (Scheduler) page's OOO/Remote indicators.
+--
+-- Built ON TOP OF v_time_off so the OOO vs Remote bucketing and approved-only
+-- scope live in exactly one place (no drift between the Time Off page and the
+-- Host Calendar). The join to hosts is BY ID: v_time_off.person_id (the
+-- Dynamics systemuser GUID = new_vacationrequest.requested_by_id) matched to
+-- meetings.host_id via EXISTS — never by name. start_date / end_date are the
+-- same inclusive calendar-day range v_time_off exposes; all entries are
+-- full-day (there are no half-days in the source).
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS public.v_scheduler_time_off CASCADE;
+CREATE VIEW public.v_scheduler_time_off AS
+SELECT DISTINCT
+  t.person_id AS host_id,
+  t.person,
+  t.start_date,
+  t.end_date,
+  t.time_off_type
+FROM public.v_time_off t
+WHERE t.person_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM public.meetings m
+    WHERE m.host_id = t.person_id
+  );
 
 
 -- -----------------------------------------------------------------------------
@@ -3626,3 +3660,4 @@ WHERE a.state_label = 'Active'
 ORDER BY a.name;
 
 GRANT SELECT ON public.v_time_off TO service_role;
+GRANT SELECT ON public.v_scheduler_time_off TO service_role;

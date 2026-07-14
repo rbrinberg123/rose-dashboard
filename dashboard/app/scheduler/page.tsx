@@ -1,7 +1,11 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
-import type { SchedulerMeetingRow, SchedulerUnassignedRow } from "@/lib/types"
+import type {
+  SchedulerMeetingRow,
+  SchedulerTimeOffRow,
+  SchedulerUnassignedRow,
+} from "@/lib/types"
 import { SchedulerView } from "./scheduler-view"
 
 export const dynamic = "force-dynamic"
@@ -67,9 +71,16 @@ export default async function SchedulerPage() {
 
   const unassigned = (unassignedRes.data ?? []) as SchedulerUnassignedRow[]
 
+  // Approved OOO/Remote per host, for the availability indicators. Fetched
+  // NON-fatally: the Host Calendar is fully usable without it, so if the view
+  // is missing (e.g. not yet created in this environment) or errors, we simply
+  // render with no time-off badges rather than failing the whole page.
+  const timeOffRes = await sb.from("v_scheduler_time_off").select("*")
+  const timeOff = (timeOffRes.data ?? []) as SchedulerTimeOffRow[]
+
   return (
     <PageShell title="Scheduler" hideHeader canvas>
-      <SchedulerView meetings={meetings} unassigned={unassigned} />
+      <SchedulerView meetings={meetings} unassigned={unassigned} timeOff={timeOff} />
     </PageShell>
   )
 }
