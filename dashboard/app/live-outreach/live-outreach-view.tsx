@@ -1,12 +1,17 @@
 import * as React from "react"
 import { Video, MapPin, Shuffle } from "lucide-react"
 import { ListTitleCard } from "@/components/page-masthead"
-import { CARD_CLASS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, TEXT_TERTIARY, BRAND_NAVY } from "@/lib/design"
+import { CARD_CLASS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, TEXT_TERTIARY, BRAND_NAVY, TEAL, STATUS_PILL_LIGHT } from "@/lib/design"
 import { format } from "date-fns"
 import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { LiveOutreachRow, LiveOutreachMeeting } from "@/lib/types"
+import { meetingHistoryFlag } from "./history-flag"
 import { CopyEmailButton } from "./copy-email-button"
+
+// NEW flag uses the palette's "new" blue; the prior-meeting count uses TEAL —
+// deliberately different from the navy "Confirmed Meetings" header badge.
+const NEW_FLAG = STATUS_PILL_LIGHT.new
 
 // ---- small formatters (page-local; the shared ones don't cover these) ------
 
@@ -108,7 +113,60 @@ function OpenSlotsStat({ remaining, total }: { remaining: number | null; total: 
   )
 }
 
-// ---- one confirmed meeting line: date · institution · contact --------------
+// ---- client<->institution history flags (NEW pill / prior-count circle) ----
+function NewPill() {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full font-bold uppercase tracking-wide"
+      style={{ padding: "1px 7px", fontSize: 10, background: NEW_FLAG.bg, color: NEW_FLAG.text }}
+      title="First Rose & Co meeting with this institution"
+    >
+      New
+    </span>
+  )
+}
+
+function CountCircle({ count }: { count: number }) {
+  return (
+    <span
+      className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-1 text-[11px] font-bold tabular-nums text-white"
+      style={{ background: TEAL }}
+      title={`${count} prior Rose & Co meeting${count === 1 ? "" : "s"} with this institution`}
+    >
+      {count}
+    </span>
+  )
+}
+
+function MeetingFlags({ prior }: { prior: number | null | undefined }) {
+  const flag = meetingHistoryFlag(prior)
+  if (flag.isNew) return <NewPill />
+  if (flag.count != null) return <CountCircle count={flag.count} />
+  return null
+}
+
+// ---- key explaining the two meeting-history flags --------------------------
+function HistoryLegend() {
+  return (
+    <div
+      className={cn("mb-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 px-4 py-2.5", CARD_CLASS)}
+    >
+      <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: TEXT_TERTIARY }}>
+        Meeting history
+      </span>
+      <span className="inline-flex items-center gap-1.5 text-[12px]" style={{ color: TEXT_SECONDARY }}>
+        <NewPill />
+        First Rose &amp; Co meeting with this institution
+      </span>
+      <span className="inline-flex items-center gap-1.5 text-[12px]" style={{ color: TEXT_SECONDARY }}>
+        <CountCircle count={1} />
+        Number of prior Rose &amp; Co meetings with this institution
+      </span>
+    </div>
+  )
+}
+
+// ---- one confirmed meeting line: date · [flag] · institution · contact -----
 function MeetingLine({ m }: { m: LiveOutreachMeeting }) {
   return (
     <li className="flex items-start gap-2.5 py-0.5">
@@ -118,6 +176,12 @@ function MeetingLine({ m }: { m: LiveOutreachMeeting }) {
       >
         {formatDate(m.meeting_date).replace(/, \d{4}$/, "")}
       </span>
+      {/* History flag in a FIXED-WIDTH, centered column so the institution name
+          always starts at the same x on every row, regardless of flag width
+          (a "NEW" pill is wider than a small count circle). */}
+      <div className="mt-px flex w-[46px] shrink-0 justify-center">
+        <MeetingFlags prior={m.prior_meeting_count} />
+      </div>
       {/* Institution + contact on one line; long names wrap naturally rather
           than forcing the contact onto its own line. */}
       <div className="min-w-0 flex-1 text-[13px] leading-tight">
@@ -230,6 +294,8 @@ export function LiveOutreachView({ rows }: { rows: LiveOutreachRow[] }) {
           rightSlot={<CopyEmailButton rows={rows} />}
         />
       </div>
+
+      {rows.length > 0 ? <HistoryLegend /> : null}
 
       {rows.length === 0 ? (
         <div className={cn("p-6 text-sm", CARD_CLASS)} style={{ color: TEXT_MUTED }}>

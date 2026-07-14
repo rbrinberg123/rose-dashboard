@@ -8,6 +8,7 @@
 // copied as rich text, or written to the clipboard as text/html.
 
 import type { LiveOutreachRow } from "@/lib/types"
+import { meetingHistoryFlag } from "./history-flag"
 
 // Layout widths (px). Wider build, matching the approved snapshot.
 const LEFT = 380
@@ -66,6 +67,17 @@ function pill(bg: string, fg: string, label: string, radius: number, padding: st
   return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr><td bgcolor="${bg}" style="background-color:${bg};font-size:11px;font-weight:bold;padding:${padding};border-radius:${radius}px;white-space:nowrap;color:${fg};"><span style="color:${fg};">${label}</span></td></tr></table>`
 }
 
+// Outlook-safe meeting-history flag. Both use the LIGHT-fill / DARK-text pill
+// pattern (not white-on-color) so the label stays readable even where Outlook
+// drops the <td bgcolor> — the same failure that made the old white-on-navy
+// count badge vanish. NEW = palette blue; count = teal tint.
+function historyFlagHtml(prior: number | null | undefined): string {
+  const flag = meetingHistoryFlag(prior)
+  if (flag.isNew) return pill("#EEF2FB", "#2D4A8A", "NEW", 10, "1px 6px")
+  if (flag.count != null) return pill("#E1F0F2", "#146874", String(flag.count), 9, "1px 7px")
+  return ""
+}
+
 function urgencyPill(urgency: LiveOutreachRow["urgency"]): string {
   if (!urgency) return ""
   const high = urgency === "High"
@@ -105,8 +117,10 @@ function meetingsBlock(row: LiveOutreachRow): string {
       const contact = m.contact
         ? ` <span style="color:#9AA1AD;">·</span> <span style="color:#6B7280;">${esc(m.contact)}</span>`
         : ""
+      const flag = historyFlagHtml(m.prior_meeting_count)
       return `<tr>
         <td width="58" valign="top" style="font-size:11px;font-weight:bold;color:#1E2858;padding:4px 8px 4px 0;white-space:nowrap;vertical-align:top;${sep}">${esc(fmtMeetingDate(m.meeting_date))}</td>
+        <td width="46" align="center" valign="top" style="width:46px;padding:4px 6px 4px 0;text-align:center;white-space:nowrap;vertical-align:top;${sep}">${flag}</td>
         <td valign="top" style="font-size:13px;color:#1A2233;padding:4px 0;vertical-align:top;${sep}">${esc(m.institution_name ?? "—")}${contact}</td>
       </tr>`
     })
@@ -168,7 +182,13 @@ export function buildEmailHtml(rows: LiveOutreachRow[], todayLabel: string): str
 <table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
   <tr><td style="padding:0 0 4px 0;">
     <div style="font-size:22px;font-weight:bold;"><span style="color:#1A2233;">Non-Deal Roadshow Update - ${esc(todayLabel)}</span></div>
-    <div style="font-size:12px;padding:4px 0 16px 0;"><span style="color:#6B7280;">${rows.length} event${rows.length === 1 ? "" : "s"} in active outreach &middot; ${totalMeetings} confirmed meeting${totalMeetings === 1 ? "" : "s"}</span></div>
+    <div style="font-size:12px;padding:4px 0 8px 0;"><span style="color:#6B7280;">${rows.length} event${rows.length === 1 ? "" : "s"} in active outreach &middot; ${totalMeetings} confirmed meeting${totalMeetings === 1 ? "" : "s"}</span></div>
+    <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;padding:0 0 16px 0;"><tr>
+      <td valign="middle" style="padding:0 6px 0 0;vertical-align:middle;">${pill("#EEF2FB", "#2D4A8A", "NEW", 10, "1px 6px")}</td>
+      <td valign="middle" style="padding:0 16px 0 0;font-size:11px;vertical-align:middle;"><span style="color:#6B7280;">First Rose &amp; Co meeting with this institution</span></td>
+      <td valign="middle" style="padding:0 6px 0 0;vertical-align:middle;">${pill("#E1F0F2", "#146874", "1", 9, "1px 7px")}</td>
+      <td valign="middle" style="font-size:11px;vertical-align:middle;"><span style="color:#6B7280;">Number of prior Rose &amp; Co meetings with this institution</span></td>
+    </tr></table>
   </td></tr>
   <tr><td bgcolor="#F4F6F9" style="background-color:#F4F6F9;padding:14px 0 2px 0;">
 ${cards}
@@ -188,7 +208,9 @@ export function buildEmailPlain(rows: LiveOutreachRow[], todayLabel: string): st
     lines.push(`  Confirmed Meetings (${r.confirmed_meeting_count ?? 0})`)
     for (const m of meetings) {
       const date = fmtMeetingDate(m.meeting_date)
-      lines.push(`    ${date} · ${m.institution_name ?? "—"}${m.contact ? ` · ${m.contact}` : ""}`)
+      const flag = meetingHistoryFlag(m.prior_meeting_count)
+      const tag = flag.isNew ? "  [NEW]" : flag.count != null ? `  (${flag.count})` : ""
+      lines.push(`    ${date} · ${m.institution_name ?? "—"}${m.contact ? ` · ${m.contact}` : ""}${tag}`)
     }
     lines.push("")
   }

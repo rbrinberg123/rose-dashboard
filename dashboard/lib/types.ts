@@ -838,6 +838,12 @@ export type LiveOutreachMeeting = {
   meeting_date: string
   institution_name: string | null
   contact: string | null
+  // Count of OTHER 'Confirmed' meetings (any date) between this event's client
+  // and this meeting's institution, excluding this meeting. Added by the page
+  // after the view fetch (not a column on v_live_outreach). null = unknown
+  // (missing client or institution) → no history flag. Drives the NEW / count
+  // flags via app/live-outreach/history-flag.ts.
+  prior_meeting_count?: number | null
 }
 
 /**
