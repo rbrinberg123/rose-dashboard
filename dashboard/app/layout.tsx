@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google"
 import { Sidebar } from "@/components/nav"
 import { Toaster } from "@/components/ui/sonner"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
+import { getUserRole } from "@/lib/user-role"
 import "./globals.css"
 
 const geistSans = Geist({
@@ -44,6 +45,9 @@ export default async function RootLayout({
     data: { user },
   } = await supabase.auth.getUser()
   const userEmail = user?.email ?? null
+  // Role drives which nav items the sidebar shows. The proxy does its own
+  // lookup for enforcement; this one is only for the (cosmetic) nav.
+  const role = await getUserRole(userEmail)
 
   return (
     <html
@@ -52,7 +56,7 @@ export default async function RootLayout({
     >
       <body className="min-h-full bg-background text-foreground">
         <div className="flex min-h-screen flex-col md:flex-row">
-          <Sidebar userEmail={userEmail} />
+          <Sidebar userEmail={userEmail} role={role} />
           <main className="flex-1 overflow-x-hidden">{children}</main>
         </div>
         <Toaster richColors position="top-right" />

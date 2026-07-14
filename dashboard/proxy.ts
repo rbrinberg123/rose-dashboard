@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { getSupabaseProxy } from "@/lib/supabase/proxy"
+import { canAccessRoute, USER_HOME_ROUTE } from "@/lib/access-control"
+import { getUserRole } from "@/lib/user-role"
 
 /**
  * Auth proxy. Runs before every page render (matcher below excludes
@@ -55,6 +57,21 @@ export async function proxy(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
     url.search = pathname !== "/" ? `?next=${encodeURIComponent(pathname + search)}` : ""
+    return NextResponse.redirect(url)
+  }
+
+  // Authenticated. Enforce role-based access (deny-by-default). This is the
+  // real security boundary — it runs server-side before any page renders, so
+  // it also blocks users who type a restricted URL directly. See
+  // lib/access-control.ts for the route allow-list.
+  const role = await getUserRole(user.email)
+  if (!canAccessRoute(role, pathname)) {
+    const url = request.nextUrl.clone()
+    url.search = ""
+    // A user WITH a role ('user') who hit a restricted route → send them to
+    // their Logistics home. A user with NO role (signed in but not in the
+    // user_roles table) → the "request access" landing page.
+    url.pathname = role ? USER_HOME_ROUTE : "/no-access"
     return NextResponse.redirect(url)
   }
 

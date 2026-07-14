@@ -15,6 +15,7 @@ import {
   LogOut,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { canAccessRoute, type Role } from "@/lib/access-control"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -135,10 +136,28 @@ function Section({
   )
 }
 
-function NavContents({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+function NavContents({
+  pathname,
+  role,
+  onNavigate,
+}: {
+  pathname: string
+  role: Role | null
+  onNavigate?: () => void
+}) {
+  // Drive visibility off the SAME allow-list the proxy enforces with, so the
+  // nav and the security gate can never disagree. Filter items the user can't
+  // access, then drop any section left with no items (no empty headers).
+  const visible = sections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => canAccessRoute(role, item.href)),
+    }))
+    .filter((section) => section.items.length > 0)
+
   return (
     <>
-      {sections.map((section, i) => (
+      {visible.map((section, i) => (
         <React.Fragment key={section.label}>
           {i > 0 ? <div className="mx-3 my-0.5 border-t border-[#EDEFF3]" /> : null}
           <Section section={section} current={pathname} onNavigate={onNavigate} />
@@ -174,9 +193,18 @@ function Brand() {
   )
 }
 
-export function Sidebar({ userEmail }: { userEmail?: string | null }) {
+export function Sidebar({
+  userEmail,
+  role,
+}: {
+  userEmail?: string | null
+  role?: Role | null
+}) {
   const pathname = usePathname() || "/"
   const [mobileOpen, setMobileOpen] = React.useState(false)
+  // Admin is super-user-only; gate it off the same allow-list as everything
+  // else (checked against the real admin route).
+  const showAdmin = canAccessRoute(role ?? null, "/admin/sync")
 
   // Close the mobile sheet on route change.
   React.useEffect(() => {
@@ -184,8 +212,13 @@ export function Sidebar({ userEmail }: { userEmail?: string | null }) {
   }, [pathname])
 
   // Hide the entire shell on auth-flow pages so /login and /auth/callback
-  // render edge-to-edge.
-  if (pathname === "/login" || pathname.startsWith("/auth/")) {
+  // render edge-to-edge. The "/no-access" landing is also shell-less — a
+  // role-less user has no nav items to show anyway.
+  if (
+    pathname === "/login" ||
+    pathname === "/no-access" ||
+    pathname.startsWith("/auth/")
+  ) {
     return null
   }
 
@@ -208,11 +241,17 @@ export function Sidebar({ userEmail }: { userEmail?: string | null }) {
               </SheetTitle>
             </SheetHeader>
             <nav className="flex-1 overflow-y-auto py-2">
-              <NavContents pathname={pathname} onNavigate={() => setMobileOpen(false)} />
+              <NavContents
+                pathname={pathname}
+                role={role ?? null}
+                onNavigate={() => setMobileOpen(false)}
+              />
             </nav>
-            <div className="border-t border-[#EDEFF3] px-3 py-2">
-              <AdminRow />
-            </div>
+            {showAdmin ? (
+              <div className="border-t border-[#EDEFF3] px-3 py-2">
+                <AdminRow />
+              </div>
+            ) : null}
             {userEmail ? (
               <div className="border-t border-[#EDEFF3] p-3">
                 <UserPanel email={userEmail} />
@@ -231,11 +270,13 @@ export function Sidebar({ userEmail }: { userEmail?: string | null }) {
           <Brand />
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
-          <NavContents pathname={pathname} />
+          <NavContents pathname={pathname} role={role ?? null} />
         </nav>
-        <div className="border-t border-[#EDEFF3] px-3 py-2">
-          <AdminRow />
-        </div>
+        {showAdmin ? (
+          <div className="border-t border-[#EDEFF3] px-3 py-2">
+            <AdminRow />
+          </div>
+        ) : null}
         {userEmail ? (
           <div className="border-t border-[#EDEFF3] px-3 py-3">
             <UserPanel email={userEmail} />
