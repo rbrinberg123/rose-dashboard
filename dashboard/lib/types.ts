@@ -954,6 +954,42 @@ export type ClientMarketingStatusRow = {
   report_sent_date: string | null
 }
 
+/**
+ * One row per ACTIVE client that still has ≥1 incomplete onboarding step, for
+ * the Logistics → Onboarding page (v_client_onboarding). Fully-onboarded clients
+ * drop off the view. Scoped to clients whose onboarding started on/after the
+ * cutoff date baked into the view (see sql/03_views.sql).
+ *
+ * The nine f_* booleans are each onboarding step's completion state (true =
+ * complete → green check; false = missing → muted dash). filled_count is how
+ * many of onboarding_field_count (=9) are complete — the UI's "N/9" ring.
+ * days_onboarding is whole days since onboarding_start_date (Dynamics Original
+ * Start Date); the UI flags 60+ as stalled. The four account-team names feed the
+ * shared AccountTeamAvatars cluster; sales_lead_primary_name drives the AM filter.
+ */
+export type ClientOnboardingRow = {
+  account_id: string
+  name: string
+  ticker_symbol: string | null
+  sales_lead_primary_name: string | null
+  secondary_manager_name: string | null
+  associate_name: string | null
+  logistics_coordinator_name: string | null
+  onboarding_start_date: string | null
+  days_onboarding: number | null
+  f_onboarding_call: boolean
+  f_teach_in_date: boolean
+  f_calendar: boolean
+  f_calendar_confirmed: boolean
+  f_meeting_history_received: boolean
+  f_distro: boolean
+  f_bda_peers: boolean
+  f_recurring_call_scheduled: boolean
+  f_report: boolean
+  filled_count: number
+  onboarding_field_count: number
+}
+
 // One row per Confirmed meeting of an upcoming event, from v_planning_events.
 // Powers the Logistics → Planning tracker (master-detail). The four stage
 // VALUES come raw; the UI decides each checkmark (see planning-view.tsx).

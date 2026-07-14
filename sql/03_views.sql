@@ -3661,3 +3661,114 @@ ORDER BY a.name;
 
 GRANT SELECT ON public.v_time_off TO service_role;
 GRANT SELECT ON public.v_scheduler_time_off TO service_role;
+
+-- -----------------------------------------------------------------------------
+-- v_client_onboarding
+-- One row per ACTIVE client (accounts.state_label = 'Active') that still has at
+-- least one INCOMPLETE onboarding step. Fully-onboarded clients (all 9 steps
+-- complete) drop off the view entirely. Powers the Logistics -> Onboarding page.
+--
+-- Scoped to clients whose onboarding started on/after 2026-01-01 (see the WHERE
+-- cutoff at the bottom) so the page stays focused on genuinely-new clients;
+-- currently 26 rows. Widen/narrow by editing that one date.
+--
+-- The 9 onboarding steps live on the account/client card in Dynamics and are
+-- already synced onto public.accounts (see lib/sync/mappers.ts). Two kinds:
+--   * DATE steps  -> complete when a date is present:
+--       f_onboarding_call            (bcs_onboardingcall  / onboarding_call)
+--       f_teach_in_date              (bcs_teachindate     / teach_in_date)
+--   * YES/NO steps -> complete only when the flag is Yes (true). A No or an
+--     unset flag both count as "missing" (muted dash in the grid):
+--       f_calendar                   (bcs_calendar)
+--       f_calendar_confirmed         (bcs_calendarconfirmed)
+--       f_meeting_history_received   (bcs_meetinghistoryrecd)
+--       f_distro                     (bcs_distro)
+--       f_bda_peers                  (bcs_bdapeers)
+--       f_recurring_call_scheduled   (bcs_recurringcallscheduled)
+--       f_report                     (bcs_report)
+--
+-- filled_count is how many of the 9 are complete (the UI's "N/9" ring), and the
+-- view keeps only rows where filled_count < 9. onboarding_field_count (=9) is
+-- exposed so the UI never hard-codes the denominator.
+--
+-- Account team: the same four role columns the Portfolio page feeds into the
+-- shared AccountTeamAvatars component. sales_lead_primary_name is the primary
+-- Account Manager and drives the page's AM filter.
+--
+-- days_onboarding anchors on original_start_date (bcs_originalstartdate) — the
+-- Dynamics "Original Start Date", populated on 100% of active clients — read as
+-- the Eastern calendar day, same "today" convention as v_client_marketing_status.
+-- It CAN be large for long-tenured clients (start dates reach back years) and
+-- can be negative for a future-dated start; the UI flags 60+ days as stalled.
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS public.v_client_onboarding CASCADE;
+CREATE VIEW public.v_client_onboarding AS
+WITH onb AS (
+  SELECT
+    a.account_id,
+    a.name,
+    a.ticker_symbol,
+    a.sales_lead_primary_name,
+    a.secondary_manager_name,
+    a.associate_name,
+    a.logistics_coordinator_name,
+    (a.original_start_date AT TIME ZONE 'America/New_York')::date AS onboarding_start_date,
+    (a.onboarding_call          IS NOT NULL) AS f_onboarding_call,
+    (a.teach_in_date            IS NOT NULL) AS f_teach_in_date,
+    (a.calendar                 IS TRUE)     AS f_calendar,
+    (a.calendar_confirmed       IS TRUE)     AS f_calendar_confirmed,
+    (a.meeting_history_received IS TRUE)     AS f_meeting_history_received,
+    (a.distro                   IS TRUE)     AS f_distro,
+    (a.bda_peers                IS TRUE)     AS f_bda_peers,
+    (a.recurring_call_scheduled IS TRUE)     AS f_recurring_call_scheduled,
+    (a.report                   IS TRUE)     AS f_report
+  FROM public.accounts a
+  WHERE a.state_label = 'Active'
+)
+SELECT
+  onb.account_id,
+  onb.name,
+  onb.ticker_symbol,
+  onb.sales_lead_primary_name,
+  onb.secondary_manager_name,
+  onb.associate_name,
+  onb.logistics_coordinator_name,
+  onb.onboarding_start_date,
+  ((now() AT TIME ZONE 'America/New_York')::date - onb.onboarding_start_date) AS days_onboarding,
+  onb.f_onboarding_call,
+  onb.f_teach_in_date,
+  onb.f_calendar,
+  onb.f_calendar_confirmed,
+  onb.f_meeting_history_received,
+  onb.f_distro,
+  onb.f_bda_peers,
+  onb.f_recurring_call_scheduled,
+  onb.f_report,
+  ( onb.f_onboarding_call::int
+  + onb.f_teach_in_date::int
+  + onb.f_calendar::int
+  + onb.f_calendar_confirmed::int
+  + onb.f_meeting_history_received::int
+  + onb.f_distro::int
+  + onb.f_bda_peers::int
+  + onb.f_recurring_call_scheduled::int
+  + onb.f_report::int ) AS filled_count,
+  9 AS onboarding_field_count
+FROM onb
+WHERE ( onb.f_onboarding_call::int
+      + onb.f_teach_in_date::int
+      + onb.f_calendar::int
+      + onb.f_calendar_confirmed::int
+      + onb.f_meeting_history_received::int
+      + onb.f_distro::int
+      + onb.f_bda_peers::int
+      + onb.f_recurring_call_scheduled::int
+      + onb.f_report::int ) < 9
+  -- Scope cutoff: only clients whose onboarding started on/after this date, so
+  -- the page focuses on genuinely-new clients and days_onboarding / the 60-day
+  -- "stalled" flag stay meaningful (original_start_date otherwise reaches back
+  -- years). Adjust or remove this single line to widen/narrow the page.
+  AND onb.onboarding_start_date >= DATE '2026-01-01'
+ORDER BY days_onboarding DESC NULLS LAST, onb.name;
+
+GRANT SELECT ON public.v_client_onboarding TO service_role;

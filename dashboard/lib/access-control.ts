@@ -38,6 +38,7 @@ export const USER_ALLOWED_ROUTES = [
   "/feedback",
   "/pipeline",
   "/live-outreach",
+  "/onboarding",
   "/time-off",
 ] as const
 
