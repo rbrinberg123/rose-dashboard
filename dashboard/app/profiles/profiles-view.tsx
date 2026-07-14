@@ -454,9 +454,9 @@ function MeetingCard({ row, today }: { row: ProfileUpcomingRow; today: string })
         <div
           className="min-w-0 flex-1 truncate text-sm font-medium leading-tight"
           style={{ color: NAVY_DEEP }}
-          title={row.institution_name || undefined}
+          title={row.client_account_name || undefined}
         >
-          {row.institution_name || "—"}
+          {row.client_account_name || "—"}
         </div>
         <span
           className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums"
@@ -466,8 +466,8 @@ function MeetingCard({ row, today }: { row: ProfileUpcomingRow; today: string })
           {days}d
         </span>
       </div>
-      <div className="mt-0.5 truncate text-xs leading-tight text-muted-foreground" title={row.client_account_name || undefined}>
-        {row.client_account_name || "—"}
+      <div className="mt-0.5 truncate text-xs leading-tight text-muted-foreground" title={row.institution_name || undefined}>
+        {row.institution_name || "—"}
       </div>
       <div className="mt-1 flex items-center justify-between gap-2">
         <span className="flex items-center gap-1 text-xs tabular-nums text-[#5B6472]">
