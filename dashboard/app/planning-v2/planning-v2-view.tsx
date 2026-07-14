@@ -481,8 +481,17 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
   const searchParams = useSearchParams()
   const deepLinkEventId = searchParams.get("event")
 
-  // By Event / By Week toggle. Defaults to By Event, so a deep-link lands here.
-  const [view, setView] = React.useState<View>("event")
+  // View toggle. Defaults to By Day so the page lands on today's meetings. A
+  // deep-link (?event=…) instead opens By Event, so the Client Marketing Status
+  // "Current Event" link still lands on its event.
+  const [view, setView] = React.useState<View>(deepLinkEventId ? "event" : "day")
+
+  // Group-by toggle for the By Day / By Week views only. "day" keeps each view's
+  // native chronological grouping (day bands in By Week; a single time-ordered
+  // list in By Day); "client" regroups the SAME meetings into client bands. It is
+  // meaningless for By Event / By Client (they already group by their own axis),
+  // so the control is shown only when view is "day" or "week".
+  const [groupBy, setGroupBy] = React.useState<"day" | "client">("day")
 
   // Client clock for the OCCURRED check (feature #1). Starts null so the first
   // render matches the server (no hydration mismatch); set on mount and ticked
@@ -711,16 +720,30 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
           <div className="mb-4 flex flex-wrap items-end gap-3">
             <div className="flex flex-col gap-1">
               <span className={FILTER_LABEL}>View</span>
-              <SegmentedToggle
-                value={view}
-                onChange={setView}
-                options={[
-                  { value: "day", label: "By Day" },
-                  { value: "week", label: "By Week" },
-                  { value: "event", label: "By Event" },
-                  { value: "client", label: "By Client" },
-                ]}
-              />
+              {/* View selector + Group-by control on ONE row. The group-by only
+                  appears in By Day / By Week and is teal-accented so it reads as
+                  "how this view is arranged" (a sort), distinct from the navy View
+                  selector and the plain filters. */}
+              <div className="flex items-center gap-2">
+                <SegmentedToggle
+                  value={view}
+                  onChange={setView}
+                  options={[
+                    { value: "day", label: "By Day" },
+                    { value: "week", label: "By Week" },
+                    { value: "event", label: "By Event" },
+                    { value: "client", label: "By Client" },
+                  ]}
+                />
+                {(view === "day" || view === "week") && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-[#1C8C9C]">
+                      Group by
+                    </span>
+                    <GroupByToggle value={groupBy} onChange={setGroupBy} />
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Context control: event dropdown (By Event), week nav (By Week),
@@ -963,6 +986,7 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
                   : "Week"
               }
               days={weekDays}
+              groupBy={groupBy}
               now={now}
               onOpenEvent={openEvent}
             />
@@ -970,6 +994,7 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
             <DayTable
               title={selectedDay ? fmtDayLong(selectedDay) : "Day"}
               meetings={dayMeetings}
+              groupBy={groupBy}
               now={now}
               onOpenEvent={openEvent}
             />
@@ -1222,29 +1247,102 @@ function DayBand({ label, count }: { label: string; count: number }) {
   )
 }
 
-// ---- By Week: one section per day (day bands). ----
+// Teal-accented Group-by toggle (By Day / By Week only). Deliberately NOT the
+// shared navy SegmentedToggle: the teal treatment marks it as a sort/arrangement
+// control, distinct from the navy View selector and the plain navy/gray filters.
+function GroupByToggle({
+  value,
+  onChange,
+}: {
+  value: "day" | "client"
+  onChange: (v: "day" | "client") => void
+}) {
+  const options: Array<{ value: "day" | "client"; label: string }> = [
+    { value: "day", label: "Day of Week" },
+    { value: "client", label: "By Client" },
+  ]
+  return (
+    <div className="flex h-9 items-center rounded-md border border-[rgba(28,140,156,0.35)] bg-[rgba(28,140,156,0.06)] p-0.5">
+      {options.map((o) => {
+        const active = o.value === value
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            className={
+              "rounded px-2.5 py-1 text-xs font-medium transition-colors " +
+              (active
+                ? "bg-[#1C8C9C] text-white"
+                : "text-[#1C8C9C] hover:bg-[rgba(28,140,156,0.12)]")
+            }
+          >
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// Regroup a flat meeting list into one section per client (client bands), sorted
+// by client name; meetings within a band are ordered by date/time. Meetings with
+// no client fall into a trailing "(No client)" band. Used by By Day / By Week
+// when Group by = By Client, reusing the same band chrome as the day bands.
+function clientSections(meetings: PlanningEventRow[]): TableSection[] {
+  const byClient = new Map<string, PlanningEventRow[]>()
+  for (const r of meetings) {
+    const key = r.client_account_id ?? "__none__"
+    const arr = byClient.get(key)
+    if (arr) arr.push(r)
+    else byClient.set(key, [r])
+  }
+  return Array.from(byClient.entries())
+    .map(([key, ms]) => {
+      const sorted = [...ms].sort((a, b) => a.meeting_date.localeCompare(b.meeting_date))
+      return {
+        key,
+        name: sorted[0]?.client_account_name || "(No client)",
+        meetings: sorted,
+      }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((s) => ({
+      key: s.key,
+      band: { label: s.name, count: s.meetings.length },
+      meetings: s.meetings,
+    }))
+}
+
+// ---- By Week: day bands (Group by = Day of Week) or client bands (By Client). ----
 function WeekTable({
   title,
   days,
+  groupBy,
   now,
   onOpenEvent,
 }: {
   title: string
   days: Array<{ day: string; meetings: PlanningEventRow[] }>
+  groupBy: "day" | "client"
   now: number | null
   onOpenEvent: (eventId: string) => void
 }) {
   const meetings = days.flatMap((d) => d.meetings)
+  const sections: TableSection[] =
+    groupBy === "client"
+      ? clientSections(meetings)
+      : days.map((d) => ({
+          key: d.day,
+          band: { label: fmtDay(d.day), count: d.meetings.length },
+          meetings: d.meetings,
+        }))
   return (
     <MeetingTable
       title={title}
       subtitle={`${meetings.length} meeting${meetings.length === 1 ? "" : "s"}`}
       meetings={meetings}
-      sections={days.map((d) => ({
-        key: d.day,
-        band: { label: fmtDay(d.day), count: d.meetings.length },
-        meetings: d.meetings,
-      }))}
+      sections={sections}
       emptyMessage="No meetings scheduled in this week. Use the arrows above to move to another week."
       now={now}
       onOpenEvent={onOpenEvent}
@@ -1252,24 +1350,31 @@ function WeekTable({
   )
 }
 
-// ---- By Day: a single section, no band. ----
+// ---- By Day: a single flat section (Group by = Day of Week) or client bands. ----
 function DayTable({
   title,
   meetings,
+  groupBy,
   now,
   onOpenEvent,
 }: {
   title: string
   meetings: PlanningEventRow[]
+  groupBy: "day" | "client"
   now: number | null
   onOpenEvent: (eventId: string) => void
 }) {
+  const sections: TableSection[] = !meetings.length
+    ? []
+    : groupBy === "client"
+      ? clientSections(meetings)
+      : [{ key: "day", meetings }]
   return (
     <MeetingTable
       title={title}
       subtitle={`${meetings.length} meeting${meetings.length === 1 ? "" : "s"}`}
       meetings={meetings}
-      sections={meetings.length ? [{ key: "day", meetings }] : []}
+      sections={sections}
       emptyMessage="No meetings on this day. Use the arrows above to move to another day."
       now={now}
       onOpenEvent={onOpenEvent}

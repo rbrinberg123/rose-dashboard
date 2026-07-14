@@ -66,12 +66,12 @@ const sections: NavSection[] = [
     label: "Logistics",
     icon: CalendarDays,
     items: [
-      { href: "/scheduler", label: "Host Calendar" },
-      { href: "/client-marketing-status", label: "Marketing Status" },
-      { href: "/live-outreach", label: "Live Outreach" },
       // The original /planning page is hidden from the nav (route kept, unlinked);
       // "Planning" now points at the former Planning Lab (app/planning-v2).
       { href: "/planning-v2", label: "Planning" },
+      { href: "/scheduler", label: "Host Calendar" },
+      { href: "/client-marketing-status", label: "Marketing Status" },
+      { href: "/live-outreach", label: "Live Outreach" },
       { href: "/profiles", label: "Profiles" },
       { href: "/feedback", label: "Feedback Collection" },
       // ⚗️ CONCEPT page — remove with the app/feedback-manager folder.
