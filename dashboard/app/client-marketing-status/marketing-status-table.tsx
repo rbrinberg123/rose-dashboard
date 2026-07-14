@@ -23,6 +23,12 @@ import type { ClientMarketingStatusRow } from "@/lib/types"
 const NAVY = "#1E2858"
 const ALL = "__all__"
 
+// Temporarily hidden (easy to restore): the "Report in Review" and "Report
+// Sent" columns. All underlying view fields, sort keys, and cell logic are
+// kept — flip this to true to bring both columns back. The group header's
+// colSpan and the empty-state colSpan follow this automatically.
+const SHOW_REVIEW_AND_SENT_COLUMNS: boolean = false
+
 // Two-tier header group bands, mirroring the Portfolio table's look: a dark cap
 // over each group of columns, separated by a thin card-colored gap.
 const BAND_BG = "#DDE1E8"
@@ -312,7 +318,7 @@ export function MarketingStatusTable({
               <TableHead colSpan={3} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
                 Ongoing Events
               </TableHead>
-              <TableHead colSpan={4} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
+              <TableHead colSpan={SHOW_REVIEW_AND_SENT_COLUMNS ? 4 : 2} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
                 Feedback Report Pipeline
               </TableHead>
             </TableRow>
@@ -337,19 +343,23 @@ export function MarketingStatusTable({
               <TableHead className="h-8 px-2.5">
                 <SortHeader label="Report in Creation" sortKey="reports_in_creation" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="center" />
               </TableHead>
-              <TableHead className="h-8 px-2.5">
-                <SortHeader label="Report in Review" sortKey="reports_in_review" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="center" />
-              </TableHead>
-              <TableHead className="h-8 px-2.5">
-                <SortHeader label="Report Sent" sortKey="report_sent_date" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-              </TableHead>
+              {SHOW_REVIEW_AND_SENT_COLUMNS && (
+                <>
+                  <TableHead className="h-8 px-2.5">
+                    <SortHeader label="Report in Review" sortKey="reports_in_review" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="center" />
+                  </TableHead>
+                  <TableHead className="h-8 px-2.5">
+                    <SortHeader label="Report Sent" sortKey="report_sent_date" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  </TableHead>
+                </>
+              )}
             </TableRow>
           </TableHeader>
 
           <TableBody>
             {sorted.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-32 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={SHOW_REVIEW_AND_SENT_COLUMNS ? 8 : 6} className="h-32 text-center text-sm text-muted-foreground">
                   {rows.length === 0
                     ? "No active clients on record."
                     : "No clients match the current search."}
@@ -449,15 +459,19 @@ export function MarketingStatusTable({
                     )}
                   </TableCell>
 
-                  {/* Report in Review — plain count, centered */}
-                  <TableCell className="px-2.5 py-1.5 align-top text-center">
-                    <CountCell n={r.reports_in_review} />
-                  </TableCell>
+                  {SHOW_REVIEW_AND_SENT_COLUMNS && (
+                    <>
+                      {/* Report in Review — plain count, centered */}
+                      <TableCell className="px-2.5 py-1.5 align-top text-center">
+                        <CountCell n={r.reports_in_review} />
+                      </TableCell>
 
-                  {/* Report Sent */}
-                  <TableCell className="whitespace-nowrap px-2.5 py-1.5 align-top tabular-nums">
-                    {formatDate(r.report_sent_date)}
-                  </TableCell>
+                      {/* Report Sent */}
+                      <TableCell className="whitespace-nowrap px-2.5 py-1.5 align-top tabular-nums">
+                        {formatDate(r.report_sent_date)}
+                      </TableCell>
+                    </>
+                  )}
                 </TableRow>
               ))
             )}
