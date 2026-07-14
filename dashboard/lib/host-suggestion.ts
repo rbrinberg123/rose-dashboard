@@ -9,7 +9,7 @@
 // when suggesting a host for an unassigned meeting, evaluated against the
 // already-loaded hosted meetings from v_scheduler_meetings.
 // ---------------------------------------------------------------------------
-import type { SchedulerMeetingRow } from "@/lib/types"
+import type { SchedulerMeetingRow, SchedulerTimeOffRow } from "@/lib/types"
 
 const BUFFER = 45
 const CORE = 60
@@ -124,11 +124,38 @@ export function isHostBusy(affinity: Affinity, slot: HostSlot, hostId: string): 
   return ivs ? ivs.some((iv) => intervalsOverlap(iv, occ)) : false
 }
 
+// Time-off status for a host on a given calendar day ('YYYY-MM-DD'). Joined by
+// host_id (the Dynamics systemuser GUID), never by name. Ranges are inclusive on
+// both ends; ISO day strings compare correctly as text. OOO wins if a host
+// somehow has both on one day. Reads the same v_scheduler_time_off rows as the
+// Host Calendar / Time Off page (Approved-only, OOO/Remote already bucketed in
+// the SQL view) so the three features can't drift.
+export type TimeOffType = "OOO" | "Remote"
+export function timeOffOn(
+  entries: SchedulerTimeOffRow[],
+  hostId: string,
+  dayYmd: string,
+): TimeOffType | null {
+  let result: TimeOffType | null = null
+  for (const e of entries) {
+    if (e.host_id !== hostId) continue
+    if (e.start_date <= dayYmd && dayYmd <= e.end_date) {
+      if (e.time_off_type === "OOO") return "OOO"
+      result = "Remote"
+    }
+  }
+  return result
+}
+
 // Rank candidate hosts for one unassigned meeting and pick a smart default.
+// Hosts on approved time off are excluded up front: OOO on the meeting's day is
+// never suggestable (any type); Remote is excluded only for a LIVE (in-person)
+// meeting, since a remote person can still take a virtual one.
 export function analyzeHost(
   slot: HostSlot,
   affinity: Affinity,
   l12mByHost: Map<string, number>,
+  timeOff: SchedulerTimeOffRow[] = [],
 ): HostPick {
   const inst = slot.institution_name
   const client = slot.client_account_name
@@ -164,8 +191,18 @@ export function analyzeHost(
     }
   })
 
-  // History-only order — institution desc, client desc, L12M desc, name. Used to
-  // find the single most-historical host for the bump note.
+  // Time-off exclusion, joined by host id via the shared resolver: OOO removes a
+  // host from every meeting; Remote removes them only from a LIVE meeting.
+  const timeOffFor = (id: string) => timeOffOn(timeOff, id, slot.meeting_day)
+  const excludedByTimeOff = (id: string): boolean => {
+    const t = timeOffFor(id)
+    return t === "OOO" || (t === "Remote" && slot.is_in_person)
+  }
+  const available = base.filter((c) => !excludedByTimeOff(c.id))
+
+  // History-only order — institution desc, client desc, L12M desc, name. Over the
+  // FULL pool so the bump note can still name the most-historical host even when
+  // time off has excluded them from the suggestions below.
   const byHistory = [...base].sort(
     (a, b) =>
       b.instCount - a.instCount ||
@@ -174,9 +211,10 @@ export function analyzeHost(
       a.name.localeCompare(b.name),
   )
 
-  // Free-first order — bookable hosts on top, then the same history ranking.
-  // This is the dropdown order; candidates[0] is the smart default.
-  const candidates = [...base].sort(
+  // Free-first order — bookable hosts on top, then the same history ranking. Only
+  // time-off-eligible hosts. This is the dropdown order; candidates[0] is the
+  // smart default.
+  const candidates = [...available].sort(
     (a, b) =>
       Number(b.free) - Number(a.free) ||
       b.instCount - a.instCount ||
@@ -188,12 +226,20 @@ export function analyzeHost(
   const defaultId = candidates[0]?.id ?? null
   const top = byHistory[0]
   const topPrimaryN = top ? (top.instCount > 0 ? top.instCount : top.clientCount) : 0
-  // Bump note only when the most-historical host is busy AND a free host took the
-  // default slot instead (i.e. it was genuinely skipped, not just shown busy).
-  const bumpNote =
-    top && !top.free && defaultId !== top.id
-      ? `${top.name} usually hosts (${topPrimaryN}) but is busy at ${fmtTime(slot.start_minutes)}`
-      : null
+  // Explain why the most-historical host isn't the default: out of office, remote
+  // (can't attend in person), or simply busy at that time. Only when they aren't
+  // the default (i.e. genuinely skipped, not just shown as-is).
+  let bumpNote: string | null = null
+  if (top && defaultId !== top.id) {
+    const t = timeOffFor(top.id)
+    if (t === "OOO") {
+      bumpNote = `${top.name} usually hosts (${topPrimaryN}) but is out of office`
+    } else if (t === "Remote" && slot.is_in_person) {
+      bumpNote = `${top.name} usually hosts (${topPrimaryN}) but is remote (can't attend in person)`
+    } else if (!top.free) {
+      bumpNote = `${top.name} usually hosts (${topPrimaryN}) but is busy at ${fmtTime(slot.start_minutes)}`
+    }
+  }
 
   return { noPrior: base.length === 0, candidates, defaultId, bumpNote }
 }

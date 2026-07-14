@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ArrowDown, ArrowUp, ChevronsUpDown, Search, Users } from "lucide-react"
+import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Search, Users } from "lucide-react"
 import { ListTitleCard } from "@/components/page-masthead"
 import { HostSelectCell } from "@/components/host-select-cell"
 import { StatCard } from "@/components/stat-card"
@@ -11,7 +11,8 @@ import { CARD_CLASS } from "@/lib/design"
 import { analyzeHost, buildAffinity, isHostBusy } from "@/lib/host-suggestion"
 import type { HostPick, HostSlot } from "@/lib/host-suggestion"
 import { cn } from "@/lib/utils"
-import type { Pipeline30dRow, SchedulerMeetingRow } from "@/lib/types"
+import { exportUpcomingMeetings } from "@/lib/pipeline-excel"
+import type { Pipeline30dRow, SchedulerMeetingRow, SchedulerTimeOffRow } from "@/lib/types"
 
 // Type-pill palette. Metric-card accents reuse the same hues inline below.
 const TYPE_PILL = {
@@ -196,9 +197,11 @@ function compareRows(a: Pipeline30dRow, b: Pipeline30dRow, key: SortKey): number
 export function PipelineView({
   rows,
   hosted,
+  timeOff,
 }: {
   rows: Pipeline30dRow[]
   hosted: SchedulerMeetingRow[]
+  timeOff: SchedulerTimeOffRow[]
 }) {
   // ---- Firm-wide summary (static, over all loaded rows) -------------------
   const summary = React.useMemo(() => {
@@ -243,10 +246,10 @@ export function PipelineView({
   const picks = React.useMemo(() => {
     const map = new Map<string, HostPick>()
     for (const r of rows) {
-      if (!r.host_id) map.set(r.meeting_id, analyzeHost(slotOf(r), affinity, l12mByHost))
+      if (!r.host_id) map.set(r.meeting_id, analyzeHost(slotOf(r), affinity, l12mByHost, timeOff))
     }
     return map
-  }, [rows, affinity, l12mByHost])
+  }, [rows, affinity, l12mByHost, timeOff])
 
   // Full host roster for "Search all hosts…" — every distinct host present in the
   // loaded hosted meetings, alphabetical.
@@ -344,6 +347,20 @@ export function PipelineView({
     return [...filtered].sort((a, b) => dir * compareRows(a, b, sort.key))
   }, [filtered, sort])
 
+  // ---- Excel export -------------------------------------------------------
+  // Exports the current view (`sorted` = active filters + sort). ExcelJS loads
+  // lazily inside the handler, so first click may take a beat; `exporting`
+  // disables the button meanwhile.
+  const [exporting, setExporting] = React.useState(false)
+  const onExport = React.useCallback(async () => {
+    setExporting(true)
+    try {
+      await exportUpcomingMeetings(sorted, picks)
+    } finally {
+      setExporting(false)
+    }
+  }, [sorted, picks])
+
   const selectClass = "h-9 rounded-md border border-border bg-card px-2 text-sm"
 
   return (
@@ -424,7 +441,18 @@ export function PipelineView({
           Unassigned only
         </label>
 
-        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+        <button
+          type="button"
+          onClick={onExport}
+          disabled={exporting || sorted.length === 0}
+          className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-sm hover:bg-slate-50 disabled:cursor-default disabled:opacity-50"
+          title="Download the meetings shown below as an Excel file"
+        >
+          <Download className="size-3.5" />
+          {exporting ? "Exporting…" : "Export to Excel"}
+        </button>
+
+        <span className="text-xs tabular-nums text-muted-foreground">
           {filtered.length.toLocaleString()} of {rows.length.toLocaleString()} meetings
         </span>
       </div>

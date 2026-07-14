@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
-import type { Pipeline30dRow, SchedulerMeetingRow } from "@/lib/types"
+import type { Pipeline30dRow, SchedulerMeetingRow, SchedulerTimeOffRow } from "@/lib/types"
 import { PipelineView } from "./pipeline-view"
 
 export const dynamic = "force-dynamic"
@@ -63,6 +63,12 @@ export default async function PipelinePage() {
     if (page.length < PAGE_SIZE) break
   }
 
+  // Approved time off (OOO/Remote already bucketed in the view) — used to exclude
+  // unavailable hosts from the suggestions. Non-fatal: if it fails, suggestions
+  // simply fall back to no time-off filtering.
+  const timeOffRes = await sb.from("v_scheduler_time_off").select("*")
+  const timeOff = (timeOffRes.data ?? []) as SchedulerTimeOffRow[]
+
   return (
     <PageShell
       title="Pipeline (Next 30 Days)"
@@ -70,7 +76,7 @@ export default async function PipelinePage() {
       hideHeader
       canvas
     >
-      <PipelineView rows={rows} hosted={hosted} />
+      <PipelineView rows={rows} hosted={hosted} timeOff={timeOff} />
     </PageShell>
   )
 }

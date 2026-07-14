@@ -4,7 +4,7 @@ import * as React from "react"
 import { ListTitleCard } from "@/components/page-masthead"
 import { HostSelectCell } from "@/components/host-select-cell"
 import { CARD_CLASS } from "@/lib/design"
-import { analyzeHost, buildAffinity, isHostBusy } from "@/lib/host-suggestion"
+import { analyzeHost, buildAffinity, isHostBusy, timeOffOn } from "@/lib/host-suggestion"
 import type { HostPick } from "@/lib/host-suggestion"
 import type {
   SchedulerMeetingRow,
@@ -31,24 +31,8 @@ const OOO_HATCH = `repeating-linear-gradient(45deg, ${OOO_STYLE.border}26, ${OOO
 
 type TimeOffType = "OOO" | "Remote"
 
-// Time-off status for a host on a given calendar day ('YYYY-MM-DD'). Ranges are
-// inclusive on both ends; ISO day strings compare correctly as text. OOO wins
-// if a host somehow has both on one day.
-function timeOffOn(
-  entries: SchedulerTimeOffRow[],
-  hostId: string,
-  dayYmd: string,
-): TimeOffType | null {
-  let result: TimeOffType | null = null
-  for (const e of entries) {
-    if (e.host_id !== hostId) continue
-    if (e.start_date <= dayYmd && dayYmd <= e.end_date) {
-      if (e.time_off_type === "OOO") return "OOO"
-      result = "Remote"
-    }
-  }
-  return result
-}
+// timeOffOn (host/day resolver) is imported from lib/host-suggestion so the
+// Host Calendar, the Time Off page, and host suggestions share one source.
 
 // Small OOO/Remote badge — same fill/border/text treatment as the Time Off
 // page's name pills (Remote is outlined with a slightly heavier border).
@@ -460,8 +444,8 @@ export function SchedulerView({
       unassigned
         .filter((u) => u.meeting_day === anchorYmd)
         .sort((a, b) => a.start_minutes - b.start_minutes)
-        .map((row) => ({ row, pick: analyzeHost(row, affinity, l12mByHost) })),
-    [unassigned, anchorYmd, affinity, l12mByHost],
+        .map((row) => ({ row, pick: analyzeHost(row, affinity, l12mByHost, timeOff) })),
+    [unassigned, anchorYmd, affinity, l12mByHost, timeOff],
   )
 
   // Full host roster for "Search all hosts…" — every distinct host present in the
