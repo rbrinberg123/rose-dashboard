@@ -38,11 +38,14 @@ const AWAITING = "Awaiting Additional"
 // widths regardless of cell content — column boundaries stay perfectly vertical
 // down the whole page, in every view. The two middle columns swap labels per
 // view (Client/Institution, Host/Institution, Host/Client) but keep these
-// widths; they flex to fill the remaining space and truncate long values.
+// widths; they flex to fill the remaining space and truncate long values. The
+// Investor column (meetings.investor_text) always follows the two middle
+// dimensions, and likewise flexes + truncates.
 const TABLE_COLS = [
   "110px", // Date
-  "38%", // middle dimension 1
-  "38%", // middle dimension 2
+  "25%", // middle dimension 1
+  "25%", // middle dimension 2
+  "25%", // Investor
   "70px", // Flags
   "112px", // Status
   "64px", // Days
@@ -453,6 +456,7 @@ function GroupCard({
                 {view !== "institution" && (
                   <th className="px-3 py-2 text-left font-medium">Institution</th>
                 )}
+                <th className="px-3 py-2 text-left font-medium">Investor</th>
                 <th className="px-3 py-2 text-center font-medium">Flags</th>
                 <th className="px-3 py-2 text-left font-medium">Status</th>
                 <th className="px-3 py-2 text-right font-medium">Days</th>
@@ -485,6 +489,9 @@ function GroupCard({
                       {r.institution_name || "—"}
                     </td>
                   )}
+                  <td className="truncate px-3 py-2.5" title={r.investor_text || undefined}>
+                    {r.investor_text || ""}
+                  </td>
                   <td className="px-3 py-2.5 text-center">
                     <FlagsCell row={r} />
                   </td>

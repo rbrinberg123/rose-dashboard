@@ -2761,7 +2761,13 @@ SELECT
   (
     (now() AT TIME ZONE 'America/New_York')::date
     - (m.meeting_date AT TIME ZONE 'America/New_York')::date
-  )::int AS days_since
+  )::int AS days_since,
+  -- Free-text individual investor(s) who attended; may list several names in
+  -- one string. Same field the Live Outreach card shows as the meeting contact.
+  -- Appended last so CREATE OR REPLACE VIEW can add it without a column-rename
+  -- error; the app reads it by name, and the "Investor" column's position in
+  -- the table (after Institution) is set in the UI, not by view order.
+  m.investor_text
 FROM public.meetings m
 WHERE m.meeting_status_label = 'Confirmed'
   AND m.host_id IS NOT NULL

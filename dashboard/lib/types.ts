@@ -784,6 +784,7 @@ export type FeedbackOutstandingRow = {
   client_account_id: string | null
   client_account_name: string | null
   institution_name: string | null
+  investor_text: string | null
   is_in_person: boolean
   group_meeting: boolean
   feedback_status_label: string | null
