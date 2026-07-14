@@ -318,6 +318,22 @@ function packLanes(blocks: FirmBlock[]): PackedBlock[] {
   return out
 }
 
+// Hosts intentionally hidden from the Host Calendar's host list.
+//   - Simon Willcocks, Shawna Giust — former employees.
+//   - Simon Rose — still active; excluded from this calendar by choice.
+// This is a MANUAL list because the users mirror has no real active/disabled
+// flag: public.users.is_active exists but the loader never populates it (it's
+// always true — see loader/load.py upsert_users), so ex-employees can't be
+// filtered automatically. If the sync is ever wired to Dynamics' isdisabled
+// state, revisit this and filter the two former employees by that flag instead.
+// Matched case-insensitively against the host display name, ignoring any
+// credential suffix after a comma (e.g. "Shawna Giust, CFA").
+const EXCLUDED_HOSTS = new Set(["simon willcocks", "shawna giust", "simon rose"])
+
+function isExcludedHost(name: string): boolean {
+  return EXCLUDED_HOSTS.has(name.split(",")[0].trim().toLowerCase())
+}
+
 const selectClass = "h-9 rounded-md border border-border bg-card px-2 text-sm"
 
 export function SchedulerView({
@@ -357,7 +373,9 @@ export function SchedulerView({
       host_id,
       host_name,
       l12m: l12mByHost.get(host_id) ?? 0,
-    })).sort((a, b) => b.l12m - a.l12m || a.host_name.localeCompare(b.host_name))
+    }))
+      .filter((h) => !isExcludedHost(h.host_name))
+      .sort((a, b) => b.l12m - a.l12m || a.host_name.localeCompare(b.host_name))
   }, [meetings, l12mByHost])
 
   // Lifetime frequency maps + per-host/day occupied intervals, derived once from
@@ -365,7 +383,14 @@ export function SchedulerView({
   // identical to the Pipeline page. Used to suggest a host for each unassigned
   // meeting. Hosted meetings expose client_account_name (not id), so client
   // affinity is matched by name; institution affinity is matched by institution_name.
-  const affinity = React.useMemo(() => buildAffinity(meetings), [meetings])
+  // Built from meetings EXCLUDING the hidden hosts, so those people are never
+  // suggested or searchable as a host for an unassigned meeting (roster,
+  // smart-default, and bump note all derive from this). The day/week/week-all
+  // grids still use the full `meetings` set — this only scopes suggestions.
+  const affinity = React.useMemo(
+    () => buildAffinity(meetings.filter((m) => !isExcludedHost(m.host_name))),
+    [meetings],
+  )
 
   const [mode, setMode] = React.useState<Mode>("day")
   // Single source of truth: the selected date. Day mode shows this date; Week
@@ -412,13 +437,16 @@ export function SchedulerView({
     })
   }, [hosts, dayMeetings, freeAt, timeOff, dayYmd])
 
-  // Default order is already L12M-desc (hosts is pre-sorted). With a "Free at"
-  // time, free hosts float to the top, then within each free/busy group keep
-  // the L12M-desc order (host_name as the final tiebreaker).
+  // Sort precedence, outermost first:
+  //   1. Hosts WITH a meeting on the selected day float above hosts with none.
+  //   2. With a "Free at" time, free hosts float within each of those groups.
+  //   3. Existing order: L12M-desc (most active), host_name A–Z as the tiebreaker.
   const sortedDayRows = React.useMemo(() => {
-    if (freeAt == null) return dayRows
     return [...dayRows].sort((a, b) => {
-      if (a.free !== b.free) return a.free ? -1 : 1
+      const aHas = a.meetings.length > 0
+      const bHas = b.meetings.length > 0
+      if (aHas !== bHas) return aHas ? -1 : 1
+      if (freeAt != null && a.free !== b.free) return a.free ? -1 : 1
       return b.l12m - a.l12m || a.host_name.localeCompare(b.host_name)
     })
   }, [dayRows, freeAt])
