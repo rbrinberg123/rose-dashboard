@@ -3199,13 +3199,17 @@ ORDER BY ev.event_id, ev.meeting_date, ev.meeting_id;
 --                              per event: prefer non-Canceled, then latest by
 --                              created_on (16 events have >1 Feedback task).
 --   * "Feedback Report Sent" — the deliverable; its Completed state marks the
---                              event Done (and therefore EXCLUDED here).
+--                              event Done (and therefore EXCLUDED here). For a
+--                              Completed-Feedback event to reach Pending Review,
+--                              this task must EXIST and be Open (see below).
 --
 -- state (mutually exclusive & exhaustive for active events, evaluated top-down;
 -- Done is filtered out in WHERE):
 --   Done (excluded)         report task Completed
---   Reports Pending Review  Feedback task Completed AND report not Completed
---                           (report Open or absent)
+--   Reports Pending Review  Feedback task Completed AND an EXISTING report task
+--                           that is Open. A Completed-Feedback event with NO
+--                           report task (or a non-Open one) is a pre-process
+--                           legacy artifact and is EXCLUDED in WHERE, not shown.
 --   Waiting on Feedback     Feedback task Open AND NOT feedback_received
 --                           (regardless of claim)
 --   Reports Not Started     Feedback task Open AND feedback_received AND NOT claimed
@@ -3291,6 +3295,7 @@ SELECT
   r.report_task_state_label                   AS report_sent_state_label,
   CASE
     WHEN f.feedback_task_state_label = 'Completed'
+         AND r.report_task_state_label = 'Open'
       THEN 'Reports Pending Review'
     WHEN f.feedback_task_state_label = 'Open' AND NOT f.feedback_received
       THEN 'Waiting on Feedback'
@@ -3304,6 +3309,16 @@ LEFT JOIN report_task r ON r.bcs_event_id = f.bcs_event_id
 LEFT JOIN mtg mt        ON mt.event_id    = f.bcs_event_id
 WHERE COALESCE(r.report_completed, false) = false          -- drop Done (report sent)
   AND f.feedback_task_state_label IN ('Open', 'Completed')  -- drop Canceled Feedback w/o report
+  -- Forward-looking tightening: an event whose Feedback (collection) task is
+  -- Completed only counts as "Pending Account Manager Review" when an actual
+  -- 'Feedback Report Sent' task EXISTS and is Open. Legacy Completed-feedback
+  -- events with no (or a non-Open) Report Sent task are pre-process artifacts and
+  -- are dropped here. (Feedback-Open events are untouched — they legitimately have
+  -- no Report Sent task yet.)
+  AND NOT (
+    f.feedback_task_state_label = 'Completed'
+    AND COALESCE(r.report_task_state_label, '') <> 'Open'
+  )
   -- Recency cutoff: derived Meeting End (UTC date) on/after 2026-05-01. Null
   -- end (no Confirmed meetings) compares as NULL → excluded.
   AND (mt.meeting_end AT TIME ZONE 'UTC')::date >= DATE '2026-05-01';
@@ -3436,5 +3451,172 @@ WHERE e.event_state_label = 'Live Outreach'
   -- workflow field above. Only Active events should appear on the page.
   AND e.state_label = 'Active'
 ORDER BY a.ticker_symbol NULLS LAST, e.name;
+
+
+-- -----------------------------------------------------------------------------
+-- v_client_marketing_status
+-- One row per ACTIVE client (accounts.state_label = 'Active' — the SAME set as
+-- v_client_portfolio, currently 107 rows). Powers the Logistics → Marketing
+-- Status page: a per-client tracker of the event timeline and the
+-- feedback-report lifecycle, sortable in the UI.
+--
+-- sales_lead_primary_name is the client's Account Manager (accounts field, same
+-- as v_client_portfolio) — surfaced so the page can offer an AM filter.
+--
+-- Two families of columns.
+--
+-- EVENT TIMELINE — from public.events, using the REAL Dynamics date fields
+-- event_start_actual / event_end_actual (these replaced the old
+-- derive-from-meetings workaround). Only Active events that carry both real
+-- dates are considered (e.state_label = 'Active'), so cancelled/deactivated
+-- events can never surface as a client's "next event". "Today" is the Eastern
+-- calendar day, and event days are the Eastern calendar day of each timestamp
+-- (events are stored at ET midnight), matching the firm's working day.
+--   current_event_name  : name of the event whose [start, end] range contains
+--                         today (inclusive); the earliest-starting one if several.
+--   current_event_id    : that same event's id (for deep-linking to Planning's
+--                         By Event view). NULL when there is no current event.
+--   next_event_date     : soonest event start date strictly in the future.
+--   last_event_date     : end date of the most recently ended past event.
+--
+-- FEEDBACK-REPORT LIFECYCLE — mirrors v_feedback_manager's task model exactly.
+-- The feedback tasks are public.tasks rows whose bcs_task_subtype_label is
+-- 'Feedback' (the collection task) or 'Feedback Report Sent' (the report task) —
+-- they are NOT identified by subject text. Tasks link to a client via
+-- bcs_account_id and to an event via bcs_event_id; state_label is the Dataverse
+-- statecode ('Open' / 'Completed' / 'Canceled'). Task date fields (scheduled_end
+-- due date, actual_end completion) are stored at UTC midnight, so their calendar
+-- day is read AT TIME ZONE 'UTC' (matching the Feedback Report Pipeline page).
+--   feedback_collection      : count of the client's not-closed feedbacks at the
+--                              MEETING level — Confirmed, hosted, already-occurred
+--                              meetings whose feedback_status_label is NULL or
+--                              'Awaiting Additional' (i.e. NOT 'Closed - All in' /
+--                              'Closed - No Feedback'). Same scope as
+--                              v_feedback_outstanding.
+--   reports_in_creation      : count of the client's OPEN 'Feedback' tasks that
+--                              have bcs_feedback_received = true.
+--   reports_in_creation_due  : soonest scheduled_end (due date) among those tasks.
+--   reports_in_review        : count of the client's COMPLETED 'Feedback' tasks
+--                              whose event still has an OPEN (and not Completed)
+--                              'Feedback Report Sent' task — i.e. the report is
+--                              awaiting account-manager review. Requires the
+--                              feedback task to carry bcs_event_id (the join key).
+--   report_sent_date         : most recent actual_end among the client's
+--                              COMPLETED 'Feedback Report Sent' tasks. NULL until
+--                              a report has actually been sent (sparse today).
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS public.v_client_marketing_status CASCADE;
+CREATE VIEW public.v_client_marketing_status AS
+WITH today AS (
+  SELECT (now() AT TIME ZONE 'America/New_York')::date AS d
+),
+ev AS (
+  SELECT
+    e.client_account_id,
+    e.event_id,
+    (e.event_start_actual AT TIME ZONE 'America/New_York')::date AS start_d,
+    (e.event_end_actual   AT TIME ZONE 'America/New_York')::date AS end_d,
+    e.name
+  FROM public.events e
+  WHERE e.state_label = 'Active'
+    AND e.event_start_actual IS NOT NULL
+    AND e.event_end_actual   IS NOT NULL
+    AND e.client_account_id  IS NOT NULL
+),
+event_timeline AS (
+  SELECT
+    ev.client_account_id,
+    -- Earliest-starting event currently in range → its name AND event_id. ARRAY_AGG
+    -- with the FILTER keeps only in-range events, ordered by start; [1] is the
+    -- earliest. Same ORDER BY for both, so the name and id are from the same event.
+    -- current_event_id lets the UI deep-link the Current Event into Planning's
+    -- By Event view.
+    (ARRAY_AGG(ev.name ORDER BY ev.start_d, ev.end_d)
+       FILTER (WHERE ev.start_d <= t.d AND ev.end_d >= t.d))[1] AS current_event_name,
+    (ARRAY_AGG(ev.event_id ORDER BY ev.start_d, ev.end_d)
+       FILTER (WHERE ev.start_d <= t.d AND ev.end_d >= t.d))[1] AS current_event_id,
+    MIN(ev.start_d) FILTER (WHERE ev.start_d > t.d)             AS next_event_date,
+    MAX(ev.end_d)   FILTER (WHERE ev.end_d   < t.d)             AS last_event_date
+  FROM ev CROSS JOIN today t
+  GROUP BY ev.client_account_id
+),
+-- Column 1: meeting-level outstanding feedback (v_feedback_outstanding scope).
+fb_collection AS (
+  SELECT
+    m.client_account_id,
+    count(*)::int AS feedback_collection
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.host_id IS NOT NULL
+    AND m.meeting_date IS NOT NULL
+    AND (m.meeting_date AT TIME ZONE 'America/New_York')::date
+        < (now() AT TIME ZONE 'America/New_York')::date
+    AND (m.feedback_status_label IS NULL
+         OR m.feedback_status_label = 'Awaiting Additional')
+  GROUP BY m.client_account_id
+),
+-- Per-event 'Feedback Report Sent' task state (many tasks may share an event).
+report_task AS (
+  SELECT
+    t.bcs_event_id,
+    bool_or(t.state_label = 'Completed') AS report_completed,
+    bool_or(t.state_label = 'Open')      AS report_open
+  FROM public.tasks t
+  WHERE t.bcs_task_subtype_label = 'Feedback Report Sent'
+    AND t.bcs_event_id IS NOT NULL
+  GROUP BY t.bcs_event_id
+),
+-- Columns 2 & 3, from the client's 'Feedback' (collection) tasks.
+fb_tasks AS (
+  SELECT
+    t.bcs_account_id AS client_account_id,
+    count(*) FILTER (
+      WHERE t.state_label = 'Open' AND COALESCE(t.bcs_feedback_received, false)
+    )::int AS reports_in_creation,
+    (MIN(t.scheduled_end) FILTER (
+      WHERE t.state_label = 'Open' AND COALESCE(t.bcs_feedback_received, false)
+    ) AT TIME ZONE 'UTC')::date AS reports_in_creation_due,
+    count(*) FILTER (
+      WHERE t.state_label = 'Completed'
+        AND rt.report_open AND NOT rt.report_completed
+    )::int AS reports_in_review
+  FROM public.tasks t
+  LEFT JOIN report_task rt ON rt.bcs_event_id = t.bcs_event_id
+  WHERE t.bcs_task_subtype_label = 'Feedback'
+    AND t.bcs_account_id IS NOT NULL
+  GROUP BY t.bcs_account_id
+),
+-- Column 4: last completed 'Feedback Report Sent' close date, per client.
+report_sent AS (
+  SELECT
+    t.bcs_account_id AS client_account_id,
+    (max(t.actual_end) AT TIME ZONE 'UTC')::date AS report_sent_date
+  FROM public.tasks t
+  WHERE t.bcs_task_subtype_label = 'Feedback Report Sent'
+    AND t.bcs_account_id IS NOT NULL
+    AND t.state_label = 'Completed'
+  GROUP BY t.bcs_account_id
+)
+SELECT
+  a.account_id,
+  a.name,
+  a.ticker_symbol,
+  a.sales_lead_primary_name,
+  et.current_event_name,
+  et.current_event_id,
+  et.next_event_date,
+  et.last_event_date,
+  COALESCE(fc.feedback_collection, 0) AS feedback_collection,
+  COALESCE(ft.reports_in_creation, 0) AS reports_in_creation,
+  ft.reports_in_creation_due,
+  COALESCE(ft.reports_in_review, 0)   AS reports_in_review,
+  rs.report_sent_date
+FROM public.accounts a
+LEFT JOIN event_timeline et ON et.client_account_id = a.account_id
+LEFT JOIN fb_collection  fc ON fc.client_account_id = a.account_id
+LEFT JOIN fb_tasks       ft ON ft.client_account_id = a.account_id
+LEFT JOIN report_sent    rs ON rs.client_account_id = a.account_id
+WHERE a.state_label = 'Active'
+ORDER BY a.name;
 
 GRANT SELECT ON public.v_time_off TO service_role;
