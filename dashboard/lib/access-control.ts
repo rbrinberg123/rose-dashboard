@@ -21,11 +21,9 @@
 export type Role = "super_user" | "user"
 
 /**
- * Logistics routes a plain 'user' may access. Matched by URL path segment,
- * so "/feedback" allows "/feedback" and "/feedback/123" but NOT
- * "/feedback-manager" — which is deliberately Super-User-only (the Feedback
- * Report Pipeline isn't ready for plain users yet). The segment match is
- * exactly what keeps "/feedback" from leaking access to "/feedback-manager".
+ * Logistics routes a plain 'user' may access. Matched by URL path segment, so
+ * "/feedback" allows "/feedback" and "/feedback/123" but NOT "/feedback-manager"
+ * — the two are listed separately below (the segment match keeps them distinct).
  *
  * Note: the older "/planning" route is intentionally omitted (it is unlinked
  * and superseded by "/planning-v2"); add it here if a user should reach it.
@@ -36,6 +34,7 @@ export const USER_ALLOWED_ROUTES = [
   "/planning-v2",
   "/profiles",
   "/feedback",
+  "/feedback-manager",
   "/pipeline",
   "/live-outreach",
   "/onboarding",

@@ -3331,6 +3331,155 @@ WHERE COALESCE(r.report_completed, false) = false          -- drop Done (report 
 
 
 -- -----------------------------------------------------------------------------
+-- v_feedback_pipeline
+-- The Feedback Report Pipeline page's TWO-CATEGORY model (replaces the older
+-- multi-state v_feedback_manager). Both categories are driven by the event's
+-- "Feedback"-subtype task (the spine of the lifecycle); one row per Feedback task:
+--
+--   'in_progress'    — feedback is in, report being worked on:
+--                        Feedback task Open AND bcs_feedback_received (Received
+--                        date marked). Split in the UI by whether it is claimed.
+--   'pending_review' — feedback closed, handed to the AM, report not yet sent:
+--                        Feedback task Completed AND its SAME-EVENT "Feedback
+--                        Report Sent" task is still Open. A deliberately NARROW
+--                        window (≈2 rows) between feedback-closed and report-sent.
+--   Done (excluded)  — the "Feedback Report Sent" task is Completed.
+--
+-- LINKAGE (validated against live data, 2026-07-15):
+--   A Feedback task and its Feedback Report Sent task are tied to the SAME event by
+--   event_key = COALESCE(regarding_id, bcs_event_id) — the event GUID, stored in
+--   regarding_id on some tasks and bcs_event_id on others. Matched task-to-task,
+--   this pairs 146/149 open Report Sent tasks to their own same-event Feedback.
+--   (An earlier build matched by a ticker "event code" parsed from the event name;
+--   that was WRONG — the ticker is client-grained, so it paired a report with a
+--   closed Feedback from a DIFFERENT event of the same client. Dropped.)
+--
+--   On the state pairing: when a report is Open/pending, its same-event Feedback is
+--   usually still Open too (144/149) and Completed in only 2 — so Pending Review is
+--   small BY DESIGN. Do NOT widen it by matching across events.
+--
+-- GRAIN: one row per Feedback task. Pending Review joins each Completed Feedback to
+--   at most ONE open Report Sent per event_key (DISTINCT ON), so the join never
+--   fans out. due_date on a Pending Review row is the matched Report Sent task's
+--   scheduled_end (when the report is due); on an In Progress row it is the
+--   Feedback task's own scheduled_end.
+--
+-- Meeting Start / End / count are DERIVED from the event's Confirmed meetings,
+-- joined on event_key (= meetings.event_id). Rows whose event has no Confirmed
+-- meetings show NULL meeting fields.
+--
+-- days_in_stage: In Progress = days since crdfa_feedback_received_date; Pending
+--   Review = days since the Feedback task closed (actual_end). Task date fields are
+--   stored at UTC midnight, so their calendar day is read AT TIME ZONE 'UTC'.
+--
+-- No recency floor (product decision): returns all qualifying tasks.
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS public.v_feedback_pipeline CASCADE;
+CREATE VIEW public.v_feedback_pipeline AS
+WITH tk AS (
+  -- Feedback + Feedback Report Sent tasks, each stamped with its event key
+  -- (the event GUID, wherever it is stored on the task).
+  SELECT
+    t.*,
+    COALESCE(t.regarding_id, t.bcs_event_id) AS event_key
+  FROM public.tasks t
+  WHERE t.bcs_task_subtype_label IN ('Feedback', 'Feedback Report Sent')
+),
+report_sent_open AS (
+  -- Open Report Sent tasks, one per event_key (soonest-due), for the Pending
+  -- Review linkage + the report's due date.
+  SELECT DISTINCT ON (event_key)
+    event_key,
+    task_id                 AS report_task_id,
+    scheduled_end            AS report_due
+  FROM tk
+  WHERE bcs_task_subtype_label = 'Feedback Report Sent'
+    AND state_label = 'Open'
+    AND event_key IS NOT NULL
+  ORDER BY event_key, scheduled_end NULLS LAST, task_id
+),
+mtg AS (
+  SELECT
+    m.event_id,
+    min(m.meeting_date)   AS meeting_start,
+    max(m.meeting_date)   AS meeting_end,
+    count(*)::int         AS meeting_count
+  FROM public.meetings m
+  WHERE m.event_id IS NOT NULL
+    AND m.meeting_status_label = 'Confirmed'
+  GROUP BY m.event_id
+),
+in_progress AS (
+  SELECT
+    'in_progress'::text                         AS category,
+    f.task_id,
+    f.event_key                                 AS event_id,
+    COALESCE(f.bcs_event_name, f.subject, '(Unnamed event)') AS event_name,
+    f.bcs_account_id                            AS client_account_id,
+    f.bcs_account_name                          AS client_account_name,
+    f.crdfa_feedback_received_date              AS received_date,
+    f.scheduled_end                             AS due_date,
+    NULL::timestamptz                           AS fb_closed_date,
+    (f.bcs_claimed_by_id IS NOT NULL)           AS claimed,
+    f.bcs_claimed_by_id                         AS claimed_by_id,
+    f.bcs_claimed_by_name                       AS claimed_by_name,
+    (CURRENT_DATE - (f.crdfa_feedback_received_date AT TIME ZONE 'UTC')::date) AS days_in_stage
+  FROM tk f
+  WHERE f.bcs_task_subtype_label = 'Feedback'
+    AND f.state_label = 'Open'
+    AND COALESCE(f.bcs_feedback_received, false) = true
+),
+pending_review AS (
+  SELECT
+    'pending_review'::text                      AS category,
+    f.task_id,
+    f.event_key                                 AS event_id,
+    COALESCE(f.bcs_event_name, f.subject, '(Unnamed event)') AS event_name,
+    f.bcs_account_id                            AS client_account_id,
+    f.bcs_account_name                          AS client_account_name,
+    NULL::timestamptz                           AS received_date,
+    rso.report_due                              AS due_date,
+    f.actual_end                                AS fb_closed_date,
+    (f.bcs_claimed_by_id IS NOT NULL)           AS claimed,
+    f.bcs_claimed_by_id                         AS claimed_by_id,
+    f.bcs_claimed_by_name                       AS claimed_by_name,
+    (CURRENT_DATE - (f.actual_end AT TIME ZONE 'UTC')::date) AS days_in_stage
+  FROM tk f
+  JOIN report_sent_open rso ON rso.event_key = f.event_key
+  WHERE f.bcs_task_subtype_label = 'Feedback'
+    AND f.state_label = 'Completed'
+    AND f.event_key IS NOT NULL
+),
+combined AS (
+  SELECT * FROM in_progress
+  UNION ALL
+  SELECT * FROM pending_review
+)
+SELECT
+  c.category,
+  c.task_id,
+  c.event_id,
+  c.event_name,
+  c.client_account_id,
+  c.client_account_name,
+  a.sales_lead_primary_name                     AS account_manager_name,
+  mt.meeting_start,
+  mt.meeting_end,
+  COALESCE(mt.meeting_count, 0)                 AS meeting_count,
+  c.received_date,
+  c.due_date,
+  c.fb_closed_date,
+  c.claimed,
+  c.claimed_by_id,
+  c.claimed_by_name,
+  c.days_in_stage
+FROM combined c
+LEFT JOIN public.accounts a ON a.account_id = c.client_account_id
+LEFT JOIN mtg mt            ON mt.event_id    = c.event_id
+ORDER BY c.category, c.days_in_stage DESC NULLS LAST, c.client_account_name;
+
+
+-- -----------------------------------------------------------------------------
 -- v_time_off
 -- One row per approved time-off entry for the Logistics → Time Off calendar.
 -- Source: public.new_vacationrequest (the Dynamics new_vacationrequest mirror).

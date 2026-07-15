@@ -845,6 +845,42 @@ export type FeedbackManagerRow = {
 }
 
 /**
+ * One row of v_feedback_pipeline — the two-category Feedback Report Pipeline page.
+ * Both categories are driven by the event's Feedback-subtype task; one row per
+ * Feedback task. `category` splits the pipeline:
+ *   'in_progress'    — Feedback task Open AND feedback received.
+ *   'pending_review' — Feedback task Completed AND its SAME-EVENT "Feedback Report
+ *                      Sent" task is still Open (matched task-to-task by
+ *                      event_key = COALESCE(regarding_id, bcs_event_id)). A narrow
+ *                      window — small by design.
+ * `days_in_stage` = days since received (in_progress) or days since the Feedback
+ * task closed (pending_review); may be null when the driving date is missing.
+ * `fb_closed_date` is only set for pending_review; `received_date` only for
+ * in_progress. See the v_feedback_pipeline comment in sql/03_views.sql.
+ */
+export type FeedbackPipelineCategory = "in_progress" | "pending_review"
+
+export type FeedbackPipelineRow = {
+  category: FeedbackPipelineCategory
+  task_id: string
+  event_id: string | null
+  event_name: string
+  client_account_id: string | null
+  client_account_name: string | null
+  account_manager_name: string | null
+  meeting_start: string | null
+  meeting_end: string | null
+  meeting_count: number
+  received_date: string | null
+  due_date: string | null
+  fb_closed_date: string | null
+  claimed: boolean
+  claimed_by_id: string | null
+  claimed_by_name: string | null
+  days_in_stage: number | null
+}
+
+/**
  * One confirmed meeting inside a Live Outreach card's right panel. Comes from the
  * jsonb array v_live_outreach.confirmed_meetings (built from public.meetings where
  * meeting_status_label = 'Confirmed'). `contact` is meetings.investor_text and may
