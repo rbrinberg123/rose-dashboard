@@ -36,6 +36,7 @@ DROP VIEW IF EXISTS public.v_institution_detail_top_clients CASCADE;
 DROP VIEW IF EXISTS public.v_institution_detail_style CASCADE;
 DROP VIEW IF EXISTS public.v_institution_detail_top_hosts CASCADE;
 DROP VIEW IF EXISTS public.v_institution_detail_recent_meetings CASCADE;
+DROP VIEW IF EXISTS public.v_relationships CASCADE;
 DROP VIEW IF EXISTS public.v_productivity_person_meeting CASCADE;
 DROP VIEW IF EXISTS public.v_productivity_person_manager_stats CASCADE;
 
@@ -2396,6 +2397,213 @@ SELECT
   is_in_person
 FROM ranked
 WHERE rn <= 25;
+
+
+-- -----------------------------------------------------------------------------
+-- v_relationships
+-- One row per investor institution (~1,524 rows). Powers the Relationships page:
+-- who at Rose has the strongest hosting and booking relationship with each
+-- institution, for two time windows.
+--
+-- DEFINITIONS (match the rest of the app's institution views):
+--   * "Meeting"      = a Confirmed meeting (meeting_status_label = 'Confirmed').
+--   * Institution    = grouped by meetings.institution_name (institution_id is
+--                      just the id of the most-recent meeting for that name).
+--   * Person         = matched by host_name / booker_name text (same fields the
+--                      Feedback Collection and Host Calendar pages use). The
+--                      system account 'CRM Administration' is excluded.
+--   * LTM window     = meeting_date in the trailing 12 months (upper-bounded at
+--                      now() because some meetings are future-dated).
+--
+-- PERCENTAGES: a person's share of the institution's meetings, i.e.
+--   host_pct   = meetings that person HOSTED   for this institution / total
+--   booker_pct = meetings that person BOOKED    for this institution / total
+-- Because ~4% of meetings have no host (and a few no booker), the host / booker
+-- percentages for an institution need NOT sum to 100 — that is intentional; the
+-- denominator is total meetings, not total hosted/booked.
+--
+-- Both windows are emitted as columns on the same row (total_meetings_all /
+-- _ltm, top_hosts_all / _ltm, top_bookers_all / _ltm) so the page can toggle
+-- LTM vs All-time instantly without a refetch. Each top_* value is a jsonb
+-- array of up to 4 objects {name, count, pct}, ranked high-to-low by count with
+-- ties broken by most-recent meeting then name. An institution with no meetings
+-- in the LTM window has total_meetings_ltm = 0 and empty LTM arrays (the page
+-- hides those rows when the LTM toggle is active).
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_relationships AS
+WITH confirmed AS (
+  SELECT
+    m.institution_name,
+    m.institution_id,
+    m.meeting_date,
+    m.host_name,
+    m.booker_name,
+    (m.meeting_date >= CURRENT_DATE - INTERVAL '12 months'
+       AND m.meeting_date <= now()) AS is_ltm
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.institution_name IS NOT NULL
+),
+inst AS (
+  SELECT
+    institution_name,
+    (array_agg(institution_id ORDER BY meeting_date DESC NULLS LAST))[1]
+      AS institution_id,
+    COUNT(*)::int                          AS total_all,
+    COUNT(*) FILTER (WHERE is_ltm)::int     AS total_ltm,
+    -- Role-specific denominators for the percentages: total confirmed meetings
+    -- MINUS meetings whose host (resp. booker) is a system/placeholder account
+    -- ('CRM Administration' or a '#...' account). Null hosts/bookers stay in the
+    -- denominator (the meeting happened; the person just wasn't recorded). These
+    -- are what host_pct / booker_pct divide by, so the visible pill percentages
+    -- add up over "meetings with a known host/booker" rather than all meetings.
+    COUNT(*) FILTER (
+      WHERE host_name IS NULL
+         OR (host_name <> 'CRM Administration' AND host_name NOT LIKE '#%')
+    )::int                                 AS host_denom_all,
+    COUNT(*) FILTER (
+      WHERE is_ltm AND (host_name IS NULL
+         OR (host_name <> 'CRM Administration' AND host_name NOT LIKE '#%'))
+    )::int                                 AS host_denom_ltm,
+    COUNT(*) FILTER (
+      WHERE booker_name IS NULL
+         OR (booker_name <> 'CRM Administration' AND booker_name NOT LIKE '#%')
+    )::int                                 AS booker_denom_all,
+    COUNT(*) FILTER (
+      WHERE is_ltm AND (booker_name IS NULL
+         OR (booker_name <> 'CRM Administration' AND booker_name NOT LIKE '#%'))
+    )::int                                 AS booker_denom_ltm,
+    -- Forward-looking: the ET calendar date of the soonest confirmed meeting
+    -- dated today or later. NULL when nothing is scheduled. Independent of the
+    -- LTM/All-time window (which is backward-looking for the percentages).
+    (
+      MIN(meeting_date) FILTER (
+        WHERE (meeting_date AT TIME ZONE 'America/New_York')::date
+              >= (now() AT TIME ZONE 'America/New_York')::date
+      ) AT TIME ZONE 'America/New_York'
+    )::date                                AS next_meeting_date
+  FROM confirmed
+  GROUP BY institution_name
+),
+-- Long form: one row per meeting per role (host / booker). Excludes null names,
+-- the 'CRM Administration' system account, and the '#...' placeholder accounts
+-- (e.g. '# Rose & Company (Corporate Access)') — the same non-person names the
+-- Productivity people-views drop with NOT LIKE '#%'.
+tally AS (
+  SELECT institution_name, 'host'::text AS role, host_name AS name, is_ltm, meeting_date
+  FROM confirmed
+  WHERE host_name IS NOT NULL
+    AND host_name <> 'CRM Administration'
+    AND host_name NOT LIKE '#%'
+  UNION ALL
+  SELECT institution_name, 'booker'::text AS role, booker_name AS name, is_ltm, meeting_date
+  FROM confirmed
+  WHERE booker_name IS NOT NULL
+    AND booker_name <> 'CRM Administration'
+    AND booker_name NOT LIKE '#%'
+),
+counts AS (
+  SELECT
+    institution_name,
+    role,
+    name,
+    COUNT(*)::int                                     AS cnt_all,
+    COUNT(*) FILTER (WHERE is_ltm)::int               AS cnt_ltm,
+    MAX(meeting_date)                                 AS last_all,
+    MAX(meeting_date) FILTER (WHERE is_ltm)           AS last_ltm
+  FROM tally
+  GROUP BY institution_name, role, name
+),
+ranked_all AS (
+  SELECT
+    c.institution_name, c.role, c.name, c.cnt_all,
+    ROUND(100.0 * c.cnt_all / NULLIF(
+      CASE WHEN c.role = 'host' THEN i.host_denom_all ELSE i.booker_denom_all END,
+      0))::int AS pct_all,
+    ROW_NUMBER() OVER (
+      PARTITION BY c.institution_name, c.role
+      ORDER BY c.cnt_all DESC, c.last_all DESC NULLS LAST, c.name
+    ) AS rn
+  FROM counts c
+  JOIN inst i USING (institution_name)
+  WHERE c.cnt_all > 0
+),
+ranked_ltm AS (
+  SELECT
+    c.institution_name, c.role, c.name, c.cnt_ltm,
+    ROUND(100.0 * c.cnt_ltm / NULLIF(
+      CASE WHEN c.role = 'host' THEN i.host_denom_ltm ELSE i.booker_denom_ltm END,
+      0))::int AS pct_ltm,
+    ROW_NUMBER() OVER (
+      PARTITION BY c.institution_name, c.role
+      ORDER BY c.cnt_ltm DESC, c.last_ltm DESC NULLS LAST, c.name
+    ) AS rn
+  FROM counts c
+  JOIN inst i USING (institution_name)
+  WHERE c.cnt_ltm > 0
+),
+agg_all AS (
+  SELECT
+    institution_name,
+    jsonb_agg(jsonb_build_object('name', name, 'count', cnt_all, 'pct', pct_all)
+              ORDER BY rn) FILTER (WHERE role = 'host')   AS top_hosts_all,
+    jsonb_agg(jsonb_build_object('name', name, 'count', cnt_all, 'pct', pct_all)
+              ORDER BY rn) FILTER (WHERE role = 'booker') AS top_bookers_all
+  FROM ranked_all
+  WHERE rn <= 4
+  GROUP BY institution_name
+),
+agg_ltm AS (
+  SELECT
+    institution_name,
+    jsonb_agg(jsonb_build_object('name', name, 'count', cnt_ltm, 'pct', pct_ltm)
+              ORDER BY rn) FILTER (WHERE role = 'host')   AS top_hosts_ltm,
+    jsonb_agg(jsonb_build_object('name', name, 'count', cnt_ltm, 'pct', pct_ltm)
+              ORDER BY rn) FILTER (WHERE role = 'booker') AS top_bookers_ltm
+  FROM ranked_ltm
+  WHERE rn <= 4
+  GROUP BY institution_name
+),
+-- Distinct Monday-anchored week-starts each institution has a confirmed meeting
+-- in (all time, ANY status window — this powers the "week of X" row filter, not
+-- the percentages). Monday anchor + Mon–Sun span matches the Planning V2 /
+-- Scheduler week convention: date_trunc('week', ...) is Monday-based, evaluated
+-- in America/New_York so the bucket matches the app's local calendar. Each entry
+-- is a 'YYYY-MM-DD' Monday date; the page filters institutions whose array
+-- contains the selected week's Monday.
+weeks AS (
+  SELECT
+    institution_name,
+    to_jsonb(array_agg(week_start ORDER BY week_start)) AS meeting_weeks
+  FROM (
+    SELECT DISTINCT
+      institution_name,
+      (date_trunc('week', meeting_date AT TIME ZONE 'America/New_York'))::date
+        AS week_start
+    FROM confirmed
+  ) w
+  GROUP BY institution_name
+)
+SELECT
+  i.institution_id,
+  i.institution_name,
+  i.total_all                                   AS total_meetings_all,
+  i.total_ltm                                   AS total_meetings_ltm,
+  i.host_denom_all                              AS host_denom_all,
+  i.host_denom_ltm                              AS host_denom_ltm,
+  i.booker_denom_all                            AS booker_denom_all,
+  i.booker_denom_ltm                            AS booker_denom_ltm,
+  i.next_meeting_date                           AS next_meeting_date,
+  COALESCE(aa.top_hosts_all,   '[]'::jsonb)      AS top_hosts_all,
+  COALESCE(aa.top_bookers_all, '[]'::jsonb)      AS top_bookers_all,
+  COALESCE(al.top_hosts_ltm,   '[]'::jsonb)      AS top_hosts_ltm,
+  COALESCE(al.top_bookers_ltm, '[]'::jsonb)      AS top_bookers_ltm,
+  COALESCE(w.meeting_weeks,    '[]'::jsonb)      AS meeting_weeks
+FROM inst i
+LEFT JOIN agg_all aa ON aa.institution_name = i.institution_name
+LEFT JOIN agg_ltm al ON al.institution_name = i.institution_name
+LEFT JOIN weeks   w  ON w.institution_name  = i.institution_name
+ORDER BY i.institution_name;
 
 
 -- -----------------------------------------------------------------------------

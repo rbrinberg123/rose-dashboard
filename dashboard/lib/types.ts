@@ -612,6 +612,44 @@ export type InstitutionSummaryRow = {
   is_heavy_hitter: boolean
 }
 
+// One person inside a top-hosts / top-bookers list on the Relationships page.
+// pct is that person's share of the institution's meetings in the active window
+// (host or booker count ÷ total meetings), 0–100.
+export type RelationshipPerson = {
+  name: string
+  count: number
+  pct: number
+}
+
+// One row per institution on the Relationships page. Both time windows (LTM and
+// All-time) are carried as separate columns so the page toggles instantly with
+// no refetch. Each top_* list holds up to 4 people, ranked high→low by count.
+export type RelationshipRow = {
+  institution_id: string | null
+  institution_name: string
+  total_meetings_all: number
+  total_meetings_ltm: number
+  // Role-specific percentage denominators: total confirmed meetings minus those
+  // whose host / booker is a system account ('CRM Administration' or '#...').
+  // Nulls stay in. host_pct/booker_pct on the people below divide by these, and
+  // the pill tooltip's "X of Y" uses them too.
+  host_denom_all: number
+  host_denom_ltm: number
+  booker_denom_all: number
+  booker_denom_ltm: number
+  // Soonest confirmed meeting dated today-or-later ('YYYY-MM-DD'), or null if
+  // none scheduled. Forward-looking — NOT affected by the LTM/All-time window.
+  next_meeting_date: string | null
+  top_hosts_all: RelationshipPerson[]
+  top_bookers_all: RelationshipPerson[]
+  top_hosts_ltm: RelationshipPerson[]
+  top_bookers_ltm: RelationshipPerson[]
+  // Distinct Monday-anchored week-starts ('YYYY-MM-DD') this institution has a
+  // confirmed meeting in — powers the "week of X" row filter (all-time, not tied
+  // to the LTM/All-time percentage window).
+  meeting_weeks: string[]
+}
+
 export type InstitutionDetailSummaryRow = {
   institution_id: string | null
   institution_name: string

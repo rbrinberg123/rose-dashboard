@@ -77,6 +77,7 @@ const sections: NavSection[] = [
       { href: "/feedback-manager", label: "Feedback Report Pipeline" },
       { href: "/pipeline", label: "Upcoming Meetings" },
       { href: "/onboarding", label: "Onboarding" },
+      { href: "/relationships", label: "Relationships" },
       { href: "/time-off", label: "Time Off" },
     ],
   },
