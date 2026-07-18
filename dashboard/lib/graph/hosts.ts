@@ -33,6 +33,32 @@ export type ResolvedHost = {
   email: string | null
 }
 
+/**
+ * Explicit mailbox overrides, keyed by CANONICAL user id (post alias-fold).
+ *
+ * These three people each have MULTIPLE email addresses in the tenant; this pins
+ * the one their real Outlook calendar lives on so the free/busy lookup can never
+ * pick a secondary alias. As of writing the synced `users.email` already holds
+ * exactly these addresses, so every entry is a no-op against current data — it
+ * is deliberate DEFENSIVE pinning: if a future Dynamics sync ever writes a
+ * secondary SMTP into users.email, the calendar lookup for these VIPs stays put.
+ *
+ * An override wins over users.email and applies even if the canonical identity
+ * has no users row. Keyed to canonical id (not a raw host_id) so it survives the
+ * duplicate-id folding, matching resolveHostEmails' own lookup key.
+ *
+ *   cc5afa45-… Blair Mutschler
+ *   21d086fe-… Brian Smith
+ *   3126290d-… Simon Rose (currently excluded from the Scheduler by choice —
+ *              see EXCLUDED_HOSTS in scheduler-view.tsx — so this entry is inert
+ *              until he is un-excluded; kept here for completeness/robustness).
+ */
+const HOST_EMAIL_OVERRIDES: Record<string, string> = {
+  "cc5afa45-a5ee-ed11-8849-0022482a4b51": "blair@roseandco.com",
+  "21d086fe-e441-ee11-bdf3-0022482a4e0c": "bsmith@roseandco.com",
+  "3126290d-62a6-ed11-aad1-0022482a4b51": "simon@roseandco.com",
+}
+
 /** Load the (tiny) alias table into requestedId -> canonicalId. Mirrors
  *  public.canonical_user_id so host resolution never drifts from the rest of
  *  the app's identity handling. */
@@ -94,16 +120,19 @@ export async function resolveHostEmails(
     }
   }
 
-  // Re-key by the id the caller asked about.
+  // Re-key by the id the caller asked about. An explicit override (keyed by
+  // canonical id) wins over users.email and stands in even when the canonical
+  // identity has no users row.
   for (const id of requested) {
     const canonicalUserId = canonicalOf(id)
+    const override = HOST_EMAIL_OVERRIDES[canonicalUserId]
     const found = byCanonical.get(canonicalUserId)
-    if (!found) continue // canonical identity absent from users → unknown host
+    if (!found && !override) continue // canonical identity absent from users → unknown host
     result.set(id, {
       requestedId: id,
       canonicalUserId,
-      displayName: found.displayName,
-      email: found.email,
+      displayName: found?.displayName ?? null,
+      email: override ?? found?.email ?? null,
     })
   }
   return result

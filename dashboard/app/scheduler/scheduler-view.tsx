@@ -11,6 +11,7 @@ import type {
   SchedulerTimeOffRow,
   SchedulerUnassignedRow,
 } from "@/lib/types"
+import type { HostBusyResponse } from "@/lib/host-busy"
 
 // Brand palette
 const NAVY_DEEP = "#1E2858"
@@ -28,6 +29,19 @@ const REMOTE_STYLE = { fill: "#FFFFFF", border: "#3D5599", text: "#34487F" }
 // row / week-view day column). Low-alpha green over transparent so meeting
 // blocks (opaque) stay fully legible on top. Remote never hatches.
 const OOO_HATCH = `repeating-linear-gradient(45deg, ${OOO_STYLE.border}26, ${OOO_STYLE.border}26 6px, ${OOO_STYLE.border}0D 6px, ${OOO_STYLE.border}0D 12px)`
+
+// ---------------------------------------------------------------------------
+// Outlook busy overlay (Day + Week·one-person). A SECONDARY background cue: the
+// host's real Outlook free/busy, so "other commitments" not in our meeting data
+// become visible. Deliberately a soft, flat slate TINT — never a hatch (OOO owns
+// the diagonal hatch) — and very low-alpha so even a full-height all-day band
+// stays calm. Rendered BEHIND the meeting blocks, which are opaque and paint on
+// top, so a meeting assignment always visually wins where the two overlap (a
+// busy block coinciding with a hosted meeting is almost certainly that same
+// meeting on the host's Outlook calendar — not a conflict, so we don't restate
+// it). Bands are merged per host/day before drawing, so overlapping busy/
+// tentative items never double-darken.
+const BUSY_TINT = "#64748B26" // slate-500 @ ~15% alpha
 
 type TimeOffType = "OOO" | "Remote"
 
@@ -497,6 +511,108 @@ export function SchedulerView({
 
   const selectedHostName = hosts.find((h) => h.host_id === effectiveHost)?.host_name ?? ""
 
+  // ---- Outlook busy overlay (Day + Week·one-person) ----------------------
+  // Off by default; fetched on demand from /api/host-busy and cached per range
+  // so navigating back to a day/week doesn't refetch. Never fetched in the
+  // firm-wide "week-all" view (no per-host track to shade).
+  const [showBusy, setShowBusy] = React.useState(false)
+  const [busyData, setBusyData] = React.useState<HostBusyResponse | null>(null)
+  const [busyLoading, setBusyLoading] = React.useState(false)
+  const [busyError, setBusyError] = React.useState<string | null>(null)
+  const busyCache = React.useRef<Map<string, HostBusyResponse>>(new Map())
+  const busyReqRef = React.useRef(0)
+
+  React.useEffect(() => {
+    if (!showBusy || (mode !== "day" && mode !== "week")) return
+
+    let startDate: string
+    let endDate: string
+    let hostIds: string[]
+    let key: string
+    if (mode === "day") {
+      startDate = endDate = dayYmd
+      hostIds = hosts.map((h) => h.host_id)
+      key = `day:${dayYmd}`
+    } else {
+      startDate = weekDays[0].ymd
+      endDate = weekDays[4].ymd
+      hostIds = effectiveHost ? [effectiveHost] : []
+      key = `week:${startDate}:${effectiveHost}`
+    }
+    if (hostIds.length === 0) return
+
+    const cached = busyCache.current.get(key)
+    if (cached) {
+      setBusyData(cached)
+      setBusyError(null)
+      return
+    }
+
+    const reqId = ++busyReqRef.current
+    setBusyLoading(true)
+    setBusyError(null)
+    fetch("/api/host-busy", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ startDate, endDate, hostIds }),
+    })
+      .then(async (r) => {
+        if (reqId !== busyReqRef.current) return
+        if (!r.ok) {
+          setBusyData(null)
+          setBusyError(
+            r.status === 401
+              ? "Your session expired — please sign in again."
+              : r.status === 403
+                ? "You don't have access to this data."
+                : `Could not load Outlook busy (error ${r.status}).`,
+          )
+          return
+        }
+        const json = (await r.json()) as HostBusyResponse
+        busyCache.current.set(key, json)
+        if (reqId === busyReqRef.current) setBusyData(json)
+      })
+      .catch(() => {
+        if (reqId === busyReqRef.current) {
+          setBusyData(null)
+          setBusyError("Could not reach the server.")
+        }
+      })
+      .finally(() => {
+        if (reqId === busyReqRef.current) setBusyLoading(false)
+      })
+  }, [showBusy, mode, dayYmd, weekDays, effectiveHost, hosts])
+
+  // Merged busy bands (host_id -> Interval[]) for the selected Day. Merging per
+  // host collapses overlapping busy/tentative items into clean bands so the tint
+  // never double-darkens.
+  const dayBusyBands = React.useMemo(() => {
+    const m = new Map<string, Interval[]>()
+    if (!showBusy || mode !== "day" || !busyData) return m
+    for (const [hostId, blocks] of Object.entries(busyData.busyByHost)) {
+      const forDay = blocks
+        .filter((b) => b.day === dayYmd)
+        .map((b) => ({ start: b.startMinutes, end: b.endMinutes }))
+      if (forDay.length) m.set(hostId, mergeIntervals(forDay))
+    }
+    return m
+  }, [showBusy, mode, busyData, dayYmd])
+
+  // Merged busy bands (ymd -> Interval[]) for the single Week host, per weekday.
+  const weekBusyBands = React.useMemo(() => {
+    const m = new Map<string, Interval[]>()
+    if (!showBusy || mode !== "week" || !busyData || !effectiveHost) return m
+    const blocks = busyData.busyByHost[effectiveHost] ?? []
+    for (const d of weekDays) {
+      const forDay = blocks
+        .filter((b) => b.day === d.ymd)
+        .map((b) => ({ start: b.startMinutes, end: b.endMinutes }))
+      if (forDay.length) m.set(d.ymd, mergeIntervals(forDay))
+    }
+    return m
+  }, [showBusy, mode, busyData, effectiveHost, weekDays])
+
   // ---- Firm-wide "Week · everyone" derived data -------------------------
   // Every meeting (assigned + unassigned) in the selected Mon–Fri week, packed
   // into side-by-side lanes per day. Core (1h) only — buffers are omitted here.
@@ -721,12 +837,35 @@ export function SchedulerView({
               </select>
             </div>
           )}
+
+          {/* Outlook busy overlay toggle — Day + Week·one-person only (the
+              firm-wide week has no per-host track to shade). */}
+          {(mode === "day" || mode === "week") && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-muted-foreground">Outlook</label>
+              <label className="flex h-9 cursor-pointer items-center gap-2 rounded-md border border-border bg-card px-2.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={showBusy}
+                  onChange={(e) => setShowBusy(e.target.checked)}
+                  className="size-3.5 accent-[#1E2858]"
+                />
+                <span>Show busy</span>
+                {busyLoading && (
+                  <span className="text-[11px] text-muted-foreground">loading…</span>
+                )}
+              </label>
+            </div>
+          )}
         </div>
+        {showBusy && busyError && (
+          <p className="mt-2 text-[11px] text-destructive">{busyError}</p>
+        )}
       </div>
 
       {/* Legend + caveat — placed above the grid so the key reads first. The
           firm-wide week uses a different palette, so it gets its own legend. */}
-      {mode === "week-all" ? <FirmWeekLegend /> : <Legend />}
+      {mode === "week-all" ? <FirmWeekLegend /> : <Legend showBusy={showBusy} />}
 
       {/* Unassigned meetings — Day view only, for the selected date. Hidden in
           both Week modes. */}
@@ -779,9 +918,10 @@ export function SchedulerView({
           win={dayWindow}
           freeAt={freeAt}
           pctOf={pctOf}
+          busyBands={dayBusyBands}
         />
       ) : mode === "week" ? (
-        <WeekGrid host={selectedHostName} meetings={weekHostMeetings} weekDays={weekDays} win={weekWindow} timeOffByDay={weekTimeOff} />
+        <WeekGrid host={selectedHostName} meetings={weekHostMeetings} weekDays={weekDays} win={weekWindow} timeOffByDay={weekTimeOff} busyBands={weekBusyBands} />
       ) : (
         <FirmWeekGrid weekDays={weekDays} win={firmWeek.win} perDay={firmWeek.perDay} />
       )}
@@ -797,6 +937,7 @@ function DayGrid({
   win,
   freeAt,
   pctOf,
+  busyBands,
 }: {
   rows: {
     host_id: string
@@ -808,6 +949,7 @@ function DayGrid({
   win: Interval
   freeAt: number | null
   pctOf: (win: Interval, t: number) => number
+  busyBands: Map<string, Interval[]>
 }) {
   const ticks = hourTicks(win)
   return (
@@ -878,6 +1020,22 @@ function DayGrid({
                     style={{ left: `${pctOf(win, freeAt)}%`, borderColor: NAVY_DEEP }}
                   />
                 )}
+                {/* Outlook busy tint — behind meeting blocks (which are opaque
+                    and paint on top, so an assignment always wins). Matches the
+                    meeting-block vertical inset so a coincident meeting fully
+                    covers it. */}
+                {busyBands.get(row.host_id)?.map((b, i) => (
+                  <div
+                    key={"busy-" + i}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute top-1.5 bottom-1.5 rounded-sm"
+                    style={{
+                      left: `${pctOf(win, b.start)}%`,
+                      width: `${Math.max(pctOf(win, b.end) - pctOf(win, b.start), 0)}%`,
+                      background: BUSY_TINT,
+                    }}
+                  />
+                ))}
                 {/* Meeting blocks */}
                 {row.meetings.map((m) =>
                   meetingSegments(m).map((s, i) => {
@@ -926,12 +1084,14 @@ function WeekGrid({
   weekDays,
   win,
   timeOffByDay,
+  busyBands,
 }: {
   host: string
   meetings: SchedulerMeetingRow[]
   weekDays: { label: string; date: Date; ymd: string }[]
   win: Interval
   timeOffByDay: Map<string, TimeOffType>
+  busyBands: Map<string, Interval[]>
 }) {
   const ticks = hourTicks(win)
   const pxPerMin = PX_PER_HOUR / 60
@@ -995,6 +1155,21 @@ function WeekGrid({
                     key={t}
                     className="absolute left-0 right-0 border-t border-border/50"
                     style={{ top: topOf(t) }}
+                  />
+                ))}
+                {/* Outlook busy tint — behind meeting blocks (opaque, paint on
+                    top). Matches the meeting-block horizontal inset so a
+                    coincident meeting fully covers it. */}
+                {busyBands.get(d.ymd)?.map((b, i) => (
+                  <div
+                    key={"busy-" + i}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-0.5 right-0.5 rounded-sm"
+                    style={{
+                      top: topOf(b.start),
+                      height: Math.max((b.end - b.start) * pxPerMin, 0),
+                      background: BUSY_TINT,
+                    }}
                   />
                 ))}
                 {/* Meeting blocks */}
@@ -1221,7 +1396,7 @@ function UnassignedSection({
   )
 }
 
-function Legend() {
+function Legend({ showBusy }: { showBusy: boolean }) {
   return (
     <div className={`mb-3 p-3 ${CARD_CLASS}`}>
       <div className="flex flex-wrap items-center gap-4 text-xs">
@@ -1266,6 +1441,12 @@ function Legend() {
           />
           Remote — available, working remotely
         </span>
+        {showBusy && (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-3 w-6 rounded-sm" style={{ background: BUSY_TINT }} />
+            Outlook busy (other commitments)
+          </span>
+        )}
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
         Durations are inferred: only meeting <em>start</em> times are in the data, so every
@@ -1273,6 +1454,15 @@ function Legend() {
         before and after. Times are US Eastern. A host counts as busy whenever a meeting (or its
         buffer) overlaps a time — overlapping meetings are merged into continuous busy bands for
         the free-finder, but each meeting is still drawn separately.
+        {showBusy && (
+          <>
+            {" "}
+            The soft slate shading is each host&apos;s live Outlook free/busy (their other
+            commitments). It&apos;s a background cue only: meeting assignments render on top and
+            take priority, since a busy block coinciding with a hosted meeting is almost always
+            that same meeting on their calendar.
+          </>
+        )}
       </p>
     </div>
   )
