@@ -5,16 +5,23 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 import { CARD_CLASS } from "@/lib/design"
 import type { ConferenceRoomsResponse, RoomSchedule } from "@/lib/conference-rooms"
 
-// Vertical scale — mirrors the Scheduler grid so the two read as one system.
-const PX_PER_HOUR = 44
+// Vertical scale. A touch taller than the Scheduler's 44 so a 30-minute block
+// (the common room booking) has room for the two-line "Busy" + time label.
+const PX_PER_HOUR = 56
 const PX_PER_MIN = PX_PER_HOUR / 60
 
-// Booked block: the same blue the Scheduler grid uses for scheduled meetings,
-// so the two time-grids read as one system. Blue signals "occupied/scheduled",
-// not the alert that red implied. Every occupied status (busy / tentative /
-// oof) renders the same — the room is simply "Booked" (Graph ReadBasic gives
-// free/busy only, no subject).
-const BOOKED = { fill: "#378ADD", border: "#2C6FB0", text: "#FFFFFF" }
+// Booked ("Busy") block — a soft slate / gray-blue surface with a thin left
+// accent bar, so a booked room reads as calmly occupied rather than an alert.
+// All colors are app design tokens (lib/design.ts): the "new" / nav-active
+// pairing #EEF2FB (surface) + #2D4A8A (accent + label) reads as one family, and
+// the time uses the secondary slate text token. Every occupied status (busy /
+// tentative / oof) renders the same — Graph ReadBasic gives free/busy only.
+const BOOKED = {
+  fill: "#EEF2FB", // soft slate / gray-blue surface
+  accent: "#2D4A8A", // 3px left accent — muted slate-blue, a step darker than fill
+  label: "#2D4A8A", // "Busy" label
+  time: "#5B6472", // time range — secondary slate (TEXT_SECONDARY)
+}
 
 const CONTROL_CLASS =
   "inline-flex h-9 items-center justify-center rounded-md border border-border bg-card px-2 text-sm text-foreground transition-colors hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
@@ -152,13 +159,19 @@ export function ConferenceRoomsView() {
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <span
-            className="inline-block size-3 rounded-sm"
-            style={{ backgroundColor: BOOKED.fill, border: `1px solid ${BOOKED.border}` }}
-          />
-          Booked
+            className="relative inline-block size-3.5 overflow-hidden rounded-sm"
+            style={{ backgroundColor: BOOKED.fill }}
+          >
+            <span
+              aria-hidden="true"
+              className="absolute inset-y-0 left-0 w-[3px]"
+              style={{ backgroundColor: BOOKED.accent }}
+            />
+          </span>
+          Busy
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block size-3 rounded-sm border border-border bg-white" />
+          <span className="inline-block size-3.5 rounded-sm border border-border bg-white" />
           Free
         </span>
       </div>
@@ -276,22 +289,38 @@ function RoomColumn({
             const top = topOf(Math.max(b.startMinutes, startMin))
             const bottom = topOf(Math.min(b.endMinutes, endMin))
             const height = Math.max(bottom - top, 4)
-            const label = `${clock(b.startMinutes)}–${clock(b.endMinutes)} ${meridiem(b.endMinutes)}`
+            const timeRange = `${clock(b.startMinutes)}–${clock(b.endMinutes)} ${meridiem(b.endMinutes)}`
             return (
               <div
                 key={i}
-                title={`${label} · Booked`}
-                className="absolute inset-x-0.5 box-border overflow-hidden rounded px-1 py-0.5"
-                style={{ top, height, backgroundColor: BOOKED.fill, border: `1px solid ${BOOKED.border}` }}
+                title={`Busy · ${timeRange}`}
+                className="absolute inset-x-0.5 box-border overflow-hidden rounded-sm"
+                style={{ top, height, backgroundColor: BOOKED.fill }}
               >
-                {height >= 16 ? (
-                  <span
-                    className="block truncate text-[10px] font-medium leading-tight"
-                    style={{ color: BOOKED.text }}
-                  >
-                    {label}
-                  </span>
-                ) : null}
+                {/* Thin left accent bar (clipped to the rounded corners). */}
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-y-0 left-0 w-[3px]"
+                  style={{ backgroundColor: BOOKED.accent }}
+                />
+                <div className="min-w-0 py-0.5 pl-2.5 pr-1">
+                  {height >= 14 ? (
+                    <span
+                      className="block truncate text-[10px] font-semibold leading-tight"
+                      style={{ color: BOOKED.label }}
+                    >
+                      Busy
+                    </span>
+                  ) : null}
+                  {height >= 26 ? (
+                    <span
+                      className="block truncate text-[10px] leading-tight"
+                      style={{ color: BOOKED.time }}
+                    >
+                      {timeRange}
+                    </span>
+                  ) : null}
+                </div>
               </div>
             )
           })
