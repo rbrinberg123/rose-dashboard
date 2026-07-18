@@ -78,6 +78,7 @@ const sections: NavSection[] = [
       { href: "/pipeline", label: "Upcoming Meetings" },
       { href: "/onboarding", label: "Onboarding" },
       { href: "/relationships", label: "Relationships" },
+      { href: "/conference-rooms", label: "Conference Rooms" },
       { href: "/time-off", label: "Time Off" },
     ],
   },
