@@ -50,13 +50,28 @@ The nightly Dynamics sync (Phase 6a) needs **five more** server-only vars:
 
 | Var                  | Where it comes from                                              |
 | -------------------- | ---------------------------------------------------------------- |
-| `AZURE_TENANT_ID`    | Azure AD → app registration → Directory (tenant) ID              |
-| `AZURE_CLIENT_ID`    | Azure AD → app registration → Application (client) ID            |
-| `AZURE_CLIENT_SECRET`| Azure AD → app registration → Certificates & secrets            |
+| `AZURE_TENANT_ID`    | **Dynamics** app registration → Directory (tenant) ID           |
+| `AZURE_CLIENT_ID`    | **Dynamics** app registration → Application (client) ID          |
+| `AZURE_CLIENT_SECRET`| **Dynamics** app registration → Certificates & secrets          |
 | `DYNAMICS_BASE_URL`  | Dynamics env URL, no trailing slash (`https://clientcrm.crm.dynamics.com`) |
 | `CRON_SECRET`        | A long random value you generate (`openssl rand -hex 32`)        |
 
 See [Dynamics sync](#dynamics-sync-phase-6a) below for how these are used.
+
+The Microsoft Graph calendar integration (`lib/graph/*`, free/busy lookups)
+uses a **separate** Azure app and its own three vars — never reuse the
+`AZURE_*` values here:
+
+| Var                  | Where it comes from                                              |
+| -------------------- | ---------------------------------------------------------------- |
+| `GRAPH_TENANT_ID`    | **Graph/calendar** app registration → Directory (tenant) ID     |
+| `GRAPH_CLIENT_ID`    | **Graph/calendar** app registration → Application (client) ID    |
+| `GRAPH_CLIENT_SECRET`| **Graph/calendar** app registration → Certificates & secrets    |
+
+The Graph app has `Calendars.ReadBasic.All` (admin-consented) and no Dataverse
+access; the Dynamics app is a Dataverse Application User with no Graph
+permission. They are different apps — pointing `AZURE_*` at the Graph app
+breaks the sync (Dataverse "user is not a member of the organization").
 
 ### Useful scripts
 
@@ -279,11 +294,14 @@ auth on preview deploys):
 | `SUPABASE_SERVICE_ROLE_KEY`      | service_role secret (not anon!)    |
 | `NEXT_PUBLIC_SUPABASE_URL`       | Same Project URL                   |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY`  | anon public key                    |
-| `AZURE_TENANT_ID`                | Azure AD tenant (directory) ID     |
-| `AZURE_CLIENT_ID`                | Azure AD application (client) ID   |
-| `AZURE_CLIENT_SECRET`            | Azure AD client secret             |
+| `AZURE_TENANT_ID`                | Dynamics app — tenant (directory) ID |
+| `AZURE_CLIENT_ID`                | Dynamics app — application (client) ID |
+| `AZURE_CLIENT_SECRET`            | Dynamics app — client secret       |
 | `DYNAMICS_BASE_URL`              | `https://clientcrm.crm.dynamics.com` |
 | `CRON_SECRET`                    | Long random secret (also auto-injected into cron requests by Vercel) |
+| `GRAPH_TENANT_ID`                | Graph/calendar app — tenant (directory) ID |
+| `GRAPH_CLIENT_ID`                | Graph/calendar app — application (client) ID |
+| `GRAPH_CLIENT_SECRET`            | Graph/calendar app — client secret (separate app from `AZURE_*`) |
 
 > **Cron note:** Vercel Cron is configured in [`vercel.json`](vercel.json)
 > and runs on the **production** deployment only. Setting `CRON_SECRET` in

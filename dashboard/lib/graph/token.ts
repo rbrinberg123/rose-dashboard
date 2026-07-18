@@ -11,9 +11,14 @@
  *     so the token's audience is Graph, not Dynamics. Because the audience
  *     differs, this module keeps its OWN cache — the two tokens are not
  *     interchangeable and must never share storage.
- *   - It uses the same Azure app registration (AZURE_TENANT_ID / _CLIENT_ID /
- *     _CLIENT_SECRET). That app has application permission
- *     `Calendars.ReadBasic.All` (admin-consented) for Graph.
+ *   - It uses its OWN Azure app registration, read from GRAPH_TENANT_ID /
+ *     GRAPH_CLIENT_ID / GRAPH_CLIENT_SECRET — deliberately SEPARATE from the
+ *     Dynamics sync's AZURE_* vars. These are different Azure apps: the Graph
+ *     app has application permission `Calendars.ReadBasic.All` (admin-consented)
+ *     but no Dataverse access, while the Dynamics app is a Dataverse Application
+ *     User but has no Graph permission. They previously shared the AZURE_* names,
+ *     and pointing those at the Graph app broke the Dynamics sync (Dataverse
+ *     "user is not a member of the organization"). Never merge them back.
  *
  * Self-contained by design (see lib/graph/index.ts) so the Graph integration
  * can be extended without reaching into the sync code.
@@ -80,9 +85,11 @@ export async function getGraphAccessToken(): Promise<string> {
     return tokenCache.token
   }
 
-  const tenant = requireEnv("AZURE_TENANT_ID")
-  const clientId = requireEnv("AZURE_CLIENT_ID")
-  const clientSecret = requireEnv("AZURE_CLIENT_SECRET")
+  // GRAPH_* — the calendar app's own registration, separate from the Dynamics
+  // sync's AZURE_* (see the file header for why they must never be merged).
+  const tenant = requireEnv("GRAPH_TENANT_ID")
+  const clientId = requireEnv("GRAPH_CLIENT_ID")
+  const clientSecret = requireEnv("GRAPH_CLIENT_SECRET")
 
   const body = new URLSearchParams({
     grant_type: "client_credentials",
