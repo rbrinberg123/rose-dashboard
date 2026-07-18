@@ -359,9 +359,17 @@ export function mapContract(row: Row): Row {
  * left untouched — so a user's first_seen_at is preserved across runs.
  */
 export function mapSystemUser(row: Row, lastSeenAt: string): Row {
+  // internalemailaddress is the user's Office 365 mailbox — the address Graph
+  // calendar lookups need. Blank/whitespace (system + app accounts, some
+  // ex-employees) is normalised to null so lib/graph resolves it as "no
+  // calendar available" rather than attempting a doomed lookup.
+  const rawEmail = str(row["internalemailaddress"])
+  const email = rawEmail && rawEmail.trim() ? rawEmail.trim() : null
+
   return {
     user_id: row["systemuserid"],
     display_name: str(row["fullname"]) ?? "<Unknown User>",
+    email,
     last_seen_at: lastSeenAt,
     is_active: row["isdisabled"] === undefined ? true : !row["isdisabled"],
   }

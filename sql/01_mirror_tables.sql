@@ -23,6 +23,10 @@ DROP TABLE IF EXISTS public.users CASCADE;
 CREATE TABLE public.users (
   user_id          uuid PRIMARY KEY,
   display_name     text NOT NULL,
+  -- Office 365 mailbox (Dynamics systemuser.internalemailaddress). Nullable:
+  -- system/app accounts and some ex-employees have none. Source of truth for
+  -- host->email in Microsoft Graph calendar features (lib/graph/hosts.ts).
+  email            text,
   first_seen_at    timestamptz NOT NULL DEFAULT now(),
   last_seen_at     timestamptz NOT NULL DEFAULT now(),
   is_active        boolean NOT NULL DEFAULT true
