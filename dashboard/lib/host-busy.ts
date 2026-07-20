@@ -18,15 +18,13 @@
  * Mailbox getSchedule runs "as" (app-only; the caller is just the identity
  * context, NOT whose calendar we read — see lib/graph/schedule.ts).
  *
- * Defaults to a person (scott@) for now, overridable per environment via
- * GRAPH_SCHEDULE_CALLER_MAILBOX. TODO: move to a dedicated, permanent service
- * mailbox not tied to any individual — the Conference Rooms feature already does
- * this (it runs as a room resource mailbox), so the calendar never breaks if a
- * staff member leaves. Point GRAPH_SCHEDULE_CALLER_MAILBOX at that mailbox once
- * it exists.
+ * Defaults to dashboards@roseandco.com — a dedicated shared service mailbox not
+ * tied to any individual, so the calendar never breaks if a staff member
+ * leaves. (Mirrors what the Conference Rooms feature does with a room resource
+ * mailbox.) Overridable per environment via GRAPH_SCHEDULE_CALLER_MAILBOX.
  */
 export const SCHEDULE_CALLER_MAILBOX =
-  process.env.GRAPH_SCHEDULE_CALLER_MAILBOX?.trim() || "scott@roseandco.com"
+  process.env.GRAPH_SCHEDULE_CALLER_MAILBOX?.trim() || "dashboards@roseandco.com"
 
 /** Everything is presented in US Eastern wall-clock, matching the Scheduler. */
 export const HOST_BUSY_TIME_ZONE = "America/New_York"
