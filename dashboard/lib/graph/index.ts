@@ -6,6 +6,7 @@
  *
  * Stage 1: app-only auth + the shared HTTP core.
  * Stage 2: getSchedule (calendar free/busy).
+ * Stage 3: sendMail (send an HTML email as the dashboards@ mailbox).
  */
 
 export { getGraphAccessToken, clearGraphTokenCache } from "./token"
@@ -24,3 +25,5 @@ export type {
 } from "./schedule"
 export { resolveHostEmail, resolveHostEmails, getHostSchedules } from "./hosts"
 export type { ResolvedHost, HostCalendarResult, GetHostSchedulesOptions } from "./hosts"
+export { sendMail, MAIL_SENDER } from "./mail"
+export type { SendMailOptions } from "./mail"

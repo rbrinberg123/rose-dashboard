@@ -16,6 +16,12 @@ const RIGHT = 700
 const CARD = LEFT + RIGHT // 1080
 const CONTAINER = CARD
 
+// Dynamics CRM view of the Live Outreach clients (bcs_event entity list), linked
+// from the email header. Stored with &amp; (not raw &) because it drops straight
+// into an href attribute in the template below without going through esc().
+const CRM_LIVE_OUTREACH_URL =
+  "https://clientcrm.crm.dynamics.com/main.aspx?appid=1d8581bf-b4ad-ee11-a569-0022482a4e0c&amp;pagetype=entitylist&amp;etn=bcs_event&amp;viewid=6215cdd6-2fdc-f011-8544-7ced8d175335&amp;viewType=1039"
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 function esc(s: unknown): string {
@@ -128,7 +134,7 @@ function meetingsBlock(row: LiveOutreachRow): string {
   return header + `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;">${rowsHtml}</table>`
 }
 
-function card(row: LiveOutreachRow): string {
+function card(row: LiveOutreachRow, index: number): string {
   const slots = openSlots(row.slots_remaining, row.of_slots)
   const tickerHtml = row.ticker ? `<span style="color:#1E2858;">${esc(row.ticker)}</span>&nbsp; ` : ""
   const industryHtml = row.industry ? `<div style="font-size:12px;margin-top:2px;"><span style="color:#6B7280;">${esc(row.industry)}</span></div>` : ""
@@ -139,12 +145,20 @@ function card(row: LiveOutreachRow): string {
     : `<span style="font-size:12px;color:#9AA1AD;">No dates set</span>`
   const mode = modeTag(row.event_mode)
 
+  // Faint full-width hairline ABOVE every card except the first, so consecutive
+  // client blocks are clearly separated as you scroll. Drawn as a top border on
+  // BOTH panel cells — because they share one border-collapsed row, the borders
+  // merge into a single continuous line across the full 1080px (edge to edge).
+  // Same border-on-cell technique as the meeting-row / left-panel dividers, so
+  // it renders consistently in Outlook.
+  const topBorder = index > 0 ? "border-top:1px solid #E5E8EC;" : ""
+
   // No box border: the two panels read as one clean card, separated only by the
   // subtle right-panel shading (#F7F8FA) — mirroring the live page. Cards are set
   // apart by the 14px gap, which shows the canvas tint behind them (see wrapper).
   return `<table width="${CARD}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin:0 0 14px 0;width:${CARD}px;font-family:Arial,Helvetica,sans-serif;">
     <tr>
-      <td width="${LEFT}" valign="top" bgcolor="#FFFFFF" style="width:${LEFT}px;vertical-align:top;background-color:#FFFFFF;padding:16px 18px;">
+      <td width="${LEFT}" valign="top" bgcolor="#FFFFFF" style="width:${LEFT}px;vertical-align:top;background-color:#FFFFFF;padding:16px 18px;${topBorder}">
         <div style="font-size:15px;font-weight:bold;line-height:1.3;">${tickerHtml}<span style="color:#1A2233;">${esc(row.client_account_name ?? row.event_name ?? "—")}</span></div>
         ${industryHtml}
         ${pillRow}
@@ -167,7 +181,7 @@ function card(row: LiveOutreachRow): string {
           </table>
         </div>
       </td>
-      <td width="${RIGHT}" valign="top" bgcolor="#F7F8FA" style="width:${RIGHT}px;vertical-align:top;background-color:#F7F8FA;padding:16px 18px;">
+      <td width="${RIGHT}" valign="top" bgcolor="#F7F8FA" style="width:${RIGHT}px;vertical-align:top;background-color:#F7F8FA;padding:16px 18px;${topBorder}">
         ${meetingsBlock(row)}
       </td>
     </tr>
@@ -182,6 +196,7 @@ export function buildEmailHtml(rows: LiveOutreachRow[], todayLabel: string): str
 <table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
   <tr><td style="padding:0 0 4px 0;">
     <div style="font-size:22px;font-weight:bold;"><span style="color:#1A2233;">Non-Deal Roadshow Update - ${esc(todayLabel)}</span></div>
+    <div style="font-size:15px;padding:6px 0 2px 0;"><span style="color:#1A2233;">Please see CRM for <a href="${CRM_LIVE_OUTREACH_URL}" target="_blank" rel="noopener" style="color:#2D4A8A;text-decoration:underline;"><span style="color:#2D4A8A;">Live Outreach</span></a></span></div>
     <div style="font-size:12px;padding:4px 0 8px 0;"><span style="color:#6B7280;">${rows.length} event${rows.length === 1 ? "" : "s"} in active outreach &middot; ${totalMeetings} confirmed meeting${totalMeetings === 1 ? "" : "s"}</span></div>
     <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;padding:0 0 16px 0;"><tr>
       <td valign="middle" style="padding:0 6px 0 0;vertical-align:middle;">${pill("#EEF2FB", "#2D4A8A", "NEW", 10, "1px 6px")}</td>
@@ -190,7 +205,7 @@ export function buildEmailHtml(rows: LiveOutreachRow[], todayLabel: string): str
       <td valign="middle" style="font-size:11px;vertical-align:middle;"><span style="color:#6B7280;">Number of prior Rose &amp; Co meetings with this institution</span></td>
     </tr></table>
   </td></tr>
-  <tr><td bgcolor="#F4F6F9" style="background-color:#F4F6F9;padding:14px 0 2px 0;">
+  <tr><td bgcolor="#F4F6F9" style="background-color:#F4F6F9;padding:0 0 2px 0;border-top:1px solid #888888;">
 ${cards}
   </td></tr>
 </table>

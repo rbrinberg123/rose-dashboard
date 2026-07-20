@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import type { LiveOutreachRow, LiveOutreachMeeting } from "@/lib/types"
 import { meetingHistoryFlag } from "./history-flag"
 import { CopyEmailButton } from "./copy-email-button"
+import { SendEmailButton } from "./send-email-button"
 
 // NEW flag uses the palette's "new" blue; the prior-meeting count uses TEAL —
 // deliberately different from the navy "Confirmed Meetings" header badge.
@@ -291,7 +292,12 @@ export function LiveOutreachView({ rows }: { rows: LiveOutreachRow[] }) {
               ? "No events are currently in Live Outreach."
               : `${rows.length} event${rows.length === 1 ? "" : "s"} in active outreach · ${totalMeetings} confirmed meeting${totalMeetings === 1 ? "" : "s"}`
           }
-          rightSlot={<CopyEmailButton rows={rows} />}
+          rightSlot={
+            <div className="flex items-center gap-2">
+              <CopyEmailButton rows={rows} />
+              <SendEmailButton />
+            </div>
+          }
         />
       </div>
 
