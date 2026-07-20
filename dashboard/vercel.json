@@ -1,6 +1,7 @@
 {
   "crons": [
     { "path": "/api/sync-dynamics", "schedule": "*/10 11-22 * * 1-5" },
-    { "path": "/api/client-summary/refresh-all", "schedule": "0 8 * * *" }
+    { "path": "/api/client-summary/refresh-all", "schedule": "0 8 * * *" },
+    { "path": "/api/live-outreach/send-email", "schedule": "30 11,12 * * 1-5" }
   ]
 }

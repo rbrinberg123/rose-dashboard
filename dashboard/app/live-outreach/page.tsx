@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
+import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { LiveOutreachView } from "./live-outreach-view"
 import { loadLiveOutreachRows } from "./load"
 
@@ -9,6 +10,13 @@ export const metadata: Metadata = { title: "Live Outreach" }
 
 export default async function LiveOutreachPage() {
   const { rows, error } = await loadLiveOutreachRows()
+
+  // Prefill the "Send Test Email" box with the signed-in user's address.
+  const supabase = await getSupabaseServerAuth()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  const userEmail = user?.email ?? undefined
 
   if (error) {
     return (
@@ -23,7 +31,7 @@ export default async function LiveOutreachPage() {
 
   return (
     <PageShell title="Live Outreach" hideHeader canvas>
-      <LiveOutreachView rows={rows} />
+      <LiveOutreachView rows={rows} userEmail={userEmail} />
     </PageShell>
   )
 }

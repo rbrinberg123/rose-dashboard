@@ -7,8 +7,7 @@ import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { LiveOutreachRow, LiveOutreachMeeting } from "@/lib/types"
 import { meetingHistoryFlag } from "./history-flag"
-import { CopyEmailButton } from "./copy-email-button"
-import { SendEmailButton } from "./send-email-button"
+import { SendEmailControls } from "./send-email-button"
 
 // NEW flag uses the palette's "new" blue; the prior-meeting count uses TEAL —
 // deliberately different from the navy "Confirmed Meetings" header badge.
@@ -295,7 +294,7 @@ function OutreachCard({ row }: { row: LiveOutreachRow }) {
   )
 }
 
-export function LiveOutreachView({ rows }: { rows: LiveOutreachRow[] }) {
+export function LiveOutreachView({ rows, userEmail }: { rows: LiveOutreachRow[]; userEmail?: string }) {
   const totalMeetings = rows.reduce((sum, r) => sum + (r.confirmed_meeting_count ?? 0), 0)
   // Today's date, rendered server-side on every request (the page is
   // force-dynamic), so it rolls over to the current day automatically.
@@ -311,12 +310,7 @@ export function LiveOutreachView({ rows }: { rows: LiveOutreachRow[] }) {
               ? "No events are currently in Live Outreach."
               : `${rows.length} event${rows.length === 1 ? "" : "s"} in active outreach · ${totalMeetings} confirmed meeting${totalMeetings === 1 ? "" : "s"}`
           }
-          rightSlot={
-            <div className="flex items-center gap-2">
-              <CopyEmailButton rows={rows} />
-              <SendEmailButton />
-            </div>
-          }
+          rightSlot={<SendEmailControls userEmail={userEmail} />}
         />
       </div>
 
