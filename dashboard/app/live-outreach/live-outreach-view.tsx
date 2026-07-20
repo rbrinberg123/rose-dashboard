@@ -167,6 +167,24 @@ function HistoryLegend() {
   )
 }
 
+// ---- live-meeting city pill (teal, pin icon) -------------------------------
+// Only live meetings get a pill; virtual meetings render nothing. The pin icon
+// is the "live/in-person" indicator; the city follows it when known (just the
+// pin when the city is unknown). Light teal fill / dark teal text, matching the
+// email's version.
+function LiveCityPill({ meeting }: { meeting: LiveOutreachMeeting }) {
+  if (!meeting.is_in_person) return null
+  return (
+    <span
+      className="ml-1.5 inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full align-middle font-semibold"
+      style={{ padding: "1px 7px", fontSize: 10, background: "#E1F0F2", color: "#146874" }}
+    >
+      <MapPin className="size-3" />
+      {meeting.city}
+    </span>
+  )
+}
+
 // ---- one confirmed meeting line: date · [flag] · institution · contact -----
 function MeetingLine({ m }: { m: LiveOutreachMeeting }) {
   return (
@@ -195,6 +213,7 @@ function MeetingLine({ m }: { m: LiveOutreachMeeting }) {
             <span style={{ color: TEXT_MUTED }}>{m.contact}</span>
           </>
         ) : null}
+        <LiveCityPill meeting={m} />
       </div>
     </li>
   )
@@ -228,7 +247,7 @@ function OutreachCard({ row }: { row: LiveOutreachRow }) {
         <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
           <Stat label="Div Yield" value={formatYield(row.div_yield)} />
           <Stat label="Mkt Cap" value={formatMcap(row.market_cap_b)} />
-          <Stat label="Lead" value={row.sales_lead_name ?? "—"} title={row.sales_lead_name ?? undefined} />
+          <Stat label="Client Lead" value={row.sales_lead_name ?? "—"} title={row.sales_lead_name ?? undefined} />
           <OpenSlotsStat remaining={row.slots_remaining} total={row.of_slots} />
         </div>
 

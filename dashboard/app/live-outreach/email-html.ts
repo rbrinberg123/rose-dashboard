@@ -7,7 +7,7 @@
 // NOT a full <html> document, so it can be dropped into an offscreen element and
 // copied as rich text, or written to the clipboard as text/html.
 
-import type { LiveOutreachRow } from "@/lib/types"
+import type { LiveOutreachRow, LiveOutreachMeeting } from "@/lib/types"
 import { meetingHistoryFlag } from "./history-flag"
 
 // Layout widths (px). Wider build, matching the approved snapshot.
@@ -108,12 +108,30 @@ function openSlots(remaining: number | null, total: number | null) {
   }
 }
 
+// Live-meeting location indicator for the email. The 📍 pin is the "live/
+// in-person" symbol (a real Unicode glyph — renders in Outlook, unlike icon
+// fonts which show as blank boxes), followed by the city when known (just the
+// pin when unknown). Outlook drops inline <span> background-color, so this
+// degrades gracefully: browsers/Gmail show a light-teal pill; Outlook shows the
+// pin + city in dark-teal text. Virtual meetings get nothing.
+function liveCityTag(m: LiveOutreachMeeting): string {
+  if (!m.is_in_person) return ""
+  const text = m.city ? `📍&nbsp;${esc(m.city)}` : "📍"
+  return `&nbsp;<span style="display:inline-block;background-color:#E1F0F2;color:#146874;font-size:11px;font-weight:bold;padding:1px 7px;border-radius:9px;white-space:nowrap;">${text}</span>`
+}
+
 function meetingsBlock(row: LiveOutreachRow): string {
   const meetings = row.confirmed_meetings ?? []
   const count = row.confirmed_meeting_count ?? 0
-  // Plain-text count in parentheses — renders reliably in Outlook (a styled
-  // navy pill rendered as a dark box with a barely-visible number).
-  const header = `<div style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;"><span style="color:#5B6472;">Confirmed Meetings (${count})</span></div>`
+  // "Confirmed Meetings" + the count badge, laid out as two table cells so they
+  // sit side by side on one line (Outlook-safe). The badge is the SAME pill() as
+  // the NEW/count/urgency pills (identical size/padding/radius/centering) — only
+  // the fill (dark navy #1A2233) and text (white) differ, to match the website.
+  // Dark fill holds because pill() applies it via the <td> bgcolor attribute.
+  const header = `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin-bottom:6px;"><tr>
+    <td valign="middle" style="vertical-align:middle;padding-right:8px;font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;"><span style="color:#5B6472;">Confirmed Meetings</span></td>
+    <td valign="middle" style="vertical-align:middle;">${pill("#1A2233", "#FFFFFF", String(count), 9, "1px 7px")}</td>
+  </tr></table>`
   if (meetings.length === 0) {
     return header + `<div style="font-size:13px;padding:4px 0;"><span style="color:#9AA1AD;">No confirmed meetings yet.</span></div>`
   }
@@ -127,7 +145,7 @@ function meetingsBlock(row: LiveOutreachRow): string {
       return `<tr>
         <td width="58" valign="top" style="font-size:11px;font-weight:bold;color:#1E2858;padding:4px 8px 4px 0;white-space:nowrap;vertical-align:top;${sep}">${esc(fmtMeetingDate(m.meeting_date))}</td>
         <td width="46" align="center" valign="top" style="width:46px;padding:4px 6px 4px 0;text-align:center;white-space:nowrap;vertical-align:top;${sep}">${flag}</td>
-        <td valign="top" style="font-size:13px;color:#1A2233;padding:4px 0;vertical-align:top;${sep}">${esc(m.institution_name ?? "—")}${contact}</td>
+        <td valign="top" style="font-size:13px;color:#1A2233;padding:4px 0;vertical-align:top;${sep}">${esc(m.institution_name ?? "—")}${contact}${liveCityTag(m)}</td>
       </tr>`
     })
     .join("")
@@ -168,7 +186,7 @@ function card(row: LiveOutreachRow, index: number): string {
             ${statCell("Mkt Cap", fmtMcap(row.market_cap_b))}
           </tr>
           <tr>
-            ${statCell("Lead", row.sales_lead_name ?? "—")}
+            ${statCell("Client Lead", row.sales_lead_name ?? "—")}
             ${statCell("Open Slots", slots.value, slots.danger, slots.title)}
           </tr>
         </table>
@@ -198,12 +216,13 @@ export function buildEmailHtml(rows: LiveOutreachRow[], todayLabel: string): str
     <div style="font-size:22px;font-weight:bold;"><span style="color:#1A2233;">Non-Deal Roadshow Update - ${esc(todayLabel)}</span></div>
     <div style="font-size:15px;padding:6px 0 2px 0;"><span style="color:#1A2233;">Please see CRM for <a href="${CRM_LIVE_OUTREACH_URL}" target="_blank" rel="noopener" style="color:#2D4A8A;text-decoration:underline;"><span style="color:#2D4A8A;">Live Outreach</span></a></span></div>
     <div style="font-size:12px;padding:4px 0 8px 0;"><span style="color:#6B7280;">${rows.length} event${rows.length === 1 ? "" : "s"} in active outreach &middot; ${totalMeetings} confirmed meeting${totalMeetings === 1 ? "" : "s"}</span></div>
-    <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;padding:0 0 16px 0;"><tr>
+    <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr>
       <td valign="middle" style="padding:0 6px 0 0;vertical-align:middle;">${pill("#EEF2FB", "#2D4A8A", "NEW", 10, "1px 6px")}</td>
-      <td valign="middle" style="padding:0 16px 0 0;font-size:11px;vertical-align:middle;"><span style="color:#6B7280;">First Rose &amp; Co meeting with this institution</span></td>
+      <td valign="middle" style="padding:0 16px 0 0;font-size:11px;vertical-align:middle;"><span style="color:#6B7280;">First <span style="color:#6B7280;font-weight:bold;">Rose &amp; Co</span> meeting with this institution</span></td>
       <td valign="middle" style="padding:0 6px 0 0;vertical-align:middle;">${pill("#E1F0F2", "#146874", "1", 9, "1px 7px")}</td>
-      <td valign="middle" style="font-size:11px;vertical-align:middle;"><span style="color:#6B7280;">Number of prior Rose &amp; Co meetings with this institution</span></td>
+      <td valign="middle" style="font-size:11px;vertical-align:middle;"><span style="color:#6B7280;">Number of prior <span style="color:#6B7280;font-weight:bold;">Rose &amp; Co</span> meetings with this institution</span></td>
     </tr></table>
+    <div style="font-size:10px;padding:6px 0 16px 0;"><em style="color:#9AA1AD;font-style:italic;">*does not include 3rd party meetings</em></div>
   </td></tr>
   <tr><td bgcolor="#F4F6F9" style="background-color:#F4F6F9;padding:0 0 2px 0;border-top:1px solid #888888;">
 ${cards}

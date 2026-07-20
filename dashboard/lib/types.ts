@@ -935,6 +935,12 @@ export type LiveOutreachMeeting = {
   // (missing client or institution) → no history flag. Drives the NEW / count
   // flags via app/live-outreach/history-flag.ts.
   prior_meeting_count?: number | null
+  // Per-meeting live/virtual flag + city, added by app/live-outreach/load.ts
+  // (not on v_live_outreach — looked up from public.meetings). is_in_person =
+  // true for a Live meeting; city is its city name (from the meetings _raw blob),
+  // null when unknown. Drive the "Live · {city}" pill shown on live meetings.
+  is_in_person?: boolean | null
+  city?: string | null
 }
 
 /**

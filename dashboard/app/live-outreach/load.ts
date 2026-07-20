@@ -138,6 +138,35 @@ export async function loadLiveOutreachRows(): Promise<{
     }
   }
 
+  // ---- per-meeting live flag + city ----------------------------------------
+  // v_live_outreach's confirmed_meetings JSON carries no live/city info, so we
+  // look it up from public.meetings for exactly the meetings shown: is_in_person
+  // (Live vs Virtual) and the city NAME, which lives only inside the raw Dynamics
+  // blob under _bcs_city_value's FormattedValue (there is no cities lookup table).
+  // Fails soft — any error just leaves meetings without the Live/city pill.
+  const shownMeetingIds = Array.from(
+    new Set(
+      rows.flatMap((r) => (r.confirmed_meetings ?? []).map((m) => m.meeting_id)).filter(Boolean),
+    ),
+  )
+  const meetingLoc = new Map<string, { isInPerson: boolean; city: string | null }>()
+  if (shownMeetingIds.length > 0) {
+    const { data: locRows } = await sb
+      .from("meetings")
+      // Pull the city straight out of _raw's formatted value (a lean JSON-path
+      // select, so we don't fetch the whole blob).
+      .select(
+        'meeting_id,is_in_person,city:_raw->>"_bcs_city_value@OData.Community.Display.V1.FormattedValue"',
+      )
+      .in("meeting_id", shownMeetingIds)
+    for (const row of locRows ?? []) {
+      meetingLoc.set(row.meeting_id as string, {
+        isInPerson: row.is_in_person === true,
+        city: (row.city as string | null) || null,
+      })
+    }
+  }
+
   const enriched: LiveOutreachRow[] = rows.map((r) => ({
     ...r,
     confirmed_meetings: (r.confirmed_meetings ?? []).map((m) => {
@@ -148,7 +177,13 @@ export async function loadLiveOutreachRows(): Promise<{
         // Subtract the current meeting itself when it is in the counted set.
         prior = Math.max(0, total - (countedMeetingIds.has(m.meeting_id) ? 1 : 0))
       }
-      return { ...m, prior_meeting_count: prior }
+      const loc = meetingLoc.get(m.meeting_id)
+      return {
+        ...m,
+        prior_meeting_count: prior,
+        is_in_person: loc?.isInPerson ?? null,
+        city: loc?.city ?? null,
+      }
     }),
   }))
 
