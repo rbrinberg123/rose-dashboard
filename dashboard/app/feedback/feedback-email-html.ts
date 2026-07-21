@@ -20,11 +20,10 @@ import type { FeedbackOutstandingRow } from "@/lib/types"
 // <td width> so columns line up down the whole email regardless of cell content.
 const CONTAINER = 1040
 const COLS = {
-  date: 96,
-  client: 200,
-  institution: 200,
-  investor: 170,
-  flags: 158,
+  date: 60,
+  ticker: 64,
+  institution: 380,
+  investor: 320,
   status: 104,
   days: 112,
 } as const
@@ -39,9 +38,6 @@ const SUBTLE = "#6B7280"
 const CORAL = { text: "#993C1D", pillBg: "#FAECE7" } // no feedback
 const AMBER = { text: "#854F0B", pillBg: "#FAEEDA" } // awaiting additional
 const RED = { text: "#A32D2D", pillBg: "#FCEBEB" } // 30+ days stale
-const TEAL = { text: "#146874", pillBg: "#E1F0F2" } // in-person
-const BLUE = { text: "#2D4A8A", pillBg: "#EEF2FB" } // virtual
-const PURPLE = { text: "#6B3FA0", pillBg: "#F3ECFB" } // group meeting
 
 // The one incomplete-but-started feedback state the view surfaces; every other
 // row out of v_feedback_outstanding is the blank / no-feedback bucket.
@@ -59,14 +55,21 @@ function esc(s: unknown): string {
     .replace(/"/g, "&quot;")
 }
 
+// Truncate to n characters, using an ellipsis for the last slot. Returns s
+// unchanged when it already fits. Applied to Institution / Investor so each cell
+// stays on one line (the full text lives in the cell's title=).
+function trunc(s: string, n: number): string {
+  return s.length <= n ? s : s.slice(0, n - 1) + "…"
+}
+
 // Eastern-local meeting date as "Mon D, YYYY", matching the page. days_since is
 // computed in America/New_York in the view, so format the date in the same zone
 // (independent of the server/browser locale) so Date and Days always agree.
 const DATE_FMT = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",
-  month: "short",
+  month: "numeric",
   day: "numeric",
-  year: "numeric",
+  year: "2-digit",
 })
 function fmtDate(iso: string | null): string {
   if (!iso) return "—"
@@ -94,20 +97,6 @@ function kpiCell(label: string, value: string, valueColor: string): string {
     <div style="font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;"><span style="color:${MUTED};">${esc(label)}</span></div>
     <div style="font-size:22px;font-weight:bold;line-height:1.2;padding-top:2px;"><span style="color:${valueColor};">${esc(value)}</span></div>
   </td>`
-}
-
-// Flags cell: In-person / Virtual (always one) + Group (only when group_meeting).
-// Text pills, not emoji — 📍🎥👥 render as blank boxes in Outlook. Laid out as two
-// side-by-side <td> so the pills sit on one line.
-function flagsCell(r: FeedbackOutstandingRow): string {
-  const modePill = r.is_in_person
-    ? pill(TEAL.pillBg, TEAL.text, "In-person", 9, "1px 7px")
-    : pill(BLUE.pillBg, BLUE.text, "Virtual", 9, "1px 7px")
-  const groupPill = r.group_meeting ? pill(PURPLE.pillBg, PURPLE.text, "Group", 9, "1px 7px") : ""
-  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr>
-    <td valign="middle" style="vertical-align:middle;padding-right:${groupPill ? "5px" : "0"};">${modePill}</td>
-    ${groupPill ? `<td valign="middle" style="vertical-align:middle;">${groupPill}</td>` : ""}
-  </tr></table>`
 }
 
 function statusCell(r: FeedbackOutstandingRow): string {
@@ -167,16 +156,21 @@ function buildGroups(rows: FeedbackOutstandingRow[]): PersonGroup[] {
 function meetingRow(r: FeedbackOutstandingRow, last: boolean): string {
   const sep = last ? "" : "border-bottom:1px solid #EFF1F5;"
   const cell = (extra: string) =>
-    `padding:6px 10px 6px 0;vertical-align:top;font-size:13px;color:${INK};${sep}${extra}`
-  const client = r.client_account_name ? esc(r.client_account_name) : "No client"
-  const institution = r.institution_name ? esc(r.institution_name) : "—"
-  const investor = r.investor_text ? esc(r.investor_text) : "—"
+    `padding:5px 10px 5px 0;vertical-align:top;font-size:13px;color:${INK};${sep}${extra}`
+  // Ticker: the client's stock symbol (uppercased); fall back to a short slice
+  // of the client name, then "—". The full client name always lives in title=.
+  const ticker = r.client_ticker
+    ? esc(r.client_ticker.toUpperCase())
+    : r.client_account_name
+      ? esc(trunc(r.client_account_name, 9))
+      : "—"
+  const institution = r.institution_name ? esc(trunc(r.institution_name, 50)) : "—"
+  const investor = r.investor_text ? esc(trunc(r.investor_text, 42)) : "—"
   return `<tr>
     <td width="${COLS.date}" valign="top" style="${cell("white-space:nowrap;font-weight:bold;color:" + NAVY + ";")}">${esc(fmtDate(r.meeting_date))}</td>
-    <td width="${COLS.client}" valign="top" style="${cell("")}" title="${esc(r.client_account_name)}">${client}</td>
-    <td width="${COLS.institution}" valign="top" style="${cell("")}" title="${esc(r.institution_name)}">${institution}</td>
-    <td width="${COLS.investor}" valign="top" style="${cell("color:" + SUBTLE + ";")}" title="${esc(r.investor_text)}">${investor}</td>
-    <td width="${COLS.flags}" valign="top" style="${cell("")}">${flagsCell(r)}</td>
+    <td width="${COLS.ticker}" valign="top" style="${cell("white-space:nowrap;")}" title="${esc(r.client_account_name)}">${ticker}</td>
+    <td width="${COLS.institution}" valign="top" style="${cell("white-space:nowrap;")}" title="${esc(r.institution_name)}">${institution}</td>
+    <td width="${COLS.investor}" valign="top" style="${cell("white-space:nowrap;color:" + SUBTLE + ";")}" title="${esc(r.investor_text)}">${investor}</td>
     <td width="${COLS.status}" valign="top" style="${cell("")}">${statusCell(r)}</td>
     <td width="${COLS.days}" valign="top" align="right" style="${cell("text-align:right;")}">${daysCell(r.days_since)}</td>
   </tr>`
@@ -186,7 +180,7 @@ function personBlock(g: PersonGroup): string {
   const count = g.items.length
   // Header: name (navy bold) + total-count badge (dark fill, white text) + a
   // "N stale" pill when any of theirs are 30+ days.
-  const countBadge = pill(INK, "#FFFFFF", String(count), 9, "1px 8px")
+  const countBadge = pill(INK, "#FFFFFF", `${count} Outstanding`, 9, "1px 8px")
   const stalePill = g.stale > 0 ? pill(RED.pillBg, RED.text, `${g.stale} stale`, 9, "1px 8px") : ""
   const header = `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin:0 0 6px 0;"><tr>
     <td valign="middle" style="vertical-align:middle;padding-right:8px;font-size:15px;font-weight:bold;"><span style="color:${NAVY};">${esc(g.name)}</span></td>
@@ -197,10 +191,9 @@ function personBlock(g: PersonGroup): string {
 
   const headRow = `<tr>
     <td width="${COLS.date}" style="padding:0 10px 4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:${MUTED};">Date</td>
-    <td width="${COLS.client}" style="padding:0 10px 4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:${MUTED};">Client</td>
+    <td width="${COLS.ticker}" style="padding:0 10px 4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:${MUTED};">Ticker</td>
     <td width="${COLS.institution}" style="padding:0 10px 4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:${MUTED};">Institution</td>
     <td width="${COLS.investor}" style="padding:0 10px 4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:${MUTED};">Investor</td>
-    <td width="${COLS.flags}" style="padding:0 10px 4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:${MUTED};">Flags</td>
     <td width="${COLS.status}" style="padding:0 10px 4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:${MUTED};">Status</td>
     <td width="${COLS.days}" align="right" style="padding:0 0 4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:${MUTED};text-align:right;">Days</td>
   </tr>`
@@ -208,7 +201,7 @@ function personBlock(g: PersonGroup): string {
   const body = g.items.map((r, i) => meetingRow(r, i === g.items.length - 1)).join("")
 
   return `<table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;margin:0 0 18px 0;font-family:Arial,Helvetica,sans-serif;">
-    <tr><td colspan="7" bgcolor="#FFFFFF" style="background-color:#FFFFFF;padding:12px 14px 10px 14px;border-top:1px solid #E5E8EC;">
+    <tr><td colspan="6" bgcolor="#FFFFFF" style="background-color:#FFFFFF;padding:12px 14px 10px 14px;border-top:1px solid #E5E8EC;">
       ${header}
       <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;">
         <thead>${headRow}</thead>
@@ -277,10 +270,7 @@ export function buildFeedbackEmailHtml(rows: FeedbackOutstandingRow[], todayLabe
     <td valign="middle" style="vertical-align:middle;padding-right:6px;">${pill(CORAL.pillBg, CORAL.text, "No feedback", 9, "1px 7px")}</td>
     <td valign="middle" style="vertical-align:middle;padding-right:14px;">${pill(AMBER.pillBg, AMBER.text, "Awaiting", 9, "1px 7px")}</td>
     <td valign="middle" style="vertical-align:middle;padding-right:6px;">${pill(RED.pillBg, RED.text, "Stale", 9, "1px 6px")}</td>
-    <td valign="middle" style="vertical-align:middle;padding-right:14px;font-size:11px;"><span style="color:${SUBTLE};">= 30+ days since meeting</span></td>
-    <td valign="middle" style="vertical-align:middle;padding-right:6px;">${pill(TEAL.pillBg, TEAL.text, "In-person", 9, "1px 7px")}</td>
-    <td valign="middle" style="vertical-align:middle;padding-right:6px;">${pill(BLUE.pillBg, BLUE.text, "Virtual", 9, "1px 7px")}</td>
-    <td valign="middle" style="vertical-align:middle;">${pill(PURPLE.pillBg, PURPLE.text, "Group", 9, "1px 7px")}</td>
+    <td valign="middle" style="vertical-align:middle;font-size:11px;"><span style="color:${SUBTLE};">= 30+ days since meeting</span></td>
   </tr></table>`
 
   const bodyBlocks = groups.length
@@ -316,15 +306,17 @@ export function buildFeedbackEmailPlain(rows: FeedbackOutstandingRow[], todayLab
     "",
   ]
   for (const g of groups) {
-    lines.push(`${g.name}  (${g.items.length}${g.stale > 0 ? `, ${g.stale} stale` : ""})`)
+    lines.push(
+      `${g.name}  (${g.items.length} Outstanding${g.stale > 0 ? `, ${g.stale} stale` : ""})`,
+    )
     for (const r of g.items) {
-      const client = r.client_account_name ?? "No client"
+      const ticker = r.client_ticker
+        ? r.client_ticker.toUpperCase()
+        : (r.client_account_name ?? "No client")
       const status = isAwaiting(r) ? "Awaiting" : "No feedback"
-      const mode = r.is_in_person ? "In-person" : "Virtual"
-      const grp = r.group_meeting ? " · Group" : ""
       const stale = r.days_since >= STALE_DAYS ? " · STALE" : ""
       lines.push(
-        `  ${fmtDate(r.meeting_date)} · ${client} · ${r.institution_name ?? "—"} · ${r.investor_text ?? "—"} · ${mode}${grp} · ${status} · ${r.days_since}d${stale}`,
+        `  ${fmtDate(r.meeting_date)} · ${ticker} · ${r.institution_name ?? "—"} · ${r.investor_text ?? "—"} · ${status} · ${r.days_since}d${stale}`,
       )
     }
     lines.push("")

@@ -2972,11 +2972,15 @@ SELECT
   )::int AS days_since,
   -- Free-text individual investor(s) who attended; may list several names in
   -- one string. Same field the Live Outreach card shows as the meeting contact.
-  -- Appended last so CREATE OR REPLACE VIEW can add it without a column-rename
-  -- error; the app reads it by name, and the "Investor" column's position in
-  -- the table (after Institution) is set in the UI, not by view order.
-  m.investor_text
+  -- Free-text individual investor(s) who attended; may list several names in
+  -- one string. Same field the Live Outreach card shows as the meeting contact.
+  m.investor_text,
+  -- Client stock ticker (accounts.ticker_symbol), appended last so CREATE OR
+  -- REPLACE VIEW only adds a trailing column (Postgres forbids reordering/
+  -- renaming existing view columns). Same join pattern as v_scheduler_meetings.
+  a.ticker_symbol AS client_ticker
 FROM public.meetings m
+LEFT JOIN public.accounts a ON a.account_id = m.client_account_id
 WHERE m.meeting_status_label = 'Confirmed'
   AND m.host_id IS NOT NULL
   AND m.meeting_date IS NOT NULL

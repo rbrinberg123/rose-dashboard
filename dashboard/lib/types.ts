@@ -843,6 +843,7 @@ export type FeedbackOutstandingRow = {
   group_meeting: boolean
   feedback_status_label: string | null
   days_since: number
+  client_ticker: string | null
 }
 
 /**

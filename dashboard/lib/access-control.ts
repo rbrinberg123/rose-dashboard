@@ -30,7 +30,6 @@ export type Role = "super_user" | "user"
  */
 export const USER_ALLOWED_ROUTES = [
   "/scheduler",
-  "/client-marketing-status",
   "/planning-v2",
   "/profiles",
   "/feedback",
