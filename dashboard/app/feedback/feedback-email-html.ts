@@ -163,7 +163,7 @@ function buildGroups(rows: FeedbackOutstandingRow[]): PersonGroup[] {
 function meetingRow(r: FeedbackOutstandingRow, last: boolean): string {
   const sep = last ? "" : "border-bottom:1px solid #EFF1F5;"
   const cell = (extra: string) =>
-    `padding:5px 10px 5px 0;vertical-align:top;font-size:13px;color:${INK};${sep}${extra}`
+    `padding:3px 10px 3px 0;vertical-align:top;font-size:13px;line-height:1.25;color:${INK};${sep}${extra}`
   // Ticker: the client's stock symbol (uppercased); fall back to a short slice
   // of the client name, then "—". The full client name always lives in title=.
   const ticker = r.client_ticker
