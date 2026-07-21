@@ -168,7 +168,7 @@ function meetingRow(r: FeedbackOutstandingRow, last: boolean): string {
   const investor = r.investor_text ? esc(trunc(r.investor_text, 42)) : "—"
   return `<tr>
     <td width="${COLS.date}" valign="top" style="${cell("white-space:nowrap;font-weight:bold;color:" + NAVY + ";")}">${esc(fmtDate(r.meeting_date))}</td>
-    <td width="${COLS.ticker}" valign="top" style="${cell("white-space:nowrap;")}" title="${esc(r.client_account_name)}">${ticker}</td>
+    <td width="${COLS.ticker}" valign="top" style="${cell("white-space:nowrap;font-weight:bold;")}" title="${esc(r.client_account_name)}">${ticker}</td>
     <td width="${COLS.institution}" valign="top" style="${cell("white-space:nowrap;")}" title="${esc(r.institution_name)}">${institution}</td>
     <td width="${COLS.investor}" valign="top" style="${cell("white-space:nowrap;color:" + SUBTLE + ";")}" title="${esc(r.investor_text)}">${investor}</td>
     <td width="${COLS.status}" valign="top" style="${cell("")}">${statusCell(r)}</td>
