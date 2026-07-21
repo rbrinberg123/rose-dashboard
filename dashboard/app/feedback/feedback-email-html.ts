@@ -140,8 +140,12 @@ function isAwaiting(r: FeedbackOutstandingRow): boolean {
 // Outlook-reliable way to keep a background color. NB Outlook squares off
 // border-radius (colored rectangle there; rounded elsewhere), but the color and
 // text survive. Returns a single-cell table (block-level); place inside a <td>.
-function pill(bg: string, fg: string, label: string, radius = 9, padding = "1px 7px"): string {
-  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr><td bgcolor="${bg}" style="background-color:${bg};font-size:11px;font-weight:bold;padding:${padding};border-radius:${radius}px;white-space:nowrap;color:${fg};"><span style="color:${fg};">${label}</span></td></tr></table>`
+function pill(bg: string, fg: string, label: string, radius = 9, padding = "1px 7px", align = ""): string {
+  // Outlook's Word engine ignores margin:auto / text-align to right-pin a nested
+  // table; the HTML align="right" attribute on the pill's OWN outer <table> is
+  // what actually flushes it to the container's right edge there.
+  const alignAttr = align ? ` align="${align}"` : ""
+  return `<table${alignAttr} cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr><td bgcolor="${bg}" style="background-color:${bg};font-size:11px;font-weight:bold;padding:${padding};border-radius:${radius}px;white-space:nowrap;color:${fg};"><span style="color:${fg};">${label}</span></td></tr></table>`
 }
 
 // One KPI cell for the summary row. Value color is set on a <span> (not the td)
@@ -233,7 +237,7 @@ function meetingRow(r: FeedbackOutstandingRow, last: boolean): string {
 function personBlock(g: PersonGroup): string {
   const count = g.items.length
   // Header: person name on the left, total-outstanding badge pinned to the right.
-  const countBadge = pill(INK, "#FFFFFF", `${count} Outstanding`, 9, "1px 8px")
+  const countBadge = pill(INK, "#FFFFFF", `${count} Outstanding`, 9, "1px 8px", "right")
   const header = `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin:0 0 6px 0;"><tr>
     <td valign="middle" style="vertical-align:middle;padding-right:8px;font-size:15px;font-weight:bold;"><span style="color:${NAVY};">${esc(g.name)}</span></td>
     <td valign="middle" align="right" style="vertical-align:middle;text-align:right;white-space:nowrap;">${countBadge}</td>
@@ -386,7 +390,7 @@ function reportSection(
   dateKey: "received_date" | "fb_closed_date",
   todayNum: number,
 ): string {
-  const countBadge = pill(INK, "#FFFFFF", `${rows.length} Outstanding`, 9, "1px 8px")
+  const countBadge = pill(INK, "#FFFFFF", `${rows.length} Outstanding`, 9, "1px 8px", "right")
   const header = `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin:0 0 2px 0;"><tr>
     <td valign="middle" style="vertical-align:middle;padding-right:8px;font-size:15px;font-weight:bold;"><span style="color:${NAVY};">${esc(title)}</span></td>
     <td valign="middle" align="right" style="vertical-align:middle;text-align:right;white-space:nowrap;">${countBadge}</td>
