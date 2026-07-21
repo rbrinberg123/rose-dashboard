@@ -17,6 +17,8 @@
  * change (the route and view are both data-driven from it / the response).
  */
 
+import { SCHEDULE_CALLER_MAILBOX } from "@/lib/host-busy"
+
 export type ConferenceRoom = {
   /** Column label, e.g. "Conf Room 1". */
   label: string
@@ -42,11 +44,17 @@ export const ROOMS_END_HOUR = 18
 
 /**
  * Mailbox getSchedule runs "as" (app-only; the caller is just the identity
- * context, not whose calendar we read). A room resource mailbox is used
- * deliberately — it is a permanent, stable in-tenant mailbox, so the page never
- * breaks if a staff member leaves.
+ * context, NOT whose calendar we read — the rooms below are still what's read).
+ *
+ * Shares the Scheduler's SCHEDULE_CALLER_MAILBOX (dashboards@roseandco.com by
+ * default) so both calendar features use ONE caller and can't drift apart. This
+ * matters because the Graph app is scoped by an Exchange Application Access
+ * Policy (RestrictAccess) to the dashboards@ group — calling as any mailbox
+ * outside it (e.g. the old parkroom1@rosecoglobal.com) returns 403 [RAOP] and
+ * surfaces as a 502 on the page. dashboards@ is inside the policy and reads all
+ * four parkrooms' free/busy fine.
  */
-export const ROOMS_CALLER_MAILBOX = "parkroom1@rosecoglobal.com"
+export const ROOMS_CALLER_MAILBOX = SCHEDULE_CALLER_MAILBOX
 
 // ---------------------------------------------------------------------------
 // API response shape (shared by the route and the client view).
