@@ -14,6 +14,7 @@ import { ListTitleCard } from "@/components/page-masthead"
 import { StatCard } from "@/components/stat-card"
 import { CARD_CLASS } from "@/lib/design"
 import type { FeedbackOutstandingRow } from "@/lib/types"
+import { SendTestEmailButton } from "./send-test-email-button"
 
 // Brand + status palette. One source of truth for the coral (no feedback),
 // amber (awaiting additional), and red (30+ days stale) accents used across the
@@ -131,7 +132,15 @@ function buildGroups(view: ViewKey, sort: SortKey, rows: FeedbackOutstandingRow[
   return groups
 }
 
-export function FeedbackView({ rows }: { rows: FeedbackOutstandingRow[] }) {
+export function FeedbackView({
+  rows,
+  userEmail,
+  canSend,
+}: {
+  rows: FeedbackOutstandingRow[]
+  userEmail?: string
+  canSend?: boolean
+}) {
   // Deep-link support: /feedback?client=<account_id> lands on that client in the
   // By-client view with its card expanded and scrolled into view — used by the
   // Client Marketing Status page's Feedback Collection pill. The link carries the
@@ -235,6 +244,7 @@ export function FeedbackView({ rows }: { rows: FeedbackOutstandingRow[] }) {
         <ListTitleCard
           title="Feedback"
           subtitle="Concluded meetings still missing complete feedback — blank or awaiting additional."
+          rightSlot={canSend ? <SendTestEmailButton userEmail={userEmail} /> : undefined}
         />
       </div>
 

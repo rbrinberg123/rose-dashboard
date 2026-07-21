@@ -1,6 +1,8 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
+import { getSupabaseServerAuth } from "@/lib/supabase/server"
+import { getUserRole } from "@/lib/user-role"
 import type { FeedbackOutstandingRow } from "@/lib/types"
 import { FeedbackView } from "./feedback-view"
 
@@ -47,9 +49,19 @@ export default async function FeedbackPage() {
     if (page.length < PAGE_SIZE) break
   }
 
+  // Prefill the "Send Test Email" box with the signed-in user's address, and
+  // only expose the test-send control to a super_user (the send route enforces
+  // the same gate server-side).
+  const supabase = await getSupabaseServerAuth()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  const userEmail = user?.email ?? undefined
+  const canSend = (await getUserRole(userEmail)) === "super_user"
+
   return (
     <PageShell title="Feedback" hideHeader canvas>
-      <FeedbackView rows={rows} />
+      <FeedbackView rows={rows} userEmail={userEmail} canSend={canSend} />
     </PageShell>
   )
 }
