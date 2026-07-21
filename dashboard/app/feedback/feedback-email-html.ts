@@ -62,6 +62,13 @@ function trunc(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1) + "…"
 }
 
+// Show only the base ticker, dropping an exchange/country qualifier such as
+// "NVCR US", "NVCR:US", "NVCR US Equity", or "NVCR-US". Share-class dots
+// (e.g. "BRK.B") are intentionally preserved.
+function baseTicker(t: string): string {
+  return t.trim().split(/[\s:]/)[0].replace(/-[A-Za-z]{1,4}$/, "")
+}
+
 // Eastern-local meeting date as "Mon D, YYYY", matching the page. days_since is
 // computed in America/New_York in the view, so format the date in the same zone
 // (independent of the server/browser locale) so Date and Days always agree.
@@ -160,7 +167,7 @@ function meetingRow(r: FeedbackOutstandingRow, last: boolean): string {
   // Ticker: the client's stock symbol (uppercased); fall back to a short slice
   // of the client name, then "—". The full client name always lives in title=.
   const ticker = r.client_ticker
-    ? esc(r.client_ticker.toUpperCase())
+    ? esc(baseTicker(r.client_ticker).toUpperCase())
     : r.client_account_name
       ? esc(trunc(r.client_account_name, 9))
       : "—"
@@ -178,15 +185,11 @@ function meetingRow(r: FeedbackOutstandingRow, last: boolean): string {
 
 function personBlock(g: PersonGroup): string {
   const count = g.items.length
-  // Header: name (navy bold) + total-count badge (dark fill, white text) + a
-  // "N stale" pill when any of theirs are 30+ days.
+  // Header: person name on the left, total-outstanding badge pinned to the right.
   const countBadge = pill(INK, "#FFFFFF", `${count} Outstanding`, 9, "1px 8px")
-  const stalePill = g.stale > 0 ? pill(RED.pillBg, RED.text, `${g.stale} stale`, 9, "1px 8px") : ""
   const header = `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin:0 0 6px 0;"><tr>
     <td valign="middle" style="vertical-align:middle;padding-right:8px;font-size:15px;font-weight:bold;"><span style="color:${NAVY};">${esc(g.name)}</span></td>
-    <td valign="middle" width="1" style="vertical-align:middle;padding-right:${stalePill ? "6px" : "0"};">${countBadge}</td>
-    ${stalePill ? `<td valign="middle" width="1" style="vertical-align:middle;">${stalePill}</td>` : ""}
-    <td>&nbsp;</td>
+    <td valign="middle" align="right" style="vertical-align:middle;text-align:right;white-space:nowrap;">${countBadge}</td>
   </tr></table>`
 
   const headRow = `<tr>
@@ -306,12 +309,10 @@ export function buildFeedbackEmailPlain(rows: FeedbackOutstandingRow[], todayLab
     "",
   ]
   for (const g of groups) {
-    lines.push(
-      `${g.name}  (${g.items.length} Outstanding${g.stale > 0 ? `, ${g.stale} stale` : ""})`,
-    )
+    lines.push(`${g.name}  (${g.items.length} Outstanding)`)
     for (const r of g.items) {
       const ticker = r.client_ticker
-        ? r.client_ticker.toUpperCase()
+        ? baseTicker(r.client_ticker).toUpperCase()
         : (r.client_account_name ?? "No client")
       const status = isAwaiting(r) ? "Awaiting" : "No feedback"
       const stale = r.days_since >= STALE_DAYS ? " · STALE" : ""
