@@ -227,7 +227,6 @@ export function buildEmailHtml(rows: LiveOutreachRow[], todayLabel: string): str
       <td valign="middle" style="padding:0 6px 0 0;vertical-align:middle;">${pill("#EEF2FB", "#2D4A8A", "NEW", 10, "1px 6px")}</td>
       <td valign="middle" style="font-size:11px;vertical-align:middle;"><span style="color:#6B7280;">Meeting added to the CRM in the last 24 hours</span></td>
     </tr></table>
-    <div style="font-size:10px;padding:6px 0 16px 0;"><em style="color:#9AA1AD;font-style:italic;">*does not include 3rd party meetings</em></div>
   </td></tr>
   <tr><td bgcolor="#F4F6F9" style="background-color:#F4F6F9;padding:0 0 2px 0;border-top:1px solid #888888;">
 ${cards}
