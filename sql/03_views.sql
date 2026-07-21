@@ -3684,7 +3684,11 @@ SELECT
   c.claimed,
   c.claimed_by_id,
   c.claimed_by_name,
-  c.days_in_stage
+  c.days_in_stage,
+  -- Client stock ticker (accounts.ticker_symbol), appended last so the column
+  -- list only grows a trailing column — same pattern as v_feedback_outstanding.
+  -- The accounts join already exists below (it also feeds account_manager_name).
+  a.ticker_symbol AS client_ticker
 FROM combined c
 LEFT JOIN public.accounts a ON a.account_id = c.client_account_id
 LEFT JOIN mtg mt            ON mt.event_id    = c.event_id

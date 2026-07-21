@@ -1,5 +1,5 @@
 import { getSupabaseServer } from "@/lib/supabase"
-import type { FeedbackOutstandingRow } from "@/lib/types"
+import type { FeedbackOutstandingRow, FeedbackPipelineRow } from "@/lib/types"
 
 /**
  * Load every outstanding-feedback row from v_feedback_outstanding (concluded
@@ -31,6 +31,37 @@ export async function loadFeedbackOutstandingRows(): Promise<{
     if (error) return { rows: [], error: error.message }
 
     const page = (data ?? []) as FeedbackOutstandingRow[]
+    rows.push(...page)
+    if (page.length < PAGE_SIZE) break
+  }
+  return { rows, error: null }
+}
+
+/**
+ * Load every Feedback Report Pipeline row from v_feedback_pipeline (both
+ * categories: 'in_progress' and 'pending_review'). Shared by the digest send
+ * route and the preview route so both render from the same query. The view is
+ * small and already ORDERs by category / days_in_stage; the email template
+ * re-filters and re-sorts per section, so no ordering is imposed here beyond a
+ * stable task_id tiebreaker for pagination safety.
+ */
+export async function loadFeedbackPipelineRows(): Promise<{
+  rows: FeedbackPipelineRow[]
+  error: string | null
+}> {
+  const sb = getSupabaseServer()
+  const PAGE_SIZE = 1000
+  const rows: FeedbackPipelineRow[] = []
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await sb
+      .from("v_feedback_pipeline")
+      .select("*")
+      .order("task_id", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1)
+
+    if (error) return { rows: [], error: error.message }
+
+    const page = (data ?? []) as FeedbackPipelineRow[]
     rows.push(...page)
     if (page.length < PAGE_SIZE) break
   }

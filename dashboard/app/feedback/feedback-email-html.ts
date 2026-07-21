@@ -14,7 +14,7 @@
 // (host), persons A→Z, meetings oldest→newest within each person, and with every
 // icon/emoji replaced by an Outlook-safe text pill.
 
-import type { FeedbackOutstandingRow } from "@/lib/types"
+import type { FeedbackOutstandingRow, FeedbackPipelineRow } from "@/lib/types"
 
 // Fixed container + column geometry (px). Table-layout is fixed via explicit
 // <td width> so columns line up down the whole email regardless of cell content.
@@ -28,6 +28,20 @@ const COLS = {
   days: 112,
 } as const
 
+// Column geometry for the two Feedback Report Pipeline tables (top of the
+// digest). Both report tables use these identical widths so they line up.
+// Sum = CONTAINER (1040).
+const PCOLS = {
+  ticker: 64,
+  event: 220,
+  mtgDates: 128,
+  age: 96,
+  due: 96,
+  taskDate: 108,
+  am: 160,
+  claimed: 168,
+} as const
+
 // Palette — mirrors feedback-view.tsx. Status buckets use LIGHT-fill / DARK-text
 // pills (not white-on-color) so the label stays readable even where Outlook drops
 // the <td bgcolor> fill entirely.
@@ -37,7 +51,8 @@ const MUTED = "#9AA1AD"
 const SUBTLE = "#6B7280"
 const CORAL = { text: "#993C1D", pillBg: "#FAECE7" } // no feedback
 const AMBER = { text: "#854F0B", pillBg: "#FAEEDA" } // awaiting additional
-const RED = { text: "#A32D2D", pillBg: "#FCEBEB" } // 30+ days stale
+const RED = { text: "#A32D2D", pillBg: "#FCEBEB" } // 30+ days stale / overdue
+const GREEN = { text: "#0E7C56", pillBg: "#E7F5EE" } // fresh (< 4 days in stage)
 
 // The one incomplete-but-started feedback state the view surfaces; every other
 // row out of v_feedback_outstanding is the blank / no-feedback bucket.
@@ -83,6 +98,38 @@ function fmtDate(iso: string | null): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return "—"
   return DATE_FMT.format(d)
+}
+
+// Eastern calendar day as an integer day-count (days since epoch), so due-date
+// comparisons are done on the Eastern date, independent of server locale — the
+// same zone the rest of the feedback logic uses.
+const YMD_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+})
+function easternDayNumber(d: Date): number {
+  const [y, m, dd] = YMD_FMT.format(d).split("-").map(Number)
+  return Math.floor(Date.UTC(y, m - 1, dd) / 86400000)
+}
+// Whole Eastern-day gap from today to `iso` (negative = in the past). null when
+// the date is missing/unparseable.
+function daysUntilEastern(iso: string | null, todayNum: number): number | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return easternDayNumber(d) - todayNum
+}
+
+// Compact meeting-date range, e.g. "7/21/26–7/23/26" (single date when start ===
+// end, or when only one end is present). "—" when neither is set.
+function fmtDateRange(start: string | null, end: string | null): string {
+  if (!start && !end) return "—"
+  const s = fmtDate(start)
+  const e = fmtDate(end)
+  if (start && end) return s === e ? s : `${s}–${e}`
+  return start ? s : e
 }
 
 function isAwaiting(r: FeedbackOutstandingRow): boolean {
@@ -254,8 +301,148 @@ function summarize(rows: FeedbackOutstandingRow[]): Summary {
   }
 }
 
+// ---- Feedback Report Pipeline sections (top of the digest) ------------------
+// Two Outlook-safe tables built from v_feedback_pipeline rows, in the same
+// style as the outstanding per-person blocks. Reuse pill/esc/trunc/baseTicker.
+
+// Ticker for a pipeline row: base symbol uppercased, else a short client-name
+// fallback, else "—". Full client name lives in the cell title=.
+function pipelineTicker(r: FeedbackPipelineRow): string {
+  return r.client_ticker
+    ? esc(baseTicker(r.client_ticker).toUpperCase())
+    : r.client_account_name
+      ? esc(trunc(r.client_account_name, 9))
+      : "—"
+}
+
+// Age/Waiting pill from days_in_stage: green < 4, amber 4–6, red 7+.
+function ageCell(days: number | null): string {
+  if (days == null) return `<span style="font-size:13px;color:${MUTED};">—</span>`
+  const c = days >= 7 ? RED : days >= 4 ? AMBER : GREEN
+  return pill(c.pillBg, c.text, `${days}d`, 9, "1px 7px")
+}
+
+// Due cell: red "Overdue" when past today, amber date when due within 3 days,
+// otherwise a plain date. "—" when there is no due date.
+function dueCell(iso: string | null, todayNum: number): string {
+  const du = daysUntilEastern(iso, todayNum)
+  if (du == null) return `<span style="font-size:13px;color:${MUTED};">—</span>`
+  if (du < 0) return pill(RED.pillBg, RED.text, "Overdue", 9, "1px 7px")
+  if (du <= 3) return pill(AMBER.pillBg, AMBER.text, fmtDate(iso), 9, "1px 7px")
+  return `<span style="font-size:13px;color:${INK};">${esc(fmtDate(iso))}</span>`
+}
+
+// Claimed-by cell: the name, or an amber "Unclaimed" pill when empty.
+function claimedCell(name: string | null): string {
+  return name
+    ? `<span style="font-size:13px;color:${INK};">${esc(trunc(name, 20))}</span>`
+    : pill(AMBER.pillBg, AMBER.text, "Unclaimed", 9, "1px 7px")
+}
+
+function reportHeadRow(taskDateHeader: string): string {
+  const th = (w: number, label: string) =>
+    `<td width="${w}" style="padding:0 10px 4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:${MUTED};">${label}</td>`
+  return `<tr>
+    ${th(PCOLS.ticker, "Ticker")}
+    ${th(PCOLS.event, "Event")}
+    ${th(PCOLS.mtgDates, "Mtg Dates")}
+    ${th(PCOLS.age, "Age/Waiting")}
+    ${th(PCOLS.due, "Due")}
+    ${th(PCOLS.taskDate, esc(taskDateHeader))}
+    ${th(PCOLS.am, "Client Mgr")}
+    ${th(PCOLS.claimed, "Claimed By")}
+  </tr>`
+}
+
+function reportRow(
+  r: FeedbackPipelineRow,
+  dateKey: "received_date" | "fb_closed_date",
+  todayNum: number,
+  last: boolean,
+): string {
+  const sep = last ? "" : "border-bottom:1px solid #EFF1F5;"
+  const cell = (extra: string) =>
+    `padding:3px 10px 3px 0;vertical-align:top;font-size:13px;line-height:1.25;color:${INK};${sep}${extra}`
+  const event = r.event_name ? esc(trunc(r.event_name, 24)) : "—"
+  const am = r.account_manager_name ? esc(trunc(r.account_manager_name, 20)) : "—"
+  return `<tr>
+    <td width="${PCOLS.ticker}" valign="top" style="${cell("white-space:nowrap;font-weight:bold;")}" title="${esc(r.client_account_name)}">${pipelineTicker(r)}</td>
+    <td width="${PCOLS.event}" valign="top" style="${cell("white-space:nowrap;")}" title="${esc(r.event_name)}">${event}</td>
+    <td width="${PCOLS.mtgDates}" valign="top" style="${cell("white-space:nowrap;font-size:12px;color:" + SUBTLE + ";")}">${esc(fmtDateRange(r.meeting_start, r.meeting_end))}</td>
+    <td width="${PCOLS.age}" valign="top" style="${cell("")}">${ageCell(r.days_in_stage)}</td>
+    <td width="${PCOLS.due}" valign="top" style="${cell("")}">${dueCell(r.due_date, todayNum)}</td>
+    <td width="${PCOLS.taskDate}" valign="top" style="${cell("white-space:nowrap;")}">${esc(fmtDate(r[dateKey]))}</td>
+    <td width="${PCOLS.am}" valign="top" style="${cell("white-space:nowrap;")}" title="${esc(r.account_manager_name)}">${am}</td>
+    <td width="${PCOLS.claimed}" valign="top" style="${cell("white-space:nowrap;")}" title="${esc(r.claimed_by_name)}">${claimedCell(r.claimed_by_name)}</td>
+  </tr>`
+}
+
+function reportSection(
+  title: string,
+  rows: FeedbackPipelineRow[],
+  taskDateHeader: string,
+  dateKey: "received_date" | "fb_closed_date",
+  todayNum: number,
+): string {
+  const countBadge = pill(INK, "#FFFFFF", `${rows.length} Outstanding`, 9, "1px 8px")
+  const header = `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin:0 0 6px 0;"><tr>
+    <td valign="middle" style="vertical-align:middle;padding-right:8px;font-size:15px;font-weight:bold;"><span style="color:${NAVY};">${esc(title)}</span></td>
+    <td valign="middle" align="right" style="vertical-align:middle;text-align:right;white-space:nowrap;">${countBadge}</td>
+  </tr></table>`
+  const body = rows.length
+    ? rows.map((r, i) => reportRow(r, dateKey, todayNum, i === rows.length - 1)).join("")
+    : `<tr><td colspan="8" style="padding:10px 0;font-size:13px;color:${SUBTLE};">None right now.</td></tr>`
+  return `<table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;margin:0 0 14px 0;font-family:Arial,Helvetica,sans-serif;">
+    <tr><td colspan="8" bgcolor="#FFFFFF" style="background-color:#FFFFFF;padding:12px 14px 10px 14px;border-top:1px solid #E5E8EC;">
+      ${header}
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;">
+        <thead>${reportHeadRow(taskDateHeader)}</thead>
+        <tbody>${body}</tbody>
+      </table>
+    </td></tr>
+  </table>`
+}
+
+// The full pipeline block: heading + the two report sections + a divider.
+// Rendered ABOVE the unchanged Outstanding Feedback content.
+function buildPipelineBlock(pipelineRows: FeedbackPipelineRow[], todayLabel: string): string {
+  const todayNum = easternDayNumber(new Date())
+  const pending = pipelineRows
+    .filter((r) => r.category === "pending_review")
+    .sort((a, b) => (b.days_in_stage ?? -Infinity) - (a.days_in_stage ?? -Infinity)) // longest-waiting first
+  const inProgress = pipelineRows
+    .filter((r) => r.category === "in_progress")
+    .sort((a, b) => {
+      const ta = a.due_date ? new Date(a.due_date).getTime() : Infinity // nulls last
+      const tb = b.due_date ? new Date(b.due_date).getTime() : Infinity
+      return ta - tb // soonest-due first
+    })
+
+  const heading = `<div style="font-size:22px;font-weight:bold;"><span style="color:${INK};">Feedback Report Pipeline &mdash; ${esc(todayLabel)}</span></div>
+    <div style="font-size:13px;padding:4px 0 2px 0;"><span style="color:${SUBTLE};">Reports awaiting review and in progress.</span></div>`
+
+  const sections =
+    reportSection("Feedback Reports Pending Review", pending, "Fb Closed", "fb_closed_date", todayNum) +
+    "\n" +
+    reportSection("Feedback Reports In Progress", inProgress, "FB Received", "received_date", todayNum)
+
+  return `<table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
+  <tr><td style="padding:0 0 8px 0;">
+    ${heading}
+  </td></tr>
+  <tr><td bgcolor="#F4F6F9" style="background-color:#F4F6F9;padding:0 0 2px 0;border-top:1px solid #888888;">
+${sections}
+  </td></tr>
+</table>
+<div style="height:2px;background-color:#1E2858;line-height:2px;font-size:0;margin:10px 0 16px 0;">&nbsp;</div>`
+}
+
 /** The rich-HTML fragment for email/clipboard use. `todayLabel` e.g. "July 21, 2026". */
-export function buildFeedbackEmailHtml(rows: FeedbackOutstandingRow[], todayLabel: string): string {
+export function buildFeedbackEmailHtml(
+  rows: FeedbackOutstandingRow[],
+  pipelineRows: FeedbackPipelineRow[],
+  todayLabel: string,
+): string {
   const s = summarize(rows)
   const groups = buildGroups(rows)
 
@@ -270,8 +457,6 @@ export function buildFeedbackEmailHtml(rows: FeedbackOutstandingRow[], todayLabe
   const distinctLine = `<div style="font-size:12px;padding:2px 0 4px 0;"><span style="color:${SUBTLE};">Across ${s.people} ${s.people === 1 ? "person" : "people"} &middot; ${s.clients} ${s.clients === 1 ? "client" : "clients"} &middot; ${s.institutions} ${s.institutions === 1 ? "institution" : "institutions"}</span></div>`
 
   const legend = `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin:8px 0 14px 0;"><tr>
-    <td valign="middle" style="vertical-align:middle;padding-right:6px;">${pill(CORAL.pillBg, CORAL.text, "No feedback", 9, "1px 7px")}</td>
-    <td valign="middle" style="vertical-align:middle;padding-right:14px;">${pill(AMBER.pillBg, AMBER.text, "Awaiting", 9, "1px 7px")}</td>
     <td valign="middle" style="vertical-align:middle;padding-right:6px;">${pill(RED.pillBg, RED.text, "Stale", 9, "1px 6px")}</td>
     <td valign="middle" style="vertical-align:middle;font-size:11px;"><span style="color:${SUBTLE};">= 30+ days since meeting</span></td>
   </tr></table>`
@@ -281,6 +466,7 @@ export function buildFeedbackEmailHtml(rows: FeedbackOutstandingRow[], todayLabe
     : `<table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;"><tr><td bgcolor="#FFFFFF" style="background-color:#FFFFFF;padding:24px 14px;text-align:center;font-size:13px;color:${SUBTLE};border-top:1px solid #E5E8EC;">No outstanding feedback. Every concluded confirmed meeting has complete feedback.</td></tr></table>`
 
   return `<div style="font-family:Arial,Helvetica,sans-serif;background-color:#FFFFFF;color:${INK};">
+${buildPipelineBlock(pipelineRows, todayLabel)}
 <table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
   <tr><td style="padding:0 0 4px 0;">
     <div style="font-size:22px;font-weight:bold;"><span style="color:${INK};">Outstanding Feedback &mdash; ${esc(todayLabel)}</span></div>

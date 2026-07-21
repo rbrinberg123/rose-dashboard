@@ -917,6 +917,7 @@ export type FeedbackPipelineRow = {
   claimed_by_id: string | null
   claimed_by_name: string | null
   days_in_stage: number | null
+  client_ticker: string | null
 }
 
 /**

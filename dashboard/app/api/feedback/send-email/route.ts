@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { requireSuperUser } from "@/lib/api-auth"
 import { sendMail, GraphError } from "@/lib/graph"
-import { loadFeedbackOutstandingRows } from "@/app/feedback/load"
+import { loadFeedbackOutstandingRows, loadFeedbackPipelineRows } from "@/app/feedback/load"
 import { buildFeedbackEmailHtml } from "@/app/feedback/feedback-email-html"
 
 /**
@@ -49,8 +49,11 @@ async function sendDigestTo(recipient: string): Promise<{ subject: string; meeti
   const { rows, error } = await loadFeedbackOutstandingRows()
   if (error) throw new Error(`Could not load v_feedback_outstanding: ${error}`)
 
+  const { rows: pipelineRows, error: pipelineError } = await loadFeedbackPipelineRows()
+  if (pipelineError) throw new Error(`Could not load v_feedback_pipeline: ${pipelineError}`)
+
   const label = todayLabel()
-  const html = buildFeedbackEmailHtml(rows, label)
+  const html = buildFeedbackEmailHtml(rows, pipelineRows, label)
   const subject = `Outstanding Feedback — ${label}`
 
   // ONE sendMail call, ONE email to the single recipient. (An empty outstanding
