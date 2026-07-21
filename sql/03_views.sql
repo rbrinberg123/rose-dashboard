@@ -3842,7 +3842,8 @@ LEFT JOIN LATERAL (
         'meeting_id',       m.meeting_id,
         'meeting_date',     m.meeting_date,
         'institution_name', m.institution_name,
-        'contact',          m.investor_text
+        'contact',          m.investor_text,
+        'created_on',       m.created_on
       )
       ORDER BY m.meeting_date
     ) AS meetings

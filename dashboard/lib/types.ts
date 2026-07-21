@@ -931,6 +931,10 @@ export type LiveOutreachMeeting = {
   meeting_date: string
   institution_name: string | null
   contact: string | null
+  // CRM creation timestamp (meetings.created_on) from v_live_outreach. Drives the
+  // email's "NEW" recency flag: shown only when the meeting was added within the
+  // last 24 hours. null when unknown.
+  created_on: string | null
   // Count of OTHER 'Confirmed' meetings (any date) between this event's client
   // and this meeting's institution, excluding this meeting. Added by the page
   // after the view fetch (not a column on v_live_outreach). null = unknown

@@ -8,7 +8,6 @@
 // copied as rich text, or written to the clipboard as text/html.
 
 import type { LiveOutreachRow, LiveOutreachMeeting } from "@/lib/types"
-import { meetingHistoryFlag } from "./history-flag"
 
 // Layout widths (px). Wider build, matching the approved snapshot.
 const LEFT = 380
@@ -73,15 +72,23 @@ function pill(bg: string, fg: string, label: string, radius: number, padding: st
   return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr><td bgcolor="${bg}" style="background-color:${bg};font-size:11px;font-weight:bold;padding:${padding};border-radius:${radius}px;white-space:nowrap;color:${fg};"><span style="color:${fg};">${label}</span></td></tr></table>`
 }
 
-// Outlook-safe meeting-history flag. Both use the LIGHT-fill / DARK-text pill
-// pattern (not white-on-color) so the label stays readable even where Outlook
-// drops the <td bgcolor> — the same failure that made the old white-on-navy
-// count badge vanish. NEW = palette blue; count = teal tint.
-function historyFlagHtml(prior: number | null | undefined): string {
-  const flag = meetingHistoryFlag(prior)
-  if (flag.isNew) return pill("#EEF2FB", "#2D4A8A", "NEW", 10, "1px 6px")
-  if (flag.count != null) return pill("#E1F0F2", "#146874", String(flag.count), 9, "1px 7px")
-  return ""
+// True when the meeting was added to the CRM within the last 24 hours (and not
+// in the future). Drives the email's "NEW" recency flag.
+const DAY_MS = 24 * 60 * 60 * 1000
+function isRecentlyAdded(createdOn: string | null | undefined): boolean {
+  if (!createdOn) return false
+  const t = Date.parse(createdOn)
+  if (Number.isNaN(t)) return false
+  const age = Date.now() - t
+  return age >= 0 && age <= DAY_MS
+}
+
+// Outlook-safe recency flag: a NEW pill for meetings added in the last 24 hours,
+// nothing otherwise. Uses the LIGHT-fill / DARK-text pill pattern (not
+// white-on-color) so the label stays readable even where Outlook drops the
+// <td bgcolor>.
+function historyFlagHtml(createdOn: string | null | undefined): string {
+  return isRecentlyAdded(createdOn) ? pill("#EEF2FB", "#2D4A8A", "NEW", 10, "1px 6px") : ""
 }
 
 function urgencyPill(urgency: LiveOutreachRow["urgency"]): string {
@@ -141,7 +148,7 @@ function meetingsBlock(row: LiveOutreachRow): string {
       const contact = m.contact
         ? ` <span style="color:#9AA1AD;">·</span> <span style="color:#6B7280;">${esc(m.contact)}</span>`
         : ""
-      const flag = historyFlagHtml(m.prior_meeting_count)
+      const flag = historyFlagHtml(m.created_on)
       return `<tr>
         <td width="58" valign="top" style="font-size:11px;font-weight:bold;color:#1E2858;padding:4px 8px 4px 0;white-space:nowrap;vertical-align:top;${sep}">${esc(fmtMeetingDate(m.meeting_date))}</td>
         <td width="46" align="center" valign="top" style="width:46px;padding:4px 6px 4px 0;text-align:center;white-space:nowrap;vertical-align:top;${sep}">${flag}</td>
@@ -218,9 +225,7 @@ export function buildEmailHtml(rows: LiveOutreachRow[], todayLabel: string): str
     <div style="font-size:12px;padding:4px 0 8px 0;"><span style="color:#6B7280;">${rows.length} event${rows.length === 1 ? "" : "s"} in active outreach &middot; ${totalMeetings} confirmed meeting${totalMeetings === 1 ? "" : "s"}</span></div>
     <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr>
       <td valign="middle" style="padding:0 6px 0 0;vertical-align:middle;">${pill("#EEF2FB", "#2D4A8A", "NEW", 10, "1px 6px")}</td>
-      <td valign="middle" style="padding:0 16px 0 0;font-size:11px;vertical-align:middle;"><span style="color:#6B7280;">First <span style="color:#6B7280;font-weight:bold;">Rose &amp; Co</span> meeting with this institution</span></td>
-      <td valign="middle" style="padding:0 6px 0 0;vertical-align:middle;">${pill("#E1F0F2", "#146874", "1", 9, "1px 7px")}</td>
-      <td valign="middle" style="font-size:11px;vertical-align:middle;"><span style="color:#6B7280;">Number of prior <span style="color:#6B7280;font-weight:bold;">Rose &amp; Co</span> meetings with this institution</span></td>
+      <td valign="middle" style="font-size:11px;vertical-align:middle;"><span style="color:#6B7280;">Meeting added to the CRM in the last 24 hours</span></td>
     </tr></table>
     <div style="font-size:10px;padding:6px 0 16px 0;"><em style="color:#9AA1AD;font-style:italic;">*does not include 3rd party meetings</em></div>
   </td></tr>
@@ -242,8 +247,7 @@ export function buildEmailPlain(rows: LiveOutreachRow[], todayLabel: string): st
     lines.push(`  Confirmed Meetings (${r.confirmed_meeting_count ?? 0})`)
     for (const m of meetings) {
       const date = fmtMeetingDate(m.meeting_date)
-      const flag = meetingHistoryFlag(m.prior_meeting_count)
-      const tag = flag.isNew ? "  [NEW]" : flag.count != null ? `  (${flag.count})` : ""
+      const tag = isRecentlyAdded(m.created_on) ? "  [NEW]" : ""
       lines.push(`    ${date} · ${m.institution_name ?? "—"}${m.contact ? ` · ${m.contact}` : ""}${tag}`)
     }
     lines.push("")
