@@ -322,14 +322,15 @@ function ageCell(days: number | null): string {
   return pill(c.pillBg, c.text, `${days}d`, 9, "1px 7px")
 }
 
-// Due cell: red "Overdue" when past today, amber date when due within 3 days,
-// otherwise a plain date. "—" when there is no due date.
+// Due cell (matches the on-page DueCell): the due DATE lives inside the pill;
+// the color carries the meaning — red when overdue (before today), amber when
+// due within the next 3 days, otherwise plain muted text. "—" when no due date.
 function dueCell(iso: string | null, todayNum: number): string {
   const du = daysUntilEastern(iso, todayNum)
   if (du == null) return `<span style="font-size:13px;color:${MUTED};">—</span>`
-  if (du < 0) return pill(RED.pillBg, RED.text, "Overdue", 9, "1px 7px")
+  if (du < 0) return pill(RED.pillBg, RED.text, fmtDate(iso), 9, "1px 7px")
   if (du <= 3) return pill(AMBER.pillBg, AMBER.text, fmtDate(iso), 9, "1px 7px")
-  return `<span style="font-size:13px;color:${INK};">${esc(fmtDate(iso))}</span>`
+  return `<span style="font-size:13px;color:${MUTED};">${esc(fmtDate(iso))}</span>`
 }
 
 // Claimed-by cell: the name, or an amber "Unclaimed" pill when empty.
@@ -346,7 +347,7 @@ function reportHeadRow(taskDateHeader: string): string {
     ${th(PCOLS.ticker, "Ticker")}
     ${th(PCOLS.event, "Event")}
     ${th(PCOLS.mtgDates, "Mtg Dates")}
-    ${th(PCOLS.age, "Age/Waiting")}
+    ${th(PCOLS.age, "Waiting")}
     ${th(PCOLS.due, "Due")}
     ${th(PCOLS.taskDate, esc(taskDateHeader))}
     ${th(PCOLS.am, "Client Mgr")}
@@ -379,16 +380,18 @@ function reportRow(
 
 function reportSection(
   title: string,
+  caption: string,
   rows: FeedbackPipelineRow[],
   taskDateHeader: string,
   dateKey: "received_date" | "fb_closed_date",
   todayNum: number,
 ): string {
   const countBadge = pill(INK, "#FFFFFF", `${rows.length} Outstanding`, 9, "1px 8px")
-  const header = `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin:0 0 6px 0;"><tr>
+  const header = `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin:0 0 2px 0;"><tr>
     <td valign="middle" style="vertical-align:middle;padding-right:8px;font-size:15px;font-weight:bold;"><span style="color:${NAVY};">${esc(title)}</span></td>
     <td valign="middle" align="right" style="vertical-align:middle;text-align:right;white-space:nowrap;">${countBadge}</td>
-  </tr></table>`
+  </tr></table>
+  <div style="font-size:11px;padding:0 0 8px 0;"><span style="color:${SUBTLE};">${esc(caption)}</span></div>`
   const body = rows.length
     ? rows.map((r, i) => reportRow(r, dateKey, todayNum, i === rows.length - 1)).join("")
     : `<tr><td colspan="8" style="padding:10px 0;font-size:13px;color:${SUBTLE};">None right now.</td></tr>`
@@ -403,28 +406,48 @@ function reportSection(
   </table>`
 }
 
+// Compact key for the Due column only — a bare red/amber date isn't
+// self-explanatory. Two swatch pills; the aging/"Waiting" colors stay unlabeled.
+function dueKey(): string {
+  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin:6px 0 2px 0;"><tr>
+    <td valign="middle" style="vertical-align:middle;padding-right:6px;">${pill(RED.pillBg, RED.text, "Overdue", 9, "1px 7px")}</td>
+    <td valign="middle" style="vertical-align:middle;padding-right:10px;">${pill(AMBER.pillBg, AMBER.text, "Due soon", 9, "1px 7px")}</td>
+    <td valign="middle" style="vertical-align:middle;font-size:11px;"><span style="color:${SUBTLE};">= due-date color on the Due column</span></td>
+  </tr></table>`
+}
+
 // The full pipeline block: heading + the two report sections + a divider.
 // Rendered ABOVE the unchanged Outstanding Feedback content.
 function buildPipelineBlock(pipelineRows: FeedbackPipelineRow[], todayLabel: string): string {
   const todayNum = easternDayNumber(new Date())
-  const pending = pipelineRows
-    .filter((r) => r.category === "pending_review")
-    .sort((a, b) => (b.days_in_stage ?? -Infinity) - (a.days_in_stage ?? -Infinity)) // longest-waiting first
-  const inProgress = pipelineRows
-    .filter((r) => r.category === "in_progress")
-    .sort((a, b) => {
-      const ta = a.due_date ? new Date(a.due_date).getTime() : Infinity // nulls last
-      const tb = b.due_date ? new Date(b.due_date).getTime() : Infinity
-      return ta - tb // soonest-due first
-    })
+  // Both sections: longest-waiting first (days_in_stage desc, nulls last).
+  const byWaitingDesc = (a: FeedbackPipelineRow, b: FeedbackPipelineRow) =>
+    (b.days_in_stage ?? -Infinity) - (a.days_in_stage ?? -Infinity)
+  const pending = pipelineRows.filter((r) => r.category === "pending_review").sort(byWaitingDesc)
+  const inProgress = pipelineRows.filter((r) => r.category === "in_progress").sort(byWaitingDesc)
 
   const heading = `<div style="font-size:22px;font-weight:bold;"><span style="color:${INK};">Feedback Report Pipeline &mdash; ${esc(todayLabel)}</span></div>
-    <div style="font-size:13px;padding:4px 0 2px 0;"><span style="color:${SUBTLE};">Reports awaiting review and in progress.</span></div>`
+    <div style="font-size:13px;padding:4px 0 2px 0;"><span style="color:${SUBTLE};">Reports awaiting review and in progress.</span></div>
+    ${dueKey()}`
 
   const sections =
-    reportSection("Feedback Reports Pending Review", pending, "Fb Closed", "fb_closed_date", todayNum) +
+    reportSection(
+      "Feedback Reports Pending Review",
+      "Waiting = days since the matched Feedback task closed. Sorted by longest waiting first.",
+      pending,
+      "Fb Closed",
+      "fb_closed_date",
+      todayNum,
+    ) +
     "\n" +
-    reportSection("Feedback Reports In Progress", inProgress, "FB Received", "received_date", todayNum)
+    reportSection(
+      "Feedback Reports In Progress",
+      "Waiting = days since the feedback has been fully received. Sorted by longest waiting first.",
+      inProgress,
+      "FB Received",
+      "received_date",
+      todayNum,
+    )
 
   return `<table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
   <tr><td style="padding:0 0 8px 0;">
