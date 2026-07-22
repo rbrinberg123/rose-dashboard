@@ -2958,8 +2958,15 @@ CREATE OR REPLACE VIEW public.v_feedback_outstanding AS
 SELECT
   m.meeting_id,
   m.meeting_date,
-  m.host_id,
-  m.host_name,
+  -- In THIS view, host_id/host_name carry the Feedback-responsible person
+  -- (Dynamics bcs_feedback), falling back to the meeting Host when that field is
+  -- unset. The output column names are kept as host_id/host_name so the email
+  -- builder, the /feedback page, and the FeedbackOutstandingRow type need no
+  -- edits — but a reader should not assume these are the meeting Host. The
+  -- Feedback person lives only in meetings._raw (the mirror table has no column
+  -- for it), same _raw pattern the Live Outreach city lookup uses.
+  COALESCE(NULLIF(m._raw->>'_bcs_feedback_value', '')::uuid, m.host_id)                                              AS host_id,
+  COALESCE(NULLIF(m._raw->>'_bcs_feedback_value@OData.Community.Display.V1.FormattedValue', ''), m.host_name)          AS host_name,
   m.client_account_id,
   m.client_account_name,
   m.institution_name,
