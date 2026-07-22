@@ -129,9 +129,9 @@ export function FeedbackPipelineView({
   const [claimedBy, setClaimedBy] = React.useState<string>(ALL)
   const [accountManager, setAccountManager] = React.useState<string>(ALL)
   const [inProgClaim, setInProgClaim] = React.useState<ClaimFilter>("all")
-  // Per-section sort with problem-first defaults: In Progress → soonest due first
-  // (overdue/urgent rise); Pending Review → longest-waiting first.
-  const [ipSort, setIpSort] = React.useState<SortState>({ key: "due", dir: "asc" })
+  // Per-section sort with problem-first defaults: Open → longest-waiting first
+  // (oldest drafts rise, matching the caption); Pending Review → longest-waiting first.
+  const [ipSort, setIpSort] = React.useState<SortState>({ key: "age", dir: "desc" })
   const [prSort, setPrSort] = React.useState<SortState>({ key: "age", dir: "desc" })
 
   const inProgressAll = React.useMemo(
@@ -247,7 +247,7 @@ export function FeedbackPipelineView({
       <div className="mb-4">
         <ListTitleCard
           title="Feedback Report Pipeline"
-          subtitle="Active feedback reports across two stages — In Progress (being written) and Pending Review (written, awaiting account-manager review)."
+          subtitle="Active feedback reports across two stages — Open (being written) and Pending Review (written, awaiting account-manager review)."
         />
       </div>
 
@@ -290,7 +290,7 @@ export function FeedbackPipelineView({
       {/* Workload strip — who's writing how many In Progress reports (Claimed By). */}
       {(workload.people.length > 0 || workload.unassigned > 0) && (
         <WorkloadStrip
-          label="In Progress Workload — by report writer"
+          label="Open Workload — by report writer"
           people={workload.people}
           trailing={{
             label: "Unassigned",
@@ -302,8 +302,8 @@ export function FeedbackPipelineView({
 
       {/* IN PROGRESS section */}
       <Section
-        title="In Progress"
-        caption="Reports being written — feedback received, task open. Sorted by due date (soonest first)."
+        title="Open"
+        caption="Waiting = days since all meeting level feedback has been received and report draft has started. Sorted by longest waiting first."
         count={inProgressRows.length}
         headerRight={
           <SubToggle value={inProgClaim} onChange={setInProgClaim} />
@@ -394,7 +394,7 @@ function PipelineFlow({
                 aria-hidden="true"
               />
               <div className="mt-0.5 text-[11px] font-medium" style={{ color: TEXT_MUTED }}>
-                In progress ({inProgress})
+                Open ({inProgress})
               </div>
             </div>
           </div>
@@ -614,7 +614,7 @@ function PipelineTable({
             <SortTh k="age" sort={sort} onSort={onSort} center>Age / Waiting</SortTh>
             <SortTh k="due" sort={sort} onSort={onSort} center>Due</SortTh>
             <SortTh k="taskdate" sort={sort} onSort={onSort} center>{dateHeader}</SortTh>
-            <SortTh k="am" sort={sort} onSort={onSort}>Account Mgr</SortTh>
+            <SortTh k="am" sort={sort} onSort={onSort}>Client Mgr</SortTh>
             <SortTh k="claimed" sort={sort} onSort={onSort}>Claimed By</SortTh>
           </tr>
         </thead>

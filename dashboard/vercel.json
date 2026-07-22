@@ -2,6 +2,8 @@
   "crons": [
     { "path": "/api/sync-dynamics", "schedule": "*/10 11-22 * * 1-5" },
     { "path": "/api/client-summary/refresh-all", "schedule": "0 8 * * *" },
-    { "path": "/api/live-outreach/send-email", "schedule": "30 11,12 * * 1-5" }
+    { "path": "/api/live-outreach/send-email", "schedule": "30 11,12 * * 1-5" },
+    { "path": "/api/feedback/send-email", "schedule": "15 12,13 * * 1" },
+    { "path": "/api/feedback/send-email", "schedule": "45 12,13 * * 2-5" }
   ]
 }

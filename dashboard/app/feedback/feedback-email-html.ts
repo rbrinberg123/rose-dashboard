@@ -445,8 +445,8 @@ function buildPipelineBlock(pipelineRows: FeedbackPipelineRow[], todayLabel: str
     ) +
     "\n" +
     reportSection(
-      "Feedback Reports In Progress",
-      "Waiting = days since the feedback has been fully received. Sorted by longest waiting first.",
+      "Feedback Reports - Open",
+      "Waiting = days since all meeting level feedback has been received and report draft has started. Sorted by longest waiting first.",
       inProgress,
       "FB Received",
       "received_date",

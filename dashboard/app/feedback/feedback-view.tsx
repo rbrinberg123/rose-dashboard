@@ -14,7 +14,7 @@ import { ListTitleCard } from "@/components/page-masthead"
 import { StatCard } from "@/components/stat-card"
 import { CARD_CLASS } from "@/lib/design"
 import type { FeedbackOutstandingRow } from "@/lib/types"
-import { SendTestEmailButton } from "./send-test-email-button"
+import { SendEmailControls } from "./send-email-controls"
 
 // Brand + status palette. One source of truth for the coral (no feedback),
 // amber (awaiting additional), and red (30+ days stale) accents used across the
@@ -244,7 +244,7 @@ export function FeedbackView({
         <ListTitleCard
           title="Feedback"
           subtitle="Concluded meetings still missing complete feedback — blank or awaiting additional."
-          rightSlot={canSend ? <SendTestEmailButton userEmail={userEmail} /> : undefined}
+          rightSlot={canSend ? <SendEmailControls userEmail={userEmail} /> : undefined}
         />
       </div>
 
