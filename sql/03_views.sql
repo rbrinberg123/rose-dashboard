@@ -3820,7 +3820,7 @@ SELECT
   a.market_cap_b,
   e.sales_lead_primary_name                       AS sales_lead_name,
   e.urgency_label                                 AS urgency,
-  e.slots_remaining,
+  (e.of_slots - COALESCE(cm.cnt, 0))              AS slots_remaining,
   e.of_slots,
   e.dates                                         AS event_dates,
   e.event_location,
