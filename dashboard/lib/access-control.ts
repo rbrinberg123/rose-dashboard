@@ -31,6 +31,7 @@ export type Role = "super_user" | "user"
 export const USER_ALLOWED_ROUTES = [
   "/scheduler",
   "/planning-v2",
+  "/calendar",
   "/profiles",
   "/feedback",
   "/feedback-manager",

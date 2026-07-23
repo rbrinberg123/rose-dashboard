@@ -1076,6 +1076,27 @@ export type ClientOnboardingRow = {
   onboarding_field_count: number
 }
 
+/**
+ * One row per event on the Logistics -> Calendar page (v_marketing_calendar) —
+ * a Gantt-style marketing calendar with one lane per client. Scope is every
+ * Active event whose state is not Pause / Pre-Launch, within a trailing window
+ * (see sql/03_views.sql). event_dates is the free-text Dynamics "dates" string
+ * (no year, e.g. "8/4, 8/5" or "9/1-9/3"); the page parses it for precise day
+ * marks/ranges and falls back to event_start_actual..event_end_actual.
+ */
+export type MarketingCalendarRow = {
+  event_id: string
+  event_name: string
+  client_account_id: string | null
+  client_account_name: string | null
+  ticker: string | null
+  event_state_label: string | null
+  event_start_actual: string | null
+  event_end_actual: string | null
+  event_dates: string | null
+  event_location: string | null
+}
+
 // One row per Confirmed meeting of an upcoming event, from v_planning_events.
 // Powers the Logistics → Planning tracker (master-detail). The four stage
 // VALUES come raw; the UI decides each checkmark (see planning-view.tsx).

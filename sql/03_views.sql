@@ -4145,3 +4145,51 @@ WHERE ( onb.f_onboarding_call::int
 ORDER BY days_onboarding DESC NULLS LAST, onb.name;
 
 GRANT SELECT ON public.v_client_onboarding TO service_role;
+
+
+-- -----------------------------------------------------------------------------
+-- v_marketing_calendar
+-- One row per event (of any active workflow state except Pause / Pre-Launch),
+-- for the Logistics -> Calendar page: a Gantt-style marketing calendar with one
+-- lane per client and each event drawn as a bar colored by event_state_label.
+--
+-- Scope:
+--   - event_state_label IS NOT NULL and NOT IN ('Pause','Pre-Launch') — i.e. all
+--     of Live Outreach / Meetings Ongoing / Schedule Closed / Preparing Feedback
+--     / Complete (the five states the page colors), and nothing pre-launch/paused.
+--   - state_label = 'Active' excludes DEACTIVATED events (the Dataverse statecode,
+--     distinct from the workflow event_state_label). Kept on purpose so the
+--     calendar shows only live events; drop this line to include deactivated ones.
+--   - A trailing window: only events whose latest actual date (end, else start) is
+--     within the last 2 months or in the future, so the lanes stay forward-looking
+--     without a hard "future only" cut (recently-finished events still show).
+--
+-- Field notes:
+--   - client_account_name / ticker COALESCE the event's own copy with the joined
+--     accounts row (same pattern as v_live_outreach).
+--   - event_dates is the free-text Dynamics "dates" string (no year, e.g. "8/4,
+--     8/5" or "9/1-9/3"); the page parses it for precise day marks/ranges and
+--     falls back to event_start_actual..event_end_actual when it yields nothing.
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS public.v_marketing_calendar CASCADE;
+CREATE VIEW public.v_marketing_calendar AS
+SELECT
+  e.event_id,
+  e.name                                     AS event_name,
+  e.client_account_id,
+  COALESCE(e.client_account_name, a.name)    AS client_account_name,
+  COALESCE(a.ticker_symbol, e.client_ticker) AS ticker,
+  e.event_state_label,
+  e.event_start_actual,
+  e.event_end_actual,
+  e.dates                                    AS event_dates,   -- free text, no year (e.g. "8/4, 8/5", "9/1-9/3")
+  e.event_location
+FROM public.events e
+LEFT JOIN public.accounts a ON a.account_id = e.client_account_id
+WHERE e.state_label = 'Active'
+  AND e.event_state_label IS NOT NULL
+  AND e.event_state_label NOT IN ('Pause','Pre-Launch')
+  AND COALESCE(e.event_end_actual, e.event_start_actual) >= (CURRENT_DATE - INTERVAL '2 months')
+ORDER BY ticker NULLS LAST, e.event_start_actual;
+
+GRANT SELECT ON public.v_marketing_calendar TO service_role;

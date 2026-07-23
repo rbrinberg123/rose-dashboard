@@ -69,6 +69,7 @@ const sections: NavSection[] = [
       // The original /planning page is hidden from the nav (route kept, unlinked);
       // "Planning" now points at the former Planning Lab (app/planning-v2).
       { href: "/planning-v2", label: "Planning" },
+      { href: "/calendar", label: "Calendar" },
       { href: "/scheduler", label: "Host Calendar" },
       { href: "/client-marketing-status", label: "Marketing Status" },
       { href: "/live-outreach", label: "Live Outreach" },
