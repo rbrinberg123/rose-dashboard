@@ -3,7 +3,7 @@
 import * as React from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { CARD_CLASS, BRAND_NAVY, TEXT_MUTED } from "@/lib/design"
+import { CARD_CLASS, BRAND_NAVY, BRAND_BLUE, TEXT_MUTED } from "@/lib/design"
 import type { MarketingCalendarRow } from "@/lib/types"
 
 // -----------------------------------------------------------------------------
@@ -14,7 +14,12 @@ const GRID_WIDTH = 1020 // the day-axis area stays ~1020px wide (day width scale
 const LANE_HEIGHT = 30 // one client lane
 const BAR_HEIGHT = 14 // event range bar
 const MARK_SIZE = 11 // single-day event mark
+const STRIP_BAR_MAX = 34 // tallest density bar (px)
 const MS_PER_DAY = 86_400_000
+
+// Accent for the "Clients marketing" density strip. Aligned to the app blue
+// design token so the summary lane reads as part of the palette.
+const DENSITY_ACCENT = BRAND_BLUE
 
 // Event-state color palette (approved). Any unknown/future state falls back to a
 // neutral gray so the lane still renders.
@@ -274,19 +279,32 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
       ? (todayIdx - win.startIdx) * win.dayWidth
       : null
 
+  // Per-day distinct-client density for the CURRENT window. Recomputed whenever
+  // the window (zoom / scroll) or the data changes, using the exact same resolved
+  // segments the grid draws (parsed event_dates, else the start→end fallback). A
+  // client is counted at most once per day via a per-day Set of client keys.
+  const density = React.useMemo(() => {
+    const totalDays = win.endIdx - win.startIdx
+    const daySets: Set<string>[] = Array.from({ length: totalDays }, () => new Set())
+    for (const g of groups) {
+      for (const row of g.rows) {
+        for (const seg of eventSegments(row)) {
+          const from = Math.max(seg.startIdx, win.startIdx)
+          const to = Math.min(seg.endIdx, win.endIdx - 1)
+          for (let d = from; d <= to; d++) daySets[d - win.startIdx].add(g.key)
+        }
+      }
+    }
+    const counts = daySets.map((s) => s.size)
+    const max = counts.reduce((m, c) => (c > m ? c : m), 0)
+    return { counts, max }
+  }, [groups, win])
+
   return (
     <div className="flex flex-col gap-3">
-      {/* Masthead: legend + window controls */}
+      {/* Toolbar: legend + window controls (the page title lives in the standard
+          PageShell header above). */}
       <div className={cn(CARD_CLASS, "flex flex-wrap items-center justify-between gap-3 px-4 py-3")}>
-        <div>
-          <h1 className="text-base font-semibold" style={{ color: BRAND_NAVY }}>
-            Marketing Calendar
-          </h1>
-          <p className="text-xs" style={{ color: TEXT_MUTED }}>
-            {groups.length.toLocaleString()} clients · {rows.length.toLocaleString()} events
-          </p>
-        </div>
-
         {/* Event-state key */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           {STATE_ORDER.map((s) => (
@@ -404,6 +422,65 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
                     )
                   }
                   return ticks
+                })}
+            </div>
+          </div>
+
+          {/* "Clients marketing" density strip — distinct clients per day in the
+              current window, aligned to the same day axis and label column. */}
+          <div className="flex border-b border-[#EDEFF3] bg-white">
+            <div
+              className="flex shrink-0 flex-col justify-center border-r border-[#EDEFF3] px-3"
+              style={{ width: LABEL_WIDTH }}
+            >
+              <span className="text-xs font-medium" style={{ color: BRAND_NAVY }}>
+                Clients marketing
+              </span>
+              <span className="text-[11px]" style={{ color: TEXT_MUTED }}>
+                · peak {density.max}
+              </span>
+            </div>
+            <div
+              className="relative"
+              style={{ width: GRID_WIDTH, height: STRIP_BAR_MAX + (dayStride > 0 ? 18 : 8) }}
+            >
+              {density.max > 0 &&
+                density.counts.map((count, d) => {
+                  if (count <= 0) return null
+                  const intensity = count / density.max
+                  const barH = Math.max(2, intensity * STRIP_BAR_MAX)
+                  const gap = Math.min(2, win.dayWidth * 0.25)
+                  const left = d * win.dayWidth
+                  const width = Math.max(1, win.dayWidth - gap)
+                  const label = `${count} client${count === 1 ? "" : "s"} marketing`
+                  return (
+                    <React.Fragment key={d}>
+                      {dayStride > 0 && (
+                        <div
+                          className="absolute text-center text-[9px] tabular-nums"
+                          style={{
+                            left,
+                            width: win.dayWidth,
+                            bottom: barH + 2,
+                            color: TEXT_MUTED,
+                          }}
+                        >
+                          {count}
+                        </div>
+                      )}
+                      <div
+                        title={label}
+                        className="absolute bottom-0 rounded-t-[2px]"
+                        style={{
+                          left: left + gap / 2,
+                          width,
+                          height: barH,
+                          background: DENSITY_ACCENT,
+                          opacity: 0.4 + 0.6 * intensity,
+                        }}
+                      />
+                    </React.Fragment>
+                  )
                 })}
             </div>
           </div>
