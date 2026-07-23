@@ -1,16 +1,15 @@
 import * as React from "react"
 import { Video, MapPin, Shuffle } from "lucide-react"
 import { ListTitleCard } from "@/components/page-masthead"
-import { CARD_CLASS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, TEXT_TERTIARY, BRAND_NAVY, TEAL, STATUS_PILL_LIGHT } from "@/lib/design"
+import { CARD_CLASS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, TEXT_TERTIARY, BRAND_NAVY, STATUS_PILL_LIGHT } from "@/lib/design"
 import { format } from "date-fns"
 import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { LiveOutreachRow, LiveOutreachMeeting } from "@/lib/types"
-import { meetingHistoryFlag } from "./history-flag"
+import { priorityFlagKind, PRIORITY_FLAG_STYLE } from "./priority-flag"
 import { SendEmailControls } from "./send-email-button"
 
-// NEW flag uses the palette's "new" blue; the prior-meeting count uses TEAL —
-// deliberately different from the navy "Confirmed Meetings" header badge.
+// NEW recency flag uses the palette's "new" blue.
 const NEW_FLAG = STATUS_PILL_LIGHT.new
 
 // ---- small formatters (page-local; the shared ones don't cover these) ------
@@ -28,21 +27,20 @@ function formatYield(v: number | null): string {
   return `${v.toFixed(2)}%`
 }
 
-// ---- urgency pill (binary in the data: High | Standard | null) -------------
-function UrgencyPill({ urgency }: { urgency: LiveOutreachRow["urgency"] }) {
-  if (!urgency) return null
-  const high = urgency === "High"
+// ---- priority flag pill (High Priority / New Client / none) -----------------
+// One flag per event, chosen by priorityFlagKind: High urgency → "High Priority"
+// (alert red), else a new client → "New Client" (rose-crimson), else an At-Risk
+// client → "High Priority", else nothing. Shared with the email so they match.
+function PriorityPill({ row }: { row: LiveOutreachRow }) {
+  const kind = priorityFlagKind(row)
+  if (!kind) return null
+  const s = PRIORITY_FLAG_STYLE[kind]
   return (
     <span
       className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full font-semibold"
-      style={{
-        padding: "3px 10px",
-        fontSize: 11,
-        background: high ? "#FDE7E7" : "#F1F3F7",
-        color: high ? "#A32D2D" : "#5B6472",
-      }}
+      style={{ padding: "3px 10px", fontSize: 11, background: s.bg, color: s.text }}
     >
-      {high ? "High Urgency" : "Standard"}
+      {s.label}
     </span>
   )
 }
@@ -113,54 +111,47 @@ function OpenSlotsStat({ remaining, total }: { remaining: number | null; total: 
   )
 }
 
-// ---- client<->institution history flags (NEW pill / prior-count circle) ----
+// ---- per-meeting recency flag (NEW = added to the CRM in the last 24 hours) -
+// Mirrors the Live Outreach email exactly: the blue NEW pill shows only when the
+// meeting's created_on is within the last 24 hours (and not in the future);
+// otherwise no pill. No prior-meeting count.
+const DAY_MS = 24 * 60 * 60 * 1000
+function isRecentlyAdded(createdOn: string | null | undefined): boolean {
+  if (!createdOn) return false
+  const t = Date.parse(createdOn)
+  if (Number.isNaN(t)) return false
+  const age = Date.now() - t
+  return age >= 0 && age <= DAY_MS
+}
+
 function NewPill() {
   return (
     <span
       className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full font-bold uppercase tracking-wide"
       style={{ padding: "1px 7px", fontSize: 10, background: NEW_FLAG.bg, color: NEW_FLAG.text }}
-      title="First Rose & Co meeting with this institution"
+      title="Added to the CRM in the last 24 hours"
     >
       New
     </span>
   )
 }
 
-function CountCircle({ count }: { count: number }) {
-  return (
-    <span
-      className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-1 text-[11px] font-bold tabular-nums text-white"
-      style={{ background: TEAL }}
-      title={`${count} prior Rose & Co meeting${count === 1 ? "" : "s"} with this institution`}
-    >
-      {count}
-    </span>
-  )
+function MeetingFlag({ createdOn }: { createdOn: string | null | undefined }) {
+  return isRecentlyAdded(createdOn) ? <NewPill /> : null
 }
 
-function MeetingFlags({ prior }: { prior: number | null | undefined }) {
-  const flag = meetingHistoryFlag(prior)
-  if (flag.isNew) return <NewPill />
-  if (flag.count != null) return <CountCircle count={flag.count} />
-  return null
-}
-
-// ---- key explaining the two meeting-history flags --------------------------
+// ---- key explaining the NEW recency flag -----------------------------------
 function HistoryLegend() {
   return (
     <div
       className={cn("mb-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 px-4 py-2.5", CARD_CLASS)}
     >
       <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: TEXT_TERTIARY }}>
-        Meeting history
+        Key
       </span>
       <span className="inline-flex items-center gap-1.5 text-[12px]" style={{ color: TEXT_SECONDARY }}>
         <NewPill />
-        First Rose &amp; Co meeting with this institution
-      </span>
-      <span className="inline-flex items-center gap-1.5 text-[12px]" style={{ color: TEXT_SECONDARY }}>
-        <CountCircle count={1} />
-        Number of prior Rose &amp; Co meetings with this institution
+        Meeting added to the CRM in the last 24 hours
       </span>
     </div>
   )
@@ -194,11 +185,11 @@ function MeetingLine({ m }: { m: LiveOutreachMeeting }) {
       >
         {formatDate(m.meeting_date).replace(/, \d{4}$/, "")}
       </span>
-      {/* History flag in a FIXED-WIDTH, centered column so the institution name
-          always starts at the same x on every row, regardless of flag width
-          (a "NEW" pill is wider than a small count circle). */}
+      {/* NEW recency flag in a FIXED-WIDTH, centered column so the institution
+          name always starts at the same x on every row, whether or not the pill
+          shows. */}
       <div className="mt-px flex w-[46px] shrink-0 justify-center">
-        <MeetingFlags prior={m.prior_meeting_count} />
+        <MeetingFlag createdOn={m.created_on} />
       </div>
       {/* Institution + contact on one line; long names wrap naturally rather
           than forcing the contact onto its own line. */}
@@ -234,7 +225,7 @@ function OutreachCard({ row }: { row: LiveOutreachRow }) {
           <h3 className="min-w-0 truncate text-base font-semibold" style={{ color: TEXT_PRIMARY }}>
             {row.client_account_name ?? row.event_name ?? "—"}
           </h3>
-          <UrgencyPill urgency={row.urgency} />
+          <PriorityPill row={row} />
         </div>
         {row.industry ? (
           <div className="mt-0.5 text-xs" style={{ color: TEXT_MUTED }}>

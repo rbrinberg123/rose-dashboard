@@ -932,15 +932,9 @@ export type LiveOutreachMeeting = {
   institution_name: string | null
   contact: string | null
   // CRM creation timestamp (meetings.created_on) from v_live_outreach. Drives the
-  // email's "NEW" recency flag: shown only when the meeting was added within the
-  // last 24 hours. null when unknown.
+  // "NEW" recency flag on BOTH the email and the page: shown only when the meeting
+  // was added within the last 24 hours. null when unknown.
   created_on: string | null
-  // Count of OTHER 'Confirmed' meetings (any date) between this event's client
-  // and this meeting's institution, excluding this meeting. Added by the page
-  // after the view fetch (not a column on v_live_outreach). null = unknown
-  // (missing client or institution) → no history flag. Drives the NEW / count
-  // flags via app/live-outreach/history-flag.ts.
-  prior_meeting_count?: number | null
   // Per-meeting live/virtual flag + city, added by app/live-outreach/load.ts
   // (not on v_live_outreach — looked up from public.meetings). is_in_person =
   // true for a Live meeting; city is its city name (from the meetings _raw blob),
@@ -972,6 +966,14 @@ export type LiveOutreachRow = {
   event_dates: string | null
   event_location: string | null
   event_mode: "Virtual" | "Live" | "Hybrid" | null
+  // Canonical client health flag (At Risk / Stable / Lost / New Client / Strong),
+  // sourced the same way as v_client_portfolio's note-derived status. null when the
+  // client has no note. earliest_contract_start is the client's first contract
+  // start ('YYYY-MM-DD'), null when none; is_new_client is true when that start is
+  // within the last 6 months. Together they drive the priority tier + flag.
+  client_status_label: string | null
+  earliest_contract_start: string | null
+  is_new_client: boolean
   confirmed_meeting_count: number
   confirmed_meetings: LiveOutreachMeeting[]
 }

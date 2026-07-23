@@ -3842,10 +3842,48 @@ SELECT
     WHEN e.event_location ILIKE '%live%'    THEN 'Live'
     ELSE NULL
   END                                             AS event_mode,
+  -- Canonical client health flag (At Risk / Stable / Lost / New Client / Strong),
+  -- computed the SAME way v_client_portfolio.recent_note does: the client's
+  -- most-recent client_notes row with status_text normalized to one of the five
+  -- canonical flags. Sourcing it identically keeps "At Risk" meaning the same
+  -- thing here as on the Portfolio page. NULL when the client has no note (or the
+  -- note carries no non-blank status).
+  ns.note_status                                  AS client_status_label,
+  -- Earliest contract start for this client (any contract state), and the derived
+  -- "new client" flag: a contract began within the last 6 months. Together they
+  -- drive the Live Outreach priority tier and the "New Client" flag.
+  ec.earliest_contract_start,
+  (ec.earliest_contract_start IS NOT NULL
+     AND ec.earliest_contract_start >= (CURRENT_DATE - INTERVAL '6 months')) AS is_new_client,
   COALESCE(cm.cnt, 0)                             AS confirmed_meeting_count,
   COALESCE(cm.meetings, '[]'::jsonb)              AS confirmed_meetings
 FROM public.events e
 LEFT JOIN public.accounts a ON a.account_id = e.client_account_id
+-- Latest client note's normalized status flag (mirrors v_client_portfolio's
+-- recent_note CTE, one client at a time). Same ranking (note_date, then
+-- modified_on, then created_on — all DESC) so the flag agrees with the Portfolio
+-- page on which note is "latest".
+LEFT JOIN LATERAL (
+  SELECT
+    CASE
+      WHEN lower(btrim(n.status_text)) LIKE 'at risk%'    THEN 'At Risk'
+      WHEN lower(btrim(n.status_text)) LIKE 'stable%'     THEN 'Stable'
+      WHEN lower(btrim(n.status_text)) LIKE 'lost%'       THEN 'Lost'
+      WHEN lower(btrim(n.status_text)) LIKE 'new client%' THEN 'New Client'
+      WHEN lower(btrim(n.status_text)) LIKE 'strong%'     THEN 'Strong'
+      ELSE NULLIF(btrim(n.status_text, E' \t\n\r'), '')
+    END AS note_status
+  FROM public.client_notes n
+  WHERE n.client_account_id = e.client_account_id
+  ORDER BY n.note_date DESC, n.modified_on DESC NULLS LAST, n.created_on DESC NULLS LAST
+  LIMIT 1
+) ns ON true
+-- Earliest contract start across ALL of the client's contracts (any state).
+LEFT JOIN LATERAL (
+  SELECT MIN(k.contract_start_date) AS earliest_contract_start
+  FROM public.contracts k
+  WHERE k.client_account_id = e.client_account_id
+) ec ON true
 LEFT JOIN LATERAL (
   SELECT
     COUNT(*) AS cnt,

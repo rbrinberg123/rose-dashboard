@@ -1,28 +1,30 @@
 // Shared server-side loader for Live Outreach.
 //
-// Fetches v_live_outreach and enriches each confirmed meeting with the
-// client<->institution meeting-history flag (NEW / prior-count). Extracted from
-// page.tsx verbatim so the page, the email-send route, and the Stage-1 test
-// route all build the digest from IDENTICAL data.
+// Fetches v_live_outreach and enriches each confirmed meeting with its
+// live/virtual flag + city (looked up from public.meetings). Extracted so the
+// page, the email-send route, and the Stage-1 test route all build the digest
+// from IDENTICAL data.
 //
-// Fails soft on the history read exactly as the page did: any error there leaves
-// prior_meeting_count = null (no flags shown) rather than wrong flags. Only a
-// fatal v_live_outreach fetch error is surfaced via the returned `error`.
+// Fails soft on the location read: any error there just leaves meetings without
+// the Live/city pill. Only a fatal v_live_outreach fetch error is surfaced via
+// the returned `error`.
 
 import { getSupabaseServer } from "@/lib/supabase"
 import type { LiveOutreachRow } from "@/lib/types"
 
-// PostgREST caps a single response at 1,000 rows; the meeting-history read can
-// exceed that across all the Live Outreach clients, so we page through it.
-const MEETINGS_PAGE_SIZE = 1000
-
 // ---- sort ------------------------------------------------------------------
 // Desired order (page + email share this loader, so both get it):
-//   1. High-urgency events first (urgency === "High"; the "High Urgency" pill is
-//      just the UI label — the stored value is "High").
-//   2. Then by the event's start date, soonest first. v_live_outreach has no
-//      clean start-date column, so we derive one (see eventStartMs).
+//   1. Priority TIER (lower = higher), see priorityTier below:
+//        Tier 1 — High urgency (urgency === "High")
+//        Tier 2 — At Risk client (and not new, and not High)
+//        Tier 3 — New client (and not High)
+//        Tier 4 — everyone else
+//   2. Within a tier: the event's start date, soonest first. v_live_outreach has
+//      no clean start-date column, so we derive one (see eventStartMs).
 //   3. Tiebreaker: alphabetical by client/company name (fallback event name).
+//
+// NB the tier order differs from the per-event priority FLAG (priority-flag.ts):
+// here At Risk (tier 2) outranks New Client (tier 3); the flag lets New Client win.
 
 /** Best-effort epoch (ms) from the first "M/D" token of the event_dates display
  *  string (e.g. "8/4, 8/5" → Aug 4). No year is stored, so we assume this year
@@ -64,12 +66,22 @@ function eventStartMs(row: LiveOutreachRow): number {
   return parseEventDatesStart(row.event_dates) // already UTC midnight
 }
 
+/** Priority tier for the primary sort key (lower = higher priority). See the
+ *  sort block above. High wins outright; among non-High events At Risk (not new)
+ *  outranks New Client, which outranks everyone else. */
+function priorityTier(row: LiveOutreachRow): number {
+  if (row.urgency === "High") return 1
+  if (row.client_status_label === "At Risk" && !row.is_new_client) return 2
+  if (row.is_new_client) return 3
+  return 4
+}
+
 /** Compare two events by the Live Outreach sort order (see the block above). */
 function compareLiveOutreach(a: LiveOutreachRow, b: LiveOutreachRow): number {
-  // 1. High urgency on top.
-  const ah = a.urgency === "High" ? 0 : 1
-  const bh = b.urgency === "High" ? 0 : 1
-  if (ah !== bh) return ah - bh
+  // 1. Priority tier (lower = higher).
+  const at = priorityTier(a)
+  const bt = priorityTier(b)
+  if (at !== bt) return at - bt
 
   // 2. Start date ascending (soonest first; dateless events last).
   const ad = eventStartMs(a)
@@ -95,48 +107,6 @@ export async function loadLiveOutreachRows(): Promise<{
   if (error) return { rows: [], error: error.message }
 
   const rows = (data ?? []) as LiveOutreachRow[]
-
-  // ---- client<->institution meeting history --------------------------------
-  // Each confirmed meeting gets a NEW / count flag based on how many OTHER
-  // 'Confirmed' meetings (any date) this client has had with that institution.
-  // Computed here (no view change) with one paginated read of public.meetings,
-  // matched on client_account_id + institution_name (the app treats the
-  // institution NAME as the key — see the meetings mirror table). Fails soft:
-  // any read error leaves history unavailable so we show NO flags rather than
-  // wrong ones.
-  const clientIds = Array.from(
-    new Set(
-      rows.map((r) => r.client_account_id).filter((v): v is string => Boolean(v)),
-    ),
-  )
-
-  const confirmedByPair = new Map<string, number>()
-  const countedMeetingIds = new Set<string>()
-  let historyAvailable = clientIds.length > 0
-
-  if (clientIds.length > 0) {
-    for (let from = 0; ; from += MEETINGS_PAGE_SIZE) {
-      const { data: mrows, error: merr } = await sb
-        .from("meetings")
-        .select("client_account_id, institution_name, meeting_id")
-        .in("client_account_id", clientIds)
-        .eq("meeting_status_label", "Confirmed")
-        .range(from, from + MEETINGS_PAGE_SIZE - 1)
-
-      if (merr) {
-        historyAvailable = false
-        break
-      }
-      const batch = mrows ?? []
-      for (const m of batch) {
-        if (!m.client_account_id || !m.institution_name) continue
-        const key = `${m.client_account_id}|${m.institution_name}`
-        confirmedByPair.set(key, (confirmedByPair.get(key) ?? 0) + 1)
-        countedMeetingIds.add(m.meeting_id as string)
-      }
-      if (batch.length < MEETINGS_PAGE_SIZE) break
-    }
-  }
 
   // ---- per-meeting live flag + city ----------------------------------------
   // v_live_outreach's confirmed_meetings JSON carries no live/city info, so we
@@ -170,24 +140,16 @@ export async function loadLiveOutreachRows(): Promise<{
   const enriched: LiveOutreachRow[] = rows.map((r) => ({
     ...r,
     confirmed_meetings: (r.confirmed_meetings ?? []).map((m) => {
-      let prior: number | null = null
-      if (historyAvailable && r.client_account_id && m.institution_name) {
-        const key = `${r.client_account_id}|${m.institution_name}`
-        const total = confirmedByPair.get(key) ?? 0
-        // Subtract the current meeting itself when it is in the counted set.
-        prior = Math.max(0, total - (countedMeetingIds.has(m.meeting_id) ? 1 : 0))
-      }
       const loc = meetingLoc.get(m.meeting_id)
       return {
         ...m,
-        prior_meeting_count: prior,
         is_in_person: loc?.isInPerson ?? null,
         city: loc?.city ?? null,
       }
     }),
   }))
 
-  // Sort in place: High urgency → start date ascending → alphabetical. Both the
+  // Sort in place: priority tier → start date ascending → alphabetical. Both the
   // page and the email consume this order (they render rows as-given).
   enriched.sort(compareLiveOutreach)
 

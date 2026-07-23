@@ -8,6 +8,7 @@
 // copied as rich text, or written to the clipboard as text/html.
 
 import type { LiveOutreachRow, LiveOutreachMeeting } from "@/lib/types"
+import { priorityFlagKind, PRIORITY_FLAG_STYLE } from "./priority-flag"
 
 // Layout widths (px). Wider build, matching the approved snapshot.
 const LEFT = 380
@@ -46,6 +47,13 @@ function fmtMeetingDate(iso: string | null): string {
   if (Number.isNaN(d.getTime())) return "—"
   // UTC parts so the date matches what the page/snapshot shows.
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`
+}
+
+// Show only the base ticker, dropping an exchange/country qualifier such as
+// "NVCR US", "SGO:FP", or "STVL-LN". Share-class dots (e.g. "BRK.B") are kept.
+// Same logic as the Feedback email's baseTicker().
+function baseTicker(t: string): string {
+  return t.trim().split(/[\s:]/)[0].replace(/-[A-Za-z]{1,4}$/, "")
 }
 
 const MODE_STYLE: Record<string, { bg: string; text: string }> = {
@@ -91,12 +99,14 @@ function historyFlagHtml(createdOn: string | null | undefined): string {
   return isRecentlyAdded(createdOn) ? pill("#EEF2FB", "#2D4A8A", "NEW", 10, "1px 6px") : ""
 }
 
-function urgencyPill(urgency: LiveOutreachRow["urgency"]): string {
-  if (!urgency) return ""
-  const high = urgency === "High"
-  const bg = high ? "#FDE7E7" : "#F1F3F7"
-  const fg = high ? "#A32D2D" : "#5B6472"
-  return pill(bg, fg, high ? "High Urgency" : "Standard", 10, "3px 9px")
+// One priority flag per event (High Priority / New Client / none), sharing the
+// page's precedence via priorityFlagKind so the email and page never disagree.
+// Uses the SAME light-fill / dark-text pill() as the rest of the email.
+function priorityPill(row: LiveOutreachRow): string {
+  const kind = priorityFlagKind(row)
+  if (!kind) return ""
+  const s = PRIORITY_FLAG_STYLE[kind]
+  return pill(s.bg, s.text, s.label, 10, "3px 9px")
 }
 
 function modeTag(mode: LiveOutreachRow["event_mode"]): string {
@@ -163,8 +173,8 @@ function card(row: LiveOutreachRow, index: number): string {
   const slots = openSlots(row.slots_remaining, row.of_slots)
   const tickerHtml = row.ticker ? `<span style="color:#1E2858;">${esc(row.ticker)}</span>&nbsp; ` : ""
   const industryHtml = row.industry ? `<div style="font-size:12px;margin-top:2px;"><span style="color:#6B7280;">${esc(row.industry)}</span></div>` : ""
-  const pill = urgencyPill(row.urgency)
-  const pillRow = pill ? `<div style="margin-top:7px;">${pill}</div>` : ""
+  const flag = priorityPill(row)
+  const pillRow = flag ? `<div style="margin-top:7px;">${flag}</div>` : ""
   const datesHtml = row.event_dates
     ? `<span style="font-size:12px;color:#6B7280;">${esc(row.event_dates)}</span>`
     : `<span style="font-size:12px;color:#9AA1AD;">No dates set</span>`
@@ -213,9 +223,121 @@ function card(row: LiveOutreachRow, index: number): string {
   </table>`
 }
 
+// ---- section headings ------------------------------------------------------
+// Larger, darker section titles ("Event Summary" / "Event Details") each with a
+// dark-grey 1px divider underneath. Built as a table (not a bordered div) so the
+// rule survives Outlook: a 1px-high <td bgcolor> is the Outlook-reliable hairline.
+function sectionHeading(label: string): string {
+  // White background on the table + the title and trailing-spacer cells so no gray
+  // band shows behind the heading in Outlook. The 1px divider cell keeps its
+  // #6B7280 fill — that cell IS the rule line, so it stays grey.
+  return `<table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" bgcolor="#FFFFFF" style="width:${CONTAINER}px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;background-color:#FFFFFF;">
+    <tr><td bgcolor="#FFFFFF" style="background-color:#FFFFFF;padding:16px 0 7px 0;font-size:19px;font-weight:bold;line-height:1.2;"><span style="color:#1A2233;">${esc(label)}</span></td></tr>
+    <tr><td bgcolor="#6B7280" height="1" style="background-color:#6B7280;height:1px;line-height:1px;font-size:1px;mso-line-height-rule:exactly;">&nbsp;</td></tr>
+    <tr><td bgcolor="#FFFFFF" style="background-color:#FFFFFF;height:12px;line-height:12px;font-size:12px;">&nbsp;</td></tr>
+  </table>`
+}
+
+// ---- Event Summary: two columns, filled COLUMN-MAJOR -----------------------
+// A compact scan of every event (same sorted/tiered order as the detail cards),
+// on a pure-white table with hairline dividers only (no shaded fills). The events
+// are split into two halves and read DOWN the left column, then DOWN the right —
+// so row i holds left[i] and right[i], with a thin vertical divider between the
+// columns. Each event is one condensed line: Ticker · Status flag · Conf · Open ·
+// Dates. Outlook-safe: nested tables, inline styles, <td bgcolor> pills, no links.
+const SUMMARY_HAIRLINE = "#E7E9EE" // row dividers + vertical column divider
+const SUMMARY_HEADER_RULE = "#C7CCD4" // slightly darker rule under the headers
+
+// Per-column sub-column widths (px). All fixed — with white-space:nowrap on every
+// cell this guarantees each event stays on exactly one line (the Dates cell also
+// ellipsizes). Widths per half sum well under half the 1080px table, so the slack
+// distributes harmlessly (extra width never causes a wrap).
+const SUM_W = { ticker: 54, status: 92, conf: 40, open: 40, dates: 280 } as const
+
+/** Trim the free-text dates to a single line, ellipsizing what doesn't fit. This
+ *  is the hard guard for Outlook (which ignores CSS text-overflow); modern
+ *  clients also get the CSS ellipsis on the fixed-width Dates cell. */
+function truncateDates(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s
+}
+
+/** The five uppercase column headers for one column, with a darker bottom rule. */
+function summaryHeaderCells(): string {
+  const rule = `border-bottom:2px solid ${SUMMARY_HEADER_RULE};`
+  const base = `vertical-align:bottom;padding:0 6px 4px 0;font-size:9px;font-weight:bold;text-transform:uppercase;letter-spacing:0.05em;white-space:nowrap;${rule}`
+  const h = (label: string, w: number, align: "left" | "center", extra = "") =>
+    `<td width="${w}" align="${align}" valign="bottom" style="width:${w}px;text-align:${align};${base}${extra}"><span style="color:#9AA1AD;">${label}</span></td>`
+  return (
+    h("Ticker", SUM_W.ticker, "left") +
+    h("Status", SUM_W.status, "left") +
+    h("Conf", SUM_W.conf, "center") +
+    h("Open", SUM_W.open, "center") +
+    h("Dates", SUM_W.dates, "left")
+  )
+}
+
+/** The five body cells for one event (or blank placeholders when `row` is
+ *  undefined — the tail of the shorter, right-hand column). `isLast` drops the
+ *  bottom hairline on the final row. Every cell is white-space:nowrap so the event
+ *  can never wrap to a second line. */
+function summaryBodyCells(row: LiveOutreachRow | undefined, isLast: boolean): string {
+  const border = isLast ? "" : `border-bottom:1px solid ${SUMMARY_HAIRLINE};`
+  const pad = "padding:4px 6px 4px 0;vertical-align:middle;white-space:nowrap;"
+  if (!row) {
+    const e = (w: number, align: "left" | "center") =>
+      `<td width="${w}" align="${align}" style="width:${w}px;text-align:${align};${pad}${border}">&nbsp;</td>`
+    return e(SUM_W.ticker, "left") + e(SUM_W.status, "left") + e(SUM_W.conf, "center") + e(SUM_W.open, "center") + e(SUM_W.dates, "left")
+  }
+  const rem = row.slots_remaining
+  const openNum = rem == null ? "—" : String(Math.max(0, rem))
+  // Red/bold when ≤2 (this also covers overbooked, which clamps to 0).
+  const openStyle = rem != null && rem <= 2 ? "color:#A32D2D;font-weight:bold;" : "color:#1A2233;"
+  const flag = priorityPill(row) || `<span style="color:#C7CCD4;font-size:11px;">—</span>`
+  const dates = row.event_dates
+    ? `<span style="color:#6B7280;">${esc(truncateDates(row.event_dates, 34))}</span>`
+    : `<span style="color:#C7CCD4;">—</span>`
+  return (
+    `<td width="${SUM_W.ticker}" valign="middle" style="width:${SUM_W.ticker}px;${pad}${border}font-size:13px;font-weight:bold;"><span style="color:#1E2858;">${esc(row.ticker ? baseTicker(row.ticker) : "—")}</span></td>` +
+    `<td width="${SUM_W.status}" valign="middle" style="width:${SUM_W.status}px;${pad}${border}">${flag}</td>` +
+    `<td width="${SUM_W.conf}" align="center" valign="middle" style="width:${SUM_W.conf}px;text-align:center;${pad}${border}font-size:13px;"><span style="color:#1A2233;">${row.confirmed_meeting_count ?? 0}</span></td>` +
+    `<td width="${SUM_W.open}" align="center" valign="middle" style="width:${SUM_W.open}px;text-align:center;${pad}${border}font-size:13px;"><span style="${openStyle}">${openNum}</span></td>` +
+    `<td width="${SUM_W.dates}" valign="middle" style="width:${SUM_W.dates}px;max-width:${SUM_W.dates}px;${pad}${border}font-size:13px;overflow:hidden;text-overflow:ellipsis;">${dates}</td>`
+  )
+}
+
+/** The pure-white, two-column, column-major summary table. */
+function summaryGrid(rows: LiveOutreachRow[]): string {
+  const half = Math.ceil(rows.length / 2)
+  const left = rows.slice(0, half)
+  const right = rows.slice(half)
+  // 14px spacer · 1px vertical hairline · 14px spacer between the two columns.
+  const spacer = `<td width="14" style="width:14px;font-size:0;line-height:0;">&nbsp;</td>`
+  const divider = `<td width="1" bgcolor="${SUMMARY_HAIRLINE}" style="width:1px;background-color:${SUMMARY_HAIRLINE};font-size:0;line-height:0;">&nbsp;</td>`
+  const mid = `${spacer}${divider}${spacer}`
+  const headerRow = `<tr>${summaryHeaderCells()}${mid}${summaryHeaderCells()}</tr>`
+  const bodyRows: string[] = []
+  for (let i = 0; i < half; i++) {
+    const isLast = i === half - 1
+    bodyRows.push(`<tr>${summaryBodyCells(left[i], isLast)}${mid}${summaryBodyCells(right[i], isLast)}</tr>`)
+  }
+  return `<table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;background-color:#FFFFFF;">${headerRow}${bodyRows.join("")}</table>`
+}
+
+/** "Event Summary" heading + the two-column table + a spacer that separates the
+ *  summary from the "Event Details" heading below. Empty when there are no events. */
+function summarySection(rows: LiveOutreachRow[]): string {
+  if (rows.length === 0) return ""
+  // ~22px of breathing room so the two sections read as clearly separated. White
+  // background so no gray tint shows through in the gap after the summary table.
+  const spacer = `<table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" bgcolor="#FFFFFF" style="width:${CONTAINER}px;border-collapse:collapse;background-color:#FFFFFF;"><tr><td height="22" bgcolor="#FFFFFF" style="height:22px;line-height:22px;font-size:1px;background-color:#FFFFFF;">&nbsp;</td></tr></table>`
+  return sectionHeading("Event Summary") + summaryGrid(rows) + spacer
+}
+
 /** The rich-HTML fragment for clipboard/email use. `todayLabel` e.g. "June 30, 2026". */
 export function buildEmailHtml(rows: LiveOutreachRow[], todayLabel: string): string {
   const totalMeetings = rows.reduce((s, r) => s + (r.confirmed_meeting_count ?? 0), 0)
+  const summary = summarySection(rows)
+  const detailsHeading = rows.length > 0 ? sectionHeading("Event Details") : ""
   const cards = rows.map(card).join("\n")
   return `<div style="font-family:Arial,Helvetica,sans-serif;background-color:#FFFFFF;color:#1A2233;">
 <table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
@@ -229,15 +351,45 @@ export function buildEmailHtml(rows: LiveOutreachRow[], todayLabel: string): str
     </tr></table>
   </td></tr>
   <tr><td bgcolor="#F4F6F9" style="background-color:#F4F6F9;padding:0 0 2px 0;border-top:1px solid #888888;">
+${summary}
+${detailsHeading}
 ${cards}
   </td></tr>
 </table>
 </div>`
 }
 
+/** Plain-text priority flag label, matching priorityPill()/the page. */
+function priorityFlagText(row: LiveOutreachRow): string {
+  const kind = priorityFlagKind(row)
+  if (kind === "high") return "High Priority"
+  if (kind === "new") return "New Client"
+  return ""
+}
+
 /** A minimal text/plain version, used only as the clipboard's plain-text flavor. */
 export function buildEmailPlain(rows: LiveOutreachRow[], todayLabel: string): string {
   const lines: string[] = [`Non-Deal Roadshow Update - ${todayLabel}`, ""]
+
+  // One-line-per-event index (mirrors the HTML Event Summary's order/fields:
+  // ticker · flag · conf · open · dates).
+  if (rows.length > 0) {
+    lines.push("EVENT SUMMARY")
+    for (const r of rows) {
+      const ticker = r.ticker ? baseTicker(r.ticker) : "—"
+      const rem = r.slots_remaining
+      const open = rem == null ? "—" : String(Math.max(0, rem))
+      const parts = [
+        priorityFlagText(r),
+        `${r.confirmed_meeting_count ?? 0} conf`,
+        `${open} open`,
+        r.event_dates ? truncateDates(r.event_dates, 30) : "",
+      ].filter(Boolean)
+      lines.push(`  ${ticker} — ${parts.join(" · ")}`)
+    }
+    lines.push("", "----------------------------------------", "", "EVENT DETAILS", "")
+  }
+
   for (const r of rows) {
     const head = [r.ticker, r.client_account_name ?? r.event_name].filter(Boolean).join(" ")
     lines.push(head)
