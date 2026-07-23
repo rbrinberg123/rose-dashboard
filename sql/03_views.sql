@@ -2989,6 +2989,11 @@ SELECT
 FROM public.meetings m
 LEFT JOIN public.accounts a ON a.account_id = m.client_account_id
 WHERE m.meeting_status_label = 'Confirmed'
+  -- Drop DEACTIVATED meetings. state_label is the Dataverse statecode
+  -- ('Active' / 'Inactive'), distinct from meeting_status_label above; without
+  -- this, deactivated-but-still-Confirmed meetings leak onto the /feedback page
+  -- and into the Outstanding Feedback email.
+  AND m.state_label = 'Active'
   AND m.host_id IS NOT NULL
   AND m.meeting_date IS NOT NULL
   AND (m.meeting_date AT TIME ZONE 'America/New_York')::date
