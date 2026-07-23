@@ -4149,14 +4149,14 @@ GRANT SELECT ON public.v_client_onboarding TO service_role;
 
 -- -----------------------------------------------------------------------------
 -- v_marketing_calendar
--- One row per event (of any active workflow state except Pause / Pre-Launch),
--- for the Logistics -> Calendar page: a Gantt-style marketing calendar with one
--- lane per client and each event drawn as a bar colored by event_state_label.
+-- One row per event (of any active workflow state except Pause), for the
+-- Logistics -> Calendar page: a Gantt-style marketing calendar with one lane per
+-- client and each event drawn as a bar colored by event_state_label.
 --
 -- Scope:
---   - event_state_label IS NOT NULL and NOT IN ('Pause','Pre-Launch') — i.e. all
---     of Live Outreach / Meetings Ongoing / Schedule Closed / Preparing Feedback
---     / Complete (the five states the page colors), and nothing pre-launch/paused.
+--   - event_state_label IS NOT NULL and <> 'Pause' — i.e. all of Pre-Launch /
+--     Live Outreach / Meetings Ongoing / Schedule Closed / Preparing Feedback /
+--     Complete (the six states the page colors), and nothing paused.
 --   - state_label = 'Active' excludes DEACTIVATED events (the Dataverse statecode,
 --     distinct from the workflow event_state_label). Kept on purpose so the
 --     calendar shows only live events; drop this line to include deactivated ones.
@@ -4188,7 +4188,7 @@ FROM public.events e
 LEFT JOIN public.accounts a ON a.account_id = e.client_account_id
 WHERE e.state_label = 'Active'
   AND e.event_state_label IS NOT NULL
-  AND e.event_state_label NOT IN ('Pause','Pre-Launch')
+  AND e.event_state_label <> 'Pause'
   AND COALESCE(e.event_end_actual, e.event_start_actual) >= (CURRENT_DATE - INTERVAL '2 months')
 ORDER BY ticker NULLS LAST, e.event_start_actual;
 

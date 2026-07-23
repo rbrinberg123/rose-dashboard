@@ -48,11 +48,7 @@ export default async function CalendarPage() {
   }
 
   return (
-    <PageShell
-      title="Calendar"
-      description="When clients are marketing / planning NDRs"
-      canvas
-    >
+    <PageShell title="Calendar" hideHeader canvas>
       <CalendarView rows={rows} />
     </PageShell>
   )

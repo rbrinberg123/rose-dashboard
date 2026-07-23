@@ -3,6 +3,7 @@
 import * as React from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { ListTitleCard } from "@/components/page-masthead"
 import { CARD_CLASS, BRAND_NAVY, BRAND_BLUE, TEXT_MUTED } from "@/lib/design"
 import type { MarketingCalendarRow } from "@/lib/types"
 
@@ -24,6 +25,7 @@ const DENSITY_ACCENT = BRAND_BLUE
 // Event-state color palette (approved). Any unknown/future state falls back to a
 // neutral gray so the lane still renders.
 const STATE_COLORS: Record<string, string> = {
+  "Pre-Launch": "#0E9AA7",
   "Live Outreach": "#0355A7",
   "Meetings Ongoing": "#0E7C56",
   "Schedule Closed": "#B7791F",
@@ -31,6 +33,7 @@ const STATE_COLORS: Record<string, string> = {
   Complete: "#8A93A3",
 }
 const STATE_ORDER = [
+  "Pre-Launch",
   "Live Outreach",
   "Meetings Ongoing",
   "Schedule Closed",
@@ -301,9 +304,18 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
   }, [groups, win])
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* Toolbar: legend + window controls (the page title lives in the standard
-          PageShell header above). */}
+    <>
+      {/* Floating list-title card (matches the Scheduler masthead usage/spacing). */}
+      <div className="mb-4">
+        <ListTitleCard
+          title="Calendar"
+          subtitle="When clients are marketing and planning NDRs — the next several months at a glance."
+        />
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {/* Toolbar: legend + window controls (the page title lives in the masthead
+            above). */}
       <div className={cn(CARD_CLASS, "flex flex-wrap items-center justify-between gap-3 px-4 py-3")}>
         {/* Event-state key */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -563,7 +575,8 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
 
