@@ -194,7 +194,7 @@ function card(row: LiveOutreachRow, index: number): string {
   return `<table width="${CARD}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;margin:0 0 14px 0;width:${CARD}px;font-family:Arial,Helvetica,sans-serif;">
     <tr>
       <td width="${LEFT}" valign="top" bgcolor="#FFFFFF" style="width:${LEFT}px;vertical-align:top;background-color:#FFFFFF;padding:16px 18px;${topBorder}">
-        <div style="font-size:15px;font-weight:bold;line-height:1.3;">${tickerHtml}<span style="color:#1A2233;">${esc(row.client_account_name ?? row.event_name ?? "—")}</span></div>
+        <div style="font-size:15px;font-weight:bold;line-height:1.3;">${index + 1}. ${tickerHtml}<span style="color:#1A2233;">${esc(row.client_account_name ?? row.event_name ?? "—")}</span></div>
         ${industryHtml}
         ${pillRow}
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin-top:12px;border-collapse:collapse;">
@@ -252,7 +252,11 @@ const SUMMARY_HEADER_RULE = "#C7CCD4" // slightly darker rule under the headers
 // cell this guarantees each event stays on exactly one line (the Dates cell also
 // ellipsizes). Widths per half sum well under half the 1080px table, so the slack
 // distributes harmlessly (extra width never causes a wrap).
-const SUM_W = { ticker: 54, status: 92, conf: 40, open: 40, dates: 280 } as const
+// Ticker column carries the leading "N. " index now, so it's widened by 20px to
+// fit the widest case (2-digit number + up to a 5-char ticker, e.g. "26. DSFIR")
+// on one line; the 20px is reclaimed from the Dates column (which already
+// ellipsizes) so each column — and the whole table — keeps its previous width.
+const SUM_W = { ticker: 74, status: 92, conf: 40, open: 40, dates: 260 } as const
 
 /** Trim the free-text dates to a single line, ellipsizing what doesn't fit. This
  *  is the hard guard for Outlook (which ignores CSS text-overflow); modern
@@ -280,7 +284,7 @@ function summaryHeaderCells(): string {
  *  undefined — the tail of the shorter, right-hand column). `isLast` drops the
  *  bottom hairline on the final row. Every cell is white-space:nowrap so the event
  *  can never wrap to a second line. */
-function summaryBodyCells(row: LiveOutreachRow | undefined, isLast: boolean): string {
+function summaryBodyCells(row: LiveOutreachRow | undefined, isLast: boolean, num?: number): string {
   const border = isLast ? "" : `border-bottom:1px solid ${SUMMARY_HAIRLINE};`
   const pad = "padding:4px 6px 4px 0;vertical-align:middle;white-space:nowrap;"
   if (!row) {
@@ -297,7 +301,7 @@ function summaryBodyCells(row: LiveOutreachRow | undefined, isLast: boolean): st
     ? `<span style="color:#6B7280;">${esc(truncateDates(row.event_dates, 34))}</span>`
     : `<span style="color:#C7CCD4;">—</span>`
   return (
-    `<td width="${SUM_W.ticker}" valign="middle" style="width:${SUM_W.ticker}px;${pad}${border}font-size:13px;font-weight:bold;"><span style="color:#1E2858;">${esc(row.ticker ? baseTicker(row.ticker) : "—")}</span></td>` +
+    `<td width="${SUM_W.ticker}" valign="middle" style="width:${SUM_W.ticker}px;${pad}${border}font-size:13px;font-weight:bold;">${num != null ? `<span style="color:#9AA1AD;font-weight:normal;">${num}. </span>` : ""}<span style="color:#1E2858;">${esc(row.ticker ? baseTicker(row.ticker) : "—")}</span></td>` +
     `<td width="${SUM_W.status}" valign="middle" style="width:${SUM_W.status}px;${pad}${border}">${flag}</td>` +
     `<td width="${SUM_W.conf}" align="center" valign="middle" style="width:${SUM_W.conf}px;text-align:center;${pad}${border}font-size:13px;"><span style="color:#1A2233;">${row.confirmed_meeting_count ?? 0}</span></td>` +
     `<td width="${SUM_W.open}" align="center" valign="middle" style="width:${SUM_W.open}px;text-align:center;${pad}${border}font-size:13px;"><span style="${openStyle}">${openNum}</span></td>` +
@@ -318,7 +322,11 @@ function summaryGrid(rows: LiveOutreachRow[]): string {
   const bodyRows: string[] = []
   for (let i = 0; i < half; i++) {
     const isLast = i === half - 1
-    bodyRows.push(`<tr>${summaryBodyCells(left[i], isLast)}${mid}${summaryBodyCells(right[i], isLast)}</tr>`)
+    // Numbers reflect each event's position in the full (sorted) rows array — the
+    // left column is rows[i] (1-based i+1), the right column is rows[half+i]
+    // (1-based half+i+1) — so they line up 1:1 with the numbered detail cards.
+    const rightNum = right[i] ? half + i + 1 : undefined
+    bodyRows.push(`<tr>${summaryBodyCells(left[i], isLast, i + 1)}${mid}${summaryBodyCells(right[i], isLast, rightNum)}</tr>`)
   }
   return `<table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;background-color:#FFFFFF;">${headerRow}${bodyRows.join("")}</table>`
 }
@@ -375,7 +383,7 @@ export function buildEmailPlain(rows: LiveOutreachRow[], todayLabel: string): st
   // ticker · flag · conf · open · dates).
   if (rows.length > 0) {
     lines.push("EVENT SUMMARY")
-    for (const r of rows) {
+    rows.forEach((r, i) => {
       const ticker = r.ticker ? baseTicker(r.ticker) : "—"
       const rem = r.slots_remaining
       const open = rem == null ? "—" : String(Math.max(0, rem))
@@ -385,13 +393,13 @@ export function buildEmailPlain(rows: LiveOutreachRow[], todayLabel: string): st
         `${open} open`,
         r.event_dates ? truncateDates(r.event_dates, 30) : "",
       ].filter(Boolean)
-      lines.push(`  ${ticker} — ${parts.join(" · ")}`)
-    }
+      lines.push(`  ${i + 1}. ${ticker} — ${parts.join(" · ")}`)
+    })
     lines.push("", "----------------------------------------", "", "EVENT DETAILS", "")
   }
 
-  for (const r of rows) {
-    const head = [r.ticker, r.client_account_name ?? r.event_name].filter(Boolean).join(" ")
+  rows.forEach((r, i) => {
+    const head = `${i + 1}. ${[r.ticker, r.client_account_name ?? r.event_name].filter(Boolean).join(" ")}`
     lines.push(head)
     if (r.industry) lines.push(`  ${r.industry}`)
     const meetings = r.confirmed_meetings ?? []
@@ -402,6 +410,6 @@ export function buildEmailPlain(rows: LiveOutreachRow[], todayLabel: string): st
       lines.push(`    ${date} · ${m.institution_name ?? "—"}${m.contact ? ` · ${m.contact}` : ""}${tag}`)
     }
     lines.push("")
-  }
+  })
   return lines.join("\n")
 }
