@@ -11,7 +11,11 @@ import type { MarketingCalendarRow } from "@/lib/types"
 // Layout constants
 // -----------------------------------------------------------------------------
 const LABEL_WIDTH = 200 // left ticker/company column
-const GRID_WIDTH = 1020 // the day-axis area stays ~1020px wide (day width scales)
+const GRID_WIDTH = 1020 // fallback day-axis width before the container is measured
+// Minimum per-day width (px), roughly the old fixed 6M day width (1020 / ~184
+// days). Floors the responsive day width so a very narrow container falls back
+// to horizontal scroll instead of squashing bars to nothing.
+const MIN_DAY_WIDTH = 5.5
 const LANE_HEIGHT = 30 // one client lane
 const BAR_HEIGHT = 14 // event range bar
 const MARK_SIZE = 11 // single-day event mark
@@ -235,6 +239,24 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
   // Month offset from the current month; ‹ › move the window one month at a time.
   const [monthOffset, setMonthOffset] = React.useState(0)
 
+  // Live pixel width of the scrolling grid container. Seeded with the old fixed
+  // width so the very first paint matches previous behavior; a ResizeObserver
+  // then keeps it in sync with the real container (mount, window resize, sidebar
+  // collapse). The observer's initial callback covers the mount measurement, so
+  // we never call setState synchronously in the effect body.
+  const scrollRef = React.useRef<HTMLDivElement>(null)
+  const [containerWidth, setContainerWidth] = React.useState(LABEL_WIDTH + GRID_WIDTH)
+  React.useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width
+      if (w && w > 0) setContainerWidth(w)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   const groups = React.useMemo(() => buildGroups(rows), [rows])
 
   // Today's UTC-day index (browser-local calendar day).
@@ -251,7 +273,14 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
     const end = addMonths(start.year, start.month0, zoom)
     const endIdx = dayIndex(end.year, end.month0, 1)
     const totalDays = endIdx - startIdx
-    const dayWidth = GRID_WIDTH / totalDays
+    // Timeline lane fills the measured container: available width = container
+    // minus the fixed label column, split evenly across the days in the window.
+    // Floored at MIN_DAY_WIDTH so a too-narrow container scrolls instead of
+    // squashing. gridWidth is derived from the (possibly floored) day width so
+    // everything downstream (xOf, separators, bars, today line) stays aligned.
+    const available = Math.max(0, containerWidth - LABEL_WIDTH)
+    const dayWidth = Math.max(MIN_DAY_WIDTH, available / totalDays)
+    const gridWidth = Math.round(totalDays * dayWidth)
 
     // Months spanned, with their pixel offsets (for the header + separators).
     const months: { year: number; month0: number; x: number; width: number }[] = []
@@ -261,8 +290,8 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
       const x = (dayIndex(mm.year, mm.month0, 1) - startIdx) * dayWidth
       months.push({ year: mm.year, month0: mm.month0, x, width: dim * dayWidth })
     }
-    return { startIdx, endIdx, dayWidth, months }
-  }, [zoom, monthOffset])
+    return { startIdx, endIdx, dayWidth, gridWidth, months }
+  }, [zoom, monthOffset, containerWidth])
 
   // Day-number ruler stride: every day when columns are wide, thinning as they
   // shrink; 0 = no day numbers (6M), leaving the month header as the only labels.
@@ -308,7 +337,7 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
       {/* Floating list-title card (matches the Scheduler masthead usage/spacing). */}
       <div className="mb-4">
         <ListTitleCard
-          title="Calendar"
+          title="NDRS Calendar"
           subtitle="When clients are marketing and planning NDRs — the next several months at a glance."
         />
       </div>
@@ -383,8 +412,8 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
       </div>
 
       {/* The Gantt grid */}
-      <div className={cn(CARD_CLASS, "overflow-x-auto")}>
-        <div style={{ width: LABEL_WIDTH + GRID_WIDTH }}>
+      <div ref={scrollRef} className={cn(CARD_CLASS, "overflow-x-auto")}>
+        <div style={{ width: LABEL_WIDTH + win.gridWidth }}>
           {/* Axis header (sticky) */}
           <div
             className="sticky top-0 z-10 flex border-b border-[#EDEFF3] bg-white"
@@ -394,7 +423,7 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
               className="shrink-0 border-r border-[#EDEFF3]"
               style={{ width: LABEL_WIDTH }}
             />
-            <div className="relative" style={{ width: GRID_WIDTH }}>
+            <div className="relative" style={{ width: win.gridWidth }}>
               {/* Month bands */}
               {win.months.map((m, i) => (
                 <div
@@ -454,7 +483,7 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
             </div>
             <div
               className="relative"
-              style={{ width: GRID_WIDTH, height: STRIP_BAR_MAX + (dayStride > 0 ? 18 : 8) }}
+              style={{ width: win.gridWidth, height: STRIP_BAR_MAX + (dayStride > 0 ? 18 : 8) }}
             >
               {density.max > 0 &&
                 density.counts.map((count, d) => {
@@ -502,7 +531,7 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
             {/* Month separators spanning all lanes */}
             <div
               className="pointer-events-none absolute inset-y-0"
-              style={{ left: LABEL_WIDTH, width: GRID_WIDTH }}
+              style={{ left: LABEL_WIDTH, width: win.gridWidth }}
             >
               {win.months.map((m, i) =>
                 i === 0 ? null : (
@@ -555,7 +584,7 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
                     </span>
                   </div>
                   {/* Track */}
-                  <div className="relative" style={{ width: GRID_WIDTH }}>
+                  <div className="relative" style={{ width: win.gridWidth }}>
                     {g.rows.map((row) =>
                       eventSegments(row).map((seg, si) => (
                         <Bar

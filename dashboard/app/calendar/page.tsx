@@ -8,7 +8,7 @@ import { CalendarView } from "./calendar-view"
 // day) and the underlying events change as the marketing pipeline advances.
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = { title: "Calendar" }
+export const metadata: Metadata = { title: "NDRS Calendar" }
 
 // PostgREST caps a single response at 1,000 rows; page through in chunks the
 // same way the other list pages do so the calendar never silently truncates.
@@ -36,7 +36,7 @@ export default async function CalendarPage() {
 
   if (error) {
     return (
-      <PageShell title="Calendar">
+      <PageShell title="NDRS Calendar">
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
           <div className="font-medium text-destructive">
             Could not load v_marketing_calendar
@@ -48,7 +48,7 @@ export default async function CalendarPage() {
   }
 
   return (
-    <PageShell title="Calendar" hideHeader canvas>
+    <PageShell title="NDRS Calendar" hideHeader canvas>
       <CalendarView rows={rows} />
     </PageShell>
   )
