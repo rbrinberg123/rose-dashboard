@@ -418,35 +418,51 @@ recent_contract AS (
   WHERE state_code = 0
   ORDER BY client_account_id, contract_start_date DESC
 ),
--- Each client's most recent client_notes row, used only for its status flag.
+-- Each client's health-status flag, derived from client_notes. "Last non-blank
+-- status wins": a note that leaves the status blank does NOT clear the flag — the
+-- most recent note that actually SET a status carries forward. So a newer blank
+-- note is ignored here (though it still shows as the latest note on the Client
+-- Detail page via v_client_detail_recent_note), and only a note with a real,
+-- non-blank status changes the flag.
+--
 -- Ranking mirrors v_client_detail_recent_note (note_date, then modified_on,
--- then created_on — all DESC) so the portfolio flag and the Client Detail page
--- always agree on which note is "latest".
+-- then created_on — all DESC), but restricted to notes with a non-blank status,
+-- so the flag reflects the newest status-setting note rather than the newest note.
 --
 -- NB: note_date here is the client_notes date, which is a DIFFERENT source from
 -- the portfolio's "Last Note" column (that one is accounts.last_touchpoint_date,
 -- aliased last_note_date). They need not coincide; note_status_date is exposed so
--- the UI can show the flag's own as-of date.
+-- the UI can show the flag's own as-of date — i.e. the date the status was set.
 --
 -- status_text is free text that carries trailing newlines, stray punctuation and
 -- case drift (e.g. 'Stable\n', 'At Risk. '), so it is normalized to one of the
 -- five canonical flags by a cleaned, lowercased prefix match. Anything that does
 -- not match a known flag passes through trimmed (so a future status value is
--- surfaced rather than silently dropped); blank/null becomes NULL.
+-- surfaced rather than silently dropped); blank/null becomes NULL and is filtered
+-- out before the DISTINCT ON so it cannot overwrite a prior status.
 recent_note AS (
   SELECT DISTINCT ON (client_account_id)
     client_account_id,
     note_date,
-    CASE
-      WHEN lower(btrim(status_text)) LIKE 'at risk%'    THEN 'At Risk'
-      WHEN lower(btrim(status_text)) LIKE 'stable%'     THEN 'Stable'
-      WHEN lower(btrim(status_text)) LIKE 'lost%'       THEN 'Lost'
-      WHEN lower(btrim(status_text)) LIKE 'new client%' THEN 'New Client'
-      WHEN lower(btrim(status_text)) LIKE 'strong%'     THEN 'Strong'
-      ELSE NULLIF(btrim(status_text, E' \t\n\r'), '')
-    END AS note_status
-  FROM public.client_notes
-  WHERE client_account_id IS NOT NULL
+    note_status
+  FROM (
+    SELECT
+      client_account_id,
+      note_date,
+      modified_on,
+      created_on,
+      CASE
+        WHEN lower(btrim(status_text)) LIKE 'at risk%'    THEN 'At Risk'
+        WHEN lower(btrim(status_text)) LIKE 'stable%'     THEN 'Stable'
+        WHEN lower(btrim(status_text)) LIKE 'lost%'       THEN 'Lost'
+        WHEN lower(btrim(status_text)) LIKE 'new client%' THEN 'New Client'
+        WHEN lower(btrim(status_text)) LIKE 'strong%'     THEN 'Strong'
+        ELSE NULLIF(btrim(status_text, E' \t\n\r'), '')
+      END AS note_status
+    FROM public.client_notes
+    WHERE client_account_id IS NOT NULL
+  ) s
+  WHERE note_status IS NOT NULL   -- only notes that actually set a status
   ORDER BY client_account_id, note_date DESC, modified_on DESC NULLS LAST, created_on DESC NULLS LAST
 )
 SELECT
@@ -3843,11 +3859,12 @@ SELECT
     ELSE NULL
   END                                             AS event_mode,
   -- Canonical client health flag (At Risk / Stable / Lost / New Client / Strong),
-  -- computed the SAME way v_client_portfolio.recent_note does: the client's
-  -- most-recent client_notes row with status_text normalized to one of the five
-  -- canonical flags. Sourcing it identically keeps "At Risk" meaning the same
-  -- thing here as on the Portfolio page. NULL when the client has no note (or the
-  -- note carries no non-blank status).
+  -- computed the SAME way v_client_portfolio.recent_note does: "last non-blank
+  -- status wins" — the client's most-recent client_notes row THAT ACTUALLY SET a
+  -- status, normalized to one of the five canonical flags. A newer note with a
+  -- blank status is ignored here (it does not clear the flag). Sourcing it
+  -- identically keeps "At Risk" meaning the same thing here as on the Portfolio
+  -- page. NULL when the client has never had a note with a non-blank status.
   ns.note_status                                  AS client_status_label,
   -- Earliest contract start for this client (any contract state), and the derived
   -- "new client" flag: a contract began within the last 6 months. Together they
@@ -3859,23 +3876,31 @@ SELECT
   COALESCE(cm.meetings, '[]'::jsonb)              AS confirmed_meetings
 FROM public.events e
 LEFT JOIN public.accounts a ON a.account_id = e.client_account_id
--- Latest client note's normalized status flag (mirrors v_client_portfolio's
+-- Latest NON-BLANK client-note status flag (mirrors v_client_portfolio's
 -- recent_note CTE, one client at a time). Same ranking (note_date, then
--- modified_on, then created_on — all DESC) so the flag agrees with the Portfolio
--- page on which note is "latest".
+-- modified_on, then created_on — all DESC), but restricted to notes that actually
+-- set a status, so a newer blank note does not clear the flag and the value agrees
+-- with the Portfolio page.
 LEFT JOIN LATERAL (
-  SELECT
-    CASE
-      WHEN lower(btrim(n.status_text)) LIKE 'at risk%'    THEN 'At Risk'
-      WHEN lower(btrim(n.status_text)) LIKE 'stable%'     THEN 'Stable'
-      WHEN lower(btrim(n.status_text)) LIKE 'lost%'       THEN 'Lost'
-      WHEN lower(btrim(n.status_text)) LIKE 'new client%' THEN 'New Client'
-      WHEN lower(btrim(n.status_text)) LIKE 'strong%'     THEN 'Strong'
-      ELSE NULLIF(btrim(n.status_text, E' \t\n\r'), '')
-    END AS note_status
-  FROM public.client_notes n
-  WHERE n.client_account_id = e.client_account_id
-  ORDER BY n.note_date DESC, n.modified_on DESC NULLS LAST, n.created_on DESC NULLS LAST
+  SELECT s.note_status
+  FROM (
+    SELECT
+      CASE
+        WHEN lower(btrim(n.status_text)) LIKE 'at risk%'    THEN 'At Risk'
+        WHEN lower(btrim(n.status_text)) LIKE 'stable%'     THEN 'Stable'
+        WHEN lower(btrim(n.status_text)) LIKE 'lost%'       THEN 'Lost'
+        WHEN lower(btrim(n.status_text)) LIKE 'new client%' THEN 'New Client'
+        WHEN lower(btrim(n.status_text)) LIKE 'strong%'     THEN 'Strong'
+        ELSE NULLIF(btrim(n.status_text, E' \t\n\r'), '')
+      END AS note_status,
+      n.note_date,
+      n.modified_on,
+      n.created_on
+    FROM public.client_notes n
+    WHERE n.client_account_id = e.client_account_id
+  ) s
+  WHERE s.note_status IS NOT NULL   -- only notes that actually set a status
+  ORDER BY s.note_date DESC, s.modified_on DESC NULLS LAST, s.created_on DESC NULLS LAST
   LIMIT 1
 ) ns ON true
 -- Earliest contract start across ALL of the client's contracts (any state).
