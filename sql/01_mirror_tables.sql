@@ -366,3 +366,86 @@ CREATE INDEX idx_contracts_client ON public.contracts (client_account_id);
 CREATE INDEX idx_contracts_renewal ON public.contracts (contract_renewal_date) WHERE state_code = 0;
 CREATE INDEX idx_contracts_status ON public.contracts (contract_status_label);
 CREATE INDEX idx_contracts_modified ON public.contracts (modified_on DESC);
+
+
+-- =============================================================================
+-- Deletion reconciliation (Phase 6b)
+--
+-- The incremental sync (07_sync_tables.sql) is upsert-only and filters on
+-- `modifiedon gt watermark`, so a HARD delete in Dynamics never propagates —
+-- the mirror row is simply never touched again and lingers as an orphan. The
+-- reconciliation sweep (lib/sync/reconcile.ts, run nightly by Vercel Cron)
+-- pulls the full set of live primary keys per entity from Dynamics, diffs them
+-- against the mirror-table keys, and records the missing ones here for a human
+-- to review. It NEVER deletes automatically — an admin approves each removal in
+-- app/admin/reconciliation.
+--
+-- Both tables below use CREATE TABLE IF NOT EXISTS, so appending this section
+-- and re-running it is safe (unlike the mirror tables above, they are not
+-- dropped at the top of this file).
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- deletion_candidates — the review queue. One row per mirror record that was
+-- present locally but absent from the latest full live-ID pull from Dynamics.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.deletion_candidates (
+  id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  entity_name         text NOT NULL,          -- e.g. 'meetings'
+  table_name          text NOT NULL,          -- mirror table
+  pk_column           text NOT NULL,          -- mirror pk column
+  pk_value            text NOT NULL,          -- the missing row's pk
+  label               text,                   -- human-readable snapshot for the queue
+  raw_snapshot        jsonb,                  -- copy of the mirror row at detection (audit)
+  status              text NOT NULL DEFAULT 'pending',  -- 'pending' | 'dismissed' | 'deleted'
+  first_detected_at   timestamptz NOT NULL DEFAULT now(),
+  last_seen_missing_at timestamptz NOT NULL DEFAULT now(),
+  resolved_at         timestamptz,
+  resolved_by         text,
+  UNIQUE (entity_name, pk_value)
+);
+
+CREATE INDEX IF NOT EXISTS idx_deletion_candidates_status
+  ON public.deletion_candidates (status);
+
+-- -----------------------------------------------------------------------------
+-- reconcile_runs — one row per sweep, so the admin page can show the last-swept
+-- timestamp and a per-entity summary even for sweeps triggered by cron.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.reconcile_runs (
+  id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  started_at        timestamptz NOT NULL DEFAULT now(),
+  finished_at       timestamptz,
+  entities_checked  int,
+  newly_flagged     int,
+  reappeared        int,
+  skipped           int,
+  summary           jsonb          -- full per-entity result array
+);
+
+CREATE INDEX IF NOT EXISTS idx_reconcile_runs_started
+  ON public.reconcile_runs (started_at DESC);
+
+-- -----------------------------------------------------------------------------
+-- Grants
+--
+-- The sweep and the admin review actions both run through PostgREST as the
+-- service_role. The review queue needs full access; approving a deletion
+-- hard-DELETEs the orphan mirror row, so service_role also needs DELETE on
+-- every mirror table (07_sync_tables.sql granted only INSERT/UPDATE).
+-- -----------------------------------------------------------------------------
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.deletion_candidates TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.reconcile_runs      TO service_role;
+
+GRANT DELETE ON public.accounts            TO service_role;
+GRANT DELETE ON public.users               TO service_role;
+GRANT DELETE ON public.meetings            TO service_role;
+GRANT DELETE ON public.touchpoints         TO service_role;
+GRANT DELETE ON public.client_notes        TO service_role;
+GRANT DELETE ON public.contracts           TO service_role;
+GRANT DELETE ON public.tasks               TO service_role;
+GRANT DELETE ON public.new_vacationrequest TO service_role;
+GRANT DELETE ON public.events              TO service_role;
+
+-- Identity columns above draw from implicit sequences.
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;

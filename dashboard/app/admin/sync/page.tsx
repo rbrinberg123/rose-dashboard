@@ -1,5 +1,7 @@
 import type { Metadata } from "next"
+import Link from "next/link"
 import { PageShell } from "@/components/page-shell"
+import { buttonVariants } from "@/components/ui/button"
 import { getSupabaseServer } from "@/lib/supabase"
 import { SyncStatusView, type SyncRunRow, type SyncErrorRow } from "./sync-status-view"
 
@@ -38,6 +40,11 @@ export default async function SyncStatusPage() {
     <PageShell
       title="Sync Status"
       description="Nightly Dynamics → Supabase sync (runs 7 AM UTC)"
+      actions={
+        <Link href="/admin/reconciliation" className={buttonVariants({ variant: "outline", size: "sm" })}>
+          Deletion Reconciliation →
+        </Link>
+      }
     >
       <SyncStatusView runs={runs} errors={errors} />
     </PageShell>

@@ -39,18 +39,25 @@ export type EntityConfig = {
   table: string
   /** Primary-key column / upsert conflict target. */
   pk: string
+  /**
+   * Dynamics id attribute name for this entity set (e.g. `accountid`,
+   * `bcs_meetingid`). Used by the deletion-reconciliation sweep to pull the
+   * full set of live primary keys ($select={idField}). This is the Dynamics
+   * source key that the mirror `pk` column is populated from.
+   */
+  idField: string
   /** Map a raw Dynamics row to a mirror-table row. */
   map: (row: Record<string, unknown>, runStartedAt: string) => Record<string, unknown>
 }
 
 export const ENTITIES: EntityConfig[] = [
-  { name: "accounts", entitySet: "accounts", table: "accounts", pk: "account_id", map: mapAccount },
-  { name: "systemusers", entitySet: "systemusers", table: "users", pk: "user_id", map: mapSystemUser },
-  { name: "meetings", entitySet: "bcs_meetings", table: "meetings", pk: "meeting_id", map: mapMeeting },
-  { name: "touchpoints", entitySet: "phonecalls", table: "touchpoints", pk: "touchpoint_id", map: mapTouchpoint },
-  { name: "client_notes", entitySet: "bcs_clientnotes", table: "client_notes", pk: "note_id", map: mapClientNote },
-  { name: "contracts", entitySet: "bcs_contracts", table: "contracts", pk: "contract_id", map: mapContract },
-  { name: "tasks", entitySet: "tasks", table: "tasks", pk: "task_id", map: mapTask },
-  { name: "new_vacationrequest", entitySet: "new_vacationrequests", table: "new_vacationrequest", pk: "ooo_id", map: mapOOO },
-  { name: "events", entitySet: "bcs_events", table: "events", pk: "event_id", map: mapEvent },
+  { name: "accounts", entitySet: "accounts", table: "accounts", pk: "account_id", idField: "accountid", map: mapAccount },
+  { name: "systemusers", entitySet: "systemusers", table: "users", pk: "user_id", idField: "systemuserid", map: mapSystemUser },
+  { name: "meetings", entitySet: "bcs_meetings", table: "meetings", pk: "meeting_id", idField: "bcs_meetingid", map: mapMeeting },
+  { name: "touchpoints", entitySet: "phonecalls", table: "touchpoints", pk: "touchpoint_id", idField: "activityid", map: mapTouchpoint },
+  { name: "client_notes", entitySet: "bcs_clientnotes", table: "client_notes", pk: "note_id", idField: "bcs_clientnoteid", map: mapClientNote },
+  { name: "contracts", entitySet: "bcs_contracts", table: "contracts", pk: "contract_id", idField: "bcs_contractid", map: mapContract },
+  { name: "tasks", entitySet: "tasks", table: "tasks", pk: "task_id", idField: "activityid", map: mapTask },
+  { name: "new_vacationrequest", entitySet: "new_vacationrequests", table: "new_vacationrequest", pk: "ooo_id", idField: "new_vacationrequestid", map: mapOOO },
+  { name: "events", entitySet: "bcs_events", table: "events", pk: "event_id", idField: "bcs_eventid", map: mapEvent },
 ]

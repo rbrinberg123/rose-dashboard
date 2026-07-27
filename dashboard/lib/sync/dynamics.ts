@@ -180,3 +180,64 @@ export async function fetchAll(
 
   return rows
 }
+
+/**
+ * Fetch ONLY the primary-key column for every live row of an entity set.
+ *
+ * Used by the deletion-reconciliation sweep: it needs the full population of
+ * ids that currently exist in Dynamics (no `modifiedon` filter — this is a full
+ * pull) so it can diff them against the mirror table. `$select={idField}` keeps
+ * each page tiny (one column), and no annotations are requested. Server-driven
+ * paging is followed to exhaustion exactly like fetchAll.
+ *
+ * @param entitySet  Web API entity set name, e.g. "accounts", "bcs_meetings".
+ * @param idField    Dynamics id attribute, e.g. "accountid", "bcs_meetingid".
+ * @returns every live id as a string (blank/missing ids are skipped).
+ */
+export async function fetchAllIds(
+  entitySet: string,
+  idField: string,
+): Promise<string[]> {
+  const base = dynamicsBaseUrl()
+
+  let url: string | undefined = `${base}/api/data/${API_VERSION}/${entitySet}?$select=${encodeURIComponent(
+    idField,
+  )}`
+
+  const ids: string[] = []
+
+  while (url) {
+    const nextLink: string | undefined = await withRetry(
+      `fetch ids ${entitySet}`,
+      async () => {
+        const token = await getAccessToken()
+        const res = await fetch(url as string, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+            "OData-Version": "4.0",
+            "OData-MaxVersion": "4.0",
+            Prefer: `odata.maxpagesize=${PAGE_SIZE}`,
+          },
+        })
+        if (res.status === 401) {
+          clearTokenCache()
+          throw new Error("401 Unauthorized from Dynamics")
+        }
+        if (!res.ok) {
+          const text = await res.text()
+          throw new Error(`Dynamics returned ${res.status}: ${text}`)
+        }
+        const page = (await res.json()) as DynamicsPage
+        for (const row of page.value) {
+          const id = row[idField]
+          if (id !== null && id !== undefined && id !== "") ids.push(String(id))
+        }
+        return page["@odata.nextLink"]
+      },
+    )
+    url = nextLink
+  }
+
+  return ids
+}
