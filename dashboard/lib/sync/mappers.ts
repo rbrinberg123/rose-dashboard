@@ -194,6 +194,17 @@ export function mapMeeting(row: Row): Row {
     feedback_notes: str(row["bcs_feedbacknotes"]),
     cancellation_notes: str(row["bcs_cancellationnotes"]),
 
+    // Logistics fields (bcs_Sent / bcs_Confirm / bcs_FoodOrder / bcs_Driver /
+    // bcs_Notes). sent/confirm/driver are Dynamics Yes/No booleans (verified
+    // against stored _raw). food_order and logistics_notes are empty in every
+    // synced row so far; mapped as text (str) — the loss-free superset — until a
+    // real value confirms the shape.
+    sent: bool(row["bcs_sent"]),
+    confirm: bool(row["bcs_confirm"]),
+    food_order: str(row["bcs_foodorder"]),
+    driver: bool(row["bcs_driver"]),
+    logistics_notes: str(row["bcs_notes"]),
+
     city_id: lookupId(row, "_bcs_city_value"),
     state_region_id: lookupId(row, "_bcs_stateregion_value"),
     event_id: lookupId(row, "_bcs_event_value"),
@@ -653,6 +664,8 @@ export function mapEvent(row: Row): Row {
     notes_or_mandates: str(row["bcs_notesormandates"]),
     event_parameters: str(row["bcs_eventparameters"]),
     targeting_url: str(row["bcs_targetingurl"]),
+    // bcs_ProfileLink — SharePoint profile-document URL (verified text in _raw).
+    profile_link: str(row["bcs_profilelink"]),
 
     // Standard Dataverse system columns
     owner_id: lookupId(row, "_ownerid_value"),

@@ -179,6 +179,16 @@ CREATE TABLE public.meetings (
   feedback_notes          text,
   cancellation_notes      text,
 
+  -- Logistics (bcs_Sent / bcs_Confirm / bcs_FoodOrder / bcs_Driver / bcs_Notes).
+  -- sent/confirm/driver are Dynamics Yes/No booleans (verified in _raw).
+  -- food_order / logistics_notes are empty in every synced row so far; typed
+  -- text (the loss-free superset) until a real value confirms the shape.
+  sent                    boolean,
+  confirm                 boolean,
+  food_order              text,
+  driver                  boolean,
+  logistics_notes         text,
+
   -- Geography (we keep IDs for future use even though we don't mirror these tables)
   city_id                 uuid,
   state_region_id         uuid,

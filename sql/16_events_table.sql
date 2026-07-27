@@ -142,6 +142,7 @@ CREATE TABLE public.events (
   notes_or_mandates               text,         -- bcs_notesormandates (memo)
   event_parameters                text,         -- bcs_eventparameters
   targeting_url                   text,         -- bcs_targetingurl
+  profile_link                    text,         -- bcs_profilelink (SharePoint profile-document URL; verified text in _raw)
   sharepoint_url                  text,         -- Rose-owned: SharePoint event document link (surfaced on Profiles). NULL until populated.
 
   -- Standard Dataverse system columns
