@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { format, parseISO } from "date-fns"
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, Lock, FileText } from "lucide-react"
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, Lock, FileText, Printer } from "lucide-react"
 
 import {
   Table,
@@ -530,9 +530,71 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
     setBlankNotes(false)
   }
 
+  // Print-only report metadata. Built from the *current* filter/sort state so the
+  // exported PDF's header describes exactly what's on screen. Only non-default
+  // filters are listed; the resulting row count always shows. This block is hidden
+  // on screen (.print-only) and revealed only under @media print (see globals.css).
+  const genDate = format(new Date(), "MMMM d, yyyy")
+  const activeFilterParts: string[] = []
+  if (marketCap !== ALL) activeFilterParts.push(`Market Cap = ${marketCap}`)
+  if (region !== ALL) activeFilterParts.push(`Region = ${region}`)
+  if (sector !== ALL) activeFilterParts.push(`Sector = ${sector}`)
+  if (salesLead !== ALL) activeFilterParts.push(`Sales Lead = ${salesLead}`)
+  if (noteStatus !== ALL)
+    activeFilterParts.push(`Status = ${noteStatus === NONE ? "No note" : noteStatus}`)
+  if (expiry !== ALL)
+    activeFilterParts.push(`Expiry = ${EXPIRY_BUCKET_BY_KEY[expiry]?.label ?? expiry}`)
+  for (const [on, label] of [
+    [staleMeetings, "Stale meetings"],
+    [coldMeetings, "Cold meetings"],
+    [blankMeetings, "Blank meetings"],
+    [staleEvents, "Stale events"],
+    [coldEvents, "Cold events"],
+    [blankEvents, "Blank events"],
+    [staleNotes, "Stale notes"],
+    [coldNotes, "Cold notes"],
+    [blankNotes, "Blank notes"],
+  ] as const) {
+    if (on) activeFilterParts.push(label)
+  }
+  const searchText = search.trim()
+  if (searchText) activeFilterParts.push(`"${searchText}"`)
+  const rowCountLabel = `${sortedRows.length} ${sortedRows.length === 1 ? "client" : "clients"}`
+  const filterSummary = activeFilterParts.length
+    ? `Filters: ${activeFilterParts.join(" · ")} · ${rowCountLabel}`
+    : rowCountLabel
+
   return (
-    <>
-      <div className="mb-4">
+    <div className="portfolio-print-root">
+      {/* Print-only branded report header — hidden on screen, shown on paper. */}
+      <div className="print-only" aria-hidden="true">
+        <div style={{ borderBottom: "2px solid #1E2858", paddingBottom: 8, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+            <div>
+              <div
+                style={{
+                  fontSize: 10,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  color: "#1E2858",
+                  fontWeight: 700,
+                }}
+              >
+                Rose &amp; Co
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#111827", marginTop: 2 }}>
+                Client Portfolio
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: "#4B5563" }} suppressHydrationWarning>
+              {genDate}
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: "#374151", marginTop: 6 }}>{filterSummary}</div>
+        </div>
+      </div>
+
+      <div className="mb-4 no-print">
         <ListTitleCard
           title="Client Portfolio"
           subtitle={`${rows.length.toLocaleString()} clients — health at a glance`}
@@ -545,7 +607,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
           groups. flex-wrap lets whole groups drop to a second line on narrow
           widths, and each group wraps internally so nothing overflows. */}
       <div
-        className="flex flex-wrap items-center gap-x-3 gap-y-2 text-muted-foreground"
+        className="flex flex-wrap items-center gap-x-3 gap-y-2 text-muted-foreground no-print"
         style={{ fontSize: "11px" }}
       >
         {/* Activity flags */}
@@ -630,7 +692,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
       </div>
 
       {/* Filter row */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 no-print">
         <select
           value={marketCap}
           onChange={(e) => setMarketCap(e.target.value)}
@@ -723,6 +785,24 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
           Reset
         </button>
 
+        {/* Export the current filtered/sorted view to PDF via the browser's
+            print dialog. data-print="hide" keeps the button itself out of the
+            printed output; the @media print rules reshape the page for paper. */}
+        <button
+          type="button"
+          onClick={() => window.print()}
+          data-print="hide"
+          className="h-9 inline-flex items-center gap-1.5 cursor-pointer text-muted-foreground"
+          style={{
+            padding: "6px 14px",
+            border: "0.5px solid #ccc",
+            backgroundColor: "white",
+          }}
+        >
+          <Printer className="size-3.5" aria-hidden="true" />
+          Export PDF
+        </button>
+
         <div className="relative ml-auto w-64">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -737,7 +817,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
       {/* Sections toggle (left) + activity-flag pills (right) share one row,
           pinned to opposite edges via justify-between. order-* drives the visual
           order so Sections sits left even though the pills come first in markup. */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 no-print">
       {/* Activity flag toggles — pinned right */}
       <div className="order-2 flex flex-wrap items-center gap-2">
         <span className="text-muted-foreground" style={{ fontSize: "11px" }}>
@@ -1215,6 +1295,6 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
         </Table>
       </div>
       </div>
-    </>
+    </div>
   )
 }

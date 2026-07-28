@@ -15,7 +15,7 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 | Route | Label | Reads | Purpose |
 |-------|-------|-------|---------|
 | `/client-statistics` | Statistics | `v_client_statistics` + `v_client_stats_by_*` | Portfolio-wide stats by market cap, region, sector, manager, status, days-left. |
-| `/portfolio` | Portfolio | `v_client_portfolio` (+ `v_contract_management`) | Active-client roster with health status and contract linkage. |
+| `/portfolio` | Portfolio | `v_client_portfolio` (+ `v_contract_management`) | Active-client roster with health status and contract linkage. **Export PDF** button prints the current filtered/sorted view (branded header + filter summary) via the browser's Save-as-PDF; print styling lives in `app/globals.css` under `@media print`. |
 | `/client-detail` | Detail | `v_client_detail_summary` + many `v_client_detail_*` (+ base `touchpoints`) | Deep-dive on one client: quarterly, institutions, hosts, recent meetings/notes. |
 
 ### Institutions (super-user only)

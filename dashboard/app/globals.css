@@ -128,3 +128,80 @@
     @apply font-sans;
   }
 }
+
+/* ------------------------------------------------------------------------- */
+/* Print / "Export PDF" support                                              */
+/*                                                                           */
+/* Blocks marked .print-only render only on paper (hidden on screen). All    */
+/* the reshaping below lives under @media print, so the on-screen layout is  */
+/* completely unaffected. Used by the Client Portfolio "Export PDF" button   */
+/* (app/portfolio/portfolio-table.tsx), which just calls window.print().     */
+/* ------------------------------------------------------------------------- */
+.print-only {
+  display: none;
+}
+
+@media print {
+  /* The Portfolio table is wide — print it on landscape paper. */
+  @page {
+    size: landscape;
+    margin: 0.4in;
+  }
+
+  /* Keep pill/band fills when printing (browsers strip backgrounds by default). */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Hide app chrome: sidebar, mobile top bar, the Export button, and anything
+     explicitly marked as screen-only. */
+  body > div > aside,
+  body > div > header,
+  [data-print="hide"],
+  .no-print {
+    display: none !important;
+  }
+
+  /* Reveal the print-only branded report header. */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Let the main column lay out full width and paginate (it clips overflow on
+     screen). */
+  main {
+    overflow: visible !important;
+  }
+
+  /* Portfolio table reshaping. Un-freeze the frozen Core columns and remove the
+     horizontal-scroll container so the full table lays out and can paginate. The
+     frozen offsets are inline styles, so !important is required to override. */
+  .portfolio-print-root [data-slot="table-container"] {
+    overflow: visible !important;
+  }
+  .portfolio-print-root table {
+    width: 100% !important;
+    font-size: 8px !important;
+  }
+  /* Repeat the header on every page; drop its sticky positioning. */
+  .portfolio-print-root thead {
+    display: table-header-group !important;
+    position: static !important;
+  }
+  .portfolio-print-root thead th,
+  .portfolio-print-root tbody td {
+    position: static !important;
+    left: auto !important;
+    z-index: auto !important;
+  }
+  /* Avoid splitting a client's row across a page break. */
+  .portfolio-print-root tr {
+    break-inside: avoid;
+  }
+  /* Tighter cell padding so more columns fit on the page. */
+  .portfolio-print-root th,
+  .portfolio-print-root td {
+    padding: 2px 4px !important;
+  }
+}
