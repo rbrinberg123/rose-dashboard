@@ -1120,4 +1120,10 @@ export type PlanningEventRow = {
   primary_manager_name: string | null
   secondary_manager_name: string | null
   is_past: boolean
+  // Meeting-level logistics fields (Planning V2 board columns).
+  sent: boolean | null
+  confirm: boolean | null
+  driver: boolean | null
+  food_order: string | null
+  logistics_notes: string | null
 }

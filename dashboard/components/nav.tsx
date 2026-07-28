@@ -10,7 +10,6 @@ import {
   CalendarDays,
   FileText,
   Settings,
-  Lock,
   Menu,
   LogOut,
 } from "lucide-react"
@@ -170,17 +169,38 @@ function NavContents({
   )
 }
 
-/* Pinned, disabled admin row — muted, non-clickable, no navigation. */
-function AdminRow() {
+/* Pinned admin row — a real link to the Admin hub, styled like the nav links
+   (active + hover states, active-accent bar). Super-user-gated by the caller. */
+function AdminRow({
+  pathname,
+  onNavigate,
+}: {
+  pathname: string
+  onNavigate?: () => void
+}) {
+  const active = pathname === "/admin" || pathname.startsWith("/admin/")
   return (
-    <div
-      aria-disabled="true"
-      className="flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[#9AA1AD]"
+    <Link
+      href="/admin"
+      onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+        active
+          ? "bg-[#EEF2FB] font-medium text-[#1E2858]"
+          : "text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
+      )}
     >
+      {active && (
+        <span
+          aria-hidden="true"
+          className="absolute inset-y-1 left-0 w-[3px] rounded-full"
+          style={{ background: "linear-gradient(180deg, #1E2858, #0355A7)" }}
+        />
+      )}
       <Settings className="size-[18px] shrink-0" />
       <span className="flex-1 uppercase tracking-wider text-[12px] font-medium">Admin</span>
-      <Lock className="size-3.5 shrink-0 opacity-70" />
-    </div>
+    </Link>
   )
 }
 
@@ -206,8 +226,8 @@ export function Sidebar({
   const pathname = usePathname() || "/"
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Admin is super-user-only; gate it off the same allow-list as everything
-  // else (checked against the real admin route).
-  const showAdmin = canAccessRoute(role ?? null, "/admin/sync")
+  // else (checked against the Admin hub route).
+  const showAdmin = canAccessRoute(role ?? null, "/admin")
 
   // Close the mobile sheet on route change.
   React.useEffect(() => {
@@ -252,7 +272,7 @@ export function Sidebar({
             </nav>
             {showAdmin ? (
               <div className="border-t border-[#EDEFF3] px-3 py-2">
-                <AdminRow />
+                <AdminRow pathname={pathname} onNavigate={() => setMobileOpen(false)} />
               </div>
             ) : null}
             {userEmail ? (
@@ -277,7 +297,7 @@ export function Sidebar({
         </nav>
         {showAdmin ? (
           <div className="border-t border-[#EDEFF3] px-3 py-2">
-            <AdminRow />
+            <AdminRow pathname={pathname} />
           </div>
         ) : null}
         {userEmail ? (

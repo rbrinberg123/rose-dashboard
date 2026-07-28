@@ -3363,6 +3363,14 @@ WITH ev AS (
     m.host_id,
     m.host_name,
     m.feedback_status_label,
+    -- Meeting-level logistics mirror fields (added 2026-07-27). Surfaced for the
+    -- Planning V2 board's Sent / Confirm / Food / Driver / Notes columns; the
+    -- /planning page ignores them. Appended so the change only ADDS columns.
+    m.sent,
+    m.confirm,
+    m.driver,
+    m.food_order,
+    m.logistics_notes,
     -- Account managers come from the client account (meetings carry none), the
     -- same meeting -> client -> AM join the Profiles page uses. One client per
     -- event, so an event has a single primary AM; secondary AM is usually NULL.
@@ -3409,7 +3417,13 @@ SELECT
   ev.feedback_status_label,
   ev.primary_manager_name,
   ev.secondary_manager_name,
-  (ev.meeting_day < CURRENT_DATE) AS is_past
+  (ev.meeting_day < CURRENT_DATE) AS is_past,
+  -- Meeting-level logistics columns for the Planning V2 board (appended last).
+  ev.sent,
+  ev.confirm,
+  ev.driver,
+  ev.food_order,
+  ev.logistics_notes
 FROM ev
 JOIN upcoming_events ue ON ue.event_id = ev.event_id
 LEFT JOIN event_label el ON el.event_id = ev.event_id
