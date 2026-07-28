@@ -5,6 +5,9 @@ analyst productivity, feedback discipline, pipeline, contract renewals, and
 margin by client. Data flows nightly from Microsoft Dynamics 365 (Dataverse)
 into Supabase, with a Next.js dashboard reading from views.
 
+> **Documentation:** The dashboard's full documentation lives in
+> `dashboard/content/docs/` and is browsable in-app at **Admin → Docs**.
+
 ## Repository layout
 
 ```

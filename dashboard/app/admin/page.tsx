@@ -10,6 +10,7 @@ import {
   ExternalLink,
   RefreshCw,
   ArrowRight,
+  BookOpen,
 } from "lucide-react"
 
 import { PageShell } from "@/components/page-shell"
@@ -625,6 +626,12 @@ export default async function AdminHubPage() {
               title="Database health"
               description="Row counts, sync watermarks, and recent errors per table."
               href="/admin/database"
+            />
+            <InternalCard
+              icon={BookOpen}
+              title="Documentation"
+              description="Guides for every page, view, and job — plus live system reference."
+              href="/admin/docs"
             />
           </div>
         </section>

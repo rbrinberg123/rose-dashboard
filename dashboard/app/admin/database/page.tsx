@@ -30,7 +30,7 @@ const MIRROR_TABLES = [
   "contracts",
   "tasks",
   "events",
-  "ooo",
+  "new_vacationrequest",
 ] as const
 
 // A spread of important views — a 0 where you expect rows means a broken view.
