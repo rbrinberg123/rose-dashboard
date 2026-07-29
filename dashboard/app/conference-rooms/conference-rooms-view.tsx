@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ListTitleCard } from "@/components/page-masthead"
 import { CARD_CLASS } from "@/lib/design"
 import type { ConferenceRoomsResponse, RoomSchedule } from "@/lib/conference-rooms"
 
@@ -112,6 +113,12 @@ export function ConferenceRoomsView() {
 
   return (
     <div className="space-y-4">
+      {/* Gradient masthead banner — same pattern as Scheduler / Time Off */}
+      <ListTitleCard
+        title="Conference Rooms"
+        subtitle="Single-day availability across the four conference rooms"
+      />
+
       {/* Day navigation */}
       <div className="flex flex-wrap items-center gap-2">
         <button

@@ -12,11 +12,7 @@ export const metadata: Metadata = { title: "Conference Rooms" }
  */
 export default function ConferenceRoomsPage() {
   return (
-    <PageShell
-      title="Conference Rooms"
-      description="Single-day availability across the four conference rooms"
-      canvas
-    >
+    <PageShell title="Conference Rooms" hideHeader canvas>
       <ConferenceRoomsView />
     </PageShell>
   )
