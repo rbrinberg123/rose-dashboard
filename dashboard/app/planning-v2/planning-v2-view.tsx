@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useSearchParams } from "next/navigation"
-import { Check, FileText, CalendarCheck, UserRound, MessageSquare, Clock, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
+import { Check, FileText, CalendarCheck, UserRound, Clock, ChevronDown, ChevronLeft, ChevronRight, Send, CheckCheck, Utensils, Car, StickyNote, Video, MapPin } from "lucide-react"
 import { ListTitleCard } from "@/components/page-masthead"
 import { SegmentedToggle } from "@/components/segmented-toggle"
 import { BRAND_BLUE, CARD_CLASS, DAYS_LEFT_PILL, TEAL, TEXT_SECONDARY } from "@/lib/design"
@@ -19,15 +19,43 @@ const NAVY_DEEP = "#1E2858"
 const DONE_GREEN = "#2D7A2D"
 const EMPTY_RING = "#D1D6DE"
 
-// Established Live / Virtual colors — the darker tone, shared app-wide
-// (profiles-view & people-statistics alias TEAL/BRAND_BLUE the same way). Pills
-// use these uniformly for every meeting, occurred or upcoming.
-const LIVE_COLOR = TEAL // #1C8C9C
-const VIRTUAL_COLOR = BRAND_BLUE // #0355A7
 // Hairline divider between the meeting-info columns and the four tracking columns.
 const COL_DIVIDER = "#E6E9EF"
-// Fainter hairline between individual stage columns (Calendars|Profiles|Hosts|Feedback).
+// Fainter hairline between individual stage columns (Calendars|Profiles|Hosts).
 const STAGE_DIVIDER = "#EEF1F6"
+// Top-tier grouping bands over the stage block ("All Meetings") and the logistics
+// block ("Live Meetings Only"), differentiated so they read as distinct categories.
+// ALL MEETINGS is the heavier band — a darker stone grey with dark graphite text.
+// LIVE MEETINGS ONLY is a soft green echoing the Live pill (#E7F5EE/#0E7C56); it's
+// kept distinct from the pale green completion pills in the same row by a green
+// bottom border, so it reads as a CATEGORY ("these columns are about live
+// meetings"), not a "done" status.
+const ALL_BAND_BG = "#DDE3EC" // darker stone grey
+const ALL_BAND_FG = "#384150" // dark graphite text
+const ALL_BAND_BORDER = "2px solid #C8D4E3" // grey underline, a shade darker than the
+                                            // band bg — mirrors LIVE's green underline
+const LIVE_BAND_BG = "#D6EEE0" // soft Live-pill-family green, deeper than the pale
+                               // completion pills (#E7F3EC) so it can't be confused
+                               // for a "done" status
+const LIVE_BAND_FG = "#0E7C56" // Live-pill green text
+const LIVE_BAND_BORDER = "2px solid rgba(14,124,86,0.40)" // green underline = category cue
+const SECTION_BAND_CLASS =
+  "flex h-6 items-center justify-center self-end rounded-t-md text-[10px] font-semibold uppercase tracking-wider"
+
+// Virtual meetings don't use the 5 logistics fields, so their whole logistics
+// block renders as ONE continuous grayed-out band (a subtle diagonal hatch) with
+// no content and no internal dividers — see MeetingRow. Signals "not applicable"
+// for the group at a glance. Kept light — a pale gray hatch over near-white — so it
+// reads as a soft "off" band, not a heavy block.
+const VIRTUAL_HATCH =
+  "repeating-linear-gradient(45deg, #EBEEF3 0, #EBEEF3 5px, #F7F8FA 5px, #F7F8FA 10px)"
+
+// Strip a ticker's exchange/country suffix for display (e.g. "SGO:FP" -> "SGO",
+// "RIO-L" -> "RIO"); dotted class tickers like "BRK.B" are preserved. Same logic
+// as the Feedback / Live Outreach email helpers of the same name.
+function baseTicker(t: string): string {
+  return t.trim().split(/[\s:]/)[0].replace(/-[A-Za-z]{1,4}$/, "")
+}
 
 const ALL = "__all__" // account-manager filter sentinel for "All"
 // Small uppercase muted control label — matches the Profiles page filter labels.
@@ -45,12 +73,12 @@ function isOccurred(row: PlanningEventRow, now: number | null): boolean {
   return now >= Date.parse(row.meeting_date) + OCCURRED_GRACE_MS
 }
 
-// ---- the four planning stages ---------------------------------------------
+// ---- the three planning stages --------------------------------------------
 // Each stage knows its header color/icon and how to decide a meeting's check
 // from the raw value. Order here is the column order: Calendars, Profiles,
-// Hosts, Feedback.
+// Hosts.
 type Stage = {
-  key: "profiles" | "calendars" | "hosts" | "feedback"
+  key: "profiles" | "calendars" | "hosts"
   label: string
   color: string
   Icon: React.ComponentType<{ className?: string }>
@@ -88,16 +116,6 @@ const STAGES: Stage[] = [
     // ✓ when a host is assigned.
     done: (r) => !!r.host_name,
   },
-  {
-    key: "feedback",
-    label: "Feedback",
-    color: DONE_GREEN, // green
-    Icon: MessageSquare,
-    value: (r) => r.feedback_status_label,
-    // ✓ when feedback reached a Closed status (Closed - All in / Closed - No
-    // Feedback). Blank / Awaiting Additional → no check.
-    done: (r) => !!r.feedback_status_label && r.feedback_status_label.startsWith("Closed"),
-  },
 ]
 
 // Singular labels for the "Missing:" filter checkboxes, keyed by stage. A checked
@@ -107,7 +125,6 @@ const MISSING_LABELS: Record<Stage["key"], string> = {
   calendars: "Calendar",
   profiles: "Profile",
   hosts: "Host",
-  feedback: "Feedback",
 }
 
 // meeting_date is a +00 wall clock read as-is (see the view), so format in UTC
@@ -185,7 +202,11 @@ function ymdLocal(d: Date): string {
 
 // ---- ONE shared table layout (identical across By Event / By Week / By Day) --
 // Every view renders the same columns, in the same order, at the same widths:
-//   Institution · Time · Type(pill) · Event · |1px divider| · 4 stages · spacer
+//   Institution · Time · Client(ticker) · Type(pill) · Event(icon) · |divider| ·
+//   3 stages · |divider| · Sent · Confirm · Food · Driver · Notes · spacer
+// Client (a short ticker link) and Event (a single clickable icon) are both narrow
+// (NARROW_W); the space reclaimed from the old wide event-name column is handed to
+// the 8 tracking columns (wider TRACK_W).
 // ALL real columns are FIXED-width; a trailing 1fr spacer soaks up leftover width
 // on the right (it also keeps the header background + row borders spanning the
 // full card, since those live on the grid container). Fixed tracks make the column
@@ -193,11 +214,27 @@ function ymdLocal(d: Date): string {
 // view — even when By Week is tall enough to show a vertical scrollbar. (With the
 // old flex columns, that scrollbar shrank the content width and shifted By Week's
 // columns vs By Event/By Day.) gap-2 sits between tracks; only the row
-// grouping/scope/title differ per view.
-const TABLE_COLS =
-  "grid-cols-[260px_160px_64px_180px_1px_140px_1px_140px_1px_140px_1px_140px_1fr]"
+// grouping/scope/title differ per view. All EIGHT tracking columns (the 3 stages
+// Profiles/Calendars/Hosts + the 5 logistics Sent/Confirm/Food/Driver/Notes) share
+// ONE identical width (TRACK_W) so they read as a single aligned block. It's narrow
+// but wide enough for the longest header label ("Calendars"); to fit content into
+// it WITHOUT growing row height, Hosts shows initials (full name on hover) and every
+// text field (stage labels, Food/Notes) truncates to one line with a hover title.
+// There are a lot of columns, so the card scrolls horizontally rather than
+// collapsing any track.
+//
+// The grid is applied via an inline `gridTemplateColumns` style built from TRACK_W
+// (not a Tailwind `grid-cols-[…]` class): a dynamically-composed arbitrary class
+// wouldn't be detected by Tailwind's JIT, and driving header + rows from one
+// constant guarantees the shared width can't drift between them.
+const TRACK_W = 103 // px — uniform width for all 8 tracking columns
+const NARROW_W = 52 // px — the compact Client-ticker and Event-icon columns
+// Time column right-sized to its content ("Wed, Sep 30 · 12:00 PM" ≈ 116px + a
+// safe buffer for the bold time). Was 160px, which left ~44px of dead space before
+// the Client column; the reclaimed width went into the 8 tracking columns.
+const TABLE_GRID_COLS = `260px 132px ${NARROW_W}px 64px ${NARROW_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1fr`
 // Floor for the horizontal-scroll area (the fixed tracks define the real width).
-const TABLE_MIN_W = "min-w-[1220px]"
+const TABLE_MIN_W = "min-w-[1600px]"
 
 // ---- per-event aggregation -------------------------------------------------
 type EventGroup = {
@@ -211,7 +248,7 @@ type EventGroup = {
   upcoming: number
   doneCells: number
   totalCells: number
-  pct: number // 0..1 completion across all meetings × 4 stages
+  pct: number // 0..1 completion across all meetings × 3 stages
   stageDone: Record<string, number> // per-stage count of meetings complete
 }
 
@@ -272,17 +309,24 @@ function pctColor(pct: number): string {
   return "#C53030" // red
 }
 
-// All four stages complete for a single meeting → "fully ready".
+// All three stages complete for a single meeting → "fully ready".
 function fullyReady(r: PlanningEventRow): boolean {
   return STAGES.every((s) => s.done(r))
 }
 
-// Red/amber/green pill colors for a stage's column completion ratio, reusing the
-// app-wide Days-Left palette so the lagging stage pops. Empty events → gray.
+// Softer green for the Planning V2 header ratio pills ONLY. The shared
+// DAYS_LEFT_PILL.green (#C6F6D5/#2D7A2D) is intentionally left untouched so the
+// days-left column and other pages keep their tone; only these header count pills
+// use this lighter green.
+const RATIO_PILL_GREEN = { bg: "#E7F3EC", fg: "#1F7A4F" }
+
+// Red/amber/green pill colors for a stage's column completion ratio. Amber/red/gray
+// reuse the app-wide Days-Left palette so the lagging stage pops; green uses the
+// softer RATIO_PILL_GREEN above. Empty events → gray.
 function ratioPill(done: number, total: number): { bg: string; fg: string } {
   if (total === 0) return DAYS_LEFT_PILL.gray
   const r = done / total
-  if (r >= 0.8) return DAYS_LEFT_PILL.green
+  if (r >= 0.8) return RATIO_PILL_GREEN
   if (r >= 0.4) return DAYS_LEFT_PILL.amber
   return DAYS_LEFT_PILL.red
 }
@@ -329,13 +373,29 @@ function CompletionRing({ pct }: { pct: number }) {
   )
 }
 
-// Aggregate stage-cell completion across a set of meetings: total = meetings × 4
-// stages, done = how many of those cells are complete. Drives the header counter
-// + ring for the Week/Day views, scoped to the meetings currently shown.
+// Aggregate completion across a set of meetings. Drives the header counter + ring,
+// scoped to the meetings currently shown. Every meeting contributes its 3 stages
+// (Profiles / Calendars / Hosts). LIVE meetings (is_in_person) additionally
+// contribute the 3 Yes/No logistics fields — Sent, Confirm, Driver — each adding
+// one to the denominator and one to the numerator when true. Virtual meetings
+// exclude those (they show grey "n/a" dashes), and Food / Notes are free-text with
+// no complete state, so neither counts here.
 function tallyCells(meetings: PlanningEventRow[]): { done: number; total: number } {
   let done = 0
-  for (const m of meetings) for (const s of STAGES) if (s.done(m)) done++
-  return { done, total: meetings.length * STAGES.length }
+  let total = 0
+  for (const m of meetings) {
+    for (const s of STAGES) {
+      total++
+      if (s.done(m)) done++
+    }
+    if (m.is_in_person) {
+      for (const v of [m.sent, m.confirm, m.driver]) {
+        total++
+        if (v) done++
+      }
+    }
+  }
+  return { done, total }
 }
 
 // Shared framed header bar: view title (top-left) + "X / Y steps complete"
@@ -379,16 +439,23 @@ function TableHeaderBar({
   )
 }
 
-// Live / Virtual pill, shown after the institution in every meeting row. Solid
-// darker teal for in-person ("Live"), solid darker blue for virtual ("Virtual").
-// Always the full dark tone — never dimmed for occurred meetings (it must sit
-// OUTSIDE any opacity-dimmed wrapper, since CSS opacity multiplies onto children).
+// Live / Virtual pill for the Type column. Matches the Live Outreach page's
+// ModeTag exactly (same colors, icon+label shape, padding/radius) so the two pages
+// read the same: Live = green tint + MapPin, Virtual = blue tint + Video. Mapped
+// from the meeting's is_in_person.
+const LIVE_VIRTUAL_STYLE = {
+  Live: { bg: "#E7F5EE", text: "#0E7C56", Icon: MapPin },
+  Virtual: { bg: "#EEF2FB", text: "#2D4A8A", Icon: Video },
+} as const
 function LiveVirtualPill({ isLive }: { isLive: boolean }) {
+  const s = isLive ? LIVE_VIRTUAL_STYLE.Live : LIVE_VIRTUAL_STYLE.Virtual
+  const Icon = s.Icon
   return (
     <span
-      className="inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white"
-      style={{ backgroundColor: isLive ? LIVE_COLOR : VIRTUAL_COLOR }}
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md font-medium"
+      style={{ padding: "2px 8px", fontSize: 11, background: s.bg, color: s.text }}
     >
+      <Icon className="size-3" />
       {isLive ? "Live" : "Virtual"}
     </span>
   )
@@ -408,64 +475,234 @@ function ColDivider({ faint }: { faint?: boolean }) {
   )
 }
 
-// OCCURRED tag — meetings >= 1h past start. Bold navy in a bordered chip.
+// OCCURRED indicator — meetings >= 1h past start. A single compact clock icon
+// (hover for the label) instead of a text chip, to reclaim horizontal space.
 function OccurredTag() {
   return (
     <span
-      className="inline-flex shrink-0 items-center gap-0.5 rounded-[5px] border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
-      style={{ color: NAVY_DEEP, borderColor: "#C3CBDA", backgroundColor: "#FBFCFE" }}
+      className="inline-flex shrink-0 items-center"
+      title="Occurred"
+      aria-label="Occurred"
     >
-      <Clock className="size-2.5" strokeWidth={2.5} />
-      Occurred
+      <Clock className="size-3.5" style={{ color: NAVY_DEEP }} strokeWidth={2.5} />
     </span>
   )
 }
 
-// Shared column-header row used by ALL three views. Single-tier, left-aligned,
-// with a per-stage "done/total" ratio pill scoped to the meetings in view, so
-// every view shows per-stage progress for its scope. The 3px transparent left
-// border matches the rows' ready/occurred accent so columns line up exactly.
+// Compact boolean cell for the meeting-level logistics Yes/No columns (Sent /
+// Confirm / Driver). Renders exactly like a StageCell's indicator so the eight
+// tracking columns read as one system: a green check when done, an empty grey
+// ring when not. Logistics apply to LIVE meetings only, so virtual meetings show
+// a grey dash instead (these fields don't apply, matching the steps-complete
+// tally which counts them for live meetings only).
+function BoolCell({ value, live }: { value: boolean | null; live: boolean }) {
+  if (!live) {
+    return (
+      <div className="flex min-w-0 items-center">
+        <span className="text-[11px] leading-tight" style={{ color: "#9AA1AD" }}>
+          —
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex min-w-0 items-center">
+      {value ? (
+        <span
+          className="flex size-[16px] shrink-0 items-center justify-center rounded-full"
+          style={{ backgroundColor: DONE_GREEN }}
+        >
+          <Check className="size-[10px] text-white" strokeWidth={3} />
+        </span>
+      ) : (
+        <span
+          className="size-[16px] shrink-0 rounded-full border-2"
+          style={{ borderColor: EMPTY_RING }}
+        />
+      )}
+    </div>
+  )
+}
+
+// Compact text cell for the logistics info columns (Food / Notes): single-line,
+// with ellipsis truncation and the full text on hover — same text treatment as a
+// StageCell's label, so the columns line up as one system.
+function TextCell({ value }: { value: string | null }) {
+  return (
+    <div className="min-w-0">
+      <span
+        className="block truncate text-[11px] leading-tight"
+        style={{ color: value ? "#4A5161" : "#9AA1AD" }}
+        title={value || undefined}
+      >
+        {value || "—"}
+      </span>
+    </div>
+  )
+}
+
+// Optional per-column completion ratio pill shown under a tracking column's
+// header label.
+type HeaderPill = { bg: string; fg: string; done: number; total: number; title: string }
+
+// One tracking-column header cell: an icon + uppercase label, with an optional
+// "done/total" ratio pill beneath. Used by ALL eight tracking columns (the 3
+// stages + the 5 logistics) so they share one visual language. self-start pins
+// every label to the same top line, whether or not the cell carries a pill.
+function TrackingHeaderCell({
+  Icon,
+  label,
+  pill,
+}: {
+  Icon: React.ComponentType<{ className?: string }>
+  label: string
+  pill?: HeaderPill
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1 self-start">
+      <div
+        className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide"
+        style={{ color: TEXT_SECONDARY }}
+      >
+        <Icon className="size-3.5" />
+        {label}
+      </div>
+      {pill && (
+        <span
+          className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
+          style={{ backgroundColor: pill.bg, color: pill.fg }}
+          title={pill.title}
+        >
+          {pill.done}/{pill.total}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// The 5 logistics columns, in order. Icon + label for the header; the three
+// Yes/No columns carry a live-only ratio pill, Food/Notes (free text) don't.
+const LOGISTICS_COLS = [
+  { key: "sent", label: "Sent", Icon: Send, ratio: true },
+  { key: "confirm", label: "Confirm", Icon: CheckCheck, ratio: true },
+  { key: "food", label: "Food", Icon: Utensils, ratio: false },
+  { key: "driver", label: "Driver", Icon: Car, ratio: true },
+  { key: "notes", label: "Notes", Icon: StickyNote, ratio: false },
+] as const
+
+// Shared column header used by ALL three views. Two tiers: a top row of grouping
+// bands ("All Meetings" over the 3 stages, "Live Meetings Only" over the 5
+// logistics) and a label row where every tracking column shows an icon + label
+// and a per-column "done/total" ratio pill. Stage ratios are scoped to all
+// meetings in view; the Sent/Confirm/Driver ratios are scoped to LIVE meetings
+// only (consistent with the steps-complete tally and the grey-dash rule). The 3px
+// transparent left border matches the rows' ready accent so columns line up.
 function MeetingTableHeader({ meetings }: { meetings: PlanningEventRow[] }) {
   const total = meetings.length
   const stageDone: Record<string, number> = {}
   for (const s of STAGES) stageDone[s.key] = 0
   for (const m of meetings) for (const s of STAGES) if (s.done(m)) stageDone[s.key]++
+  // Live-only scope for the logistics ratios.
+  const liveMeetings = meetings.filter((m) => m.is_in_person)
+  const liveTotal = liveMeetings.length
+  const boolDone: Record<string, number> = { sent: 0, confirm: 0, driver: 0 }
+  for (const m of liveMeetings) {
+    if (m.sent) boolDone.sent++
+    if (m.confirm) boolDone.confirm++
+    if (m.driver) boolDone.driver++
+  }
   const label = "text-[11px] font-semibold uppercase tracking-wide text-[#9AA1AD]"
   return (
-    <div
-      className={`grid ${TABLE_COLS} items-center gap-2 border-b border-l-[3px] border-l-transparent bg-[#FAFBFD] px-4 py-2`}
-    >
-      <div className={`self-center ${label}`}>Institution</div>
-      <div className={`self-center ${label}`}>Time</div>
-      <div className={`self-center ${label}`}>Type</div>
-      <div className={`self-center ${label}`}>Event</div>
-      <ColDivider />
-      {STAGES.map((s, i) => {
-        const done = stageDone[s.key]
-        const pill = ratioPill(done, total)
-        return (
-          <React.Fragment key={s.key}>
-            {i > 0 && <ColDivider faint />}
-            <div className="flex flex-col items-start gap-1">
-              <div
-                className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide"
-                style={{ color: TEXT_SECONDARY }}
-              >
-                <s.Icon className="size-3.5" />
-                {s.label}
-              </div>
-              <span
-                className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
-                style={{ backgroundColor: pill.bg, color: pill.fg }}
-                title={`${done} of ${total} meetings complete`}
-              >
-                {done}/{total}
-              </span>
-            </div>
-          </React.Fragment>
-        )
-      })}
-    </div>
+    <>
+      {/* Tier 1: grouping bands over the stage and logistics blocks. Each band's
+          gridColumn spans its block's tracks (including the faint dividers) so it
+          aligns exactly with the columns beneath it, across every view. */}
+      <div
+        className="grid gap-2 border-l-[3px] border-l-transparent bg-[#FAFBFD] px-4 pt-2"
+        style={{ gridTemplateColumns: TABLE_GRID_COLS }}
+      >
+        <div
+          className={SECTION_BAND_CLASS}
+          style={{
+            gridColumn: "7 / 12",
+            backgroundColor: ALL_BAND_BG,
+            color: ALL_BAND_FG,
+            borderBottom: ALL_BAND_BORDER,
+          }}
+        >
+          All Meetings
+        </div>
+        <div
+          className={SECTION_BAND_CLASS}
+          style={{
+            gridColumn: "13 / 22",
+            backgroundColor: LIVE_BAND_BG,
+            color: LIVE_BAND_FG,
+            borderBottom: LIVE_BAND_BORDER,
+          }}
+          title="These fields apply to in-person (Live) meetings only"
+        >
+          Live Meetings Only
+        </div>
+      </div>
+
+      {/* Tier 2: the column labels + ratio pills. */}
+      <div
+        className="grid items-center gap-2 border-b border-l-[3px] border-l-transparent bg-[#FAFBFD] px-4 pb-2 pt-1"
+        style={{ gridTemplateColumns: TABLE_GRID_COLS }}
+      >
+        <div className={`self-center ${label}`}>Institution</div>
+        <div className={`self-center ${label}`}>Time</div>
+        <div className={`self-center text-center ${label}`}>Client</div>
+        <div className={`self-center text-center ${label}`}>Type</div>
+        <div className={`self-center text-center ${label}`}>Event</div>
+        <ColDivider />
+        {STAGES.map((s, i) => {
+          const done = stageDone[s.key]
+          const pill = ratioPill(done, total)
+          return (
+            <React.Fragment key={s.key}>
+              {i > 0 && <ColDivider faint />}
+              <TrackingHeaderCell
+                Icon={s.Icon}
+                label={s.label}
+                pill={{
+                  ...pill,
+                  done,
+                  total,
+                  title: `${done} of ${total} meetings complete`,
+                }}
+              />
+            </React.Fragment>
+          )
+        })}
+        {/* Meeting-level logistics columns, after the stage block. */}
+        <ColDivider />
+        {LOGISTICS_COLS.map((c, i) => {
+          const done = boolDone[c.key] ?? 0
+          const pill = ratioPill(done, liveTotal)
+          return (
+            <React.Fragment key={c.key}>
+              {i > 0 && <ColDivider faint />}
+              <TrackingHeaderCell
+                Icon={c.Icon}
+                label={c.label}
+                pill={
+                  c.ratio
+                    ? {
+                        ...pill,
+                        done,
+                        total: liveTotal,
+                        title: `${done} of ${liveTotal} live meetings complete`,
+                      }
+                    : undefined
+                }
+              />
+            </React.Fragment>
+          )
+        })}
+      </div>
+    </>
   )
 }
 
@@ -480,11 +717,16 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
   // events, the selection falls back to the first, as usual.
   const searchParams = useSearchParams()
   const deepLinkEventId = searchParams.get("event")
+  // Deep-link: /planning-v2?client=<account_id> opens the By Client view scoped to
+  // that client. Also the in-app target for clicking a row's Client ticker.
+  const deepLinkClientId = searchParams.get("client")
 
   // View toggle. Defaults to By Day so the page lands on today's meetings. A
-  // deep-link (?event=…) instead opens By Event, so the Client Marketing Status
-  // "Current Event" link still lands on its event.
-  const [view, setView] = React.useState<View>(deepLinkEventId ? "event" : "day")
+  // deep-link (?event=…) opens By Event; (?client=…) opens By Client, so the
+  // "Current Event" link and a ticker deep-link each land on the right view.
+  const [view, setView] = React.useState<View>(
+    deepLinkEventId ? "event" : deepLinkClientId ? "client" : "day",
+  )
 
   // Group-by toggle for the By Day / By Week views only. "day" keeps each view's
   // native chronological grouping (day bands in By Week; a single time-ordered
@@ -606,7 +848,7 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
   // combines with the AM / In-person / Missing filters just like By Week/Day. The
   // picked id is only a preference; the effective client is derived during render
   // (picked if it survives the filters, else the first) — no effect, no cascade.
-  const [pickedClientId, setPickedClientId] = React.useState<string | null>(null)
+  const [pickedClientId, setPickedClientId] = React.useState<string | null>(deepLinkClientId)
   const clientOptions = React.useMemo(() => {
     const map = new Map<string, string>()
     for (const r of meetingRows) {
@@ -681,21 +923,32 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
   const atFirstWeek = !!weekStart && !!currentWeekStart && weekStart <= currentWeekStart
   const atFirstDay = !!selectedDay && !!todayYmd && selectedDay <= todayYmd
 
-  // The selected day's meetings, sorted by client then time.
+  // The selected day's meetings, in the default By Day order: meeting time
+  // ascending, then client ticker (suffix-stripped) A→Z as the tiebreaker.
   const dayMeetings = React.useMemo(() => {
     if (!selectedDay) return []
     return meetingRows
       .filter((r) => r.meeting_day === selectedDay)
       .sort((a, b) => {
-        const c = (a.institution_name || "").localeCompare(b.institution_name || "")
-        return c !== 0 ? c : a.meeting_date.localeCompare(b.meeting_date)
+        const t = a.meeting_date.localeCompare(b.meeting_date)
+        if (t !== 0) return t
+        const ta = a.client_ticker ? baseTicker(a.client_ticker) : ""
+        const tb = b.client_ticker ? baseTicker(b.client_ticker) : ""
+        return ta.localeCompare(tb)
       })
   }, [meetingRows, selectedDay])
 
-  // Cross-link: clicking an event name in By Week / By Day jumps to By Event.
+  // Cross-link: clicking an event icon in By Week / By Day jumps to By Event.
   const openEvent = (id: string) => {
     setPickedId(id)
     setView("event")
+  }
+
+  // Cross-link: clicking a Client ticker switches to the By Client view scoped to
+  // that client, showing all of its events/meetings.
+  const openClient = (clientAccountId: string) => {
+    setPickedClientId(clientAccountId)
+    setView("client")
   }
 
   const amActive = primaryAM !== ALL || secondaryAM !== ALL
@@ -705,7 +958,7 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
       <div className="mb-4">
         <ListTitleCard
           title="Planning"
-          subtitle="Upcoming events and their meeting-by-meeting readiness across Profiles, Calendars, Hosts and Feedback."
+          subtitle="Upcoming events and their meeting-by-meeting readiness across Profiles, Calendars and Hosts."
         />
       </div>
 
@@ -718,33 +971,30 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
         <>
           {/* ---- Top control bar: view toggle + context control + AM filters ---- */}
           <div className="mb-4 flex flex-wrap items-end gap-3">
+            {/* VIEW selector — label stacked above the control. */}
             <div className="flex flex-col gap-1">
               <span className={FILTER_LABEL}>View</span>
-              {/* View selector + Group-by control on ONE row. The group-by only
-                  appears in By Day / By Week and is teal-accented so it reads as
-                  "how this view is arranged" (a sort), distinct from the navy View
-                  selector and the plain filters. */}
-              <div className="flex items-center gap-2">
-                <SegmentedToggle
-                  value={view}
-                  onChange={setView}
-                  options={[
-                    { value: "day", label: "By Day" },
-                    { value: "week", label: "By Week" },
-                    { value: "event", label: "By Event" },
-                    { value: "client", label: "By Client" },
-                  ]}
-                />
-                {(view === "day" || view === "week") && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-medium uppercase tracking-wide text-[#1C8C9C]">
-                      Group by
-                    </span>
-                    <GroupByToggle value={groupBy} onChange={setGroupBy} />
-                  </div>
-                )}
-              </div>
+              <SegmentedToggle
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: "day", label: "By Day" },
+                  { value: "week", label: "By Week" },
+                  { value: "event", label: "By Event" },
+                  { value: "client", label: "By Client" },
+                ]}
+              />
             </div>
+
+            {/* GROUP BY — same stacked label-above-control pattern as View/Day, so
+                the three read as one row of controls. Only shown in By Day / By Week
+                (it re-arranges those views). */}
+            {(view === "day" || view === "week") && (
+              <div className="flex flex-col gap-1">
+                <span className={FILTER_LABEL}>Group by</span>
+                <GroupByToggle value={groupBy} onChange={setGroupBy} />
+              </div>
+            )}
 
             {/* Context control: event dropdown (By Event), week nav (By Week),
                 or day stepper (By Day) */}
@@ -952,6 +1202,7 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
                 }
                 now={now}
                 onOpenEvent={openEvent}
+                onOpenClient={openClient}
               />
             ) : (
               <div className={`p-10 text-center text-sm text-muted-foreground ${CARD_CLASS}`}>
@@ -971,6 +1222,7 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
                   meetings={clientMeetings}
                   now={now}
                   onOpenEvent={openEvent}
+                onOpenClient={openClient}
                 />
               </div>
             ) : (
@@ -989,6 +1241,7 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
               groupBy={groupBy}
               now={now}
               onOpenEvent={openEvent}
+              onOpenClient={openClient}
             />
           ) : (
             <DayTable
@@ -997,6 +1250,7 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
               groupBy={groupBy}
               now={now}
               onOpenEvent={openEvent}
+              onOpenClient={openClient}
             />
           )}
         </>
@@ -1011,11 +1265,13 @@ function EventDetail({
   meetings,
   now,
   onOpenEvent,
+  onOpenClient,
 }: {
   group: EventGroup
   meetings: PlanningEventRow[]
   now: number | null
   onOpenEvent: (eventId: string) => void
+  onOpenClient: (clientAccountId: string) => void
 }) {
   // Counts / date range reflect the meetings actually shown, so they stay honest
   // when the Missing filter narrows this event to just its incomplete meetings.
@@ -1041,6 +1297,7 @@ function EventDetail({
       emptyMessage="No meetings match the Missing filter for this event."
       now={now}
       onOpenEvent={onOpenEvent}
+      onOpenClient={onOpenClient}
     />
   )
 }
@@ -1063,30 +1320,40 @@ function NowDivider() {
   )
 }
 
-// Shared meeting row used by ALL three views. Columns match TABLE_COLS exactly:
-// Institution(+tags) · Time(day+time) · Type(pill) · Event(clickable) · | · stages.
+// Shared meeting row used by ALL three views. Columns match TABLE_GRID_COLS
+// exactly: Institution(+tags) · Time(day+time) · Client(ticker link) · Type(pill) ·
+// Event(icon) · | · 3 stages · | · 5 logistics.
 function MeetingRow({
   row,
   now,
   onOpenEvent,
+  onOpenClient,
 }: {
   row: PlanningEventRow
   now: number | null
   onOpenEvent: (eventId: string) => void
+  onOpenClient: (clientAccountId: string) => void
 }) {
   const occurred = isOccurred(row, now)
   const ready = fullyReady(row)
+  const live = row.is_in_person
+  const ticker = row.client_ticker ? baseTicker(row.client_ticker) : null
   return (
     <div
-      className={`grid ${TABLE_COLS} items-center gap-2 border-b border-[#F0F2F6] px-4 py-1.5 last:border-b-0`}
+      className="grid items-center gap-2 border-b border-[#F0F2F6] px-4 py-1.5 last:border-b-0"
       // Green left-accent whenever every stage is complete, so fully-prepped
       // meetings recede; a transparent border keeps the grid aligned otherwise.
-      style={{ borderLeft: `3px solid ${ready ? DONE_GREEN : "transparent"}` }}
+      // Occurred meetings are NOT colored/dimmed differently — the clock symbol
+      // beside the institution is the sole occurred indicator.
+      style={{
+        gridTemplateColumns: TABLE_GRID_COLS,
+        borderLeft: `3px solid ${ready ? DONE_GREEN : "transparent"}`,
+      }}
     >
       {/* Institution (+ status tags) */}
       <div className="flex min-w-0 items-center gap-1.5">
         <span
-          className={`truncate text-[13px] font-medium leading-tight ${occurred ? "opacity-65" : ""}`}
+          className="truncate text-[13px] font-medium leading-tight"
           style={{ color: NAVY_DEEP }}
           title={row.institution_name || undefined}
         >
@@ -1095,39 +1362,99 @@ function MeetingRow({
         {occurred && <OccurredTag />}
       </div>
 
-      {/* Time — day + time everywhere */}
-      <div
-        className={`truncate whitespace-nowrap text-[11px] text-muted-foreground tabular-nums ${occurred ? "opacity-65" : ""}`}
-      >
-        {fmtDay(row.meeting_day)} · {fmtTime(row.meeting_date)}
+      {/* Time — weekday+date prefix (regular, muted) then the meeting time (bold).
+          Only the time is emphasized; the weekday stays non-bold in every view. */}
+      <div className="truncate whitespace-nowrap text-[11px] text-muted-foreground tabular-nums">
+        {fmtDay(row.meeting_day)} ·{" "}
+        <span className="font-semibold text-foreground">{fmtTime(row.meeting_date)}</span>
       </div>
 
-      {/* Type — Live/Virtual pill (full dark tone, never dimmed) */}
-      <div className="flex min-w-0">
+      {/* Client — short ticker (suffix stripped), a brand-blue link that opens the
+          By Client view scoped to this client. Centered. */}
+      <div className="flex min-w-0 justify-center">
+        {ticker && row.client_account_id ? (
+          <button
+            type="button"
+            onClick={() => onOpenClient(row.client_account_id!)}
+            className="cursor-pointer truncate text-center text-[12px] font-semibold leading-tight text-[#0355A7] hover:underline"
+            title={`Show ${row.client_account_name ?? ticker} in By Client`}
+          >
+            {ticker}
+          </button>
+        ) : (
+          <span className="text-[12px] leading-tight text-muted-foreground">—</span>
+        )}
+      </div>
+
+      {/* Type — Live/Virtual pill, centered */}
+      <div className="flex min-w-0 justify-center">
         <LiveVirtualPill isLive={row.is_in_person} />
       </div>
 
-      {/* Event — clickable cross-link into By Event */}
-      <div className={`min-w-0 ${occurred ? "opacity-65" : ""}`}>
+      {/* Event — the 📅 calendar emoji (full-color graphic), full name on hover,
+          opens By Event on click. Sized to fit the same 16px box as the stage
+          indicators so it doesn't grow the row. Centered. */}
+      <div className="flex min-w-0 justify-center">
         <button
           type="button"
           onClick={() => onOpenEvent(row.event_id)}
-          className="max-w-full cursor-pointer truncate text-left text-[13px] font-medium leading-tight text-[#0355A7] hover:underline"
+          className="inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm transition-colors hover:bg-[#0154a6]/15"
           title={`Open "${row.event_name}" in By Event`}
+          aria-label={`Open "${row.event_name}" in By Event`}
         >
-          {row.event_name}
+          <span aria-hidden="true" className="text-[12px] leading-none">
+            📅
+          </span>
         </button>
       </div>
 
       <ColDivider />
 
-      {/* Four stage cells, with faint dividers between them */}
-      {STAGES.map((s, i) => (
-        <React.Fragment key={s.key}>
-          {i > 0 && <ColDivider faint />}
-          <StageCell done={s.done(row)} value={s.value(row)} dim={occurred} />
-        </React.Fragment>
-      ))}
+      {/* Three stage cells, with faint dividers between them. Hosts shows initials
+          (full name via the cell's hover title) to fit the narrow shared width
+          without wrapping; the stage's done() logic is unchanged. */}
+      {STAGES.map((s, i) => {
+        const raw = s.value(row)
+        const isHost = s.key === "hosts"
+        return (
+          <React.Fragment key={s.key}>
+            {i > 0 && <ColDivider faint />}
+            <StageCell
+              done={s.done(row)}
+              value={isHost ? hostInitials(raw) : raw}
+              title={isHost ? raw : undefined}
+            />
+          </React.Fragment>
+        )
+      })}
+
+      {/* Meeting-level logistics: Sent · Confirm · Food · Driver · Notes. These
+          apply to Live meetings only. For a Live meeting, the five cells render
+          their check / ring / text content with faint dividers between. For a
+          Virtual meeting, the whole block is one continuous grayed-out hatch band
+          (spanning the five logistics tracks 13–21, dividers dropped) so it reads
+          at a glance as "not applicable". */}
+      <ColDivider />
+      {live ? (
+        <>
+          <BoolCell value={row.sent} live={live} />
+          <ColDivider faint />
+          <BoolCell value={row.confirm} live={live} />
+          <ColDivider faint />
+          <TextCell value={row.food_order} />
+          <ColDivider faint />
+          <BoolCell value={row.driver} live={live} />
+          <ColDivider faint />
+          <TextCell value={row.logistics_notes} />
+        </>
+      ) : (
+        <div
+          className="h-full self-stretch rounded-[3px]"
+          style={{ gridColumn: "13 / 22", background: VIRTUAL_HATCH }}
+          title="Logistics apply to in-person (Live) meetings only"
+          aria-label="Logistics not applicable — virtual meeting"
+        />
+      )}
     </div>
   )
 }
@@ -1135,14 +1462,17 @@ function MeetingRow({
 function StageCell({
   done,
   value,
-  dim,
+  title,
 }: {
   done: boolean
+  // `value` is the DISPLAYED text (e.g. host initials); `title` is the full text
+  // shown on hover. When `title` is omitted it falls back to `value`, so text
+  // shown verbatim (Profiles/Calendars labels) still gets its own hover tooltip.
   value: string | null
-  dim: boolean
+  title?: string | null
 }) {
   return (
-    <div className={`flex min-w-0 items-center gap-1.5 ${dim ? "opacity-70" : ""}`}>
+    <div className="flex min-w-0 items-center gap-1.5">
       {done ? (
         <span
           className="flex size-[16px] shrink-0 items-center justify-center rounded-full"
@@ -1159,12 +1489,26 @@ function StageCell({
       <span
         className="truncate text-[11px] leading-tight"
         style={{ color: done ? "#4A5161" : "#9AA1AD" }}
-        title={value || undefined}
+        title={title ?? value ?? undefined}
       >
         {value || "—"}
       </span>
     </div>
   )
+}
+
+// Host name → initials for the compact Hosts column (full name shown on hover via
+// the cell's title). "Laura Jevons" → "LJ"; a 3+ word name uses first + last
+// initial ("Mary Jane Watson" → "MW"); a single word uses its first two letters
+// ("Reception" → "RE"). Null/blank passes through so the cell shows its em-dash.
+function hostInitials(name: string | null): string | null {
+  if (!name) return null
+  const tokens = name.trim().split(/\s+/).filter(Boolean)
+  if (tokens.length === 0) return null
+  if (tokens.length === 1) return tokens[0].slice(0, 2).toUpperCase()
+  const first = tokens[0][0]
+  const last = tokens[tokens.length - 1][0]
+  return (first + last).toUpperCase()
 }
 
 // ---- ONE shared table shell -----------------------------------------------
@@ -1188,6 +1532,7 @@ function MeetingTable({
   emptyMessage,
   now,
   onOpenEvent,
+  onOpenClient,
 }: {
   title: string
   subtitle?: React.ReactNode
@@ -1196,6 +1541,7 @@ function MeetingTable({
   emptyMessage?: string
   now: number | null
   onOpenEvent: (eventId: string) => void
+  onOpenClient: (clientAccountId: string) => void
 }) {
   const { done, total } = tallyCells(meetings)
   return (
@@ -1220,7 +1566,7 @@ function MeetingTable({
                   {sec.meetings.map((m, idx) => (
                     <React.Fragment key={m.meeting_id}>
                       {idx === split && split > 0 && <NowDivider />}
-                      <MeetingRow row={m} now={now} onOpenEvent={onOpenEvent} />
+                      <MeetingRow row={m} now={now} onOpenEvent={onOpenEvent} onOpenClient={onOpenClient} />
                     </React.Fragment>
                   ))}
                 </React.Fragment>
@@ -1247,9 +1593,9 @@ function DayBand({ label, count }: { label: string; count: number }) {
   )
 }
 
-// Teal-accented Group-by toggle (By Day / By Week only). Deliberately NOT the
-// shared navy SegmentedToggle: the teal treatment marks it as a sort/arrangement
-// control, distinct from the navy View selector and the plain navy/gray filters.
+// Brand-blue Group-by toggle (By Day / By Week only). Uses the Rose & Co BRAND_BLUE
+// token for its active fill / accent so it aligns with the View selector; same
+// segmented size, shape, and behavior as before.
 function GroupByToggle({
   value,
   onChange,
@@ -1262,7 +1608,7 @@ function GroupByToggle({
     { value: "client", label: "By Client" },
   ]
   return (
-    <div className="flex h-9 items-center rounded-md border border-[rgba(28,140,156,0.35)] bg-[rgba(28,140,156,0.06)] p-0.5">
+    <div className="flex h-9 items-center rounded-md border border-[rgba(3,85,167,0.35)] bg-[rgba(3,85,167,0.06)] p-0.5">
       {options.map((o) => {
         const active = o.value === value
         return (
@@ -1272,10 +1618,9 @@ function GroupByToggle({
             onClick={() => onChange(o.value)}
             className={
               "rounded px-2.5 py-1 text-xs font-medium transition-colors " +
-              (active
-                ? "bg-[#1C8C9C] text-white"
-                : "text-[#1C8C9C] hover:bg-[rgba(28,140,156,0.12)]")
+              (active ? "text-white" : "hover:bg-[rgba(3,85,167,0.12)]")
             }
+            style={active ? { backgroundColor: BRAND_BLUE } : { color: BRAND_BLUE }}
           >
             {o.label}
           </button>
@@ -1321,12 +1666,14 @@ function WeekTable({
   groupBy,
   now,
   onOpenEvent,
+  onOpenClient,
 }: {
   title: string
   days: Array<{ day: string; meetings: PlanningEventRow[] }>
   groupBy: "day" | "client"
   now: number | null
   onOpenEvent: (eventId: string) => void
+  onOpenClient: (clientAccountId: string) => void
 }) {
   const meetings = days.flatMap((d) => d.meetings)
   const sections: TableSection[] =
@@ -1346,6 +1693,7 @@ function WeekTable({
       emptyMessage="No meetings scheduled in this week. Use the arrows above to move to another week."
       now={now}
       onOpenEvent={onOpenEvent}
+      onOpenClient={onOpenClient}
     />
   )
 }
@@ -1357,12 +1705,14 @@ function DayTable({
   groupBy,
   now,
   onOpenEvent,
+  onOpenClient,
 }: {
   title: string
   meetings: PlanningEventRow[]
   groupBy: "day" | "client"
   now: number | null
   onOpenEvent: (eventId: string) => void
+  onOpenClient: (clientAccountId: string) => void
 }) {
   const sections: TableSection[] = !meetings.length
     ? []
@@ -1378,6 +1728,7 @@ function DayTable({
       emptyMessage="No meetings on this day. Use the arrows above to move to another day."
       now={now}
       onOpenEvent={onOpenEvent}
+      onOpenClient={onOpenClient}
     />
   )
 }
@@ -1389,11 +1740,13 @@ function ClientTable({
   meetings,
   now,
   onOpenEvent,
+  onOpenClient,
 }: {
   title: string
   meetings: PlanningEventRow[]
   now: number | null
   onOpenEvent: (eventId: string) => void
+  onOpenClient: (clientAccountId: string) => void
 }) {
   const upcoming = meetings.filter((m) => !m.is_past).length
   return (
@@ -1405,6 +1758,7 @@ function ClientTable({
       emptyMessage="No meetings for this client match the current filters."
       now={now}
       onOpenEvent={onOpenEvent}
+      onOpenClient={onOpenClient}
     />
   )
 }

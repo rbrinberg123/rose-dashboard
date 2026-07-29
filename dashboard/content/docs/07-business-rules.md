@@ -24,7 +24,7 @@ There are **two** definitions, by layer:
 
 - **Data layer (feedback is now due):** a meeting has occurred when its **Eastern calendar date is strictly before Eastern today**. Used in `v_feedback_outstanding`: `(m.meeting_date AT TIME ZONE 'America/New_York')::date < (now() AT TIME ZONE 'America/New_York')::date`. Same basis drives `v_client_marketing_status`.
 - **Planning UI (grace window):** a meeting flips to "occurred" once the clock is **≥ 1 hour past its start** — `OCCURRED_GRACE_MS = 60 * 60 * 1000` in `app/planning-v2/planning-v2-view.tsx`, so a same-day meeting turns an hour after it starts.
-- `v_planning_events` also carries an `is_past` flag = `meeting_day < CURRENT_DATE`.
+- `v_planning_events` carries an `is_past` flag on the **same Eastern basis** as the data layer above: `(meeting_date AT TIME ZONE 'America/New_York')::date < (now() AT TIME ZONE 'America/New_York')::date` (the event-list scope uses the same Eastern comparison). The Planning V2 UI marks occurred rows with a small clock symbol only — it no longer dims or recolors them.
 
 > The productivity/statistics views do **not** apply an "occurred" filter — they simply count Confirmed meetings by date (see *Confirmed-only counts*).
 
@@ -89,8 +89,9 @@ A few older/forward-looking views instead **exclude Cancelled** rather than requ
 
 These are now **real mirror columns** (as of the 2026-07-27 patch), not placeholders — but only three of the five carry data:
 
-- `sent`, `confirm`, `driver` are genuine Dynamics Yes/No booleans (`bcs_Sent` / `bcs_Confirm` / `bcs_Driver`), populated in ~170 rows. They render as a green check via `BoolCell` in `app/planning-v2/planning-v2-view.tsx`.
-- `food_order` (`bcs_FoodOrder`) and `logistics_notes` (`bcs_Notes`) exist as columns but are **empty in every source row so far**, so those two cells still render blank.
+- These five columns apply to **Live (in-person) meetings only**. On a **virtual** row the whole five-column block renders as one continuous **grayed-out diagonal-hatch band** (with the internal dividers dropped) so it reads at a glance as "not applicable" — no per-cell content.
+- On a **Live** row: `sent`, `confirm`, `driver` are genuine Dynamics Yes/No booleans (`bcs_Sent` / `bcs_Confirm` / `bcs_Driver`), populated in ~170 rows. They render via `BoolCell` in `app/planning-v2/planning-v2-view.tsx` exactly like a stage cell — **green check** when done, **empty grey ring** when not. The Planning V2 header groups all five under a **"Live Meetings Only"** band, and the three Yes/No columns carry a per-column completion ratio pill computed over live meetings only.
+- `food_order` (`bcs_FoodOrder`) and `logistics_notes` (`bcs_Notes`) exist as columns but are **empty in every source row so far**, so on Live rows those two cells render a dash. They are free-text (no ratio pill), shown as a single truncated line with the full value on hover.
 
 Mapping: `mappers.ts` (`sent`/`confirm`/`food_order`/`driver`/`logistics_notes`). Migration: `sql/patches/2026-07-27_meeting_event_logistics_fields.sql`. Surfaced in `v_planning_events`; the older `/planning` page ignores these columns.
 

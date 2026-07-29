@@ -1126,4 +1126,7 @@ export type PlanningEventRow = {
   driver: boolean | null
   food_order: string | null
   logistics_notes: string | null
+  // Client ticker (raw, with exchange/country suffix) for the Planning V2 board's
+  // clickable Client column; the UI strips the suffix via baseTicker().
+  client_ticker: string | null
 }

@@ -3323,13 +3323,15 @@ WHERE m.meeting_date IS NOT NULL
 -- of any event and are excluded.
 --
 -- Scope (the event LIST): an event is "upcoming" iff it has >= 1 Confirmed
--- meeting dated today-or-later (meeting_day >= CURRENT_DATE).
+-- meeting dated today-or-later, where "today" is the US EASTERN calendar day
+-- (meeting_day >= (now() AT TIME ZONE 'America/New_York')::date).
 --
 -- Rows returned (the event DETAIL): for every upcoming event, ALL of its
 -- Confirmed meetings -- past AND future -- so opening an event shows the full
--- picture including already-completed meetings. is_past flags the completed
--- ones for the UI to dim. Only Confirmed meetings are tracked (Cancelled / TBR /
--- Pending are not part of the plan).
+-- picture including already-completed meetings. is_past flags the completed ones
+-- (the UI marks them with an occurred symbol and splits them above the Upcoming
+-- divider; it no longer dims them). Only Confirmed meetings are tracked
+-- (Cancelled / TBR / Pending are not part of the plan).
 --
 -- The four stage VALUES are returned raw (profile_label, calendar_label,
 -- host_name, feedback_status_label); the UI decides the checkmark per stage:
@@ -3342,9 +3344,14 @@ WHERE m.meeting_date IS NOT NULL
 --   * Feedback  : check if feedback_status_label starts with 'Closed'
 --                 ('Closed - All in' / 'Closed - No Feedback')
 --
--- Dates follow the v_profiles_upcoming convention: the stored timestamptz is
--- read as its UTC wall-clock value (AT TIME ZONE 'UTC', not shifted), so
--- meeting_day shares one clock with CURRENT_DATE (Supabase runs UTC).
+-- Dates: meeting_day follows the v_profiles_upcoming convention — the stored
+-- timestamptz read as its UTC wall-clock value (AT TIME ZONE 'UTC', not shifted) —
+-- and is used for display/grouping (shared with v_scheduler_meetings). The
+-- past/occurred flag and the upcoming scope, however, use US EASTERN calendar days
+-- ((meeting_date AT TIME ZONE 'America/New_York')::date vs. today in Eastern), the
+-- SAME canonical "occurred" rule as v_feedback_outstanding / v_client_marketing_status,
+-- so a meeting later today (ET) isn't treated as past merely because it's already
+-- past midnight in UTC.
 -- -----------------------------------------------------------------------------
 DROP VIEW IF EXISTS public.v_planning_events CASCADE;
 CREATE VIEW public.v_planning_events AS
@@ -3376,6 +3383,9 @@ WITH ev AS (
     -- event, so an event has a single primary AM; secondary AM is usually NULL.
     a.sales_lead_primary_name AS primary_manager_name,
     a.secondary_manager_name  AS secondary_manager_name,
+    -- Client ticker for the Planning V2 board's clickable Client column (the UI
+    -- strips the exchange/country suffix, e.g. SGO:FP -> SGO).
+    a.ticker_symbol AS client_ticker,
     NULLIF(TRIM(m._raw ->> '_bcs_event_value@OData.Community.Display.V1.FormattedValue'), '')
       AS event_name
   FROM public.meetings m
@@ -3385,10 +3395,13 @@ WITH ev AS (
     AND m.meeting_status_label = 'Confirmed'
 ),
 upcoming_events AS (
-  -- Event list scope: >= 1 Confirmed meeting today-or-later.
+  -- Event list scope: >= 1 Confirmed meeting today-or-later on the US EASTERN
+  -- calendar (the same Eastern basis as is_past below, so the scope and the
+  -- past/occurred flag flip together at Eastern midnight, not UTC's).
   SELECT DISTINCT event_id
   FROM ev
-  WHERE meeting_day >= CURRENT_DATE
+  WHERE (meeting_date AT TIME ZONE 'America/New_York')::date
+        >= (now() AT TIME ZONE 'America/New_York')::date
 ),
 event_label AS (
   -- One representative display name per event_id: the name on the latest-dated
@@ -3417,13 +3430,22 @@ SELECT
   ev.feedback_status_label,
   ev.primary_manager_name,
   ev.secondary_manager_name,
-  (ev.meeting_day < CURRENT_DATE) AS is_past,
+  -- Past/occurred is decided on the US EASTERN calendar day, not UTC — the SAME
+  -- canonical rule the feedback/marketing-status views use (see 07-business-rules):
+  -- the meeting's Eastern date strictly before today's Eastern date. This stops a
+  -- meeting later today (ET) from being flagged past just because it's already past
+  -- midnight in UTC. (meeting_day above is left as the UTC-read wall-clock day, the
+  -- convention the client display + scheduler share; is_past uses the Eastern date
+  -- directly so it matches the app-wide "occurred" definition exactly.)
+  ((ev.meeting_date AT TIME ZONE 'America/New_York')::date
+     < (now() AT TIME ZONE 'America/New_York')::date) AS is_past,
   -- Meeting-level logistics columns for the Planning V2 board (appended last).
   ev.sent,
   ev.confirm,
   ev.driver,
   ev.food_order,
-  ev.logistics_notes
+  ev.logistics_notes,
+  ev.client_ticker
 FROM ev
 JOIN upcoming_events ue ON ue.event_id = ev.event_id
 LEFT JOIN event_label el ON el.event_id = ev.event_id
