@@ -25,25 +25,24 @@ import type { WeekAheadData, WeekAheadDay, WeekAheadMeeting } from "./load"
 // ---- geometry --------------------------------------------------------------
 const CONTAINER = 880
 
-// All Upcoming Meetings — 7 columns, fixed widths summing to CONTAINER. Time is
-// deliberately wide so "10:00 AM" sits comfortably; the width is reclaimed from
-// the (hard-truncated) Institution and Investor columns.
+// All Upcoming Meetings — 6 columns, fixed widths summing to CONTAINER. Time is
+// deliberately wide so "10:00 AM" sits comfortably. The Host column was removed;
+// its freed width was folded into Institution so more of the name shows.
 const MCOLS = {
   date: 56,
   time: 84,
   client: 66,
-  institution: 290,
+  institution: 440,
   investor: 150,
   type: 84,
-  host: 150,
 } as const
 
 // Hard-truncation limits (chars). Outlook ignores text-overflow:ellipsis, so we
-// truncate in code and append "…"; nowrap is the belt-and-suspenders.
+// truncate in code and append "…"; nowrap is the belt-and-suspenders. Institution
+// takes the widened column (Host removed), so its cap is raised to match.
 const T = {
-  institution: 40,
+  institution: 60,
   investor: 16,
-  host: 14,
 } as const
 
 // ---- palette ---------------------------------------------------------------
@@ -179,7 +178,6 @@ function meetingRow(m: WeekAheadMeeting, dateLabel: string, last: boolean): stri
   const client = m.ticker ? esc(m.ticker) : m.clientName ? esc(trunc(m.clientName, 10)) : "—"
   const institution = m.institution ? esc(trunc(m.institution, T.institution)) : "—"
   const investor = m.investor ? esc(trunc(m.investor, T.investor)) : "—"
-  const host = m.host ? esc(trunc(m.host, T.host)) : "—"
   const kind: "Live" | "Virtual" = m.isLive ? "Live" : "Virtual"
   // Pill + in-person flag on ONE line via a 2-cell nested table: typePill() is a
   // block-level <table>, so a trailing inline flag after it would wrap to a second
@@ -194,7 +192,6 @@ function meetingRow(m: WeekAheadMeeting, dateLabel: string, last: boolean): stri
     <td style="${cell("color:" + SUBTLE + ";overflow:hidden;")}" title="${esc(m.institution)}">${institution}</td>
     <td style="${cell("color:" + MUTED + ";overflow:hidden;")}" title="${esc(m.investor)}">${investor}</td>
     <td style="${cell("white-space:nowrap;")}">${typeCell}</td>
-    <td style="${cell("color:" + SUBTLE + ";overflow:hidden;")}" title="${esc(m.host)}">${host}</td>
   </tr>`
 }
 
@@ -212,7 +209,6 @@ function allMeetings(days: WeekAheadDay[], total: number): string {
     ${th(MCOLS.institution, "Institution")}
     ${th(MCOLS.investor, "Investor")}
     ${th(MCOLS.type, "Type")}
-    ${th(MCOLS.host, "Host")}
   </tr>`
 
   const groups = populated
@@ -227,7 +223,7 @@ function allMeetings(days: WeekAheadDay[], total: number): string {
       const nyCell = d.nyOffice
         ? `<td valign="middle" style="vertical-align:middle;line-height:1.2;padding-left:10px;">${pill(AMBER.bg, AMBER.text, "📍 In office", 9, "1px 7px")}</td>`
         : ""
-      const band = `<tr><td colspan="7" style="padding:${pad};line-height:1.2;${topRule}">
+      const band = `<tr><td colspan="6" style="padding:${pad};line-height:1.2;${topRule}">
         <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr>
           <td valign="middle" style="vertical-align:middle;line-height:1.2;font-size:13px;font-weight:bold;"><span style="color:${INK};">${esc(d.weekdayShort)}, ${esc(d.dateLabel)}</span></td>
           <td valign="middle" style="vertical-align:middle;line-height:1.2;padding-left:10px;font-size:11px;"><span style="color:${MUTED};">${d.count} meeting${d.count === 1 ? "" : "s"}</span></td>

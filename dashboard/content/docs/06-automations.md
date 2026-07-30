@@ -28,7 +28,7 @@ Eastern effect assumes EDT (UTC−4) in summer, EST (UTC−5) in winter.
 | `/api/live-outreach/send-email` | `30 11,12 * * 1-5` | Net **7:30 AM ET, Mon–Fri**, year-round | Emails the "Non-Deal Roadshow Update" digest to `team@rosecoglobal.com`. |
 | `/api/feedback/send-email` | `15 12,13 * * 1` | Net **Monday 8:15 AM ET** | "Outstanding Feedback" digest (Monday variant). |
 | `/api/feedback/send-email` | `45 12,13 * * 2-5` | Net **Tue–Fri 8:45 AM ET** | Same digest, Tue–Fri (30 min later than Monday). |
-| `/api/week-ahead/send-email` | `45 19,20 * * 5` | Net **Friday 3:45 PM ET**, year-round | Emails the "Week Ahead" upcoming-meetings digest (next Mon–Fri) to `team@rosecoglobal.com`. |
+| `/api/week-ahead/send-email` | `45 19,20 * * 5` | Net **Friday 3:45 PM ET**, year-round | Emails the "Week Ahead" upcoming-meetings digest (next Mon–Fri) to `kmigliazza@roseandco.com`. |
 
 The two feedback rows are the **same route** split by weekday so Monday goes out at 8:15 ET and Tue–Fri at 8:45 ET.
 

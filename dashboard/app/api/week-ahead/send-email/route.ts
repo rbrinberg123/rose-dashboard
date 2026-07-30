@@ -11,7 +11,7 @@ import { claimDailySend, releaseDailySend } from "@/lib/live-outreach-send-log"
  *
  *  • POST — manual send from the dashboard. Gated to a signed-in **super_user**
  *    (requireSuperUser). Body picks the recipient:
- *      { mode: "team" }                 → the server-owned TEAM_RECIPIENT const
+ *      { mode: "team" }                 → the server-owned WEEK_AHEAD_RECIPIENT const
  *      { mode: "test", recipient: "…" } → a single typed address (test only)
  *    The team address is ALWAYS the server constant; the test box can never
  *    override it. An explicit mode is required, so a malformed/empty
@@ -19,7 +19,7 @@ import { claimDailySend, releaseDailySend } from "@/lib/live-outreach-send-log"
  *
  *  • GET — the Vercel scheduled cron (Fridays). Gated by the CRON_SECRET bearer
  *    (Vercel attaches `Authorization: Bearer ${CRON_SECRET}` automatically).
- *    Sends to TEAM_RECIPIENT. DST-safe: the cron fires at BOTH 19:45 and 20:45
+ *    Sends to WEEK_AHEAD_RECIPIENT. DST-safe: the cron fires at BOTH 19:45 and 20:45
  *    UTC and this handler only proceeds when it is actually Friday 3:45–3:59 PM
  *    Eastern — so exactly one of the two fires sends (19:45 UTC = 3:45 EDT in
  *    summer, 20:45 UTC = 3:45 EST in winter). A persistent once-per-day claim
@@ -34,12 +34,14 @@ export const dynamic = "force-dynamic"
 const TIME_ZONE = "America/New_York"
 
 /**
- * The team distribution address the scheduled digest AND the "Send Email" button
- * both target. Server-owned — the client cannot override it (the test box only
- * feeds the "test" path). Note this is a different domain from the sender
- * (dashboards@roseandco.com), i.e. a normal external send.
+ * The recipient the scheduled Friday digest AND the "Send Email" button both
+ * target. Server-owned — the client cannot override it (the test box only feeds
+ * the "test" path). This is Week-Ahead-specific: it is DELIBERATELY separate
+ * from the Live Outreach / Feedback routes' own TEAM_RECIPIENT constants, so
+ * changing it here never redirects those other digests. Same domain as the
+ * sender (dashboards@roseandco.com), i.e. an internal send.
  */
-export const TEAM_RECIPIENT = "team@rosecoglobal.com"
+export const WEEK_AHEAD_RECIPIENT = "kmigliazza@roseandco.com"
 
 /** Idempotency key for the scheduled once-per-day send (cron_send_log.job_key). */
 const CRON_JOB_KEY = "week_ahead_digest"
@@ -132,7 +134,7 @@ export async function POST(request: NextRequest) {
     }
     recipient = typed
   } else if (body.mode === "team") {
-    recipient = TEAM_RECIPIENT
+    recipient = WEEK_AHEAD_RECIPIENT
   } else {
     return NextResponse.json(
       { error: "Missing or invalid 'mode' (expected 'team' or 'test')." },
@@ -188,8 +190,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { subject, meetings } = await sendDigestTo(TEAM_RECIPIENT)
-    return NextResponse.json({ ok: true, sentTo: TEAM_RECIPIENT, subject, meetings, date: now.date })
+    const { subject, meetings } = await sendDigestTo(WEEK_AHEAD_RECIPIENT)
+    return NextResponse.json({ ok: true, sentTo: WEEK_AHEAD_RECIPIENT, subject, meetings, date: now.date })
   } catch (err) {
     // Send failed after claiming — release the claim so a later retry can resend.
     await releaseDailySend(CRON_JOB_KEY, now.date).catch(() => {})
