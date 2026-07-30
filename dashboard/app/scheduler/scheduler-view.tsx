@@ -3,10 +3,12 @@
 import * as React from "react"
 import { ListTitleCard } from "@/components/page-masthead"
 import { HostSelectCell } from "@/components/host-select-cell"
+import { HOST, PeopleColumn } from "@/components/people-column"
 import { CARD_CLASS } from "@/lib/design"
 import { analyzeHost, buildAffinity, isHostBusy, timeOffOn } from "@/lib/host-suggestion"
 import type { HostPick } from "@/lib/host-suggestion"
 import type {
+  RelationshipPerson,
   SchedulerMeetingRow,
   SchedulerTimeOffRow,
   SchedulerUnassignedRow,
@@ -462,6 +464,24 @@ export function SchedulerView({
     [unassigned, anchorYmd, affinity, l12mByHost, timeOff],
   )
 
+  // Same picks as `unassignedPicks`, but covering the whole visible Mon–Fri week
+  // and grouped by day (Mon → Fri) for the firm-wide "Week · everyone" view's
+  // bottom section. Each day's rows are ranked with the identical shared logic,
+  // and the source is the same `unassigned` set the firm-week memo counts, so the
+  // per-day totals here match `firmWeek.unassignedCount`.
+  const weekUnassignedPicks = React.useMemo(
+    () =>
+      weekDays.map((d) => ({
+        ymd: d.ymd,
+        label: `${d.label} ${MONTHS[d.date.getMonth()]} ${d.date.getDate()}`,
+        picks: unassigned
+          .filter((u) => u.meeting_day === d.ymd)
+          .sort((a, b) => a.start_minutes - b.start_minutes)
+          .map((row) => ({ row, pick: analyzeHost(row, affinity, l12mByHost, timeOff) })),
+      })),
+    [weekDays, unassigned, affinity, l12mByHost, timeOff],
+  )
+
   // Full host roster for "Search all hosts…" — every distinct host present in the
   // loaded hosted meetings, alphabetical. Same as the Pipeline page.
   const roster = React.useMemo(() => {
@@ -473,6 +493,31 @@ export function SchedulerView({
   // Free/busy for an arbitrary host (e.g. a search pick) against a meeting.
   const hostFreeFor = React.useCallback(
     (row: SchedulerUnassignedRow, hostId: string) => !isHostBusy(affinity, row, hostId),
+    [affinity],
+  )
+
+  // Top hosts for a meeting's institution — ALL-TIME only (never the LTM window).
+  // Same per-institution basis the Relationships page shows, derived from the
+  // host-affinity the scheduler already builds from every loaded hosted meeting:
+  // instHost holds host_id → all-time hosted count per institution, instTotal the
+  // institution's all-time meeting count (the % denominator). Returns the top 4
+  // ranked high→low in the { name, count, pct } shape the shared PeopleColumn
+  // expects; empty when the institution has no hosting history (element shows —).
+  const topHostsFor = React.useCallback(
+    (institutionName: string | null): { people: RelationshipPerson[]; total: number } => {
+      if (!institutionName) return { people: [], total: 0 }
+      const hostMap = affinity.instHost.get(institutionName)
+      const total = affinity.instTotal.get(institutionName) ?? 0
+      if (!hostMap || total === 0) return { people: [], total }
+      const people = Array.from(hostMap, ([id, count]) => ({
+        name: affinity.hostName.get(id) ?? "—",
+        count,
+        pct: Math.round((count / total) * 100),
+      }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+        .slice(0, 4)
+      return { people, total }
+    },
     [affinity],
   )
 
@@ -876,6 +921,7 @@ export function SchedulerView({
           roster={roster}
           chosenHost={chosenHost}
           hostFreeFor={hostFreeFor}
+          topHostsFor={topHostsFor}
           onSelect={selectHost}
         />
       )}
@@ -924,6 +970,51 @@ export function SchedulerView({
         <WeekGrid host={selectedHostName} meetings={weekHostMeetings} weekDays={weekDays} win={weekWindow} timeOffByDay={weekTimeOff} busyBands={weekBusyBands} />
       ) : (
         <FirmWeekGrid weekDays={weekDays} win={firmWeek.win} perDay={firmWeek.perDay} />
+      )}
+
+      {/* Unassigned meetings — Week · everyone view only, BELOW the grid. Same
+          section and assign logic as the Day view, but scoped to the whole
+          visible Mon–Fri week and grouped by day (Mon → Fri) under one heading.
+          Days with no unassigned meetings are omitted. */}
+      {mode === "week-all" && (
+        <div className="mt-4">
+          <div className="mb-2">
+            <h2 className="text-sm font-semibold" style={{ color: NAVY_DEEP }}>
+              Unassigned meetings
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Upcoming confirmed meetings with no host yet — with a suggested host based on who
+              usually covers that institution or client and who&apos;s free at the time.
+            </p>
+          </div>
+          {firmWeek.unassignedCount === 0 ? (
+            <div className={`overflow-hidden ${CARD_CLASS}`}>
+              <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                No unassigned meetings for the week of {weekRangeLabel}.
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {weekUnassignedPicks
+                .filter((d) => d.picks.length > 0)
+                .map((d) => (
+                  <UnassignedSection
+                    key={d.ymd}
+                    picks={d.picks}
+                    dateLabel={d.label}
+                    dayHeading={d.label}
+                    showHeading={false}
+                    fixedColumns
+                    roster={roster}
+                    chosenHost={chosenHost}
+                    hostFreeFor={hostFreeFor}
+                    topHostsFor={topHostsFor}
+                    onSelect={selectHost}
+                  />
+                ))}
+            </div>
+          )}
+        </div>
       )}
     </>
   )
@@ -1316,26 +1407,49 @@ function UnassignedSection({
   roster,
   chosenHost,
   hostFreeFor,
+  topHostsFor,
   onSelect,
+  showHeading = true,
+  dayHeading,
+  fixedColumns = false,
 }: {
   picks: { row: SchedulerUnassignedRow; pick: HostPick }[]
   dateLabel: string
   roster: { id: string; name: string }[]
   chosenHost: Map<string, string>
   hostFreeFor: (row: SchedulerUnassignedRow, hostId: string) => boolean
+  // All-time top hosts for the meeting's institution (up to 4), plus the % total.
+  topHostsFor: (institutionName: string | null) => { people: RelationshipPerson[]; total: number }
   onSelect: (meetingId: string, hostId: string) => void
+  // Day view renders the full heading (default). The Week · everyone view renders
+  // one heading above the whole stack and passes showHeading={false} per day,
+  // using dayHeading to label each day's card instead.
+  showHeading?: boolean
+  dayHeading?: string
+  // Week · everyone stacks one table per day, so every day's table must share the
+  // SAME column widths for the columns to line up down the page. When set, the
+  // table uses table-layout: fixed with an explicit colgroup and overflowing cell
+  // content truncates rather than resizing the column. Day view leaves this off
+  // and keeps its content-sized (auto) layout.
+  fixedColumns?: boolean
 }) {
   return (
-    <div className="mb-4">
-      <div className="mb-2">
-        <h2 className="text-sm font-semibold" style={{ color: NAVY_DEEP }}>
-          Unassigned meetings
-        </h2>
-        <p className="text-xs text-muted-foreground">
-          Upcoming confirmed meetings with no host yet — with a suggested host based on who
-          usually covers that institution or client and who&apos;s free at the time.
-        </p>
-      </div>
+    <div className={showHeading ? "mb-4" : undefined}>
+      {showHeading && (
+        <div className="mb-2">
+          <h2 className="text-sm font-semibold" style={{ color: NAVY_DEEP }}>
+            Unassigned meetings
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Upcoming confirmed meetings with no host yet — with a suggested host based on who
+            usually covers that institution or client and who&apos;s free at the time.
+          </p>
+        </div>
+      )}
+
+      {dayHeading && (
+        <div className="mb-1.5 text-xs font-semibold text-muted-foreground">{dayHeading}</div>
+      )}
 
       <div className={`overflow-hidden ${CARD_CLASS}`}>
         {picks.length === 0 ? (
@@ -1344,16 +1458,32 @@ function UnassignedSection({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table
+              className="w-full text-sm"
+              style={fixedColumns ? { tableLayout: "fixed" } : undefined}
+            >
+              {/* Fixed shared column widths so every day's table lines up
+                  vertically (Week · everyone). Same <col> set on every table. */}
+              {fixedColumns && (
+                <colgroup>
+                  <col style={{ width: "104px" }} />
+                  <col style={{ width: "30%" }} />
+                  <col style={{ width: "34%" }} />
+                  <col />
+                </colgroup>
+              )}
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">When</th>
                   <th className="px-3 py-2 text-left font-medium">Meeting</th>
+                  <th className="px-3 py-2 text-left font-medium">Top hosts</th>
                   <th className="px-3 py-2 text-left font-medium">Suggested host</th>
                 </tr>
               </thead>
               <tbody>
-                {picks.map(({ row, pick }) => (
+                {picks.map(({ row, pick }) => {
+                  const topHosts = topHostsFor(row.institution_name)
+                  return (
                   <tr key={row.meeting_id} className="border-b last:border-0 align-top">
                     {/* When */}
                     <td className="whitespace-nowrap px-3 py-2">
@@ -1362,20 +1492,34 @@ function UnassignedSection({
                         {row.is_in_person ? "In-person" : "Virtual"}
                       </div>
                     </td>
-                    {/* Meeting */}
+                    {/* Meeting — truncates within its fixed column so the shared
+                        widths hold; full name stays in the title tooltip. */}
                     <td className="px-3 py-2">
-                      <div className="font-medium">
+                      <div
+                        className={"font-medium" + (fixedColumns ? " truncate" : "")}
+                        title={fixedColumns ? row.institution_name || row.client_account_name || undefined : undefined}
+                      >
                         {row.institution_name || row.client_account_name || "—"}
                       </div>
                       {row.institution_name && row.client_account_name && (
-                        <div className="text-xs text-muted-foreground">
+                        <div
+                          className={"text-xs text-muted-foreground" + (fixedColumns ? " truncate" : "")}
+                          title={fixedColumns ? row.client_account_name : undefined}
+                        >
                           {row.client_account_name}
                         </div>
                       )}
                     </td>
+                    {/* Top hosts — all-time top 4 hosts for this meeting's
+                        institution, the same PeopleColumn element the
+                        Relationships page renders. Em-dash when no history. */}
+                    <td className={"px-3 py-2" + (fixedColumns ? " min-w-0" : "")}>
+                      <PeopleColumn people={topHosts.people} total={topHosts.total} role={HOST} />
+                    </td>
                     {/* Suggested host — same picker as the Pipeline page, compact
-                        inline layout for density. */}
-                    <td className="px-3 py-2">
+                        inline layout for density. min-w-0 lets the fixed column
+                        contain (and the picker truncate) rather than widen. */}
+                    <td className={"px-3 py-2" + (fixedColumns ? " min-w-0" : "")}>
                       <HostSelectCell
                         pick={pick}
                         selectedId={chosenHost.get(row.meeting_id) ?? pick.defaultId ?? null}
@@ -1386,7 +1530,8 @@ function UnassignedSection({
                       />
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

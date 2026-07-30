@@ -43,7 +43,9 @@ To keep a page super-user-only, do nothing — that's the default.
 | `ALWAYS_ALLOWED_ROUTES` | Routes any signed-in user may reach regardless of role. Currently just `/no-access` (the request-access landing). |
 | `USER_HOME_ROUTE` | Where a plain `user` is sent if they hit a page they can't access (and their post-login home). Currently `/scheduler`. Must be one of `USER_ALLOWED_ROUTES`. |
 
-Current `USER_ALLOWED_ROUTES`: `/scheduler`, `/planning-v2`, `/calendar`, `/profiles`, `/feedback`, `/feedback-manager`, `/pipeline`, `/live-outreach`, `/onboarding`, `/relationships`, `/conference-rooms`, `/time-off`. (See the in-app **live panel** or the file itself for the authoritative current list.)
+Current `USER_ALLOWED_ROUTES`: `/scheduler`, `/planning-v2`, `/calendar`, `/profiles`, `/feedback`, `/feedback-manager`, `/live-outreach`, `/onboarding`, `/time-off`. (See the in-app **live panel** or the file itself for the authoritative current list.)
+
+> `/pipeline` (Upcoming Meetings), `/relationships`, and `/conference-rooms` were removed from this list and from the main nav. They're now **parked pages** reachable only from the super-user-gated **Admin → Hidden Pages** section (see [02 — Pages](02-pages.md)); the routes/pages themselves are unchanged.
 
 ### The decision function
 
@@ -80,6 +82,8 @@ The sidebar filters each section's items with `canAccessRoute(role, item.href)` 
 ### Admin pages
 
 `/admin` and everything under `/admin/*` are **not** in `USER_ALLOWED_ROUTES`, so they're super-user-only by the deny-by-default rule. Do not add them to the allowlist.
+
+The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx`, the `HIDDEN_PAGES` array) that links to routes parked off the main nav — currently `/pipeline`, `/relationships`, and `/conference-rooms`. Those pages are super-user-only purely because Admin is; the pages themselves keep their own routes. To park another page later, add one `{ href, label }` line to `HIDDEN_PAGES`.
 
 ### Magic-link auth
 

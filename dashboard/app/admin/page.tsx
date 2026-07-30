@@ -11,6 +11,7 @@ import {
   RefreshCw,
   ArrowRight,
   BookOpen,
+  EyeOff,
 } from "lucide-react"
 
 import { PageShell } from "@/components/page-shell"
@@ -66,6 +67,15 @@ const KEY_VIEWS = ["v_client_portfolio", "v_scheduler_meetings", "v_feedback_pip
 const EMAIL_JOBS = [
   { key: "feedback_digest", label: "Feedback digest" },
   { key: "live_outreach_digest", label: "Live Outreach digest" },
+] as const
+
+// Pages parked off the main nav but kept reachable here (Admin is super-user-
+// gated, so these stay super-user-only). To park another page later, add ONE
+// line — { href, label } — to this array; the Hidden Pages section renders it.
+const HIDDEN_PAGES = [
+  { href: "/pipeline", label: "Upcoming Meetings" },
+  { href: "/relationships", label: "Relationships" },
+  { href: "/conference-rooms", label: "Conference Rooms" },
 ] as const
 
 type Health = "ok" | "warn" | "bad" | "muted"
@@ -633,6 +643,31 @@ export default async function AdminHubPage() {
               description="Guides for every page, view, and job — plus live system reference."
               href="/admin/docs"
             />
+          </div>
+        </section>
+
+        {/* ---- Hidden Pages ---- */}
+        <section>
+          <SectionTitle>Hidden Pages</SectionTitle>
+          <p className="-mt-2 mb-3 text-xs" style={{ color: TEXT_MUTED }}>
+            Parked pages — off the main nav, kept reachable here.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {HIDDEN_PAGES.map((p) => (
+              <Link
+                key={p.href}
+                href={p.href}
+                className={`group flex items-center gap-3 p-4 ${CARD_CLASS} transition hover:-translate-y-0.5`}
+              >
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#EEF2FB] text-[#1E2858]">
+                  <EyeOff className="size-[18px]" />
+                </span>
+                <div className="flex min-w-0 items-center gap-1.5 font-medium" style={{ color: TEXT_PRIMARY }}>
+                  <span className="truncate">{p.label}</span>
+                  <ArrowRight className="size-3.5 shrink-0 opacity-0 transition group-hover:opacity-100" />
+                </div>
+              </Link>
+            ))}
           </div>
         </section>
 

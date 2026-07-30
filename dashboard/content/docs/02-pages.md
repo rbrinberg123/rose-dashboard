@@ -48,10 +48,7 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 | `/profiles` | Profiles | `v_profiles_upcoming` | Upcoming-meeting profile pipeline board. |
 | `/feedback` | Feedback Collection | `v_feedback_outstanding` (+ `v_feedback_pipeline`) | Outstanding meeting feedback to collect. |
 | `/feedback-manager` | Feedback Report Pipeline | `v_feedback_pipeline` | Two-category feedback-report pipeline. |
-| `/pipeline` | Upcoming Meetings | `v_pipeline_30d`, `v_scheduler_meetings`, `v_scheduler_time_off` | Next-30-days meetings. |
 | `/onboarding` | Onboarding | `v_client_onboarding` | New-client onboarding checklist tracker. |
-| `/relationships` | Relationships | `v_relationships` | Who at Rose owns each institution relationship. |
-| `/conference-rooms` | Conference Rooms | `/api/conference-rooms` (Graph, client-side) | Single-day room availability across the four rooms. |
 | `/time-off` | Time Off | `v_time_off` | OOO / Remote calendar. |
 
 ### Contracts (super-user only)
@@ -69,6 +66,16 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 | `/admin/reconciliation` | `deletion_candidates`, `reconcile_runs` | Review records deleted in Dynamics before they drop. |
 | `/admin/database` | `sync_runs`, `sync_errors` (+ row counts) | Mirror-table row counts, watermarks, recent errors. |
 | `/admin/docs` | markdown files + live catalog panels | This documentation, in-app. |
+
+### Hidden Pages (linked from Admin, super-user only)
+
+Parked pages — pulled off the main nav but kept reachable from the **Hidden Pages** section on the Admin hub (`dashboard/app/admin/page.tsx`, the `HIDDEN_PAGES` array). Their routes/pages are unchanged; they're super-user-only now because Admin is (and they were removed from `USER_ALLOWED_ROUTES`). Add another parked page with one `{ href, label }` line in `HIDDEN_PAGES`.
+
+| Route | Label | Reads | Purpose |
+|-------|-------|-------|---------|
+| `/pipeline` | Upcoming Meetings | `v_pipeline_30d`, `v_scheduler_meetings`, `v_scheduler_time_off` | Next-30-days meetings. |
+| `/relationships` | Relationships | `v_relationships` | Who at Rose owns each institution relationship. |
+| `/conference-rooms` | Conference Rooms | `/api/conference-rooms` (Graph, client-side) | Single-day room availability across the four rooms. |
 
 ### Unlinked / hidden routes (super-user only — not in the nav)
 
