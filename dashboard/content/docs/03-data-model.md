@@ -59,6 +59,7 @@ Why it matters: a Dynamics field that isn't its own column can still be read wit
 - **Money** uses `num()`; contracts also mirror the Dynamics `_base` companion (e.g. `quarterly_retainer_base`).
 - **Multi-select** picklists are stored as two comma-separated text columns (`{field}_codes` / `{field}_labels`).
 - `meetings.is_in_person` is a derived boolean (`true` = the meeting-type label is "Live"). This is the firm's live-vs-virtual switch — see [07 — Business Rules](07-business-rules.md).
+- `meetings.hosted_in_hq` mirrors Dynamics `bcs_HostedinHQ` (Yes/No) — `true` when the client is hosted in the HQ / office that day. It is the authoritative "in the office" flag for the Week Ahead email digest (banner + week-grid pins). Added 2026-07-29 via `sql/patches/2026-07-29_meeting_hosted_in_hq.sql` (ADD COLUMN + `_raw` backfill).
 
 Full field-type helper reference is in [05 — Sync & Integrations](05-sync-and-integrations.md).
 

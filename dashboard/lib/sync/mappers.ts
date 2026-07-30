@@ -205,6 +205,11 @@ export function mapMeeting(row: Row): Row {
     driver: bool(row["bcs_driver"]),
     logistics_notes: str(row["bcs_notes"]),
 
+    // bcs_HostedinHQ (Web API logical name bcs_hostedinhq) — Dynamics Yes/No
+    // boolean: true when the client is hosted in the HQ / office that day. The
+    // authoritative "in the office" flag for the Week Ahead digest banner/grid.
+    hosted_in_hq: bool(row["bcs_hostedinhq"]),
+
     city_id: lookupId(row, "_bcs_city_value"),
     state_region_id: lookupId(row, "_bcs_stateregion_value"),
     event_id: lookupId(row, "_bcs_event_value"),

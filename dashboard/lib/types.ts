@@ -1109,6 +1109,9 @@ export type PlanningEventRow = {
   meeting_date: string
   meeting_day: string
   institution_name: string | null
+  // Investor / attendee free text (bcs_investor). Added to v_planning_events for
+  // the Week Ahead digest's meeting table; the /planning pages ignore it.
+  investor_text: string | null
   client_account_id: string | null
   client_account_name: string | null
   is_in_person: boolean
@@ -1126,6 +1129,9 @@ export type PlanningEventRow = {
   driver: boolean | null
   food_order: string | null
   logistics_notes: string | null
+  // Authoritative "in the office" flag (bcs_HostedinHQ). Drives the Week Ahead
+  // digest's NY-office banner + week-grid pins; the /planning pages ignore it.
+  hosted_in_hq: boolean | null
   // Client ticker (raw, with exchange/country suffix) for the Planning V2 board's
   // clickable Client column; the UI strips the suffix via baseTicker().
   client_ticker: string | null

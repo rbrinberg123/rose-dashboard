@@ -1,8 +1,11 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
+import { getSupabaseServerAuth } from "@/lib/supabase/server"
+import { getUserRole } from "@/lib/user-role"
 import type { Pipeline30dRow, SchedulerMeetingRow, SchedulerTimeOffRow } from "@/lib/types"
 import { PipelineView } from "./pipeline-view"
+import { SendWeekAheadControls } from "./send-week-ahead-button"
 
 export const dynamic = "force-dynamic"
 
@@ -10,6 +13,16 @@ export const metadata: Metadata = { title: "Pipeline (Next 30 Days)" }
 
 export default async function PipelinePage() {
   const sb = getSupabaseServer()
+
+  // Signed-in user + role — drives the (super-user-only) Week Ahead send buttons
+  // in the masthead. The /api/week-ahead/send-email route enforces the same gate
+  // server-side, so this is convenience visibility, not the security boundary.
+  const supabaseAuth = await getSupabaseServerAuth()
+  const {
+    data: { user },
+  } = await supabaseAuth.auth.getUser()
+  const userEmail = user?.email ?? undefined
+  const isSuperUser = (await getUserRole(userEmail)) === "super_user"
 
   // Upcoming meetings (next 30 days) — small set, single fetch.
   const pipelineRes = await sb
@@ -73,8 +86,11 @@ export default async function PipelinePage() {
     <PageShell
       title="Pipeline (Next 30 Days)"
       description={`${rows.length.toLocaleString()} meetings on the books`}
-      hideHeader
       canvas
+      // Super-user-only Week Ahead send controls, top-right of the header. The
+      // /api/week-ahead/send-email route enforces the same super_user gate, so
+      // this visibility check is convenience, not the security boundary.
+      actions={isSuperUser ? <SendWeekAheadControls userEmail={userEmail} /> : undefined}
     >
       <PipelineView rows={rows} hosted={hosted} timeOff={timeOff} />
     </PageShell>

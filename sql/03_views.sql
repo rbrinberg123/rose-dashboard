@@ -3362,6 +3362,7 @@ WITH ev AS (
     m.meeting_date,
     (m.meeting_date AT TIME ZONE 'UTC')::date AS meeting_day,
     m.institution_name,
+    m.investor_text,
     m.client_account_id,
     m.client_account_name,
     m.is_in_person,
@@ -3378,6 +3379,9 @@ WITH ev AS (
     m.driver,
     m.food_order,
     m.logistics_notes,
+    -- Authoritative "in the office" flag (bcs_HostedinHQ) for the Week Ahead
+    -- digest's NY-office banner + week-grid pins.
+    m.hosted_in_hq,
     -- Account managers come from the client account (meetings carry none), the
     -- same meeting -> client -> AM join the Profiles page uses. One client per
     -- event, so an event has a single primary AM; secondary AM is usually NULL.
@@ -3420,6 +3424,7 @@ SELECT
   ev.meeting_date,
   ev.meeting_day,
   ev.institution_name,
+  ev.investor_text,
   ev.client_account_id,
   ev.client_account_name,
   ev.is_in_person,
@@ -3445,6 +3450,7 @@ SELECT
   ev.driver,
   ev.food_order,
   ev.logistics_notes,
+  ev.hosted_in_hq,
   ev.client_ticker
 FROM ev
 JOIN upcoming_events ue ON ue.event_id = ev.event_id

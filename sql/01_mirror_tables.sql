@@ -188,6 +188,10 @@ CREATE TABLE public.meetings (
   food_order              text,
   driver                  boolean,
   logistics_notes         text,
+  -- bcs_HostedinHQ (logical name bcs_hostedinhq): Yes/No boolean, true when the
+  -- client is hosted in the HQ / office that day. Authoritative "in the office"
+  -- flag for the Week Ahead digest banner + week-grid pins.
+  hosted_in_hq            boolean,
 
   -- Geography (we keep IDs for future use even though we don't mirror these tables)
   city_id                 uuid,
