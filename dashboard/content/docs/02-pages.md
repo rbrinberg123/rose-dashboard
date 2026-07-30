@@ -23,7 +23,6 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 | Route | Label | Reads | Purpose |
 |-------|-------|-------|---------|
 | `/institutions` | Directory | `v_institution_summary` | Directory of all investor institutions met. |
-| `/institution-detail` | Detail | `v_institution_detail_summary` + `v_institution_detail_*` | One-institution deep-dive: quarterly, top clients, style, hosts. |
 | `/institution-style` | Finder | `v_institution_style_meetings` | Find institutions by client style (market cap / sector / region). |
 
 ### Productivity (super-user only)
@@ -85,6 +84,7 @@ These have a `page.tsx` but no sidebar link; reach them by URL.
 |-------|-------|------|
 | `/` (home) | same as `/client-statistics` | Home = Client Statistics. Plain users are redirected to `/scheduler`. |
 | `/planning` | `v_planning_events` | **Old planning page — kept but deliberately unlinked**, superseded by `/planning-v2` (see comments in `nav.tsx` and `access-control.ts`). |
+| `/institution-detail` | `v_institution_detail_summary` + `v_institution_detail_*` | One-institution deep-dive (quarterly, top clients, style, hosts). **Route kept but unlinked from the nav** — reached by drilling in from the Directory (`/institutions`), not typed by URL. Still super-user-only (unchanged `USER_ALLOWED_ROUTES`). |
 | `/margin` | `v_client_quarterly_pnl` | Client quarterly P&L / margin. |
 | `/renewals` | `v_contract_renewals` | Contract renewal calendar. |
 | `/exceptions` | `meetings`, `v_meeting_costs`, `v_client_quarterly_pnl`, overhead tables | Data-quality exception report for the cost model. |

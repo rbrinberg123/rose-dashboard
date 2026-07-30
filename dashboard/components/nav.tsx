@@ -47,7 +47,8 @@ const sections: NavSection[] = [
     icon: Landmark,
     items: [
       { href: "/institutions", label: "Directory" },
-      { href: "/institution-detail", label: "Detail" },
+      // /institution-detail route kept but unlinked from the nav — reached by
+      // drilling in from the Directory (same pattern as the old /planning).
       { href: "/institution-style", label: "Finder" },
     ],
   },
