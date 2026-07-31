@@ -152,6 +152,14 @@ export function InstitutionsSummaryView({
         <ListTitleCard
           title="Institution Summary"
           subtitle={`All institutions ever met · ${total.toLocaleString()} total`}
+          rightSlot={
+            <Link
+              href="/institution-style"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-white px-3.5 text-sm font-medium text-[#1E2858] shadow-sm transition-colors hover:bg-slate-50"
+            >
+              Finder →
+            </Link>
+          }
         />
       </div>
 

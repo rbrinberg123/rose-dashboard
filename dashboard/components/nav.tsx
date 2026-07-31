@@ -29,7 +29,10 @@ type NavItem = { href: string; label: string }
 type NavSection = {
   label: string
   icon: React.ComponentType<{ className?: string }>
-  items: NavItem[]
+  // A section either lists child links (`items`) OR is itself a single clickable
+  // link (`href`, no items) — the category row navigates directly.
+  items?: NavItem[]
+  href?: string
 }
 
 const sections: NavSection[] = [
@@ -43,14 +46,14 @@ const sections: NavSection[] = [
     ],
   },
   {
+    // Single clickable top-level item — the category row itself links to
+    // /institutions (no child rows).
+    // /institution-detail route kept but unlinked from the nav — reached by
+    // drilling in from the Directory (same pattern as the old /planning).
+    // /institution-style ("Finder") is reached from the Directory banner.
     label: "Institutions",
     icon: Landmark,
-    items: [
-      { href: "/institutions", label: "Directory" },
-      // /institution-detail route kept but unlinked from the nav — reached by
-      // drilling in from the Directory (same pattern as the old /planning).
-      { href: "/institution-style", label: "Finder" },
-    ],
+    href: "/institutions",
   },
   {
     label: "Productivity",
@@ -81,9 +84,11 @@ const sections: NavSection[] = [
     ],
   },
   {
+    // Single clickable top-level item — the category row itself links to
+    // /contract-management (no child rows).
     label: "Contracts",
     icon: FileText,
-    items: [{ href: "/contract-management", label: "Management" }],
+    href: "/contract-management",
   },
 ]
 
@@ -96,7 +101,40 @@ function Section({
   current: string
   onNavigate?: () => void
 }) {
-  const { label, icon: Icon, items } = section
+  const { label, icon: Icon, items, href } = section
+
+  // Header-as-link: a section with an href and no child items renders the
+  // category row itself as a clickable Link, with the same active/hover
+  // styling as the child links (active-accent bar included).
+  if (href && (!items || items.length === 0)) {
+    const active = current === href || current.startsWith(href + "/")
+    return (
+      <div className="px-3 py-[5px]">
+        <Link
+          href={href}
+          onClick={onNavigate}
+          aria-current={active ? "page" : undefined}
+          className={cn(
+            "relative flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium uppercase tracking-wider transition-colors",
+            active
+              ? "bg-[#EEF2FB] text-[#1E2858]"
+              : "text-[#9AA1AD] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
+          )}
+        >
+          {active && (
+            <span
+              aria-hidden="true"
+              className="absolute inset-y-1 left-0 w-[3px] rounded-full"
+              style={{ background: "linear-gradient(180deg, #1E2858, #0355A7)" }}
+            />
+          )}
+          <Icon className="size-[18px] shrink-0" />
+          <span>{label}</span>
+        </Link>
+      </div>
+    )
+  }
+
   return (
     <div className="px-3 py-[5px]">
       {/* Non-clickable category label — static, no hover/navigation */}
@@ -105,12 +143,13 @@ function Section({
         <span>{label}</span>
       </div>
       <ul className="space-y-0.5">
-        {items.map(({ href, label: itemLabel }) => {
-          const active = current === href || current.startsWith(href + "/")
+        {(items ?? []).map(({ href: itemHref, label: itemLabel }) => {
+          const active =
+            current === itemHref || current.startsWith(itemHref + "/")
           return (
-            <li key={href}>
+            <li key={itemHref}>
               <Link
-                href={href}
+                href={itemHref}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={cn(
@@ -152,9 +191,17 @@ function NavContents({
   const visible = sections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => canAccessRoute(role, item.href)),
+      items: (section.items ?? []).filter((item) =>
+        canAccessRoute(role, item.href),
+      ),
     }))
-    .filter((section) => section.items.length > 0)
+    .filter((section) =>
+      // Header-link sections (href, no items) show if the target is allowed;
+      // list sections show only when at least one child survived the filter.
+      section.href
+        ? canAccessRoute(role, section.href)
+        : section.items.length > 0,
+    )
 
   return (
     <>
@@ -165,41 +212,6 @@ function NavContents({
         </React.Fragment>
       ))}
     </>
-  )
-}
-
-/* Pinned admin row — a real link to the Admin hub, styled like the nav links
-   (active + hover states, active-accent bar). Super-user-gated by the caller. */
-function AdminRow({
-  pathname,
-  onNavigate,
-}: {
-  pathname: string
-  onNavigate?: () => void
-}) {
-  const active = pathname === "/admin" || pathname.startsWith("/admin/")
-  return (
-    <Link
-      href="/admin"
-      onClick={onNavigate}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-        active
-          ? "bg-[#EEF2FB] font-medium text-[#1E2858]"
-          : "text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
-      )}
-    >
-      {active && (
-        <span
-          aria-hidden="true"
-          className="absolute inset-y-1 left-0 w-[3px] rounded-full"
-          style={{ background: "linear-gradient(180deg, #1E2858, #0355A7)" }}
-        />
-      )}
-      <Settings className="size-[18px] shrink-0" />
-      <span className="flex-1 uppercase tracking-wider text-[12px] font-medium">Admin</span>
-    </Link>
   )
 }
 
@@ -269,14 +281,9 @@ export function Sidebar({
                 onNavigate={() => setMobileOpen(false)}
               />
             </nav>
-            {showAdmin ? (
-              <div className="border-t border-[#EDEFF3] px-3 py-2">
-                <AdminRow pathname={pathname} onNavigate={() => setMobileOpen(false)} />
-              </div>
-            ) : null}
             {userEmail ? (
               <div className="border-t border-[#EDEFF3] p-3">
-                <UserPanel email={userEmail} />
+                <UserPanel email={userEmail} showAdmin={showAdmin} pathname={pathname} />
               </div>
             ) : null}
           </SheetContent>
@@ -294,14 +301,9 @@ export function Sidebar({
         <nav className="flex-1 overflow-y-auto py-2">
           <NavContents pathname={pathname} role={role ?? null} />
         </nav>
-        {showAdmin ? (
-          <div className="border-t border-[#EDEFF3] px-3 py-2">
-            <AdminRow pathname={pathname} />
-          </div>
-        ) : null}
         {userEmail ? (
           <div className="border-t border-[#EDEFF3] px-3 py-3">
-            <UserPanel email={userEmail} />
+            <UserPanel email={userEmail} showAdmin={showAdmin} pathname={pathname} />
           </div>
         ) : (
           <div className="border-t border-[#EDEFF3] px-4 py-3 text-xs text-[#9AA1AD]">
@@ -313,24 +315,53 @@ export function Sidebar({
   )
 }
 
-function UserPanel({ email }: { email: string }) {
+function UserPanel({
+  email,
+  showAdmin,
+  pathname,
+}: {
+  email: string
+  showAdmin?: boolean
+  pathname?: string
+}) {
+  const adminActive =
+    pathname === "/admin" || (pathname?.startsWith("/admin/") ?? false)
   return (
     <div className="space-y-2">
       <div className="px-2 text-xs text-[#9AA1AD]" title={email}>
         Signed in as
         <div className="truncate text-[#5B6472]">{email}</div>
       </div>
-      <form action={signOutAction}>
-        <Button
-          type="submit"
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]"
-        >
-          <LogOut className="size-4" />
-          Sign out
-        </Button>
-      </form>
+      {/* Sign out takes the remaining width; the Admin gear (super-users only)
+          sits at the far right — bottom-right of the sidebar. */}
+      <div className="flex items-center gap-1.5">
+        <form action={signOutAction} className="flex-1">
+          <Button
+            type="submit"
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]"
+          >
+            <LogOut className="size-4" />
+            Sign out
+          </Button>
+        </form>
+        {showAdmin ? (
+          <Link
+            href="/admin"
+            aria-label="Admin"
+            aria-current={adminActive ? "page" : undefined}
+            className={cn(
+              "flex size-8 shrink-0 items-center justify-center rounded-md transition-colors",
+              adminActive
+                ? "bg-[#EEF2FB] text-[#1E2858]"
+                : "text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
+            )}
+          >
+            <Settings className="size-4" />
+          </Link>
+        ) : null}
+      </div>
     </div>
   )
 }

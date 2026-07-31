@@ -22,8 +22,8 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 
 | Route | Label | Reads | Purpose |
 |-------|-------|-------|---------|
-| `/institutions` | Directory | `v_institution_summary` | Directory of all investor institutions met. |
-| `/institution-style` | Finder | `v_institution_style_meetings` | Find institutions by client style (market cap / sector / region). |
+| `/institutions` | Institutions | `v_institution_summary` | Directory of all investor institutions met. **"Institutions" is a single clickable top-level nav item** (the category row itself links here — no child rows). Its masthead has a **Finder** link (top-right) to `/institution-style`. |
+| `/institution-style` | Finder | `v_institution_style_meetings` | Find institutions by client style (market cap / sector / region). **Not in the nav** — reached from the "Finder" link on the Directory banner. |
 
 ### Productivity (super-user only)
 
@@ -54,7 +54,7 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 
 | Route | Label | Reads | Purpose |
 |-------|-------|-------|---------|
-| `/contract-management` | Management | `v_contract_management` | Active contract + renewal tracking per client. |
+| `/contract-management` | Contracts | `v_contract_management` | Active contract + renewal tracking per client. **"Contracts" is a single clickable top-level nav item** (the category row itself links here — no child rows). |
 
 ### Admin (pinned nav row, super-user only)
 

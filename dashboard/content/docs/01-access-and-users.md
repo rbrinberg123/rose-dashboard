@@ -79,7 +79,7 @@ Public paths (`/login`, `/auth/callback`) are allowlisted. The matcher excludes 
 
 ### The nav mirrors the gate — `dashboard/components/nav.tsx`
 
-The sidebar filters each section's items with `canAccessRoute(role, item.href)` and drops any section left empty. So a plain `user` only ever sees the Logistics section. The pinned **Admin** row is gated on `canAccessRoute(role, "/admin")` — super-user only.
+The sidebar filters each section's items with `canAccessRoute(role, item.href)` and drops any section left empty. So a plain `user` only ever sees the Logistics section. Admin is reached via a small **gear icon** (links to `/admin`) sitting next to **Sign out** at the bottom-right of the sidebar; it renders only when `canAccessRoute(role, "/admin")` is true — super-user only.
 
 ### Admin pages
 
