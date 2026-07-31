@@ -146,21 +146,35 @@ export function EntityMasthead({
 /**
  * List title card — same floating white card + accent strip, holding just the
  * page title + subtitle and an optional right-side control (e.g. a date range),
- * for the firm-wide list pages (Feedback, Pipeline, etc.).
+ * for the firm-wide list pages (Feedback, Pipeline, etc.). An optional `eyebrow`
+ * renders a small uppercase kicker above the title, and optional `children`
+ * render below a thin divider (e.g. a KPI strip), mirroring EntityMasthead.
  */
 export function ListTitleCard({
+  eyebrow,
   title,
   subtitle,
   rightSlot,
+  children,
 }: {
+  eyebrow?: React.ReactNode
   title: string
   subtitle?: React.ReactNode
   rightSlot?: React.ReactNode
+  children?: React.ReactNode
 }) {
   return (
     <HeaderCard>
       <div className="flex flex-col gap-3 pl-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
+          {eyebrow && (
+            <div
+              className="mb-1 font-semibold uppercase"
+              style={{ color: TEXT_MUTED, fontSize: 11, letterSpacing: "0.06em" }}
+            >
+              {eyebrow}
+            </div>
+          )}
           <h1
             className="truncate font-semibold"
             style={{ fontSize: 23, lineHeight: 1.15, color: TEXT_PRIMARY }}
@@ -175,6 +189,15 @@ export function ListTitleCard({
         </div>
         {rightSlot && <div className="shrink-0">{rightSlot}</div>}
       </div>
+
+      {children && (
+        <div
+          className="mt-3 border-t pt-3 pl-4"
+          style={{ borderColor: "rgba(16,24,40,0.07)" }}
+        >
+          {children}
+        </div>
+      )}
     </HeaderCard>
   )
 }

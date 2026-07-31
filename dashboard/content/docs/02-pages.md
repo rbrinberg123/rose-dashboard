@@ -45,8 +45,8 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 | `/scheduler` | Host Calendar | `v_scheduler_meetings`, `v_scheduler_unassigned`, `v_scheduler_time_off` (+ Graph free/busy) | Host availability & scheduling. Also the plain-user home (`USER_HOME_ROUTE`). |
 | `/live-outreach` | Live Outreach | `v_live_outreach` | Event outreach board with per-client cards. |
 | `/profiles` | Profiles | `v_profiles_upcoming` | Upcoming-meeting profile pipeline board. |
-| `/feedback` | Feedback Collection | `v_feedback_outstanding` (+ `v_feedback_pipeline`) | Outstanding meeting feedback to collect. |
-| `/feedback-manager` | Feedback Report Pipeline | `v_feedback_pipeline` | Two-category feedback-report pipeline. |
+| `/feedback-manager` | Feedback | `v_feedback_pipeline`, `v_feedback_outstanding` | Merged Feedback page, two labeled halves: a **Feedback Reports** section (Open + Pending Review tables) up top, then a **Feedback Collection** section (the outstanding meeting-level collection) below a `#collection` anchor. One combined header (eyebrow "Logistics · Feedback") with a "Jump to Feedback Collection" button and, for super-users, compact Send email / Send test links. |
+| `/feedback` | — (redirect) | — | Redirects to `/feedback-manager#collection`, preserving query params (e.g. the `?client=<id>` deep link). Still in `USER_ALLOWED_ROUTES`; no page of its own. |
 | `/onboarding` | Onboarding | `v_client_onboarding` | New-client onboarding checklist tracker. |
 | `/time-off` | Time Off | `v_time_off` | OOO / Remote calendar. |
 

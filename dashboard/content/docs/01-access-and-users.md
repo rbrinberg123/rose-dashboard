@@ -45,6 +45,8 @@ To keep a page super-user-only, do nothing — that's the default.
 
 Current `USER_ALLOWED_ROUTES`: `/scheduler`, `/planning-v2`, `/calendar`, `/profiles`, `/feedback`, `/feedback-manager`, `/live-outreach`, `/onboarding`, `/time-off`. (See the in-app **live panel** or the file itself for the authoritative current list.)
 
+> Feedback Collection and Feedback Report Pipeline were merged into a single **Feedback** page at `/feedback-manager`, so the nav now shows one "Feedback" item instead of two. `/feedback` stays in the allow-list but only redirects to `/feedback-manager#collection` (preserving query params) — both routes remain reachable by a plain `user` (see [02 — Pages](02-pages.md)).
+
 > `/pipeline` (Upcoming Meetings), `/relationships`, and `/conference-rooms` were removed from this list and from the main nav. They're now **parked pages** reachable only from the super-user-gated **Admin → Hidden Pages** section (see [02 — Pages](02-pages.md)); the routes/pages themselves are unchanged.
 
 ### The decision function

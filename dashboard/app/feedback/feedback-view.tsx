@@ -10,11 +10,9 @@ import {
   Users,
   Video,
 } from "lucide-react"
-import { ListTitleCard } from "@/components/page-masthead"
 import { StatCard } from "@/components/stat-card"
 import { CARD_CLASS } from "@/lib/design"
 import type { FeedbackOutstandingRow } from "@/lib/types"
-import { SendEmailControls } from "./send-email-controls"
 
 // Brand + status palette. One source of truth for the coral (no feedback),
 // amber (awaiting additional), and red (30+ days stale) accents used across the
@@ -134,12 +132,8 @@ function buildGroups(view: ViewKey, sort: SortKey, rows: FeedbackOutstandingRow[
 
 export function FeedbackView({
   rows,
-  userEmail,
-  canSend,
 }: {
   rows: FeedbackOutstandingRow[]
-  userEmail?: string
-  canSend?: boolean
 }) {
   // Deep-link support: /feedback?client=<account_id> lands on that client in the
   // By-client view with its card expanded and scrolled into view — used by the
@@ -239,13 +233,21 @@ export function FeedbackView({
 
   return (
     <>
-      {/* Floating list-title card (firm-wide list page) */}
-      <div className="mb-4">
-        <ListTitleCard
-          title="Feedback"
-          subtitle="Concluded meetings still missing complete feedback — blank or awaiting additional."
-          rightSlot={canSend ? <SendEmailControls userEmail={userEmail} /> : undefined}
-        />
+      {/* Section header — the merged page owns the top masthead (and the email
+          send controls, which now live in the hero), so Collection gets a normal
+          section header: title + outstanding badge. */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <h2 className="text-lg font-semibold" style={{ color: NAVY_DEEP }}>
+          Feedback Collection
+        </h2>
+        <span
+          className="rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums text-white"
+          style={{ backgroundColor: NAVY_DEEP }}
+          title="Meetings still missing complete feedback"
+        >
+          {summary.total} Outstanding
+        </span>
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
       </div>
 
       {/* Summary strip — firm-wide, static across views. */}

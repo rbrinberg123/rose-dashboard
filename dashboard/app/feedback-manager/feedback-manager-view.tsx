@@ -122,9 +122,13 @@ function shortName(name: string): string {
 export function FeedbackPipelineView({
   rows,
   today,
+  embedded = false,
 }: {
   rows: FeedbackPipelineRow[]
   today: string
+  // When embedded in the merged Feedback page, the combined header owns the
+  // masthead, so this view drops its own ListTitleCard.
+  embedded?: boolean
 }) {
   const [claimedBy, setClaimedBy] = React.useState<string>(ALL)
   const [accountManager, setAccountManager] = React.useState<string>(ALL)
@@ -244,11 +248,22 @@ export function FeedbackPipelineView({
 
   return (
     <>
-      <div className="mb-4">
-        <ListTitleCard
-          title="Feedback Report Pipeline"
-          subtitle="Active feedback reports across two stages — Open (being written) and Pending Review (written, awaiting account-manager review)."
-        />
+      {!embedded && (
+        <div className="mb-4">
+          <ListTitleCard
+            title="Feedback Report Pipeline"
+            subtitle="Active feedback reports across two stages — Open (being written) and Pending Review (written, awaiting account-manager review)."
+          />
+        </div>
+      )}
+
+      {/* Section title — pairs with the "Feedback Collection" title heading the
+          other half of the merged page (same text-lg / semibold / navy). */}
+      <div className="mb-4 flex items-center gap-3">
+        <h2 className="text-lg font-semibold" style={{ color: NAVY }}>
+          Feedback Reports
+        </h2>
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
       </div>
 
       {/* KPI box — three-stage flow (left) | divider | Claimed By + Account

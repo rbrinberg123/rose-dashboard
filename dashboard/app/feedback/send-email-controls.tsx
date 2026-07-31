@@ -56,7 +56,16 @@ async function postSend(payload: Record<string, unknown>): Promise<string | null
  * Each button disables itself while its send is in flight; the server also
  * rejects overlapping sends (429) and gates on super_user.
  */
-export function SendEmailControls({ userEmail }: { userEmail?: string }) {
+export function SendEmailControls({
+  userEmail,
+  variant = "buttons",
+}: {
+  userEmail?: string
+  // "buttons" = the full-size button pair (default). "links" = compact text
+  // links ("Send email · Send test") for the merged Feedback hero, sized to fit
+  // a second row under the jump button without growing the masthead.
+  variant?: "buttons" | "links"
+}) {
   const [teamState, setTeamState] = React.useState<State>("idle")
   const [teamMsg, setTeamMsg] = React.useState<string | null>(null)
 
@@ -138,6 +147,92 @@ export function SendEmailControls({ userEmail }: { userEmail?: string }) {
       : testState === "sent" ? Check
       : testState === "error" ? AlertTriangle
       : Send
+
+  // Compact text-link variant — same behavior, minimal footprint. Used in the
+  // merged Feedback hero, stacked under the jump button.
+  if (variant === "links") {
+    const teamColor =
+      teamState === "sent" ? "#0E7C56" : teamState === "error" ? "#A32D2D" : "#1E2858"
+    const teamText =
+      teamState === "sending" ? "Sending…"
+        : teamState === "sent" ? "Sent ✓"
+        : teamState === "error" ? "Failed"
+        : "Send email"
+    const errMsg =
+      teamState === "error" ? teamMsg : testState === "error" ? testMsg : null
+    return (
+      <div className="flex flex-col items-end gap-0.5">
+        {testOpen ? (
+          <div className="flex items-center gap-1.5">
+            <input
+              type="email"
+              value={testRecipient}
+              onChange={(e) => setTestRecipient(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleTestSend()
+                if (e.key === "Escape") setTestOpen(false)
+              }}
+              placeholder="you@example.com"
+              autoFocus
+              className="h-7 w-48 rounded-md border px-2 text-xs outline-none"
+              style={{ borderColor: "#E6E9EF", color: "#1E2858" }}
+            />
+            <button
+              type="button"
+              onClick={handleTestSend}
+              disabled={testSending}
+              className="text-xs font-medium hover:underline disabled:opacity-60"
+              style={{ color: testState === "error" ? "#A32D2D" : "#1E2858" }}
+              aria-live="polite"
+            >
+              {testState === "sending" ? "Sending…"
+                : testState === "sent" ? "Sent ✓"
+                : testState === "error" ? "Failed"
+                : "Send"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setTestOpen(false)}
+              className="text-xs font-medium text-[#6B7280] hover:underline"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-xs">
+            <button
+              type="button"
+              onClick={handleTeamSend}
+              disabled={teamSending}
+              title={teamState === "error" && teamMsg ? teamMsg : "Send to the entire team"}
+              className="font-medium hover:underline disabled:opacity-60"
+              style={{ color: teamColor }}
+              aria-live="polite"
+            >
+              {teamText}
+            </button>
+            <span aria-hidden="true" style={{ color: "#C0C6D0" }}>·</span>
+            <button
+              type="button"
+              onClick={() => {
+                setTestOpen(true)
+                if (!testRecipient && userEmail) setTestRecipient(userEmail)
+              }}
+              title="Send a test copy to an address you choose"
+              className="font-medium text-[#1E2858] hover:underline"
+            >
+              Send test
+            </button>
+          </div>
+        )}
+        {errMsg && (
+          <span className="text-[11px]" style={{ color: "#A32D2D" }}>
+            {errMsg}
+          </span>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="flex items-center gap-2">

@@ -73,8 +73,9 @@ const sections: NavSection[] = [
       { href: "/scheduler", label: "Host Calendar" },
       { href: "/live-outreach", label: "Live Outreach" },
       { href: "/profiles", label: "Profiles" },
-      { href: "/feedback", label: "Feedback Collection" },
-      { href: "/feedback-manager", label: "Feedback Report Pipeline" },
+      // Feedback Collection + Feedback Report Pipeline are merged into one
+      // "Feedback" page at /feedback-manager; /feedback redirects there.
+      { href: "/feedback-manager", label: "Feedback" },
       { href: "/onboarding", label: "Onboarding" },
       { href: "/time-off", label: "Time Off" },
     ],
