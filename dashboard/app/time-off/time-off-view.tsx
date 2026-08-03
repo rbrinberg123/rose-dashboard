@@ -5,6 +5,7 @@ import { ListTitleCard } from "@/components/page-masthead"
 import { CARD_CLASS, BRAND_NAVY, TEXT_PRIMARY, ACCENT_STRIP } from "@/lib/design"
 import { cn } from "@/lib/utils"
 import type { TimeOffRow } from "@/lib/types"
+import { SendTimeOffControls } from "./send-time-off-button"
 
 // Two time-off styles — differentiated by BOTH color and fill style:
 //   OOO    = filled light-green pill/bar with dark-green text.
@@ -97,7 +98,15 @@ function Pill({ e }: { e: TimeOffRow }) {
   )
 }
 
-export function TimeOffView({ entries }: { entries: TimeOffRow[] }) {
+export function TimeOffView({
+  entries,
+  userEmail,
+  isSuperUser,
+}: {
+  entries: TimeOffRow[]
+  userEmail?: string
+  isSuperUser?: boolean
+}) {
   const today = React.useMemo(() => startOfDay(new Date()), [])
   const [viewMonth, setViewMonth] = React.useState<Date>(() => {
     const n = new Date()
@@ -231,6 +240,7 @@ export function TimeOffView({ entries }: { entries: TimeOffRow[] }) {
         <ListTitleCard
           title="Time Off"
           subtitle="Approved time off across the team — today at a glance, plus the month ahead."
+          rightSlot={isSuperUser ? <SendTimeOffControls userEmail={userEmail} /> : undefined}
         />
       </div>
 

@@ -2,7 +2,7 @@
 
 ## What it does (plain language)
 
-A few jobs run on a schedule without anyone clicking anything. They're defined in `dashboard/vercel.json` and run on **Vercel Cron**. There are seven:
+A few jobs run on a schedule without anyone clicking anything. They're defined in `dashboard/vercel.json` and run on **Vercel Cron**. There are eight:
 
 1. **Sync** — copy new Dynamics changes into Supabase (every 10 minutes, business hours, weekdays).
 2. **Reconcile** — check for records deleted in Dynamics (nightly).
@@ -11,6 +11,7 @@ A few jobs run on a schedule without anyone clicking anything. They're defined i
 5. **Feedback email (Monday)** — the outstanding-feedback digest, Monday.
 6. **Feedback email (Tue–Fri)** — same digest, rest of the week.
 7. **Week Ahead email** — the upcoming Mon–Fri meetings digest, sent Friday afternoon.
+8. **Time Off email** — the weekly team time-off digest (this week + the month ahead), sent Monday morning.
 
 Vercel schedules everything in **UTC**, but the firm cares about **Eastern time**, which shifts an hour with daylight saving. The email jobs handle this cleverly: each is scheduled to fire **twice** (an hour apart) and a runtime check lets only the correct one through — so the email always lands at the same Eastern wall-clock time year-round, and a safety ledger guarantees it's sent **at most once per day**.
 
@@ -29,8 +30,11 @@ Eastern effect assumes EDT (UTC−4) in summer, EST (UTC−5) in winter.
 | `/api/feedback/send-email` | `15 12,13 * * 1` | Net **Monday 8:15 AM ET** | "Outstanding Feedback" digest (Monday variant). |
 | `/api/feedback/send-email` | `45 12,13 * * 2-5` | Net **Tue–Fri 8:45 AM ET** | Same digest, Tue–Fri (30 min later than Monday). |
 | `/api/week-ahead/send-email` | `45 19,20 * * 5` | Net **Friday 3:45 PM ET**, year-round | Emails the "Week Ahead" upcoming-meetings digest (next Mon–Fri) to `kmigliazza@roseandco.com`. |
+| `/api/time-off/send-email` | `0 12,13 * * 1` | Net **Monday 8:00 AM ET**, year-round | Emails the weekly "Time Off" digest (this week + the current month) to the four fixed `TIME_OFF_RECIPIENTS` (simon@, robert@, blair@, scott@ roseandco.com). |
 
 The two feedback rows are the **same route** split by weekday so Monday goes out at 8:15 ET and Tue–Fri at 8:45 ET.
+
+The **Time Off** digest is built from `v_time_off` (the same data as the `/time-off` page) and mirrors the same Outlook-safe builder + DST-safe gate + once-per-day ledger as the other emails. Its surface is the super-user **"Send Email" / "Send test email"** buttons in the `/time-off` page header (`ListTitleCard` `rightSlot`, super-user-only; the route also enforces `super_user`). The loader + builder live at `lib/time-off/{load.ts,email-html.ts}`, which roll `v_time_off` into two windows — the current Mon–Fri business week and the current calendar month — reusing the page's OOO/Remote typing and its per-day sort (OOO before Remote, then person). Recipients are the dedicated `TIME_OFF_RECIPIENTS` constant, deliberately separate from every other digest's recipient list. The `team` send delivers to all four in one message; the `test` send goes only to the typed address.
 
 The **Week Ahead** digest is built from `v_planning_events` (Confirmed meetings for the coming Mon–Fri) and mirrors the same Outlook-safe builder + DST-safe gate + once-per-day ledger as the other two emails. It has **no dedicated page**; the only surface is the super-user **"Send Email" / "Send test email"** buttons in the header (top-right, `PageShell` `actions`) of the Upcoming Meetings page (`/pipeline`). The loader + builder live at `lib/week-ahead/{load.ts,email-html.ts}`. The window boundary (currently the upcoming Mon–Fri business week) lives in one commented constant (`WINDOW_LENGTH_DAYS`) in `lib/week-ahead/load.ts` so it can be switched to a rolling 7 calendar days later. The "In the New York office this week" banner and the week-grid pins are driven by the meeting field **`hosted_in_hq`** (Dynamics `bcs_HostedinHQ`), the authoritative office flag — not a city guess.
 
@@ -63,6 +67,15 @@ if (!isFriday || !inWindow) return NextResponse.json({ ok: true, skipped: "outsi
 
 The Week Ahead job fires at both `19:45` and `20:45` UTC; the gate admits only the fire that lands at 3:45 PM ET (19:45 UTC = 3:45 EDT in summer; 20:45 UTC = 3:45 EST in winter).
 
+```ts
+// time-off/send-email/route.ts — Time Off gate (Monday 8:00 AM ET)
+const isMonday = now.weekday === 1
+const inWindow = now.hour === 8
+if (!isMonday || !inWindow) return NextResponse.json({ ok: true, skipped: "outside-send-window" })
+```
+
+The Time Off job fires at both `12:00` and `13:00` UTC on Mondays; the gate admits only the fire that lands at 8:00 AM ET (12:00 UTC = 8:00 EDT in summer; 13:00 UTC = 8:00 EST in winter).
+
 ### Once-per-day idempotency — `cron_send_log`
 
 Second guard behind the time window. The `cron_send_log` table has a **primary key on `(job_key, sent_on)`**, so only the first insert for a given Eastern date succeeds; a duplicate delivery hits a unique violation and is told the day is already claimed. Logic in `dashboard/lib/live-outreach-send-log.ts`:
@@ -75,7 +88,7 @@ if (error.code === "23505") return { claimed: false, reason: "already-sent-today
 return { claimed: false, reason: `claim-error: ${error.message}` }   // ANY DB error → do NOT send
 ```
 
-- Job keys: `live_outreach_digest`, `feedback_digest`, and `week_ahead_digest`.
+- Job keys: `live_outreach_digest`, `feedback_digest`, `week_ahead_digest`, and `time_off_digest`.
 - **Fail-closed:** if the ledger can't be written for *any* reason, the route does not send (safer than risking a team-wide double-send).
 - `releaseDailySend()` deletes the claim so a later retry can resend — called **only** when the send itself fails *after* a successful claim.
 
@@ -96,6 +109,6 @@ Vercel Cron injects this header automatically. The three data/AI routes also exp
 
 ### On/off state
 
-There is **no runtime feature-flag or "off until validated" gate** in the code — a cron is "on" purely by being present in `vercel.json`, and all seven entries are present there. The **Week Ahead** entry is wired into `vercel.json` but should be validated via a **test send** from the Upcoming Meetings (`/pipeline`) header before its first live Friday fire.
+There is **no runtime feature-flag or "off until validated" gate** in the code — a cron is "on" purely by being present in `vercel.json`, and all eight entries are present there. The **Week Ahead** and **Time Off** entries are wired into `vercel.json` but should each be validated via a **test send** from their page header (Upcoming Meetings `/pipeline`, and `/time-off`) before their first live fire.
 
-> **Deployment nuance:** what's committed in `vercel.json` locally is not necessarily what's live. These schedules only fire on the **production deployment**, so whether the two email digests are actually sending depends on what has been deployed. The email digests were built to be validated before going live; the layered safeguards above (Eastern-window gate, fail-closed secret, once-per-day ledger) mean a stray fire cannot double-send. To truly stop a digest, remove/comment its entry in `vercel.json` (or rotate `CRON_SECRET`, which disables all seven). Confirm current behavior against the deployed Vercel project and the `cron_send_log` table.
+> **Deployment nuance:** what's committed in `vercel.json` locally is not necessarily what's live. These schedules only fire on the **production deployment**, so whether the email digests are actually sending depends on what has been deployed. The email digests were built to be validated before going live; the layered safeguards above (Eastern-window gate, fail-closed secret, once-per-day ledger) mean a stray fire cannot double-send. To truly stop a digest, remove/comment its entry in `vercel.json` (or rotate `CRON_SECRET`, which disables all seven). Confirm current behavior against the deployed Vercel project and the `cron_send_log` table.

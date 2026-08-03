@@ -6,6 +6,7 @@
     { "path": "/api/live-outreach/send-email", "schedule": "30 11,12 * * 1-5" },
     { "path": "/api/feedback/send-email", "schedule": "15 12,13 * * 1" },
     { "path": "/api/feedback/send-email", "schedule": "45 12,13 * * 2-5" },
-    { "path": "/api/week-ahead/send-email", "schedule": "45 19,20 * * 5" }
+    { "path": "/api/week-ahead/send-email", "schedule": "45 19,20 * * 5" },
+    { "path": "/api/time-off/send-email", "schedule": "0 12,13 * * 1" }
   ]
 }
