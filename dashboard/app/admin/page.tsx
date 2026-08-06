@@ -12,6 +12,7 @@ import {
   ArrowRight,
   BookOpen,
   EyeOff,
+  Users,
 } from "lucide-react"
 
 import { PageShell } from "@/components/page-shell"
@@ -636,6 +637,12 @@ export default async function AdminHubPage() {
               title="Database health"
               description="Row counts, sync watermarks, and recent errors per table."
               href="/admin/database"
+            />
+            <InternalCard
+              icon={Users}
+              title="Users &amp; Roles"
+              description="Stage a role per staff member (staging only — no effect on access yet)."
+              href="/admin/users"
             />
             <InternalCard
               icon={BookOpen}

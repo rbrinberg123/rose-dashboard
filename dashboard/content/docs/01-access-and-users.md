@@ -87,6 +87,35 @@ The sidebar filters each section's items with `canAccessRoute(role, item.href)` 
 
 The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx`, the `HIDDEN_PAGES` array) that links to routes parked off the main nav — currently `/pipeline`, `/relationships`, and `/conference-rooms`. Those pages are super-user-only purely because Admin is; the pages themselves keep their own routes. To park another page later, add one `{ href, label }` line to `HIDDEN_PAGES`.
 
+### Users & Roles (Admin → staging screen)
+
+`/admin/users` (`dashboard/app/admin/users/`) lists every **active `@roseandco.com`** person from the `users` mirror table (Dynamics system users — filtered `is_active = true` and email ending `@roseandco.com`) and lets a super-user **stage** a role for each: **None** (the default — no grant), **User**, **Logistics**, or **Super User**. Each row shows the name (bold) and email on one line; changing a selector saves immediately (with a small updating/saved state).
+
+Granted users **float to the top**, ordered Super User → Logistics → User (each carrying a small colored role pill), with the **None** rows muted below, alphabetical by name. A summary line up top reads e.g. "N users · N granted · N none", and a **"Show granted only"** checkbox hides the None rows so you can review just who's assigned.
+
+> **This is a staging screen only — it does NOT affect real access.** It is deliberately **decoupled** from enforcement:
+> - Grants are written to a **separate** table, `public.user_role_grants`, **never** to the live `user_roles` table.
+> - It does **not** touch `proxy.ts`, `canAccessRoute`, or `getUserRole`.
+> - So a role assigned here changes **nothing** about what anyone can actually see or reach. Selecting **None** deletes the staging row.
+>
+> Note the staging table intentionally allows a **`logistics`** value that the live `Role` type (`"super_user" | "user"`) does not yet have. Going live later — pointing enforcement at `user_role_grants` and reconciling the role set — is a **separate change**, not part of this screen.
+
+Writes go through a super-user-gated server action (`dashboard/app/admin/users/actions.ts`, `setUserRole`), which enforces `requireSuperUser` (the same guard the API routes use), validates the `@roseandco.com` domain **server-side**, upserts/deletes in `user_role_grants`, and `revalidatePath`s. The route lives under `/admin`, so it is super-user-only by the deny-by-default rule and is kept **out** of `USER_ALLOWED_ROUTES`.
+
+The staging table must be created once in the Supabase SQL editor:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.user_role_grants (
+  email       text PRIMARY KEY,
+  role        text NOT NULL CHECK (role IN ('user','logistics','super_user')),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  updated_by  text
+);
+ALTER TABLE public.user_role_grants ENABLE ROW LEVEL SECURITY;
+```
+
+Until it exists, the page renders the full roster with everyone at **None** and shows a notice that saves will fail (the loader treats "table not found" as an empty, non-fatal state).
+
 ### Magic-link auth
 
 Sign-in uses Supabase's email magic-link flow. The browser/server/proxy Supabase clients live in `dashboard/lib/supabase/{browser,server,proxy}.ts` and use the **anon** key (safe for the client). Data reads, by contrast, use the **service-role** key server-side (`dashboard/lib/supabase.ts`) — a different, secret key. Don't mix them up (see [09 — Configuration](09-configuration.md)).
