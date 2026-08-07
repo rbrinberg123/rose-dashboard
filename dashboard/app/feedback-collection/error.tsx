@@ -2,12 +2,12 @@
 
 import { ErrorState } from "@/components/error-state"
 
-export default function FeedbackManagerError({
+export default function FeedbackCollectionError({
   error,
   reset,
 }: {
   error: Error & { digest?: string }
   reset: () => void
 }) {
-  return <ErrorState title="Feedback Reports" error={error} reset={reset} />
+  return <ErrorState title="Feedback Collection" error={error} reset={reset} />
 }

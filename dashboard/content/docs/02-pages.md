@@ -45,8 +45,9 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 | `/scheduler` | Host Calendar | `v_scheduler_meetings`, `v_scheduler_unassigned`, `v_scheduler_time_off` (+ Graph free/busy) | Host availability & scheduling. Also the plain-user home (`USER_HOME_ROUTE`). |
 | `/live-outreach` | Live Outreach | `v_live_outreach` | Event outreach board with per-client cards. |
 | `/profiles` | Profiles | `v_profiles_upcoming` | Upcoming-meeting profile pipeline board. |
-| `/feedback-manager` | Feedback | `v_feedback_pipeline`, `v_feedback_outstanding` | Merged Feedback page, two labeled halves: a **Feedback Reports** section (Open + Pending Review tables) up top, then a **Feedback Collection** section (the outstanding meeting-level collection) below a `#collection` anchor. One combined header (eyebrow "Logistics · Feedback") with a "Jump to Feedback Collection" button and, for super-users, compact Send email / Send test links. |
-| `/feedback` | — (redirect) | — | Redirects to `/feedback-manager#collection`, preserving query params (e.g. the `?client=<id>` deep link). Still in `USER_ALLOWED_ROUTES`; no page of its own. |
+| `/feedback-manager` | Feedback Reports | `v_feedback_pipeline` | The report pipeline — Open (being written) + Pending Review tables with the pipeline-flow KPIs and Claimed By / Account Manager filters. **All-access** (route-gated only, no row scoping). Own "Feedback Reports" banner. |
+| `/feedback-collection` | Feedback Collection | `v_feedback_outstanding` | Concluded meetings still needing feedback. **Row-scoped** by the Pass-2 meeting resolver (`resolveMeetingScope`: booker / host / feedback / account-team), with a "No meetings assigned to you" empty-state. Super-users see the Send email / Send test controls (the send route enforces the same gate). Separate route from Reports with its **own independent role grant**. |
+| `/feedback` | — (redirect) | — | Redirects to `/feedback-collection`, preserving query params (e.g. the `?client=<id>` deep link). No page of its own. |
 | `/onboarding` | Onboarding | `v_client_onboarding` | New-client onboarding checklist tracker. |
 | `/time-off` | Time Off | `v_time_off` | OOO / Remote calendar. |
 

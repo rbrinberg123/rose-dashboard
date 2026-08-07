@@ -251,20 +251,11 @@ export function FeedbackPipelineView({
       {!embedded && (
         <div className="mb-4">
           <ListTitleCard
-            title="Feedback Report Pipeline"
+            title="Feedback Reports"
             subtitle="Active feedback reports across two stages — Open (being written) and Pending Review (written, awaiting account-manager review)."
           />
         </div>
       )}
-
-      {/* Section title — pairs with the "Feedback Collection" title heading the
-          other half of the merged page (same text-lg / semibold / navy). */}
-      <div className="mb-4 flex items-center gap-3">
-        <h2 className="text-lg font-semibold" style={{ color: NAVY }}>
-          Feedback Reports
-        </h2>
-        <span className="h-px flex-1 bg-border" aria-hidden="true" />
-      </div>
 
       {/* KPI box — three-stage flow (left) | divider | Claimed By + Account
           Manager filters (right), all inside one card. */}

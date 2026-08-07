@@ -1,9 +1,8 @@
 import { redirect } from "next/navigation"
 
-// Feedback Collection was merged into the Feedback Report Pipeline page. This
-// route now redirects to the Collection section of the merged page, preserving
-// any query params (e.g. the Client Marketing Status deep link's ?client=<id>)
-// and landing on the #collection anchor so existing links keep working.
+// Feedback Collection is now its own page at /feedback-collection. This legacy
+// route redirects there, preserving any query params (e.g. the Client Marketing
+// Status deep link's ?client=<id>) so existing links keep working.
 
 export const dynamic = "force-dynamic"
 
@@ -19,5 +18,5 @@ export default async function FeedbackRedirectPage({
     else if (value != null) qs.set(key, value)
   }
   const query = qs.toString()
-  redirect(`/feedback-manager${query ? `?${query}` : ""}#collection`)
+  redirect(`/feedback-collection${query ? `?${query}` : ""}`)
 }

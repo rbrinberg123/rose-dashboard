@@ -225,7 +225,21 @@ A meeting is visible if **ANY** checked scope matches (**OR** logic):
 
 Return: `{ mode: "all" }` (Super User / `all` — no filtering), `{ mode: "none" }` (nothing checked, unresolved/ambiguous email, or resolver error — **deny-by-default**, never opens), or `{ mode: "filter", … }`. Because the views don't expose all of `booker/host/feedback`, the loader passes the view's candidate `meeting_id`s to `filterVisibleMeetingIds`, which fetches those FK fields from `meetings` (chunked `.in`) and applies `meetingMatches` — keeping id lists small even for a person with ~1,100 meetings.
 
-Wired into: **Profiles** (`v_profiles_upcoming` — filtered; a scoped-empty viewer gets a "No meetings assigned to you" state), and **Feedback → Collection** (`feedback-manager`, `v_feedback_outstanding` — the concluded-meetings-needing-feedback section only). The **Feedback Reports pipeline** (`v_feedback_pipeline`) and **Live Outreach** stay all-access by design and are **not** scoped. (Host Calendar `/scheduler` and Planning `/planning-v2` are meeting lists that are *not yet* scoped — flagged for a follow-up if they should be.)
+Wired into: **Profiles** (`/profiles`, `v_profiles_upcoming` — filtered; a scoped-empty viewer gets a "No meetings assigned to you" state), and **Feedback Collection** (`/feedback-collection`, `v_feedback_outstanding`). The **Feedback Reports** page (`/feedback-manager`, `v_feedback_pipeline`) and **Live Outreach** stay all-access by design and are **not** scoped. (Host Calendar `/scheduler` and Planning `/planning-v2` are meeting lists that are *not yet* scoped — flagged for a follow-up if they should be.)
+
+> **Feedback Reports vs Feedback Collection are now separate pages/routes with independent role grants.** `/feedback-manager` (**Feedback Reports** — the report pipeline) and `/feedback-collection` (**Feedback Collection** — concluded meetings needing feedback) are two distinct rows in the page registry / Roles matrix, so a role can be granted one without the other. Reports is route-gated only (all rows); Collection is route-gated **and** meeting-scoped (above). The legacy `/feedback` route redirects to `/feedback-collection` (preserving `?client=`). To preserve today's behavior at the split, copy the Reports grants to Collection once in Supabase:
+>
+> ```sql
+> INSERT INTO public.role_page_access (role, route, allowed)
+> SELECT role, '/feedback-collection', allowed
+> FROM public.role_page_access WHERE route = '/feedback-manager'
+> ON CONFLICT (role, route) DO NOTHING;
+> -- and, so the legacy /feedback redirect stays reachable for the same roles:
+> INSERT INTO public.role_page_access (role, route, allowed)
+> SELECT role, '/feedback', allowed
+> FROM public.role_page_access WHERE route = '/feedback-manager'
+> ON CONFLICT (role, route) DO NOTHING;
+> ```
 
 ### Roles matrix (Admin → **live**)
 
