@@ -5,6 +5,7 @@ import { PageShell } from "@/components/page-shell"
 import { buttonVariants } from "@/components/ui/button"
 import { getSupabaseServer } from "@/lib/supabase"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
+import { loadIdentity, type PersonResolution } from "@/lib/access/identity"
 import {
   UsersView,
   type UserRow,
@@ -19,10 +20,10 @@ export const dynamic = "force-dynamic"
 export const metadata: Metadata = { title: "Users" }
 
 /*
- * Admin → Users & Roles — LIVE.
+ * Admin → Users — LIVE.
  *
- * Lists every active @roseandco.com person from the `users` mirror (Dynamics
- * system users) and lets a super-user set each one's role in
+ * Lists every human @roseandco.com person resolved from the `users` mirror
+ * (via lib/access/identity) and lets a super-user set each one's role in
  * public.user_role_grants — the live role source that getRealRole reads. A
  * person with no grant ("None") has no role and can reach nothing beyond the
  * always-allowed infra routes.
@@ -31,9 +32,6 @@ export const metadata: Metadata = { title: "Users" }
  * (super-user-only in practice).
  */
 
-const DOMAIN = "@roseandco.com"
-
-type MirrorUser = { display_name: string | null; email: string | null }
 type Grant = { email: string; role: string }
 
 /** All-deny default when a user has no user_data_scopes row yet. */
@@ -100,73 +98,47 @@ async function loadScopes(
   return { scopes, missingTable: false }
 }
 
-type IdentityRow = {
-  user_id: string
-  display_name: string | null
-  email: string | null
-  internalemailaddress: string | null
-}
-
-/**
- * DISPLAY-ONLY identity-mapping index for the "Resolves?" indicator.
- *
- * Builds normalized-login-email → the DISTINCT `users` rows (by user_id) it maps
- * to, matching case-insensitively + trimmed against BOTH `users.email` and
- * `users.internalemailaddress`. This is the same email→user_id mapping every
- * relationship-based data scope will rely on, surfaced here as a pre-flight
- * check. It reads nothing into enforcement, proxy.ts, canAccessRoute, or any
- * loader gating — it only powers a badge.
- *
- * Fails soft: on error returns an empty index (badges show "No match") rather
- * than crashing the page.
- */
-async function loadIdentityIndex(
-  sb: ReturnType<typeof getSupabaseServer>,
-): Promise<Map<string, { userId: string; name: string }[]>> {
-  const index = new Map<string, { userId: string; name: string }[]>()
-  const { data, error } = await sb
-    .from("users")
-    .select("user_id, display_name, email, internalemailaddress")
-  if (error) return index
-  for (const u of (data ?? []) as IdentityRow[]) {
-    const entry = {
-      userId: u.user_id,
-      name: u.display_name?.trim() || u.email?.trim() || u.user_id,
-    }
-    for (const raw of [u.email, u.internalemailaddress]) {
-      const k = raw?.trim().toLowerCase()
-      if (!k) continue
-      const list = index.get(k) ?? []
-      // Count each users row ONCE per email key (email may equal
-      // internalemailaddress) — dedupe by user_id so that isn't a false dup.
-      if (!list.some((x) => x.userId === entry.userId)) list.push(entry)
-      index.set(k, list)
-    }
-  }
-  return index
+/** Map the resolver's PersonResolution to the per-row badge Resolution. */
+function toBadge(r: PersonResolution): Resolution {
+  if (r.state === "resolved") return { state: "resolved", userIds: r.userIds, name: r.name }
+  if (r.state === "ambiguous") return { state: "ambiguous", personCount: r.personCount }
+  return { state: "no_match" }
 }
 
 export default async function UsersRolesPage() {
   const sb = getSupabaseServer()
 
-  const [usersRes, grantsRes, scopesRes, identityIndex] = await Promise.all([
-    sb
-      .from("users")
-      .select("display_name, email")
-      .eq("is_active", true)
-      .ilike("email", `%${DOMAIN}`)
-      .order("display_name", { ascending: true }),
+  const [grantsRes, scopesRes, identity] = await Promise.all([
     loadGrants(sb),
     loadScopes(sb),
-    loadIdentityIndex(sb),
+    loadIdentity(),
   ])
 
-  if (usersRes.error) {
+  const backLink = (
+    <div className="mb-4">
+      <Link href="/admin" className={buttonVariants({ variant: "outline", size: "sm" })}>
+        ← Back
+      </Link>
+    </div>
+  )
+
+  // LOUD resolver-error state — visually distinct from a per-row "No match" so a
+  // schema/query fault can never masquerade as "nobody has access".
+  if (!identity.ok) {
     return (
-      <PageShell title="Users" description="Stage a role for each staff member">
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
-          <div className="font-medium text-destructive">Could not load users</div>
-          <div className="mt-1 text-muted-foreground">{usersRes.error.message}</div>
+      <PageShell title="Users" description="Identity resolver error">
+        {backLink}
+        <div className="rounded-lg border-2 border-destructive bg-destructive/10 p-4 text-sm">
+          <div className="font-semibold text-destructive">
+            Identity resolver error — access resolution is unavailable
+          </div>
+          <p className="mt-1 text-muted-foreground">
+            The <code className="font-mono">public.users</code> lookup failed, so no login can be
+            resolved to a CRM user. This is a <span className="font-medium">system error</span>, not
+            &ldquo;nobody has access&rdquo; — data scopes are failing closed (denying) until it&apos;s
+            fixed.
+          </p>
+          <p className="mt-2 font-mono text-xs text-destructive">{identity.error}</p>
         </div>
       </PageShell>
     )
@@ -177,7 +149,7 @@ export default async function UsersRolesPage() {
 
   // Resolve the LIVE authenticated session email (the real login the app
   // authenticates with — NOT the impersonation-aware effective identity, and
-  // NOT a roster row) through the SAME normalized index. This is the actual
+  // NOT a roster row) through the SAME resolver. This is the actual
   // session→user_id path enforcement relies on, which the per-row column can't
   // exercise (the roster is built from the users table itself). Display-only.
   const authClient = await getSupabaseServerAuth()
@@ -187,59 +159,33 @@ export default async function UsersRolesPage() {
   const sessionEmail = sessionUser?.email?.trim() || null
   let sessionResolution: SessionResolution = null
   if (sessionEmail) {
-    const m = identityIndex.get(sessionEmail.toLowerCase()) ?? []
+    const r = identity.resolve(sessionEmail)
     sessionResolution =
-      m.length === 1
-        ? { state: "resolved", email: sessionEmail, userId: m[0].userId, name: m[0].name }
-        : m.length === 0
-          ? { state: "no_match", email: sessionEmail }
-          : { state: "duplicate", email: sessionEmail, count: m.length }
+      r.state === "resolved"
+        ? { state: "resolved", email: sessionEmail, userIds: r.userIds, name: r.name }
+        : r.state === "ambiguous"
+          ? { state: "ambiguous", email: sessionEmail, personCount: r.personCount }
+          : { state: "no_match", email: sessionEmail }
   }
 
-  // Build the roster: one row per active @roseandco.com user with a real
-  // mailbox, deduped by lower-cased email, current staged role + scopes attached.
-  const seen = new Set<string>()
-  const users: UserRow[] = []
-  for (const u of (usersRes.data ?? []) as MirrorUser[]) {
-    const email = u.email?.trim()
-    if (!email) continue
-    const key = email.toLowerCase()
-    if (!key.endsWith(DOMAIN) || seen.has(key)) continue
-    seen.add(key)
-
-    // Identity-mapping check (display-only): does this login email resolve to
-    // exactly one CRM users row?
-    const matches = identityIndex.get(key) ?? []
-    const resolution: Resolution =
-      matches.length === 1
-        ? { state: "resolved", userId: matches[0].userId, name: matches[0].name }
-        : matches.length === 0
-          ? { state: "no_match" }
-          : { state: "duplicate", count: matches.length }
-
-    users.push({
-      email,
-      name: u.display_name?.trim() || email,
-      role: grants.get(key) ?? null,
-      scopes: scopes.get(key) ?? DEFAULT_SCOPES,
-      resolution,
-    })
-  }
-  users.sort((a, b) => a.name.localeCompare(b.name))
+  // Build the roster from the resolved identity index (humans + tagged service
+  // rows; excluded/hashed/non-Rose rows are already dropped). Each row carries
+  // its staged role + scopes and its resolution badge.
+  const users: UserRow[] = identity.roster.map((entry) => ({
+    email: entry.email,
+    name: entry.name,
+    role: grants.get(entry.email) ?? null,
+    scopes: scopes.get(entry.email) ?? DEFAULT_SCOPES,
+    service: entry.service,
+    resolution: entry.service ? { state: "service" } : toBadge(identity.resolve(entry.email)),
+  }))
 
   return (
     <PageShell
       title="Users"
       description="Live — the role set here controls what each person can access."
     >
-      <div className="mb-4">
-        <Link
-          href="/admin"
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-        >
-          ← Back
-        </Link>
-      </div>
+      {backLink}
       <UsersView
         users={users}
         missingTable={missingTable}

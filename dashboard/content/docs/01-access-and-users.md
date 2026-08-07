@@ -112,20 +112,25 @@ The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx
 
 Granted users **float to the top**, ordered Super User → Logistics → Client Manager → User (each carrying a small colored role pill), with the **None** rows muted below, alphabetical by name. A summary line up top reads e.g. "N users · N granted · N none", and a **"Show granted only"** checkbox hides the None rows so you can review just who's assigned.
 
-#### "Resolves?" identity-mapping indicator (display-only)
+#### Identity resolution — `public.users.email` only
 
-Every relationship-based data scope (Level 2) depends on mapping a person's **login email** to a CRM `users.user_id`. As a pre-flight check, each row shows a small badge inline at the end of the email line reporting whether that email resolves to exactly one `users` row. It is computed **server-side** (service-role client) by matching the login email, **case-insensitively and trimmed, against BOTH `users.email` and `users.internalemailaddress`** — and is **display-only**: it reads nothing into enforcement, `proxy.ts`, `canAccessRoute`, `getUserRole`, or any loader.
+Every relationship-based data scope (Level 2) depends on mapping a person's **login email** to a CRM `users.user_id`. **Identity resolves against `public.users.email` ONLY** — there is no `internalemailaddress` column on `public.users` (the Dynamics field of that name is synced *into* `users.email`). An earlier version matched the non-existent column; the resulting error was swallowed into an empty index, so **every** login became "No match" and was silently denied. Matching is **case-insensitive and trimmed**, and the name shown comes from `display_name`.
 
-| Badge | Meaning |
-|-------|---------|
-| ✅ green check | Resolves to **exactly one** `users` row. Hover shows the matched `user_id` and CRM full name. |
-| 🟠 amber **No match** | The email matches **no** `users` row. |
-| 🟠 amber **Duplicate (N)** | The email matches **more than one** `users` row (ambiguous) — shows the count. |
-| ⚪ grey **—** | No email on file / blank (rare here — the roster is already email-filtered). |
+The central resolver lives in `dashboard/lib/access/identity-index.ts` (pure, unit-tested via `npm test`) + `identity.ts` (the async load). It is used by **both** the Admin → Users page (roster + badges) and the data-scope resolver, so they can never diverge.
 
-A tiny summary line above the table reads e.g. **"Identity mapping: X of Y resolve · Z no-match · W duplicate."** The mapping/index lives in `loadIdentityIndex` (`dashboard/app/admin/users/page.tsx`), and the badge/summary render in `users-view.tsx` (`ResolveBadge`). This is a diagnostic to run before Level-2 data-scope enforcement is wired — it changes nothing.
+**Row classification** (applied to both resolution and the roster):
 
-Above that summary, a thin **session banner** (`SessionBanner`) resolves your **own live login** — the real authenticated Supabase session email (via `getUser()`, not a roster row and not the impersonation-aware effective identity) — through the same normalized index, showing "Your login {email} resolves to user_id {id} — {name}" (or a red-amber "does NOT resolve" / "is ambiguous"). This is the one check that exercises the actual **session → `user_id`** path enforcement uses, which the per-row column can't, since the roster is built from the `users` table itself. Still display-only.
+- **excluded** — no email, a non-`@roseandco.com` address (incl. `@onmicrosoft.com` and external domains like `@sportradar.com`), or a Dynamics-disabled row whose local-part starts with a **32-hex hash** (`^[0-9a-f]{32}`). Dropped from the roster **and never resolvable**.
+- **service** — a shared/service `@roseandco.com` mailbox (`conference*`, `ga`, `corporateaccess`, `dmgsupport`, `externaldev`) or a `#`-prefixed display name. **Kept in the roster, tagged "service/shared", but never resolvable** to a login.
+- **human** — a real person. Resolvable.
+
+**Same-name duplicates are unioned by person.** Some people have two active, non-hashed `@roseandco.com` records with different emails and different `user_id`s (e.g. Blair Mutschler, Brian Smith, Simon Rose, Shawna Giust). Rows with the same normalized `display_name` are treated as the **same person**: a login that hits one resolves to the **union** of all their `user_id`s, and every downstream relationship check (account team, and later booker/host/feedback) matches **any** of them. This is a strict **superset** — it can only add the twin's clients/meetings, never remove the primary's — and a union of >1 GUID is logged.
+
+Each roster row shows a badge: **✅ resolved** (with "✓ N" when the person spans N unioned records; hover lists the user_ids), **🟠 No match**, **🟠 Ambiguous (N)** (one email → N *different* people — fail-closed), or a grey **service/shared** tag. A summary line reads e.g. *"Identity mapping: X resolve · Y no-match · Z ambiguous · W service/shared · V with duplicate records (unioned)."*
+
+**Fail LOUD, never silent.** A genuine no-match denies (fail-closed) as before. But a **query/schema error is never swallowed**: the loader logs at error level and returns a distinct error state, and Admin → Users shows a **red "Identity resolver error"** banner (visually different from a per-row "No match") — so a schema fault can never again masquerade as "nobody has access". In the loaders, a resolver error still fails closed (denies) but is logged loudly.
+
+Above the roster, a thin **session banner** (`SessionBanner`) resolves your **own live login** — the real authenticated Supabase session email (via `getUser()`, not a roster row and not the impersonation-aware effective identity) — through the same resolver, showing "Your login {email} resolves to user_id {id} — {name}" (or a red-amber "does NOT resolve" / "is ambiguous"). This exercises the actual **session → `user_id`** path enforcement uses, which the per-row column can't, since the roster is built from the `users` table itself. Display-only.
 
 > **Live.** The role set here is the value `getRealRole` reads, so it controls what that person can access on their **next page load**. Grants are written to `public.user_role_grants` (keyed by lower-cased email); selecting **None** deletes the row (→ no role → no access beyond the always-allowed infra routes).
 
@@ -190,14 +195,14 @@ ALTER TABLE public.user_data_scopes ENABLE ROW LEVEL SECURITY;
 | Host | `meetings.host_id` | Pass 2 — not wired |
 | Feedback | `meetings.feedback_id` | Pass 2 — not wired |
 
-All resolve against the **login-email → `users.user_id`** mapping (matched case-insensitively + trimmed against **both** `users.email` and `users.internalemailaddress`).
+All resolve against the **login-email → `users.user_id`** mapping (matched case-insensitively + trimmed against **`public.users.email` only** — see _Identity resolution_ above; same-name duplicate records are unioned by person).
 
 #### Level-2 client scoping (Account Management) — **LIVE**
 
 The resolver lives in `dashboard/lib/access/`:
 
 - `client-scope-policy.ts` — the **pure** decision (unit-tested via `npm test`, Node's built-in runner): given a user's scopes + their account-team ids → `null` (see all), a `Set` of account ids (see only those), or an empty `Set` (see none).
-- `data-scope.ts` — the I/O: `getUserScopes(email)` (Super User ⇒ `{ all: true }`; no row ⇒ all false), `resolveClientScope(user)` (driven off `getEffectiveIdentity`, so **View as {person}** tests it). **Fail-closed**: if the login email can't resolve to exactly one `users.user_id` (zero or ambiguous), it returns an empty Set (deny), never `null`.
+- `data-scope.ts` — the I/O: `getUserScopes(email)` (Super User ⇒ `{ all: true }`; no row ⇒ all false), `resolveClientScope(user)` (driven off `getEffectiveIdentity`, so **View as {person}** tests it). It resolves the login through the shared identity module (see _Identity resolution_ above) to the person's **user_id set** (unioned across same-name duplicate records) and matches accounts where **any** of those ids is on the team. **Fail-closed** — returns an empty Set (deny), never `null` — on a genuine no-match, an ambiguous match (one email → >1 distinct person), or a resolver error (also logged loudly).
 
 `resolveClientScope` returns:
 

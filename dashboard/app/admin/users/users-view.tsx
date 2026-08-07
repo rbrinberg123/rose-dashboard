@@ -18,9 +18,10 @@ export type RoleValue = "user" | "client_manager" | "logistics" | "super_user" |
  * maps to exactly one CRM `users` row (display-only diagnostic; see page.tsx).
  */
 export type Resolution =
-  | { state: "resolved"; userId: string; name: string }
+  | { state: "resolved"; userIds: string[]; name: string }
   | { state: "no_match" }
-  | { state: "duplicate"; count: number }
+  | { state: "ambiguous"; personCount: number }
+  | { state: "service" }
   | { state: "blank" }
 
 /**
@@ -29,9 +30,9 @@ export type Resolution =
  * email (nothing to show). See page.tsx.
  */
 export type SessionResolution =
-  | { state: "resolved"; email: string; userId: string; name: string }
+  | { state: "resolved"; email: string; userIds: string[]; name: string }
   | { state: "no_match"; email: string }
-  | { state: "duplicate"; email: string; count: number }
+  | { state: "ambiguous"; email: string; personCount: number }
   | null
 
 export type UserRow = {
@@ -40,7 +41,9 @@ export type UserRow = {
   role: RoleValue
   /** Level-2 data scopes (staging only — see actions.ts). */
   scopes: DataScopes
-  /** Does the login email resolve to exactly one CRM users row? */
+  /** Shared/service mailbox row — tagged, never resolved to a login. */
+  service: boolean
+  /** Does the login email resolve to a CRM person? */
   resolution: Resolution
 }
 
@@ -93,22 +96,28 @@ const RESOLVE_GREY = "#9AA1AD"
 
 /**
  * Compact "Resolves?" badge shown inline at the end of a person's email line.
- * Display-only: it reports whether the login email maps to exactly one CRM
- * `users` row (see page.tsx). Kept to icon-height so it adds no row height.
+ * Display-only: reports whether the login email resolves to a CRM person (see
+ * page.tsx). Kept to icon-height so it adds no row height. A resolved person may
+ * span >1 CRM record (same-name duplicate, unioned) — shown as "✓ N".
  */
 function ResolveBadge({ resolution, email }: { resolution: Resolution; email: string }) {
   switch (resolution.state) {
-    case "resolved":
+    case "resolved": {
+      const n = resolution.userIds.length
       return (
         <span
-          className="inline-flex items-center"
+          className="inline-flex items-center gap-0.5"
           style={{ color: RESOLVE_GREEN }}
-          title={`Resolves to exactly one CRM user — ${resolution.name} (${resolution.userId})`}
-          aria-label={`Email resolves to one CRM user: ${resolution.name}`}
+          title={`Resolves to ${resolution.name} — user_id${n > 1 ? "s" : ""} ${resolution.userIds.join(", ")}${
+            n > 1 ? " (duplicate CRM records, unioned)" : ""
+          }`}
+          aria-label={`Email resolves to ${resolution.name}`}
         >
           <Check className="size-3.5" />
+          {n > 1 ? <span className="text-[11px] font-medium tabular-nums">{n}</span> : null}
         </span>
       )
+    }
     case "no_match":
       return (
         <span
@@ -119,14 +128,24 @@ function ResolveBadge({ resolution, email }: { resolution: Resolution; email: st
           <Flag className="size-3" /> No match
         </span>
       )
-    case "duplicate":
+    case "ambiguous":
       return (
         <span
           className="inline-flex items-center gap-0.5 text-[11px] font-medium"
           style={{ color: RESOLVE_AMBER }}
-          title={`${email} matches ${resolution.count} CRM users rows (ambiguous)`}
+          title={`${email} matches ${resolution.personCount} different people (ambiguous)`}
         >
-          <Flag className="size-3" /> Duplicate ({resolution.count})
+          <Flag className="size-3" /> Ambiguous ({resolution.personCount})
+        </span>
+      )
+    case "service":
+      return (
+        <span
+          className="inline-flex items-center rounded-full bg-[#F1F3F7] px-1.5 py-0.5 text-[10px] font-medium"
+          style={{ color: RESOLVE_GREY }}
+          title="Shared/service mailbox — never resolved to a login"
+        >
+          service/shared
         </span>
       )
     case "blank":
@@ -152,6 +171,7 @@ function SessionBanner({ resolution }: { resolution: SessionResolution }) {
   if (!resolution) return null
 
   if (resolution.state === "resolved") {
+    const n = resolution.userIds.length
     return (
       <div
         className="flex items-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50 px-3 py-1.5 text-xs"
@@ -159,8 +179,10 @@ function SessionBanner({ resolution }: { resolution: SessionResolution }) {
       >
         <Check className="size-4 shrink-0" />
         <span>
-          Your login <span className="font-medium">{resolution.email}</span> resolves to user_id{" "}
-          <span className="font-mono">{resolution.userId}</span> — {resolution.name}.
+          Your login <span className="font-medium">{resolution.email}</span> resolves to{" "}
+          {n > 1 ? "user_ids" : "user_id"}{" "}
+          <span className="font-mono">{resolution.userIds.join(", ")}</span> — {resolution.name}
+          {n > 1 ? ` (${n} CRM records, unioned)` : ""}.
         </span>
       </div>
     )
@@ -181,7 +203,7 @@ function SessionBanner({ resolution }: { resolution: SessionResolution }) {
         ) : (
           <>
             Your login <span className="font-medium">{resolution.email}</span> is ambiguous —
-            matches {resolution.count} CRM users.
+            matches {resolution.personCount} different CRM people.
           </>
         )}
       </span>
@@ -229,13 +251,18 @@ export function UsersView({
   const resolveStats = React.useMemo(() => {
     let resolved = 0
     let noMatch = 0
-    let duplicate = 0
+    let ambiguous = 0
+    let service = 0
+    let unioned = 0
     for (const u of users) {
-      if (u.resolution.state === "resolved") resolved++
-      else if (u.resolution.state === "no_match") noMatch++
-      else if (u.resolution.state === "duplicate") duplicate++
+      if (u.resolution.state === "resolved") {
+        resolved++
+        if (u.resolution.userIds.length > 1) unioned++
+      } else if (u.resolution.state === "no_match") noMatch++
+      else if (u.resolution.state === "ambiguous") ambiguous++
+      else if (u.resolution.state === "service") service++
     }
-    return { resolved, noMatch, duplicate }
+    return { resolved, noMatch, ambiguous, service, unioned }
   }, [users])
 
   // Display order: granted first (by role priority), then None, each group
@@ -384,12 +411,15 @@ export function UsersView({
         <span className="font-medium" style={{ color: TEXT_PRIMARY }}>
           Identity mapping:
         </span>{" "}
-        <span className="tabular-nums">{resolveStats.resolved}</span> of{" "}
-        <span className="tabular-nums">{total}</span> resolve
+        <span className="tabular-nums">{resolveStats.resolved}</span> resolve
         <span aria-hidden> · </span>
         <span className="tabular-nums">{resolveStats.noMatch}</span> no-match
         <span aria-hidden> · </span>
-        <span className="tabular-nums">{resolveStats.duplicate}</span> duplicate
+        <span className="tabular-nums">{resolveStats.ambiguous}</span> ambiguous
+        <span aria-hidden> · </span>
+        <span className="tabular-nums">{resolveStats.service}</span> service/shared
+        <span aria-hidden> · </span>
+        <span className="tabular-nums">{resolveStats.unioned}</span> with duplicate records (unioned)
       </div>
 
       {/* Roster */}

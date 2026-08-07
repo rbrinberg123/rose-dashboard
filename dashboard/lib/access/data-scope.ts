@@ -1,6 +1,7 @@
 import { getSupabaseServer } from "@/lib/supabase"
 import { getRealRole } from "@/lib/user-role"
 import type { EffectiveIdentity } from "@/lib/effective-identity"
+import { loadIdentity } from "./identity"
 import {
   decideClientScope,
   type ClientScope,
@@ -61,53 +62,30 @@ export async function getUserScopes(
 }
 
 /**
- * Resolve a login email to exactly one `users.user_id`, matching
- * case-insensitively + trimmed against BOTH `users.email` and
- * `users.internalemailaddress` (the same mapping the "Resolves?" indicator
- * shows). Returns null on zero OR multiple distinct matches — fail-closed:
- * an unmappable or ambiguous email must not be trusted.
+ * The `accounts.account_id`s where ANY of `userIds` is on the Account-Management
+ * team: sales_lead_primary_id, secondary_manager_id, associate_id, or
+ * logistics_coordinator_id. Owner is deliberately EXCLUDED. `userIds` is a
+ * person's full (unioned) id set. Returns null on a query error (fail-closed).
  */
-async function resolveUserId(email: string): Promise<string | null> {
-  const e = email.trim().toLowerCase()
-  if (!e) return null
+async function teamAccountIds(userIds: string[]): Promise<string[] | null> {
+  if (userIds.length === 0) return []
   const sb = getSupabaseServer()
-  const { data, error } = await sb
-    .from("users")
-    .select("user_id, email, internalemailaddress")
-  if (error || !data) return null
-  const ids = new Set<string>()
-  for (const u of data as {
-    user_id: string
-    email: string | null
-    internalemailaddress: string | null
-  }[]) {
-    const em = u.email?.trim().toLowerCase()
-    const ie = u.internalemailaddress?.trim().toLowerCase()
-    if (em === e || ie === e) ids.add(u.user_id)
-  }
-  return ids.size === 1 ? [...ids][0] : null
-}
-
-/**
- * The `accounts.account_id`s where `userId` is on the Account-Management team:
- * sales_lead_primary_id, secondary_manager_id, associate_id, or
- * logistics_coordinator_id. Owner is deliberately EXCLUDED. Returns null on a
- * query error (fail-closed).
- */
-async function teamAccountIds(userId: string): Promise<string[] | null> {
-  const sb = getSupabaseServer()
+  const list = `(${userIds.join(",")})`
   const { data, error } = await sb
     .from("accounts")
     .select("account_id")
     .or(
       [
-        `sales_lead_primary_id.eq.${userId}`,
-        `secondary_manager_id.eq.${userId}`,
-        `associate_id.eq.${userId}`,
-        `logistics_coordinator_id.eq.${userId}`,
+        `sales_lead_primary_id.in.${list}`,
+        `secondary_manager_id.in.${list}`,
+        `associate_id.in.${list}`,
+        `logistics_coordinator_id.in.${list}`,
       ].join(","),
     )
-  if (error || !data) return null
+  if (error || !data) {
+    console.error("[data-scope] accounts team lookup failed:", error?.message)
+    return null
+  }
   const ids: string[] = []
   for (const a of data as { account_id: string | null }[]) {
     if (a.account_id) ids.push(a.account_id)
@@ -118,8 +96,12 @@ async function teamAccountIds(userId: string): Promise<string[] | null> {
 /**
  * Resolve the client filter for the effective identity. See decideClientScope
  * for the meaning of the return value (null = all, Set = only these, empty Set
- * = none). Fail-closed: an Account-Management user whose email can't resolve to
- * a single user_id gets an empty Set (deny), never null.
+ * = none).
+ *
+ * Fail-closed (always denies via empty Set, never null) when the email can't be
+ * trusted: a genuine no-match, an ambiguous match (one email → >1 distinct
+ * person), or a system resolver error. A resolver error is additionally LOGGED
+ * at error level so a schema/query fault is loud, never a silent lockout.
  */
 export async function resolveClientScope(
   user: Pick<EffectiveIdentity, "email">,
@@ -130,9 +112,25 @@ export async function resolveClientScope(
   // `all` (or super) → null; no client scope → empty Set. Neither needs I/O.
   if (scopes.all || !scopes.accountMgmt) return decideClientScope(scopes, [])
 
-  // Account-Management scope: resolve the user_id (fail-closed if it can't),
-  // then the accounts they're on the team for.
-  const userId = email ? await resolveUserId(email) : null
-  if (!userId) return decideClientScope(scopes, null)
-  return decideClientScope(scopes, await teamAccountIds(userId))
+  // Account-Management scope: resolve the person's user_id set, then the
+  // accounts ANY of those ids are on the team for.
+  const identity = await loadIdentity()
+  if (!identity.ok) {
+    console.error("[data-scope] identity resolver error — denying (fail-closed):", identity.error)
+    return decideClientScope(scopes, null)
+  }
+  const res = identity.resolve(email)
+  if (res.state === "no_match") return decideClientScope(scopes, null)
+  if (res.state === "ambiguous") {
+    console.warn(
+      `[data-scope] ambiguous identity for ${email} — matches ${res.personCount} people; denying (fail-closed).`,
+    )
+    return decideClientScope(scopes, null)
+  }
+  if (res.userIds.length > 1) {
+    console.info(
+      `[data-scope] unioned identity for ${email} → ${res.userIds.length} user_ids (duplicate CRM records).`,
+    )
+  }
+  return decideClientScope(scopes, await teamAccountIds(res.userIds))
 }
