@@ -23,6 +23,17 @@ export type Resolution =
   | { state: "duplicate"; count: number }
   | { state: "blank" }
 
+/**
+ * Resolution of the LIVE authenticated session email (the real login) — the
+ * actual session→user_id path enforcement uses. `null` when there is no session
+ * email (nothing to show). See page.tsx.
+ */
+export type SessionResolution =
+  | { state: "resolved"; email: string; userId: string; name: string }
+  | { state: "no_match"; email: string }
+  | { state: "duplicate"; email: string; count: number }
+  | null
+
 export type UserRow = {
   email: string
   name: string
@@ -131,16 +142,65 @@ function ResolveBadge({ resolution, email }: { resolution: Resolution; email: st
   }
 }
 
+/**
+ * Thin bar resolving the LIVE authenticated session email (the real login) —
+ * the exact session→user_id path enforcement relies on. Deliberately a full-
+ * width tinted bar (not a tiny per-row badge) so it reads as page-level. A
+ * red-amber "does NOT resolve" here is the case that silently breaks scoping.
+ */
+function SessionBanner({ resolution }: { resolution: SessionResolution }) {
+  if (!resolution) return null
+
+  if (resolution.state === "resolved") {
+    return (
+      <div
+        className="flex items-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50 px-3 py-1.5 text-xs"
+        style={{ color: RESOLVE_GREEN }}
+      >
+        <Check className="size-4 shrink-0" />
+        <span>
+          Your login <span className="font-medium">{resolution.email}</span> resolves to user_id{" "}
+          <span className="font-mono">{resolution.userId}</span> — {resolution.name}.
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="flex items-center gap-2 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-1.5 text-xs"
+      style={{ color: "#92600B" }}
+    >
+      <AlertTriangle className="size-4 shrink-0" />
+      <span>
+        {resolution.state === "no_match" ? (
+          <>
+            Your login <span className="font-medium">{resolution.email}</span> does{" "}
+            <span className="font-semibold">NOT</span> resolve to any CRM user.
+          </>
+        ) : (
+          <>
+            Your login <span className="font-medium">{resolution.email}</span> is ambiguous —
+            matches {resolution.count} CRM users.
+          </>
+        )}
+      </span>
+    </div>
+  )
+}
+
 type SaveState = "idle" | "saving" | "saved"
 
 export function UsersView({
   users,
   missingTable,
   missingScopesTable,
+  sessionResolution,
 }: {
   users: UserRow[]
   missingTable: boolean
   missingScopesTable: boolean
+  sessionResolution: SessionResolution
 }) {
   const router = useRouter()
   // Local role state so the selector reflects the change immediately, keyed by
@@ -315,6 +375,9 @@ export function UsersView({
           </p>
         </div>
       ) : null}
+
+      {/* Live-session resolution banner — tests the real login→user_id path */}
+      <SessionBanner resolution={sessionResolution} />
 
       {/* Identity-mapping diagnostic summary (display-only) */}
       <div className="text-xs" style={{ color: TEXT_MUTED }}>

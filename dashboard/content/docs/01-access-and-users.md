@@ -125,6 +125,8 @@ Every relationship-based data scope (Level 2) depends on mapping a person's **lo
 
 A tiny summary line above the table reads e.g. **"Identity mapping: X of Y resolve · Z no-match · W duplicate."** The mapping/index lives in `loadIdentityIndex` (`dashboard/app/admin/users/page.tsx`), and the badge/summary render in `users-view.tsx` (`ResolveBadge`). This is a diagnostic to run before Level-2 data-scope enforcement is wired — it changes nothing.
 
+Above that summary, a thin **session banner** (`SessionBanner`) resolves your **own live login** — the real authenticated Supabase session email (via `getUser()`, not a roster row and not the impersonation-aware effective identity) — through the same normalized index, showing "Your login {email} resolves to user_id {id} — {name}" (or a red-amber "does NOT resolve" / "is ambiguous"). This is the one check that exercises the actual **session → `user_id`** path enforcement uses, which the per-row column can't, since the roster is built from the `users` table itself. Still display-only.
+
 > **Live.** The role set here is the value `getRealRole` reads, so it controls what that person can access on their **next page load**. Grants are written to `public.user_role_grants` (keyed by lower-cased email); selecting **None** deletes the row (→ no role → no access beyond the always-allowed infra routes).
 
 Writes go through a super-user-gated server action (`dashboard/app/admin/users/actions.ts`, `setUserRole`), which enforces `requireSuperUser`, validates the `@roseandco.com` domain **server-side**, upserts/deletes in `user_role_grants`, and `revalidatePath`s.

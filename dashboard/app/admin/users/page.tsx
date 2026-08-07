@@ -4,7 +4,14 @@ import Link from "next/link"
 import { PageShell } from "@/components/page-shell"
 import { buttonVariants } from "@/components/ui/button"
 import { getSupabaseServer } from "@/lib/supabase"
-import { UsersView, type UserRow, type RoleValue, type Resolution } from "./users-view"
+import { getSupabaseServerAuth } from "@/lib/supabase/server"
+import {
+  UsersView,
+  type UserRow,
+  type RoleValue,
+  type Resolution,
+  type SessionResolution,
+} from "./users-view"
 import type { DataScopes } from "./actions"
 
 export const dynamic = "force-dynamic"
@@ -168,6 +175,27 @@ export default async function UsersRolesPage() {
   const { grants, missingTable } = grantsRes
   const { scopes, missingTable: missingScopesTable } = scopesRes
 
+  // Resolve the LIVE authenticated session email (the real login the app
+  // authenticates with — NOT the impersonation-aware effective identity, and
+  // NOT a roster row) through the SAME normalized index. This is the actual
+  // session→user_id path enforcement relies on, which the per-row column can't
+  // exercise (the roster is built from the users table itself). Display-only.
+  const authClient = await getSupabaseServerAuth()
+  const {
+    data: { user: sessionUser },
+  } = await authClient.auth.getUser()
+  const sessionEmail = sessionUser?.email?.trim() || null
+  let sessionResolution: SessionResolution = null
+  if (sessionEmail) {
+    const m = identityIndex.get(sessionEmail.toLowerCase()) ?? []
+    sessionResolution =
+      m.length === 1
+        ? { state: "resolved", email: sessionEmail, userId: m[0].userId, name: m[0].name }
+        : m.length === 0
+          ? { state: "no_match", email: sessionEmail }
+          : { state: "duplicate", email: sessionEmail, count: m.length }
+  }
+
   // Build the roster: one row per active @roseandco.com user with a real
   // mailbox, deduped by lower-cased email, current staged role + scopes attached.
   const seen = new Set<string>()
@@ -216,6 +244,7 @@ export default async function UsersRolesPage() {
         users={users}
         missingTable={missingTable}
         missingScopesTable={missingScopesTable}
+        sessionResolution={sessionResolution}
       />
     </PageShell>
   )
