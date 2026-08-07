@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation"
 import { Check, Loader2, AlertTriangle, Eye, Info } from "lucide-react"
 import { toast } from "sonner"
 
+import { cn } from "@/lib/utils"
 import { CARD_CLASS, CONTROL_STYLE, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
-import { setUserRole } from "./actions"
+import { setUserRole, setUserDataScopes, type DataScopes } from "./actions"
 import { setViewAsUserAction } from "@/app/view-as-actions"
 
 /** null === "None" (no staged grant). */
@@ -16,7 +17,24 @@ export type UserRow = {
   email: string
   name: string
   role: RoleValue
+  /** Level-2 data scopes (staging only — see actions.ts). */
+  scopes: DataScopes
 }
+
+/**
+ * The four specific data-scope toggles (All is handled separately as the
+ * override). STAGING ONLY — recorded here, enforced by nothing yet.
+ */
+const SCOPE_FIELDS: { key: keyof Omit<DataScopes, "all">; label: string; title: string }[] = [
+  {
+    key: "account_mgmt",
+    label: "Account Mgmt",
+    title: "Account Management — clients where they're on the account team",
+  },
+  { key: "booker", label: "Booker", title: "Meetings where they are the booker" },
+  { key: "host", label: "Host", title: "Meetings where they are the host" },
+  { key: "feedback", label: "Feedback", title: "Meetings where they are the feedback assignee" },
+]
 
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "None" },
@@ -50,9 +68,11 @@ type SaveState = "idle" | "saving" | "saved"
 export function UsersView({
   users,
   missingTable,
+  missingScopesTable,
 }: {
   users: UserRow[]
   missingTable: boolean
+  missingScopesTable: boolean
 }) {
   const router = useRouter()
   // Local role state so the selector reflects the change immediately, keyed by
@@ -62,7 +82,14 @@ export function UsersView({
     for (const u of users) init[u.email.toLowerCase()] = u.role
     return init
   })
+  // Local data-scope state, same optimistic pattern as roles.
+  const [scopes, setScopes] = React.useState<Record<string, DataScopes>>(() => {
+    const init: Record<string, DataScopes> = {}
+    for (const u of users) init[u.email.toLowerCase()] = u.scopes
+    return init
+  })
   const [saveState, setSaveState] = React.useState<Record<string, SaveState>>({})
+  const [scopeSave, setScopeSave] = React.useState<Record<string, SaveState>>({})
   const [grantedOnly, setGrantedOnly] = React.useState(false)
   const [, startTransition] = React.useTransition()
 
@@ -103,6 +130,31 @@ export function UsersView({
         setRoles((r) => ({ ...r, [key]: prev }))
         setSaveState((s) => ({ ...s, [key]: "idle" }))
         toast.error("Could not save role", { description: result.error })
+      }
+    })
+  }
+
+  function handleScopeChange(user: UserRow, field: keyof DataScopes, checked: boolean) {
+    const key = user.email.toLowerCase()
+    const prev = scopes[key]
+    const next: DataScopes = { ...prev, [field]: checked }
+
+    // Optimistic — reflect immediately, mark saving.
+    setScopes((s) => ({ ...s, [key]: next }))
+    setScopeSave((s) => ({ ...s, [key]: "saving" }))
+
+    startTransition(async () => {
+      const result = await setUserDataScopes(user.email, next)
+      if (result.ok) {
+        setScopeSave((s) => ({ ...s, [key]: "saved" }))
+        window.setTimeout(() => {
+          setScopeSave((s) => (s[key] === "saved" ? { ...s, [key]: "idle" } : s))
+        }, 1500)
+        router.refresh()
+      } else {
+        setScopes((s) => ({ ...s, [key]: prev }))
+        setScopeSave((s) => ({ ...s, [key]: "idle" }))
+        toast.error("Could not save data scope", { description: result.error })
       }
     })
   }
@@ -157,6 +209,32 @@ export function UsersView({
         </div>
       ) : null}
 
+      {/* Data-scope staging notice */}
+      <div
+        className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-xs"
+        style={{ color: "#92600B" }}
+      >
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+        <p>
+          <span className="font-medium">Data scope — staging only.</span> The scope checkboxes below
+          each person record their <span className="font-medium">intended</span> row-level data
+          access (which clients/meetings they can see) and{" "}
+          <span className="font-medium">change no visible data yet</span>. Enforcement in the page
+          loaders comes in a later phase.
+        </p>
+      </div>
+
+      {missingScopesTable ? (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <p>
+            The <code className="font-mono">public.user_data_scopes</code> table does not exist yet.
+            Run the <span className="font-medium">CREATE TABLE</span> DDL in the Supabase SQL editor
+            — until then, scope selections will fail to save.
+          </p>
+        </div>
+      ) : null}
+
       {/* Roster */}
       <div className={CARD_CLASS}>
         {displayed.length === 0 ? (
@@ -172,8 +250,14 @@ export function UsersView({
               const value = u.role
               const meta = value ? ROLE_META[value] : null
               const state = saveState[key] ?? "idle"
+              // Level-2 data scopes (staging). Super User → All implied + locked.
+              const rowScopes = scopes[key] ?? u.scopes
+              const superLock = value === "super_user"
+              const allOn = superLock || rowScopes.all
+              const scState = scopeSave[key] ?? "idle"
               return (
-                <li key={key} className="flex items-center justify-between gap-3 px-4 py-1.5">
+                <li key={key} className="flex flex-col gap-1.5 px-4 py-2">
+                  <div className="flex items-center justify-between gap-3">
                   {/* Name + email on one line */}
                   <div className="flex min-w-0 items-baseline gap-1.5 truncate text-sm">
                     <span
@@ -238,6 +322,78 @@ export function UsersView({
                         </option>
                       ))}
                     </select>
+                  </div>
+                  </div>
+
+                  {/* Level-2 data scopes (staging only — recorded, not enforced) */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                    <span
+                      className="font-medium uppercase tracking-wide"
+                      style={{ color: TEXT_MUTED }}
+                    >
+                      Data scope
+                    </span>
+
+                    {/* All — overrides the other four; implied + locked for Super User */}
+                    <label
+                      className={cn(
+                        "flex items-center gap-1",
+                        superLock ? "cursor-default" : "cursor-pointer",
+                      )}
+                      style={{ color: TEXT_PRIMARY }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={allOn}
+                        disabled={superLock || scState === "saving"}
+                        onChange={(e) => handleScopeChange(u, "all", e.target.checked)}
+                        className="size-3.5 cursor-pointer accent-[#1E2858] disabled:cursor-not-allowed"
+                        aria-label={`All data for ${u.name}`}
+                      />
+                      All
+                    </label>
+
+                    {SCOPE_FIELDS.map((f) => {
+                      // All (or Super User) overrides these — dim + disable them.
+                      const disabled = allOn || scState === "saving"
+                      return (
+                        <label
+                          key={f.key}
+                          title={f.title}
+                          className={cn(
+                            "flex items-center gap-1",
+                            disabled ? "cursor-default opacity-40" : "cursor-pointer",
+                          )}
+                          style={{ color: TEXT_PRIMARY }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={rowScopes[f.key]}
+                            disabled={disabled}
+                            onChange={(e) => handleScopeChange(u, f.key, e.target.checked)}
+                            className="size-3.5 cursor-pointer accent-[#1E2858] disabled:cursor-not-allowed"
+                            aria-label={`${f.label} for ${u.name}`}
+                          />
+                          {f.label}
+                        </label>
+                      )
+                    })}
+
+                    {superLock ? (
+                      <span style={{ color: TEXT_MUTED }}>· implied by Super User</span>
+                    ) : null}
+
+                    <span className="flex items-center text-[11px]" style={{ color: TEXT_MUTED }}>
+                      {scState === "saving" ? (
+                        <>
+                          <Loader2 className="mr-1 size-3 animate-spin" /> Saving…
+                        </>
+                      ) : scState === "saved" ? (
+                        <>
+                          <Check className="mr-1 size-3 text-emerald-600" /> Saved
+                        </>
+                      ) : null}
+                    </span>
                   </div>
                 </li>
               )

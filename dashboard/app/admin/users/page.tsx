@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import { UsersView, type UserRow, type RoleValue } from "./users-view"
+import type { DataScopes } from "./actions"
 
 export const dynamic = "force-dynamic"
 
@@ -26,6 +27,15 @@ const DOMAIN = "@roseandco.com"
 type MirrorUser = { display_name: string | null; email: string | null }
 type Grant = { email: string; role: string }
 
+/** All-deny default when a user has no user_data_scopes row yet. */
+const DEFAULT_SCOPES: DataScopes = {
+  all: false,
+  account_mgmt: false,
+  booker: false,
+  host: false,
+  feedback: false,
+}
+
 /** Read staged grants; guard the table not existing yet (DDL run manually). */
 async function loadGrants(
   sb: ReturnType<typeof getSupabaseServer>,
@@ -44,10 +54,47 @@ async function loadGrants(
   return { grants, missingTable: false }
 }
 
+type ScopeRow = {
+  email: string
+  scope_all: boolean
+  account_mgmt: boolean
+  booker: boolean
+  host: boolean
+  feedback: boolean
+}
+
+/**
+ * Read staged Level-2 data scopes; guard the table not existing yet. STAGING
+ * ONLY — these values are recorded for the future Phase-3 enforcement and are
+ * read by nothing else.
+ */
+async function loadScopes(
+  sb: ReturnType<typeof getSupabaseServer>,
+): Promise<{ scopes: Map<string, DataScopes>; missingTable: boolean }> {
+  const { data, error } = await sb
+    .from("user_data_scopes")
+    .select("email, scope_all, account_mgmt, booker, host, feedback")
+  if (error) {
+    const missingTable = error.code === "42P01" || /does not exist/i.test(error.message)
+    return { scopes: new Map(), missingTable }
+  }
+  const scopes = new Map<string, DataScopes>()
+  for (const s of (data ?? []) as ScopeRow[]) {
+    scopes.set(s.email.toLowerCase(), {
+      all: s.scope_all,
+      account_mgmt: s.account_mgmt,
+      booker: s.booker,
+      host: s.host,
+      feedback: s.feedback,
+    })
+  }
+  return { scopes, missingTable: false }
+}
+
 export default async function UsersRolesPage() {
   const sb = getSupabaseServer()
 
-  const [usersRes, grantsRes] = await Promise.all([
+  const [usersRes, grantsRes, scopesRes] = await Promise.all([
     sb
       .from("users")
       .select("display_name, email")
@@ -55,6 +102,7 @@ export default async function UsersRolesPage() {
       .ilike("email", `%${DOMAIN}`)
       .order("display_name", { ascending: true }),
     loadGrants(sb),
+    loadScopes(sb),
   ])
 
   if (usersRes.error) {
@@ -69,9 +117,10 @@ export default async function UsersRolesPage() {
   }
 
   const { grants, missingTable } = grantsRes
+  const { scopes, missingTable: missingScopesTable } = scopesRes
 
   // Build the roster: one row per active @roseandco.com user with a real
-  // mailbox, deduped by lower-cased email, current staged role attached.
+  // mailbox, deduped by lower-cased email, current staged role + scopes attached.
   const seen = new Set<string>()
   const users: UserRow[] = []
   for (const u of (usersRes.data ?? []) as MirrorUser[]) {
@@ -84,6 +133,7 @@ export default async function UsersRolesPage() {
       email,
       name: u.display_name?.trim() || email,
       role: grants.get(key) ?? null,
+      scopes: scopes.get(key) ?? DEFAULT_SCOPES,
     })
   }
   users.sort((a, b) => a.name.localeCompare(b.name))
@@ -93,7 +143,11 @@ export default async function UsersRolesPage() {
       title="Users & Roles"
       description="Live — the role set here controls what each person can access."
     >
-      <UsersView users={users} missingTable={missingTable} />
+      <UsersView
+        users={users}
+        missingTable={missingTable}
+        missingScopesTable={missingScopesTable}
+      />
     </PageShell>
   )
 }

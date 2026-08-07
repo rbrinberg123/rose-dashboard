@@ -75,3 +75,77 @@ export async function setUserRole(
   revalidatePath(PATH)
   return ok()
 }
+
+// ---------------------------------------------------------------------------
+// Level-2 data scopes (STAGING ONLY — no enforcement yet)
+// ---------------------------------------------------------------------------
+
+/**
+ * A person's intended row-level data scopes. Recorded now; NOT yet read by any
+ * loader, proxy.ts, or canAccessRoute — this only stages intent. Enforcement in
+ * the page loaders is a later Phase-3 change.
+ *
+ *   - all          → no row filtering (see everything on any page they can open).
+ *                    Overrides the other four. Implied+locked for super_user.
+ *   - account_mgmt → client-level: clients where they're on the account team.
+ *   - booker/host/feedback → meeting-level: meetings where they are the
+ *                    booker / host / feedback assignee.
+ *
+ * PHASE-3 ENFORCEMENT REFERENCE (mapping to wire up later — NOT wired here):
+ *   - Account Management team = accounts.sales_lead_primary_id,
+ *     secondary_manager_id, associate_id, logistics_coordinator_id
+ *     (EXCLUDE `owner`).
+ *   - Booker   = meetings.booker_id
+ *   - Host     = meetings.host_id
+ *   - Feedback = meetings.feedback_id
+ *   All resolve against the login-email → users.user_id mapping.
+ */
+export type DataScopes = {
+  all: boolean
+  account_mgmt: boolean
+  booker: boolean
+  host: boolean
+  feedback: boolean
+}
+
+/**
+ * Persist one @roseandco.com user's Level-2 data scopes to
+ * public.user_data_scopes (STAGING — read by nothing yet).
+ *
+ *   - Super-user gated (reuses requireSuperUser, like setUserRole).
+ *   - Validates the @roseandco.com domain server-side.
+ *   - UPSERTs the full scope set (email is the PRIMARY KEY), stamping
+ *     updated_by/at. All-false is stored explicitly (deny).
+ *   - revalidatePath so the roster reflects the saved state on the next render.
+ */
+export async function setUserDataScopes(
+  email: string,
+  scopes: DataScopes,
+): Promise<ActionResult> {
+  const auth = await requireSuperUser()
+  if (!auth.ok) return fail("Not authorized.")
+
+  const normalizedEmail = email.trim().toLowerCase()
+  if (!normalizedEmail.endsWith("@roseandco.com")) {
+    return fail("Only @roseandco.com users can be scoped here.")
+  }
+
+  const sb = getSupabaseServer()
+  const { error } = await sb.from("user_data_scopes").upsert(
+    {
+      email: normalizedEmail,
+      scope_all: scopes.all,
+      account_mgmt: scopes.account_mgmt,
+      booker: scopes.booker,
+      host: scopes.host,
+      feedback: scopes.feedback,
+      updated_at: new Date().toISOString(),
+      updated_by: auth.email,
+    },
+    { onConflict: "email" },
+  )
+  if (error) return fail(describeError(error))
+
+  revalidatePath(PATH)
+  return ok()
+}
