@@ -424,8 +424,9 @@ export function UsersView({
         <span className="tabular-nums">{resolveStats.unioned}</span> with duplicate records (unioned)
       </div>
 
-      {/* Roster */}
-      <div className={CARD_CLASS}>
+      {/* Roster — scrolls horizontally on narrow widths so the scope columns
+          stay aligned rather than wrapping. */}
+      <div className={`overflow-x-auto ${CARD_CLASS}`}>
         {displayed.length === 0 ? (
           <div className="p-8 text-center text-sm" style={{ color: TEXT_MUTED }}>
             {total === 0
@@ -445,20 +446,21 @@ export function UsersView({
               const allOn = superLock || rowScopes.all
               const scState = scopeSave[key] ?? "idle"
               return (
-                <li key={key} className="flex flex-col gap-1.5 px-4 py-2">
-                  <div className="flex items-center justify-between gap-3">
-                  {/* Name + email on one line */}
-                  <div className="flex min-w-0 items-baseline gap-1.5 truncate text-sm">
+                <li key={key} className="flex items-center gap-3 px-4 py-1.5">
+                  {/* Name + email + resolve badge — FIXED-WIDTH left column, so the
+                      data-scope group starts at the same x on every row (long
+                      names/emails truncate rather than push the columns). */}
+                  <div className="flex w-72 shrink-0 items-baseline gap-1.5 text-sm">
                     <span
-                      className="font-semibold"
+                      className="min-w-0 truncate font-semibold"
                       style={{ color: meta ? TEXT_PRIMARY : TEXT_MUTED }}
                     >
                       {u.name}
                     </span>
-                    <span aria-hidden style={{ color: "#C3C8D2" }}>
+                    <span aria-hidden className="shrink-0" style={{ color: "#C3C8D2" }}>
                       ·
                     </span>
-                    <span className="truncate" style={{ color: TEXT_MUTED }}>
+                    <span className="min-w-0 flex-1 truncate" style={{ color: TEXT_MUTED }}>
                       {u.email}
                     </span>
                     {/* Identity-mapping indicator — display-only diagnostic */}
@@ -466,127 +468,128 @@ export function UsersView({
                       <ResolveBadge resolution={u.resolution} email={u.email} />
                     </span>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {/* View as this person — super-user testing. Posts the email
-                        to the server action (which re-checks the real role),
-                        sets the view_as_user cookie, and redirects into their
-                        view. The top banner is the always-present way back. */}
-                    <form action={setViewAsUserAction}>
-                      <input type="hidden" name="email" value={u.email} />
-                      <button
-                        type="submit"
-                        title={`View the app as ${u.name}`}
-                        className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-[#5B6472] transition-colors hover:bg-[#F4F6F9] hover:text-[#1E2858]"
+
+                  {/* Fills the rest of the row: the scope group is left-justified
+                      right after the fixed name column, role controls pushed far right. */}
+                  <div className="flex flex-1 items-center gap-x-4">
+                    {/* Level-2 data scopes — left-justified, fixed start x, stable
+                        order so each checkbox lines up in a column down the table.
+                        `ml-4` adds a clear break after the resolve badge (applied to
+                        the whole group, so the aligned column just shifts right). */}
+                    <div className="ml-4 flex shrink-0 items-center gap-x-2.5 text-xs">
+                      {/* All — overrides the other four; implied + locked for Super User */}
+                      <label
+                        className={cn(
+                          "flex items-center gap-1",
+                          superLock ? "cursor-default" : "cursor-pointer",
+                        )}
+                        style={{ color: TEXT_PRIMARY }}
                       >
-                        <Eye className="size-3.5" />
-                        <span className="hidden sm:inline">View as</span>
-                      </button>
-                    </form>
-                    {meta ? (
-                      <span
-                        className="hidden rounded-full px-2 py-0.5 text-[11px] font-medium sm:inline"
-                        style={{ background: meta.bg, color: meta.text }}
-                      >
-                        {meta.label}
+                        <input
+                          type="checkbox"
+                          checked={allOn}
+                          disabled={superLock || scState === "saving"}
+                          onChange={(e) => handleScopeChange(u, "all", e.target.checked)}
+                          className="size-3.5 cursor-pointer accent-[#1E2858] disabled:cursor-not-allowed"
+                          aria-label={`All data for ${u.name}`}
+                        />
+                        All
+                      </label>
+
+                      {SCOPE_FIELDS.map((f) => {
+                        // All (or Super User) overrides these — dim + disable them.
+                        const disabled = allOn || scState === "saving"
+                        return (
+                          <label
+                            key={f.key}
+                            title={f.title}
+                            className={cn(
+                              "flex items-center gap-1",
+                              disabled ? "cursor-default opacity-40" : "cursor-pointer",
+                            )}
+                            style={{ color: TEXT_PRIMARY }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={rowScopes[f.key]}
+                              disabled={disabled}
+                              onChange={(e) => handleScopeChange(u, f.key, e.target.checked)}
+                              className="size-3.5 cursor-pointer accent-[#1E2858] disabled:cursor-not-allowed"
+                              aria-label={`${f.label} for ${u.name}`}
+                            />
+                            {f.label}
+                          </label>
+                        )
+                      })}
+
+                      {superLock ? (
+                        <span style={{ color: TEXT_MUTED }}>· implied by Super User</span>
+                      ) : null}
+
+                      <span className="flex items-center text-[11px]" style={{ color: TEXT_MUTED }}>
+                        {scState === "saving" ? (
+                          <>
+                            <Loader2 className="mr-1 size-3 animate-spin" /> Saving…
+                          </>
+                        ) : scState === "saved" ? (
+                          <>
+                            <Check className="mr-1 size-3 text-emerald-600" /> Saved
+                          </>
+                        ) : null}
                       </span>
-                    ) : null}
-                    <span className="flex w-16 items-center justify-end text-xs" style={{ color: TEXT_MUTED }}>
-                      {state === "saving" ? (
-                        <>
-                          <Loader2 className="mr-1 size-3 animate-spin" /> Updating…
-                        </>
-                      ) : state === "saved" ? (
-                        <>
-                          <Check className="mr-1 size-3 text-emerald-600" /> Saved
-                        </>
-                      ) : null}
-                    </span>
-                    <select
-                      aria-label={`Role for ${u.name}`}
-                      value={value ?? ""}
-                      disabled={state === "saving"}
-                      onChange={(e) => handleChange(u, e.target.value)}
-                      className="h-8 cursor-pointer px-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-                      style={CONTROL_STYLE}
-                    >
-                      {ROLE_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  </div>
+                    </div>
 
-                  {/* Level-2 data scopes — Account Management enforced on client pages */}
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                    <span
-                      className="font-medium uppercase tracking-wide"
-                      style={{ color: TEXT_MUTED }}
-                    >
-                      Data scope
-                    </span>
-
-                    {/* All — overrides the other four; implied + locked for Super User */}
-                    <label
-                      className={cn(
-                        "flex items-center gap-1",
-                        superLock ? "cursor-default" : "cursor-pointer",
-                      )}
-                      style={{ color: TEXT_PRIMARY }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={allOn}
-                        disabled={superLock || scState === "saving"}
-                        onChange={(e) => handleScopeChange(u, "all", e.target.checked)}
-                        className="size-3.5 cursor-pointer accent-[#1E2858] disabled:cursor-not-allowed"
-                        aria-label={`All data for ${u.name}`}
-                      />
-                      All
-                    </label>
-
-                    {SCOPE_FIELDS.map((f) => {
-                      // All (or Super User) overrides these — dim + disable them.
-                      const disabled = allOn || scState === "saving"
-                      return (
-                        <label
-                          key={f.key}
-                          title={f.title}
-                          className={cn(
-                            "flex items-center gap-1",
-                            disabled ? "cursor-default opacity-40" : "cursor-pointer",
-                          )}
-                          style={{ color: TEXT_PRIMARY }}
+                    {/* Role controls — pushed to the far right (unchanged). */}
+                    <div className="ml-auto flex shrink-0 items-center gap-2">
+                      {/* View as this person — super-user testing. Posts the email
+                          to the server action (which re-checks the real role),
+                          sets the view_as_user cookie, and redirects into their
+                          view. The top banner is the always-present way back. */}
+                      <form action={setViewAsUserAction}>
+                        <input type="hidden" name="email" value={u.email} />
+                        <button
+                          type="submit"
+                          title={`View the app as ${u.name}`}
+                          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-[#5B6472] transition-colors hover:bg-[#F4F6F9] hover:text-[#1E2858]"
                         >
-                          <input
-                            type="checkbox"
-                            checked={rowScopes[f.key]}
-                            disabled={disabled}
-                            onChange={(e) => handleScopeChange(u, f.key, e.target.checked)}
-                            className="size-3.5 cursor-pointer accent-[#1E2858] disabled:cursor-not-allowed"
-                            aria-label={`${f.label} for ${u.name}`}
-                          />
-                          {f.label}
-                        </label>
-                      )
-                    })}
-
-                    {superLock ? (
-                      <span style={{ color: TEXT_MUTED }}>· implied by Super User</span>
-                    ) : null}
-
-                    <span className="flex items-center text-[11px]" style={{ color: TEXT_MUTED }}>
-                      {scState === "saving" ? (
-                        <>
-                          <Loader2 className="mr-1 size-3 animate-spin" /> Saving…
-                        </>
-                      ) : scState === "saved" ? (
-                        <>
-                          <Check className="mr-1 size-3 text-emerald-600" /> Saved
-                        </>
+                          <Eye className="size-3.5" />
+                          <span className="hidden sm:inline">View as</span>
+                        </button>
+                      </form>
+                      {meta ? (
+                        <span
+                          className="hidden rounded-full px-2 py-0.5 text-[11px] font-medium sm:inline"
+                          style={{ background: meta.bg, color: meta.text }}
+                        >
+                          {meta.label}
+                        </span>
                       ) : null}
-                    </span>
+                      <span className="flex w-16 items-center justify-end text-xs" style={{ color: TEXT_MUTED }}>
+                        {state === "saving" ? (
+                          <>
+                            <Loader2 className="mr-1 size-3 animate-spin" /> Updating…
+                          </>
+                        ) : state === "saved" ? (
+                          <>
+                            <Check className="mr-1 size-3 text-emerald-600" /> Saved
+                          </>
+                        ) : null}
+                      </span>
+                      <select
+                        aria-label={`Role for ${u.name}`}
+                        value={value ?? ""}
+                        disabled={state === "saving"}
+                        onChange={(e) => handleChange(u, e.target.value)}
+                        className="h-8 cursor-pointer px-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                        style={CONTROL_STYLE}
+                      >
+                        {ROLE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </li>
               )
