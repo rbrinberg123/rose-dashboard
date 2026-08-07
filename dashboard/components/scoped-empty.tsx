@@ -28,6 +28,19 @@ export function ClientNotInScope() {
   )
 }
 
+export function NoMeetingsAssigned() {
+  return (
+    <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
+      <div className="font-medium text-foreground">No meetings assigned to you</div>
+      <p className="mt-1">
+        You can see meetings where you&apos;re the booker, host, or feedback
+        assignee, or on the client&apos;s account team. There are none — ask an
+        administrator if you think this is wrong.
+      </p>
+    </div>
+  )
+}
+
 export function StatsRestricted() {
   return (
     <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">

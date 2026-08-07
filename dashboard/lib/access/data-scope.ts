@@ -8,6 +8,12 @@ import {
   type ClientScope,
   type UserScopes,
 } from "./client-scope-policy"
+import {
+  decideMeetingMode,
+  meetingMatches,
+  type MeetingRow,
+  type MeetingScopeFilter,
+} from "./meeting-scope-policy"
 
 export type { ClientScope, UserScopes } from "./client-scope-policy"
 
@@ -20,8 +26,9 @@ export type { ClientScope, UserScopes } from "./client-scope-policy"
  * gate) — this module never touches proxy.ts, canAccessRoute, or getRealRole's
  * role gating; it only computes a client filter.
  *
- * Meeting-level scopes (booker/host/feedback) are Pass 2 and are read here but
- * not yet applied anywhere.
+ * Client-level (Account Management) scoping is `resolveClientScope`; meeting-level
+ * (Booker / Host / Feedback + account-team meetings) is `resolveMeetingScope`.
+ * Both are driven off the same unioned identity and reuse `teamAccountIds`.
  */
 
 const DENY_SCOPES: UserScopes = {
@@ -142,4 +149,94 @@ export async function resolveClientScope(
     )
   }
   return decideClientScope(scopes, await teamAccountIds(res.userIds))
+}
+
+// ---------------------------------------------------------------------------
+// Meeting-level scoping (Booker / Host / Feedback + account-team meetings)
+// ---------------------------------------------------------------------------
+
+/**
+ * The resolved meeting-scope for the effective identity — mirrors
+ * `resolveClientScope` in structure:
+ *   - `{ mode: "all" }`    → no filtering (Super User or `all` scope).
+ *   - `{ mode: "none" }`   → deny (nothing checked, unresolved/ambiguous email,
+ *                            or resolver error — never fails open).
+ *   - `{ mode: "filter" }` → the id sets + which scopes to match; hand to
+ *                            `filterVisibleMeetingIds` with the candidate
+ *                            meeting ids from a page's view.
+ */
+export type MeetingScope =
+  | { mode: "all" }
+  | { mode: "none" }
+  | ({ mode: "filter" } & MeetingScopeFilter)
+
+export async function resolveMeetingScope(
+  user: Pick<EffectiveIdentity, "email">,
+): Promise<MeetingScope> {
+  const email = user.email
+  const scopes = await getUserScopes(email)
+  const mode = decideMeetingMode(scopes)
+  if (mode === "all") return { mode: "all" }
+  if (mode === "none") return { mode: "none" }
+
+  // filter: resolve the person's full unioned user_id set (fail-closed on any
+  // untrusted identity), plus their team accounts if account_mgmt is checked.
+  const identity = await loadIdentity()
+  if (!identity.ok) {
+    console.error("[data-scope] identity resolver error — denying meetings (fail-closed):", identity.error)
+    return { mode: "none" }
+  }
+  const res = identity.resolve(email)
+  if (res.state === "no_match") return { mode: "none" }
+  if (res.state === "ambiguous") {
+    console.warn(`[data-scope] ambiguous identity for ${email} — denying meetings (fail-closed).`)
+    return { mode: "none" }
+  }
+  if (res.userIds.length > 1) {
+    console.info(`[data-scope] unioned identity for ${email} → ${res.userIds.length} user_ids (meetings).`)
+  }
+  const accountIds = scopes.accountMgmt
+    ? new Set((await teamAccountIds(res.userIds)) ?? [])
+    : new Set<string>()
+  return {
+    mode: "filter",
+    booker: scopes.booker,
+    host: scopes.host,
+    feedback: scopes.feedback,
+    accountMgmt: scopes.accountMgmt,
+    userIds: new Set(res.userIds),
+    accountIds,
+  }
+}
+
+/**
+ * Given the candidate meeting ids from a page's view, return the subset the
+ * scoped user may see. The views don't expose all of booker/host/feedback, so
+ * we fetch those FK fields from `meetings` (chunked `.in` to stay under URL
+ * limits) and apply the pure `meetingMatches` predicate. Fail-closed: a fetch
+ * error denies (empty set), never opens.
+ */
+export async function filterVisibleMeetingIds(
+  scope: MeetingScopeFilter,
+  candidateMeetingIds: string[],
+): Promise<Set<string>> {
+  const allowed = new Set<string>()
+  if (candidateMeetingIds.length === 0) return allowed
+  const sb = getSupabaseServer()
+  const CHUNK = 150
+  for (let i = 0; i < candidateMeetingIds.length; i += CHUNK) {
+    const chunk = candidateMeetingIds.slice(i, i + CHUNK)
+    const { data, error } = await sb
+      .from("meetings")
+      .select("meeting_id, booker_id, host_id, feedback_id, client_account_id")
+      .in("meeting_id", chunk)
+    if (error) {
+      console.error("[data-scope] meeting scope fetch failed — denying (fail-closed):", error.message)
+      return new Set()
+    }
+    for (const m of (data ?? []) as (MeetingRow & { meeting_id: string })[]) {
+      if (meetingMatches(m, scope)) allowed.add(m.meeting_id)
+    }
+  }
+  return allowed
 }

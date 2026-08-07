@@ -3,6 +3,9 @@ import { PageShell } from "@/components/page-shell"
 import { ListTitleCard } from "@/components/page-masthead"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { getUserRole } from "@/lib/user-role"
+import { getEffectiveIdentity } from "@/lib/effective-identity"
+import { resolveMeetingScope, filterVisibleMeetingIds } from "@/lib/access/data-scope"
+import { NoMeetingsAssigned } from "@/components/scoped-empty"
 import { loadFeedbackOutstandingRows, loadFeedbackPipelineRows } from "@/app/feedback/load"
 import { FeedbackPipelineView } from "./feedback-manager-view"
 import { FeedbackView } from "@/app/feedback/feedback-view"
@@ -41,7 +44,25 @@ export default async function FeedbackManagerPage() {
   }
 
   const pipelineRows = pipeline.rows
-  const collectionRows = collection.rows
+
+  // Level-2 meeting scoping applies to the COLLECTION section only (concluded
+  // meetings needing feedback). The Reports pipeline stays visible to everyone
+  // with page access (all-access by design). Driven off the effective identity
+  // so View-as previews it.
+  const scope = await resolveMeetingScope(await getEffectiveIdentity())
+  let collectionRows = collection.rows
+  let collectionScopedEmpty = false
+  if (scope.mode === "none") {
+    collectionRows = []
+    collectionScopedEmpty = true
+  } else if (scope.mode === "filter") {
+    const allowed = await filterVisibleMeetingIds(
+      scope,
+      collection.rows.map((r) => r.meeting_id),
+    )
+    collectionRows = collection.rows.filter((r) => allowed.has(r.meeting_id))
+    collectionScopedEmpty = collectionRows.length === 0
+  }
 
   // Stable "today" (UTC calendar day) for the pipeline view's aging / due-date math.
   const today = new Date().toISOString().slice(0, 10)
@@ -82,9 +103,10 @@ export default async function FeedbackManagerPage() {
           the Claimed By / Account Manager filters), unchanged. */}
       <FeedbackPipelineView rows={pipelineRows} today={today} embedded />
 
-      {/* Feedback Collection — appended below the anchor the header jumps to. */}
+      {/* Feedback Collection — appended below the anchor the header jumps to.
+          Scoped to the viewer's meetings; the Reports pipeline above is not. */}
       <div id="collection" className="mt-10 scroll-mt-4">
-        <FeedbackView rows={collectionRows} />
+        {collectionScopedEmpty ? <NoMeetingsAssigned /> : <FeedbackView rows={collectionRows} />}
       </div>
     </PageShell>
   )

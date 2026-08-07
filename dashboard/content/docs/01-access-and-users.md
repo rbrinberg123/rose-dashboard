@@ -190,10 +190,10 @@ ALTER TABLE public.user_data_scopes ENABLE ROW LEVEL SECURITY;
 
 | Scope | Match | Status |
 |-------|-------|--------|
-| Account Mgmt | `accounts.sales_lead_primary_id`, `secondary_manager_id`, `associate_id`, or `logistics_coordinator_id` (**exclude** `owner`) | **LIVE** on the client pages (below) |
-| Booker | `meetings.booker_id` | Pass 2 — not wired |
-| Host | `meetings.host_id` | Pass 2 — not wired |
-| Feedback | `meetings.feedback_id` | Pass 2 — not wired |
+| Account Mgmt | `accounts.sales_lead_primary_id`, `secondary_manager_id`, `associate_id`, or `logistics_coordinator_id` (**exclude** `owner`) | **LIVE** — client pages + account-team meetings |
+| Booker | `meetings.booker_id` | **LIVE** — meeting pages |
+| Host | `meetings.host_id` | **LIVE** — meeting pages |
+| Feedback | `meetings.feedback_id` | **LIVE** — meeting pages |
 
 All resolve against the **login-email → `users.user_id`** mapping (matched case-insensitively + trimmed against **`public.users.email` only** — see _Identity resolution_ above; same-name duplicate records are unioned by person).
 
@@ -210,7 +210,22 @@ The resolver lives in `dashboard/lib/access/`:
 - a **Set of account ids** → the loader filters to `account_id ∈ set` (on the NDRS Calendar view the client key is `client_account_id`).
 - an **empty Set** → the loader renders a friendly "no clients assigned to you" state.
 
-Enforcement is server-side in the loaders only (the service-role key bypasses RLS, so the loader is the gate). Wired into: **Portfolio** (`v_client_portfolio`), **Client Detail** (`v_client_detail_summary` — and a direct URL to an out-of-scope client is blocked), **NDRS Calendar** (`v_marketing_calendar`), **Onboarding** (`v_client_onboarding`), and **Client Statistics** (whole-book aggregate — blocked entirely for any scoped, non-`null` user). Meeting-level pages (Profiles, Feedback, meeting lists) are **not** touched — that's Pass 2.
+Enforcement is server-side in the loaders only (the service-role key bypasses RLS, so the loader is the gate). Wired into: **Portfolio** (`v_client_portfolio`), **Client Detail** (`v_client_detail_summary` — and a direct URL to an out-of-scope client is blocked), **NDRS Calendar** (`v_marketing_calendar`), **Onboarding** (`v_client_onboarding`), and **Client Statistics** (whole-book aggregate — blocked entirely for any scoped, non-`null` user).
+
+#### Level-2 meeting scoping (Booker / Host / Feedback + account-team) — **LIVE**
+
+`resolveMeetingScope(user)` (`dashboard/lib/access/data-scope.ts`) mirrors `resolveClientScope`: same effective-identity **union** of `user_id`s (a same-name duplicate's records all count — e.g. `bsmith@` + the `brian.smith@` twin), same `teamAccountIds`, same fail-closed rules. The decision is the pure, unit-tested `meetingMatches` / `decideMeetingMode` (`meeting-scope-policy.ts`).
+
+A meeting is visible if **ANY** checked scope matches (**OR** logic):
+
+- **Booker** → `meetings.booker_id ∈ userIds`
+- **Host** → `meetings.host_id ∈ userIds`
+- **Feedback** → `meetings.feedback_id ∈ userIds`
+- **Account Mgmt** → `meetings.client_account_id ∈ teamAccountIds(userIds)` (a person on an account team sees that client's meetings too)
+
+Return: `{ mode: "all" }` (Super User / `all` — no filtering), `{ mode: "none" }` (nothing checked, unresolved/ambiguous email, or resolver error — **deny-by-default**, never opens), or `{ mode: "filter", … }`. Because the views don't expose all of `booker/host/feedback`, the loader passes the view's candidate `meeting_id`s to `filterVisibleMeetingIds`, which fetches those FK fields from `meetings` (chunked `.in`) and applies `meetingMatches` — keeping id lists small even for a person with ~1,100 meetings.
+
+Wired into: **Profiles** (`v_profiles_upcoming` — filtered; a scoped-empty viewer gets a "No meetings assigned to you" state), and **Feedback → Collection** (`feedback-manager`, `v_feedback_outstanding` — the concluded-meetings-needing-feedback section only). The **Feedback Reports pipeline** (`v_feedback_pipeline`) and **Live Outreach** stay all-access by design and are **not** scoped. (Host Calendar `/scheduler` and Planning `/planning-v2` are meeting lists that are *not yet* scoped — flagged for a follow-up if they should be.)
 
 ### Roles matrix (Admin → **live**)
 

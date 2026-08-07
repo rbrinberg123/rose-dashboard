@@ -1,6 +1,9 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
+import { getEffectiveIdentity } from "@/lib/effective-identity"
+import { resolveMeetingScope, filterVisibleMeetingIds } from "@/lib/access/data-scope"
+import { NoMeetingsAssigned } from "@/components/scoped-empty"
 import type { ProfileUpcomingRow } from "@/lib/types"
 import { ProfilesView } from "./profiles-view"
 
@@ -44,6 +47,18 @@ function todayUtcISO(): string {
 export default async function ProfilesPage() {
   const sb = getSupabaseServer()
 
+  // Level-2 meeting scoping (Booker / Host / Feedback + account-team meetings).
+  // Driven off the effective identity, so View-as previews it. mode "none"
+  // (nothing assigned / unresolved) → deny before we even query.
+  const scope = await resolveMeetingScope(await getEffectiveIdentity())
+  if (scope.mode === "none") {
+    return (
+      <PageShell title="Profiles">
+        <NoMeetingsAssigned />
+      </PageShell>
+    )
+  }
+
   // The view is already scoped to the next three business weeks (forward-only,
   // weekday-only, Cancelled excluded), so it is small — a single fetch is
   // enough. We still loop in PAGE_SIZE chunks as a guard against PostgREST's
@@ -77,9 +92,26 @@ export default async function ProfilesPage() {
     if (page.length < PAGE_SIZE) break
   }
 
+  // Filter to the meetings this person may see (mode "all" → unchanged).
+  let visible = rows
+  if (scope.mode === "filter") {
+    const allowed = await filterVisibleMeetingIds(
+      scope,
+      rows.map((r) => r.meeting_id),
+    )
+    visible = rows.filter((r) => allowed.has(r.meeting_id))
+    if (visible.length === 0) {
+      return (
+        <PageShell title="Profiles">
+          <NoMeetingsAssigned />
+        </PageShell>
+      )
+    }
+  }
+
   return (
     <PageShell title="Profiles" hideHeader canvas>
-      <ProfilesView rows={rows} weekMondays={businessWeekMondays()} today={todayUtcISO()} />
+      <ProfilesView rows={visible} weekMondays={businessWeekMondays()} today={todayUtcISO()} />
     </PageShell>
   )
 }
