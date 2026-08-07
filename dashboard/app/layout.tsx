@@ -1,9 +1,14 @@
 import type { Metadata } from "next"
+import { cookies } from "next/headers"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Sidebar } from "@/components/nav"
+import { ViewAsBanner } from "@/components/view-as-banner"
 import { Toaster } from "@/components/ui/sonner"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
-import { getUserRole } from "@/lib/user-role"
+import { getRealRole } from "@/lib/user-role"
+import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, viewAsLabel } from "@/lib/access-control"
+import { resolveEffective } from "@/lib/impersonation"
+import { getAllowedRoutes } from "@/lib/page-access"
 import "./globals.css"
 
 const geistSans = Geist({
@@ -47,7 +52,29 @@ export default async function RootLayout({
   const userEmail = user?.email ?? null
   // Role drives which nav items the sidebar shows. The proxy does its own
   // lookup for enforcement; this one is only for the (cosmetic) nav.
-  const role = await getUserRole(userEmail)
+  //
+  // Gate the nav on the EFFECTIVE role so "View as" shrinks the sidebar to what
+  // the impersonated person/role sees. We also keep the real role: the banner
+  // (the always-present exit) shows only when impersonation is actually active.
+  const realRole = await getRealRole(userEmail)
+  const cookieStore = await cookies()
+  const { effectiveRole: role, person, roleView } = await resolveEffective(
+    realRole,
+    cookieStore.get(VIEW_AS_USER_COOKIE)?.value,
+    cookieStore.get(VIEW_AS_COOKIE)?.value,
+  )
+  // The routes the effective role may reach (from the Roles matrix). Passed to
+  // the nav so it hides links the proxy would block — one query, same source.
+  const allowedRoutes = await getAllowedRoutes(role)
+
+  // Banner label: PERSON mode names the person + their real role ("No role" when
+  // they have none); ROLE mode names the abstract role. Only super-users ever
+  // impersonate, so `person`/`roleView` are already gated on the real role.
+  const bannerLabel = person
+    ? `Viewing as ${person.name} — ${person.role ? viewAsLabel(person.role) : "No role"}`
+    : roleView
+      ? `Viewing as ${viewAsLabel(roleView)} (role)`
+      : null
 
   return (
     <html
@@ -55,8 +82,9 @@ export default async function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-background text-foreground">
+        {bannerLabel ? <ViewAsBanner label={bannerLabel} /> : null}
         <div className="flex min-h-screen flex-col md:flex-row">
-          <Sidebar userEmail={userEmail} role={role} />
+          <Sidebar userEmail={userEmail} role={role} allowedRoutes={allowedRoutes} />
           <main className="flex-1 overflow-x-hidden">{children}</main>
         </div>
         <Toaster richColors position="top-right" />

@@ -9,18 +9,16 @@ export const dynamic = "force-dynamic"
 export const metadata: Metadata = { title: "Users & Roles" }
 
 /*
- * Admin → Users & Roles — a STAGING screen only.
+ * Admin → Users & Roles — LIVE.
  *
  * Lists every active @roseandco.com person from the `users` mirror (Dynamics
- * system users) and lets a super-user stage a role for each into the DECOUPLED
- * public.user_role_grants table. This page and its action write ONLY to that
- * staging table — they never touch the live `user_roles` table, proxy.ts,
- * canAccessRoute, or getUserRole. Assignments made here have ZERO effect on
- * what anyone can actually access. Going live is a separate, later change that
- * points enforcement at user_role_grants.
+ * system users) and lets a super-user set each one's role in
+ * public.user_role_grants — the live role source that getRealRole reads. A
+ * person with no grant ("None") has no role and can reach nothing beyond the
+ * always-allowed infra routes.
  *
- * The route lives under /admin (super-user-only by the deny-by-default rule)
- * and is intentionally kept OUT of USER_ALLOWED_ROUTES.
+ * The route lives under /admin, which is itself gated by the Roles matrix
+ * (super-user-only in practice).
  */
 
 const DOMAIN = "@roseandco.com"
@@ -93,7 +91,7 @@ export default async function UsersRolesPage() {
   return (
     <PageShell
       title="Users & Roles"
-      description="Staging only — assignments here do not affect real access yet."
+      description="Live — the role set here controls what each person can access."
     >
       <UsersView users={users} missingTable={missingTable} />
     </PageShell>

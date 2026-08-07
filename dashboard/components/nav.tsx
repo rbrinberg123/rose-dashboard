@@ -14,7 +14,7 @@ import {
   LogOut,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { canAccessRoute, type Role } from "@/lib/access-control"
+import { canAccessRoute, type ViewAsRole } from "@/lib/access-control"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -179,27 +179,29 @@ function Section({
 function NavContents({
   pathname,
   role,
+  allowedRoutes,
   onNavigate,
 }: {
   pathname: string
-  role: Role | null
+  role: ViewAsRole | null
+  allowedRoutes: readonly string[]
   onNavigate?: () => void
 }) {
-  // Drive visibility off the SAME allow-list the proxy enforces with, so the
-  // nav and the security gate can never disagree. Filter items the user can't
-  // access, then drop any section left with no items (no empty headers).
+  // Drive visibility off the SAME allowed-routes set the proxy enforces with,
+  // so the nav and the security gate can never disagree. Filter items the user
+  // can't access, then drop any section left with no items (no empty headers).
   const visible = sections
     .map((section) => ({
       ...section,
       items: (section.items ?? []).filter((item) =>
-        canAccessRoute(role, item.href),
+        canAccessRoute(role, item.href, allowedRoutes),
       ),
     }))
     .filter((section) =>
       // Header-link sections (href, no items) show if the target is allowed;
       // list sections show only when at least one child survived the filter.
       section.href
-        ? canAccessRoute(role, section.href)
+        ? canAccessRoute(role, section.href, allowedRoutes)
         : section.items.length > 0,
     )
 
@@ -230,15 +232,18 @@ function Brand() {
 export function Sidebar({
   userEmail,
   role,
+  allowedRoutes = [],
 }: {
   userEmail?: string | null
-  role?: Role | null
+  role?: ViewAsRole | null
+  /** Routes the effective role may reach (from the Roles matrix). */
+  allowedRoutes?: readonly string[]
 }) {
   const pathname = usePathname() || "/"
   const [mobileOpen, setMobileOpen] = React.useState(false)
-  // Admin is super-user-only; gate it off the same allow-list as everything
-  // else (checked against the Admin hub route).
-  const showAdmin = canAccessRoute(role ?? null, "/admin")
+  // Admin is gated by the same matrix (checked against the Admin hub route);
+  // super_user is always allowed by the canAccessRoute backstop.
+  const showAdmin = canAccessRoute(role ?? null, "/admin", allowedRoutes)
 
   // Close the mobile sheet on route change.
   React.useEffect(() => {
@@ -278,6 +283,7 @@ export function Sidebar({
               <NavContents
                 pathname={pathname}
                 role={role ?? null}
+                allowedRoutes={allowedRoutes}
                 onNavigate={() => setMobileOpen(false)}
               />
             </nav>
@@ -299,7 +305,7 @@ export function Sidebar({
           <Brand />
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
-          <NavContents pathname={pathname} role={role ?? null} />
+          <NavContents pathname={pathname} role={role ?? null} allowedRoutes={allowedRoutes} />
         </nav>
         {userEmail ? (
           <div className="border-t border-[#EDEFF3] px-3 py-3">

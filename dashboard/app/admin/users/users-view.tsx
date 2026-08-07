@@ -2,14 +2,15 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Check, Loader2, AlertTriangle } from "lucide-react"
+import { Check, Loader2, AlertTriangle, Eye, Info } from "lucide-react"
 import { toast } from "sonner"
 
 import { CARD_CLASS, CONTROL_STYLE, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
 import { setUserRole } from "./actions"
+import { setViewAsUserAction } from "@/app/view-as-actions"
 
 /** null === "None" (no staged grant). */
-export type RoleValue = "user" | "logistics" | "super_user" | null
+export type RoleValue = "user" | "client_manager" | "logistics" | "super_user" | null
 
 export type UserRow = {
   email: string
@@ -20,26 +21,28 @@ export type UserRow = {
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "None" },
   { value: "user", label: "User" },
+  { value: "client_manager", label: "Client Manager" },
   { value: "logistics", label: "Logistics" },
   { value: "super_user", label: "Super User" },
 ]
 
 // Granted-role pill styling + sort priority. Higher-privilege roles float
 // first; None has no pill and the lowest priority. Tints reuse the site
-// palette (navy / brand-blue / money-green) so pills read as part of the
-// system.
+// palette (navy / brand-blue / violet / money-green) so pills read as part of
+// the system.
 const ROLE_META: Record<
   Exclude<RoleValue, null>,
   { label: string; rank: number; bg: string; text: string }
 > = {
   super_user: { label: "Super User", rank: 0, bg: "#E6E9F5", text: "#1E2858" },
   logistics: { label: "Logistics", rank: 1, bg: "#E7F1FB", text: "#0355A7" },
-  user: { label: "User", rank: 2, bg: "#EAF3EE", text: "#0E7C56" },
+  client_manager: { label: "Client Manager", rank: 2, bg: "#F3ECFB", text: "#6B3FA0" },
+  user: { label: "User", rank: 3, bg: "#EAF3EE", text: "#0E7C56" },
 }
 
-/** Sort key: granted roles first (Super User → Logistics → User), then None. */
+/** Sort key: granted roles first (Super User → Logistics → Client Manager → User), then None. */
 function rank(role: RoleValue): number {
-  return role === null ? 3 : ROLE_META[role].rank
+  return role === null ? 4 : ROLE_META[role].rank
 }
 
 type SaveState = "idle" | "saving" | "saved"
@@ -128,16 +131,18 @@ export function UsersView({
         </label>
       </div>
 
-      {/* Staging notice */}
+      {/* Live notice */}
       <div
-        className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-xs"
-        style={{ color: "#92600B" }}
+        className="flex items-start gap-2 rounded-lg border border-[#BBD5F0] bg-[#EEF5FC] p-3 text-xs"
+        style={{ color: "#0355A7" }}
       >
-        <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+        <Info className="mt-0.5 size-4 shrink-0" />
         <p>
-          <span className="font-medium">Staging only.</span> Roles assigned here are saved to a
-          decoupled table and have <span className="font-medium">no effect</span> on what anyone can
-          access. Enforcement is unchanged until a separate go-live step points at these grants.
+          <span className="font-medium">Live.</span> The role you set here controls what each
+          person can access (a person with <span className="font-medium">None</span> can reach
+          nothing). Which pages each role sees is configured in{" "}
+          <span className="font-medium">Roles</span>. Changes take effect on the user&apos;s next
+          page load.
         </p>
       </div>
 
@@ -185,6 +190,21 @@ export function UsersView({
                     </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
+                    {/* View as this person — super-user testing. Posts the email
+                        to the server action (which re-checks the real role),
+                        sets the view_as_user cookie, and redirects into their
+                        view. The top banner is the always-present way back. */}
+                    <form action={setViewAsUserAction}>
+                      <input type="hidden" name="email" value={u.email} />
+                      <button
+                        type="submit"
+                        title={`View the app as ${u.name}`}
+                        className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-[#5B6472] transition-colors hover:bg-[#F4F6F9] hover:text-[#1E2858]"
+                      >
+                        <Eye className="size-3.5" />
+                        <span className="hidden sm:inline">View as</span>
+                      </button>
+                    </form>
                     {meta ? (
                       <span
                         className="hidden rounded-full px-2 py-0.5 text-[11px] font-medium sm:inline"

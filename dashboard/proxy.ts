@@ -1,7 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { getSupabaseProxy } from "@/lib/supabase/proxy"
-import { canAccessRoute, USER_HOME_ROUTE } from "@/lib/access-control"
-import { getUserRole } from "@/lib/user-role"
+import {
+  canAccessRoute,
+  VIEW_AS_COOKIE,
+  VIEW_AS_USER_COOKIE,
+} from "@/lib/access-control"
+import { getRealRole } from "@/lib/user-role"
+import { resolveEffective } from "@/lib/impersonation"
+import { getAllowedRoutes } from "@/lib/page-access"
 
 /**
  * Auth proxy. Runs before every page render (matcher below excludes
@@ -62,16 +68,29 @@ export async function proxy(request: NextRequest) {
 
   // Authenticated. Enforce role-based access (deny-by-default). This is the
   // real security boundary — it runs server-side before any page renders, so
-  // it also blocks users who type a restricted URL directly. See
-  // lib/access-control.ts for the route allow-list.
-  const role = await getUserRole(user.email)
-  if (!canAccessRoute(role, pathname)) {
+  // it also blocks users who type a restricted URL directly.
+  //
+  // We gate on the EFFECTIVE role, so a super-user using "View as" sees the app
+  // exactly as the impersonated person/role does. resolveEffective honors the
+  // view_as cookies ONLY when the REAL role is super_user, so they can't be
+  // spoofed. (The proxy reads cookies off the request — no next/headers here.)
+  const realRole = await getRealRole(user.email)
+  const { effectiveRole: role } = await resolveEffective(
+    realRole,
+    request.cookies.get(VIEW_AS_USER_COOKIE)?.value,
+    request.cookies.get(VIEW_AS_COOKIE)?.value,
+  )
+  // Load the role's allowed routes ONCE (small query; super_user short-circuits
+  // to [] and is allowed everything by the canAccessRoute backstop).
+  const allowedRoutes = await getAllowedRoutes(role)
+  if (!canAccessRoute(role, pathname, allowedRoutes)) {
     const url = request.nextUrl.clone()
     url.search = ""
-    // A user WITH a role ('user') who hit a restricted route → send them to
-    // their Logistics home. A user with NO role (signed in but not in the
-    // user_roles table) → the "request access" landing page.
-    url.pathname = role ? USER_HOME_ROUTE : "/no-access"
+    // Land them on the first page their role CAN reach (allowedRoutes is ordered
+    // by the page registry), else the always-allowed "request access" screen —
+    // from which the View-as banner's Exit is still reachable. This replaces the
+    // old fixed USER_HOME_ROUTE and can never redirect-loop.
+    url.pathname = allowedRoutes[0] ?? "/no-access"
     return NextResponse.redirect(url)
   }
 

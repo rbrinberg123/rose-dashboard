@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { getUserRole } from "@/lib/user-role"
 import { canAccessRoute, type Role } from "@/lib/access-control"
+import { getAllowedRoutes } from "@/lib/page-access"
 
 /**
  * Auth guard for API route handlers.
@@ -48,9 +49,9 @@ export async function requireSuperUser(): Promise<ApiAuthResult> {
 /**
  * Auth guard for a route serving data behind a specific page. Allows any
  * signed-in caller whose role can access `route`, using the SAME canAccessRoute
- * check as proxy.ts and the nav — so an API can never disagree with the
- * page-level allow-list (a plain 'user' reaches it iff `route` is in
- * USER_ALLOWED_ROUTES; a super_user always does).
+ * check + role_page_access matrix as proxy.ts and the nav — so an API can never
+ * disagree with page-level access (a role reaches it iff the matrix grants
+ * `route`; a super_user always does).
  *
  *   - 401 when there is no valid session (signed out)
  *   - 403 when signed in but the caller's role cannot access `route`
@@ -69,7 +70,8 @@ export async function requireRouteAccess(route: string): Promise<ApiAuthResult> 
   }
 
   const role = await getUserRole(user.email)
-  if (!role || !canAccessRoute(role, route)) {
+  const allowedRoutes = await getAllowedRoutes(role)
+  if (!role || !canAccessRoute(role, route, allowedRoutes)) {
     return {
       ok: false,
       response: NextResponse.json({ error: "Forbidden" }, { status: 403 }),

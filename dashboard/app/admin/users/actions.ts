@@ -9,24 +9,22 @@ import { requireSuperUser } from "@/lib/api-auth"
 const PATH = "/admin/users"
 
 /**
- * Roles that may be STAGED in public.user_role_grants. This is intentionally a
- * different set from the live `Role` type ("super_user" | "user") in
- * lib/access-control.ts — the staging table has its own CHECK constraint and
- * adds a "logistics" option that does not exist in enforcement yet.
+ * The roles that may be assigned in public.user_role_grants — the four live
+ * roles (matching the `Role` type in lib/access-control.ts). This is now the
+ * LIVE role source: getRealRole reads this table, so a change here changes what
+ * the person can access on their next page load.
  *
- * IMPORTANT: nothing in this file touches the live `user_roles` table,
- * proxy.ts, canAccessRoute, or getUserRole. Writes here have ZERO effect on
- * what anyone can access — this is a staging screen only (see the /admin/users
- * page comment and docs 01-access-and-users.md).
+ * NB the user_role_grants CHECK constraint must permit each of these values;
+ * "client_manager" was added alongside a constraint update (see docs).
  */
-const STAGED_ROLES = ["user", "logistics", "super_user"] as const
+const STAGED_ROLES = ["user", "client_manager", "logistics", "super_user"] as const
 export type StagedRole = (typeof STAGED_ROLES)[number]
 
 /** "None" is represented by the ABSENCE of a row — passed from the client as null. */
 export type RoleSelection = StagedRole | null
 
 /**
- * Stage a role grant for one @roseandco.com user in public.user_role_grants.
+ * Set the live role for one @roseandco.com user in public.user_role_grants.
  *
  *   - Super-user gated (mirrors admin/sync + reconciliation: reuses the same
  *     requireSuperUser guard the API routes use).
