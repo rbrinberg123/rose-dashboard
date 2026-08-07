@@ -11,8 +11,8 @@ export default function UsersRolesError({
 }) {
   return (
     <ErrorState
-      title="Users & Roles"
-      description="Staging only — assignments here do not affect real access yet."
+      title="Users"
+      description="Live — roles and data scopes set here control real access."
       error={error}
       reset={reset}
     />

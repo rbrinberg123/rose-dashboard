@@ -28,6 +28,31 @@ export type UserScopes = {
 /** A resolved client filter: `null` = no filter (see all), else the allowed set. */
 export type ClientScope = Set<string> | null
 
+/** Shape of a `public.user_data_scopes` row (snake_case columns). */
+export type UserDataScopeRow = {
+  scope_all?: boolean | null
+  account_mgmt?: boolean | null
+  booker?: boolean | null
+  host?: boolean | null
+  feedback?: boolean | null
+}
+
+/**
+ * Map a persisted `user_data_scopes` row to the `UserScopes` the resolver uses.
+ * A missing row (`null`) → all deny (deny-by-default). PURE, so the save→read
+ * round-trip is unit-testable. This is the ONE place the table's column shape
+ * is translated, so the UI-write and resolver-read can never diverge.
+ */
+export function scopesFromRow(row: UserDataScopeRow | null | undefined): UserScopes {
+  return {
+    all: !!row?.scope_all,
+    accountMgmt: !!row?.account_mgmt,
+    booker: !!row?.booker,
+    host: !!row?.host,
+    feedback: !!row?.feedback,
+  }
+}
+
 export function decideClientScope(
   scopes: UserScopes,
   teamAccountIds: readonly string[] | null,

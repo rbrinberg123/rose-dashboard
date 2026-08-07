@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { decideClientScope } from "./client-scope-policy.ts"
+import { decideClientScope, scopesFromRow } from "./client-scope-policy.ts"
 
 const NONE = {
   all: false,
@@ -39,4 +39,46 @@ test("Account-Management user on no teams sees none (empty set)", () => {
   const scope = decideClientScope({ ...NONE, accountMgmt: true }, [])
   assert.ok(scope instanceof Set)
   assert.equal(scope.size, 0)
+})
+
+// --- Activation: the persisted user_data_scopes row drives enforcement --------
+
+test("save→read round-trip: a persisted Account-Management row is honored by the loader decision", () => {
+  // The row shape Admin → Users writes (bsmith: account_mgmt + meeting scopes).
+  const persistedRow = {
+    scope_all: false,
+    account_mgmt: true,
+    booker: true,
+    host: true,
+    feedback: true,
+  }
+  const scopes = scopesFromRow(persistedRow)
+  assert.deepEqual(scopes, {
+    all: false,
+    accountMgmt: true,
+    booker: true,
+    host: true,
+    feedback: true,
+  })
+  // With a scope assigned, the user sees exactly their scoped account ids.
+  const scope = decideClientScope(scopes, ["acc-1", "acc-2", "acc-3"])
+  assert.deepEqual([...scope].sort(), ["acc-1", "acc-2", "acc-3"])
+})
+
+test("deny-by-default: a missing row (nobody assigned) → sees none", () => {
+  const scope = decideClientScope(scopesFromRow(null), ["acc-1"])
+  assert.ok(scope instanceof Set)
+  assert.equal(scope.size, 0) // account_mgmt is false → no client rows
+})
+
+test("meeting-only assignment (no account_mgmt) sees no CLIENT rows (client-level is deny)", () => {
+  // jlaverty-style: booker/host/feedback only, account_mgmt false.
+  const scopes = scopesFromRow({ account_mgmt: false, booker: true, host: true, feedback: true })
+  assert.equal(decideClientScope(scopes, ["acc-1", "acc-2"]).size, 0)
+})
+
+test("Super-bypass lockout guard: an `all` row → null (sees everything), never denied", () => {
+  const scopes = scopesFromRow({ scope_all: true })
+  assert.equal(scopes.all, true)
+  assert.equal(decideClientScope(scopes, []), null)
 })

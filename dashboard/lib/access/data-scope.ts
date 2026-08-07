@@ -4,6 +4,7 @@ import type { EffectiveIdentity } from "@/lib/effective-identity"
 import { loadIdentity } from "./identity"
 import {
   decideClientScope,
+  scopesFromRow,
   type ClientScope,
   type UserScopes,
 } from "./client-scope-policy"
@@ -32,9 +33,14 @@ const DENY_SCOPES: UserScopes = {
 }
 
 /**
- * Read a person's data scopes from `user_data_scopes` (keyed by lower-cased
- * email). A Super User is always `{ all: true }` regardless of any row. No row
- * (and not super) → all false (deny).
+ * Read a person's LIVE data scopes from `user_data_scopes` (keyed by lower-cased
+ * email) — the same table the Admin → Users checkboxes write to.
+ *
+ * LOCKOUT GUARD: a Super User is ALWAYS `{ all: true }` regardless of any row
+ * (short-circuits before the table read), so activating scope enforcement can
+ * never lock a super out. No row (and not super) → all false (deny-by-default),
+ * and that denial is LOGGED — never silent — so a mass "nobody assigned" state
+ * is visible rather than a quiet global lockout.
  */
 export async function getUserScopes(
   email: string | null | undefined,
@@ -51,14 +57,17 @@ export async function getUserScopes(
     .select("scope_all, account_mgmt, booker, host, feedback")
     .eq("email", email.trim().toLowerCase())
     .maybeSingle()
-  if (error || !data) return DENY_SCOPES
-  return {
-    all: !!data.scope_all,
-    accountMgmt: !!data.account_mgmt,
-    booker: !!data.booker,
-    host: !!data.host,
-    feedback: !!data.feedback,
+  if (error) {
+    console.error("[data-scope] user_data_scopes read failed for", email, "—", error.message)
+    return DENY_SCOPES
   }
+  if (!data) {
+    console.warn(
+      `[data-scope] no data-scope row for ${email} — denying by default (Level-2 scoping is LIVE; assign scopes on Admin → Users).`,
+    )
+    return DENY_SCOPES
+  }
+  return scopesFromRow(data)
 }
 
 /**

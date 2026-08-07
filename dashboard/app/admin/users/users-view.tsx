@@ -39,7 +39,7 @@ export type UserRow = {
   email: string
   name: string
   role: RoleValue
-  /** Level-2 data scopes (staging only — see actions.ts). */
+  /** Level-2 data scopes (Account Management is enforced; see actions.ts). */
   scopes: DataScopes
   /** Shared/service mailbox row — tagged, never resolved to a login. */
   service: boolean
@@ -379,16 +379,18 @@ export function UsersView({
 
       {/* Data-scope staging notice */}
       <div
-        className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-xs"
-        style={{ color: "#92600B" }}
+        className="flex items-start gap-2 rounded-lg border border-[#BBD5F0] bg-[#EEF5FC] p-3 text-xs"
+        style={{ color: "#0355A7" }}
       >
-        <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+        <Info className="mt-0.5 size-4 shrink-0" />
         <p>
-          <span className="font-medium">Data scope — staging only.</span> The scope checkboxes below
-          each person record their <span className="font-medium">intended</span> row-level data
-          access (which clients/meetings they can see) and{" "}
-          <span className="font-medium">change no visible data yet</span>. Enforcement in the page
-          loaders comes in a later phase.
+          <span className="font-medium">Data scope — enforced.</span>{" "}
+          <span className="font-medium">Account Management</span> now controls which clients a
+          person sees on the client pages (Portfolio, Client Detail, NDRS Calendar, Onboarding):
+          nothing checked = no client rows (deny-by-default); Super Users always see everything.
+          Changes take effect on the user&apos;s next page load.{" "}
+          <span className="font-medium">Booker / Host / Feedback</span> (meeting-level) are recorded
+          here but enforced in a later pass.
         </p>
       </div>
 
@@ -516,7 +518,7 @@ export function UsersView({
                   </div>
                   </div>
 
-                  {/* Level-2 data scopes (staging only — recorded, not enforced) */}
+                  {/* Level-2 data scopes — Account Management enforced on client pages */}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                     <span
                       className="font-medium uppercase tracking-wide"

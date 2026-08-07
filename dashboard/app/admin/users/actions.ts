@@ -77,21 +77,24 @@ export async function setUserRole(
 }
 
 // ---------------------------------------------------------------------------
-// Level-2 data scopes (STAGING ONLY — no enforcement yet)
+// Level-2 data scopes — LIVE for Account Management (client pages)
 // ---------------------------------------------------------------------------
 
 /**
- * A person's intended row-level data scopes. Recorded now; NOT yet read by any
- * loader, proxy.ts, or canAccessRoute — this only stages intent. Enforcement in
- * the page loaders is a later Phase-3 change.
+ * A person's row-level data scopes. `public.user_data_scopes` is the single
+ * source of truth: this action writes it and `getUserScopes`
+ * (lib/access/data-scope.ts) reads the SAME table to enforce.
  *
  *   - all          → no row filtering (see everything on any page they can open).
  *                    Overrides the other four. Implied+locked for super_user.
  *   - account_mgmt → client-level: clients where they're on the account team.
+ *                    ENFORCED on the client pages (Portfolio, Client Detail,
+ *                    NDRS Calendar, Onboarding).
  *   - booker/host/feedback → meeting-level: meetings where they are the
- *                    booker / host / feedback assignee.
+ *                    booker / host / feedback assignee. RECORDED here; enforced
+ *                    in a later pass.
  *
- * PHASE-3 ENFORCEMENT REFERENCE (mapping to wire up later — NOT wired here):
+ * ENFORCEMENT MAPPING (client-level is wired; meeting-level is the later pass):
  *   - Account Management team = accounts.sales_lead_primary_id,
  *     secondary_manager_id, associate_id, logistics_coordinator_id
  *     (EXCLUDE `owner`).
@@ -110,12 +113,12 @@ export type DataScopes = {
 
 /**
  * Persist one @roseandco.com user's Level-2 data scopes to
- * public.user_data_scopes (STAGING — read by nothing yet).
+ * public.user_data_scopes — the LIVE table `getUserScopes` reads to enforce.
  *
  *   - Super-user gated (reuses requireSuperUser, like setUserRole).
  *   - Validates the @roseandco.com domain server-side.
  *   - UPSERTs the full scope set (email is the PRIMARY KEY), stamping
- *     updated_by/at. All-false is stored explicitly (deny).
+ *     updated_by/at. All-false is stored explicitly (deny-by-default).
  *   - revalidatePath so the roster reflects the saved state on the next render.
  */
 export async function setUserDataScopes(

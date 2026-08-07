@@ -158,19 +158,19 @@ ALTER TABLE public.user_role_grants ADD CONSTRAINT user_role_grants_role_check
 
 Until the table exists, the page renders the full roster with everyone at **None** and shows a notice that saves will fail (the loader treats "table not found" as an empty, non-fatal state).
 
-### Level-2 data scopes (Admin → Users — **staging only**)
+### Level-2 data scopes (Admin → Users — **Account Management enforced**)
 
-Each user row also has a second line of **data-scope** checkboxes: **All · Account Mgmt · Booker · Host · Feedback**. Where a role (Level 1) decides *which pages* a person can open, data scopes (Level 2) are intended to decide *which rows on those pages* they can see.
+Each user row also has a second line of **data-scope** checkboxes: **All · Account Mgmt · Booker · Host · Feedback**. Where a role (Level 1) decides *which pages* a person can open, data scopes (Level 2) decide *which rows on those pages* they see.
 
-> **STAGING ONLY — enforced by nothing yet.** These checkboxes record each person's *intended* row-level access. No page loader, `proxy.ts`, or `canAccessRoute` reads `user_data_scopes` — nothing visible changes. Enforcement in the loaders is a later **Phase-3** change.
+> **LIVE (Account Management).** `public.user_data_scopes` is the **single source of truth**: the checkboxes here **write** it and the loaders **read** it (`getUserScopes` → `resolveClientScope`) to enforce. **Account Management** is enforced on the client pages now (Portfolio, Client Detail, NDRS Calendar, Onboarding). **Booker / Host / Feedback** (meeting-level) are recorded but enforced in a later pass. Changes take effect on the user's **next page load**.
 
 - **All** — no row filtering: they see every row on any page they can open. When checked it **overrides and dims** the other four.
-- **Account Mgmt** — client-level: clients where they're on the account team.
-- **Booker / Host / Feedback** — meeting-level: meetings where they are the booker / host / feedback assignee.
-- **Super User** rows show **All** implied and **locked on** (the checkboxes are disabled).
-- Everyone else defaults to **unchecked** (deny), freely editable. Each toggle saves immediately through a super-user-gated server action (`dashboard/app/admin/users/actions.ts`, `setUserDataScopes` → `requireSuperUser`, domain-validated, upsert, `revalidatePath`).
+- **Account Mgmt** — client-level: clients where they're on the account team. **Enforced.**
+- **Booker / Host / Feedback** — meeting-level: meetings where they are the booker / host / feedback assignee. **Recorded; Pass-2.**
+- **Super User** rows show **All** implied and **locked on** (the checkboxes are disabled) — and Super Users **always bypass** scope enforcement, so activating scopes can never lock a super out.
+- Everyone else defaults to **unchecked** (**deny-by-default** — nothing checked = no client rows), freely editable. Each toggle saves immediately through a super-user-gated server action (`dashboard/app/admin/users/actions.ts`, `setUserDataScopes` → `requireSuperUser`, domain-validated, upsert, `revalidatePath`). A non-super with **no** row is denied and that denial is **logged** (never a silent lockout).
 
-Create the staging table once in the Supabase SQL editor:
+Create the table once in the Supabase SQL editor:
 
 ```sql
 CREATE TABLE IF NOT EXISTS public.user_data_scopes (
