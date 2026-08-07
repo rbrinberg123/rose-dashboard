@@ -6,10 +6,10 @@ Everyone signs in with a **magic link** — you type your email, get a link, cli
 
 Once signed in, access is controlled entirely from **two Admin screens** — no code change needed:
 
-- **Admin → Users & Roles** gives each person a **role**: Super User, Client Manager, Logistics, User, or **None**.
+- **Admin → Users** gives each person a **role**: Super User, Client Manager, Logistics, User, or **None**.
 - **Admin → Roles** is a grid that says, for each role, **which pages that role can see**.
 
-So a person's access = *their role* (from Users & Roles) → *the pages that role is allowed* (from the Roles grid). Put together:
+So a person's access = *their role* (from the Users page) → *the pages that role is allowed* (from the Roles grid). Put together:
 
 - **Super User** — sees everything, always (a hard rule the grid can't turn off).
 - **Any other role** — sees exactly the pages checked for it in the Roles grid, and nothing else.
@@ -22,7 +22,7 @@ The rule is **deny-by-default**: a page is blocked for a role unless its box is 
 Super-users have two related testing tools, both super-user-only and both invisible to everyone else:
 
 - **View as role** — on the **Admin** page, a small dropdown (Super User / Client Manager / Logistics / User) + **Apply**. Previews an *abstract* role.
-- **View as person** — on **Admin → Users & Roles**, each row has a small **"View as"** button. Previews the app as *that specific person*, using **their** real role. Most people have no role yet, so viewing as them correctly shows the "no access" experience — which is a valid, useful test.
+- **View as person** — on **Admin → Users**, each row has a small **"View as"** button. Previews the app as *that specific person*, using **their** real role. Most people have no role yet, so viewing as them correctly shows the "no access" experience — which is a valid, useful test.
 
 Either way, the whole app — the sidebar and every page — instantly behaves as if you *were* that role/person: pages they can't see disappear and become blocked. A thin **amber banner is pinned across the top of every page** while active — e.g. "👁 Viewing as Jane Smith — Logistics — Exit view", or "👁 Viewing as User (role) — Exit view". The **Exit view** button always returns you to your normal super-user view — even when viewing as someone who can't reach Admin — so you can never get stuck. The two modes are mutually exclusive; starting one clears the other, and Exit clears both.
 
@@ -94,7 +94,7 @@ A super-user can preview the app as an abstract **role** or as a specific **pers
 `proxy.ts`, `canAccessRoute`, and the nav all gate on the **effective role** (and its `getAllowedRoutes`), so the whole app (route gating + sidebar) reflects the viewed-as person/role. A person's effective role is **their** `getRealRole` — often `null` or a role with few grants, which correctly yields the "no access" or reduced experience.
 
 - **The cookies** — `view_as_user` (`VIEW_AS_USER_COOKIE`, an `@roseandco.com` email) and `view_as` (`VIEW_AS_COOKIE`, a role). Both are **httpOnly**, `sameSite=lax`, `path=/`, and `secure` in production (relaxed in dev so they work over `http://localhost`). Read **server-side** only; client state is never trusted. The two modes are mutually exclusive — setting one clears the other.
-- **Entry points** — a per-row **"View as"** button on **Admin → Users & Roles** (`dashboard/app/admin/users/users-view.tsx` → `setViewAsUserAction`), and the **"View as role"** dropdown on the Admin hub (`dashboard/app/admin/page.tsx`, `ViewAsControl` → `setViewAsAction`). Neither is in the main nav.
+- **Entry points** — a per-row **"View as"** button on **Admin → Users** (`dashboard/app/admin/users/users-view.tsx` → `setViewAsUserAction`), and the **"View as role"** dropdown on the Admin hub (`dashboard/app/admin/page.tsx`, `ViewAsControl` → `setViewAsAction`). Neither is in the main nav.
 - **Banner** — while either cookie is active, `dashboard/components/view-as-banner.tsx` renders a slim banner pinned to the top of every page, from the **root layout** (outside the sidebar, which hides itself on some pages). The layout builds the label ("Viewing as {Name} — {role or 'No role'}"). Its **Exit view** button posts to `exitViewAsAction`.
 - **Actions** — `dashboard/app/view-as-actions.ts`. `setViewAsAction`, `setViewAsUserAction`, and `exitViewAsAction` all authorize off `getRealRole` (via `requireSuperUser`), **never** the effective role — so you can always exit even while viewing as someone with no access, and a non-super holding a stray cookie is ignored. Exit clears **both** cookies.
 
@@ -106,11 +106,24 @@ A super-user can preview the app as an abstract **role** or as a specific **pers
 
 The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx`, the `HIDDEN_PAGES` array) that links to routes parked off the main nav — currently `/pipeline`, `/relationships`, and `/conference-rooms`. Those pages are super-user-only purely because Admin is; the pages themselves keep their own routes. To park another page later, add one `{ href, label }` line to `HIDDEN_PAGES`.
 
-### Users & Roles (Admin → **live**)
+### Users (Admin → **live**)
 
 `/admin/users` (`dashboard/app/admin/users/`) lists every **active `@roseandco.com`** person from the `users` mirror table (Dynamics system users — filtered `is_active = true` and email ending `@roseandco.com`) and lets a super-user set a role for each: **None** (no grant), **User**, **Client Manager**, **Logistics**, or **Super User**. Each row shows the name (bold) and email on one line; changing a selector saves immediately (with a small updating/saved state).
 
 Granted users **float to the top**, ordered Super User → Logistics → Client Manager → User (each carrying a small colored role pill), with the **None** rows muted below, alphabetical by name. A summary line up top reads e.g. "N users · N granted · N none", and a **"Show granted only"** checkbox hides the None rows so you can review just who's assigned.
+
+#### "Resolves?" identity-mapping indicator (display-only)
+
+Every relationship-based data scope (Level 2) depends on mapping a person's **login email** to a CRM `users.user_id`. As a pre-flight check, each row shows a small badge inline at the end of the email line reporting whether that email resolves to exactly one `users` row. It is computed **server-side** (service-role client) by matching the login email, **case-insensitively and trimmed, against BOTH `users.email` and `users.internalemailaddress`** — and is **display-only**: it reads nothing into enforcement, `proxy.ts`, `canAccessRoute`, `getUserRole`, or any loader.
+
+| Badge | Meaning |
+|-------|---------|
+| ✅ green check | Resolves to **exactly one** `users` row. Hover shows the matched `user_id` and CRM full name. |
+| 🟠 amber **No match** | The email matches **no** `users` row. |
+| 🟠 amber **Duplicate (N)** | The email matches **more than one** `users` row (ambiguous) — shows the count. |
+| ⚪ grey **—** | No email on file / blank (rare here — the roster is already email-filtered). |
+
+A tiny summary line above the table reads e.g. **"Identity mapping: X of Y resolve · Z no-match · W duplicate."** The mapping/index lives in `loadIdentityIndex` (`dashboard/app/admin/users/page.tsx`), and the badge/summary render in `users-view.tsx` (`ResolveBadge`). This is a diagnostic to run before Level-2 data-scope enforcement is wired — it changes nothing.
 
 > **Live.** The role set here is the value `getRealRole` reads, so it controls what that person can access on their **next page load**. Grants are written to `public.user_role_grants` (keyed by lower-cased email); selecting **None** deletes the row (→ no role → no access beyond the always-allowed infra routes).
 
@@ -166,16 +179,31 @@ CREATE TABLE IF NOT EXISTS public.user_data_scopes (
 ALTER TABLE public.user_data_scopes ENABLE ROW LEVEL SECURITY;
 ```
 
-**Phase-3 enforcement reference** (the mapping to wire up later — recorded here and in an `actions.ts` comment, **not** wired):
+**Enforcement mapping** — each scope matches rows where the person's `users.user_id` is:
 
-| Scope | Match rows where the person's `users.user_id` is… |
-|-------|---------------------------------------------------|
-| Account Mgmt | `accounts.sales_lead_primary_id`, `secondary_manager_id`, `associate_id`, or `logistics_coordinator_id` (**exclude** `owner`) |
-| Booker | `meetings.booker_id` |
-| Host | `meetings.host_id` |
-| Feedback | `meetings.feedback_id` |
+| Scope | Match | Status |
+|-------|-------|--------|
+| Account Mgmt | `accounts.sales_lead_primary_id`, `secondary_manager_id`, `associate_id`, or `logistics_coordinator_id` (**exclude** `owner`) | **LIVE** on the client pages (below) |
+| Booker | `meetings.booker_id` | Pass 2 — not wired |
+| Host | `meetings.host_id` | Pass 2 — not wired |
+| Feedback | `meetings.feedback_id` | Pass 2 — not wired |
 
-All resolve against the **login-email → `users.user_id`** mapping.
+All resolve against the **login-email → `users.user_id`** mapping (matched case-insensitively + trimmed against **both** `users.email` and `users.internalemailaddress`).
+
+#### Level-2 client scoping (Account Management) — **LIVE**
+
+The resolver lives in `dashboard/lib/access/`:
+
+- `client-scope-policy.ts` — the **pure** decision (unit-tested via `npm test`, Node's built-in runner): given a user's scopes + their account-team ids → `null` (see all), a `Set` of account ids (see only those), or an empty `Set` (see none).
+- `data-scope.ts` — the I/O: `getUserScopes(email)` (Super User ⇒ `{ all: true }`; no row ⇒ all false), `resolveClientScope(user)` (driven off `getEffectiveIdentity`, so **View as {person}** tests it). **Fail-closed**: if the login email can't resolve to exactly one `users.user_id` (zero or ambiguous), it returns an empty Set (deny), never `null`.
+
+`resolveClientScope` returns:
+
+- `null` → **no filter** (Super User, or anyone with **All**) — pages render unchanged.
+- a **Set of account ids** → the loader filters to `account_id ∈ set` (on the NDRS Calendar view the client key is `client_account_id`).
+- an **empty Set** → the loader renders a friendly "no clients assigned to you" state.
+
+Enforcement is server-side in the loaders only (the service-role key bypasses RLS, so the loader is the gate). Wired into: **Portfolio** (`v_client_portfolio`), **Client Detail** (`v_client_detail_summary` — and a direct URL to an out-of-scope client is blocked), **NDRS Calendar** (`v_marketing_calendar`), **Onboarding** (`v_client_onboarding`), and **Client Statistics** (whole-book aggregate — blocked entirely for any scoped, non-`null` user). Meeting-level pages (Profiles, Feedback, meeting lists) are **not** touched — that's Pass 2.
 
 ### Roles matrix (Admin → **live**)
 

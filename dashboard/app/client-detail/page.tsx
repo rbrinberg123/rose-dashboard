@@ -12,6 +12,9 @@ import type {
   ClientDetailTopInstitutionRow,
   ClientDetailTouchpointRow,
 } from "@/lib/types"
+import { getEffectiveIdentity } from "@/lib/effective-identity"
+import { resolveClientScope } from "@/lib/access/data-scope"
+import { NoClientsAssigned, ClientNotInScope } from "@/components/scoped-empty"
 import { ClientDetailView } from "./client-detail-view"
 
 export const dynamic = "force-dynamic"
@@ -26,10 +29,31 @@ export default async function ClientDetailPage({
   const sb = getSupabaseServer()
   const { account_id: requestedId } = await searchParams
 
-  const summaryRes = await sb
+  // Level-2 client scoping (Account Management). null = all; Set = only those; empty = none.
+  const scope = await resolveClientScope(await getEffectiveIdentity())
+  if (scope && scope.size === 0) {
+    return (
+      <PageShell title="Client Detail">
+        <NoClientsAssigned />
+      </PageShell>
+    )
+  }
+  // Block a direct URL to a client outside the user's scope — a scoped user must
+  // not be able to reach an unassigned client by guessing/pasting its id.
+  if (scope && requestedId && !scope.has(requestedId)) {
+    return (
+      <PageShell title="Client Detail">
+        <ClientNotInScope />
+      </PageShell>
+    )
+  }
+
+  let summaryQuery = sb
     .from("v_client_detail_summary")
     .select("*")
     .order("client_name", { ascending: true })
+  if (scope) summaryQuery = summaryQuery.in("account_id", [...scope])
+  const summaryRes = await summaryQuery
 
   if (summaryRes.error) {
     return (

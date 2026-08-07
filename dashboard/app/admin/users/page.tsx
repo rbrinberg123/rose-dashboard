@@ -1,13 +1,15 @@
 import type { Metadata } from "next"
+import Link from "next/link"
 
 import { PageShell } from "@/components/page-shell"
+import { buttonVariants } from "@/components/ui/button"
 import { getSupabaseServer } from "@/lib/supabase"
-import { UsersView, type UserRow, type RoleValue } from "./users-view"
+import { UsersView, type UserRow, type RoleValue, type Resolution } from "./users-view"
 import type { DataScopes } from "./actions"
 
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = { title: "Users & Roles" }
+export const metadata: Metadata = { title: "Users" }
 
 /*
  * Admin → Users & Roles — LIVE.
@@ -91,10 +93,56 @@ async function loadScopes(
   return { scopes, missingTable: false }
 }
 
+type IdentityRow = {
+  user_id: string
+  display_name: string | null
+  email: string | null
+  internalemailaddress: string | null
+}
+
+/**
+ * DISPLAY-ONLY identity-mapping index for the "Resolves?" indicator.
+ *
+ * Builds normalized-login-email → the DISTINCT `users` rows (by user_id) it maps
+ * to, matching case-insensitively + trimmed against BOTH `users.email` and
+ * `users.internalemailaddress`. This is the same email→user_id mapping every
+ * relationship-based data scope will rely on, surfaced here as a pre-flight
+ * check. It reads nothing into enforcement, proxy.ts, canAccessRoute, or any
+ * loader gating — it only powers a badge.
+ *
+ * Fails soft: on error returns an empty index (badges show "No match") rather
+ * than crashing the page.
+ */
+async function loadIdentityIndex(
+  sb: ReturnType<typeof getSupabaseServer>,
+): Promise<Map<string, { userId: string; name: string }[]>> {
+  const index = new Map<string, { userId: string; name: string }[]>()
+  const { data, error } = await sb
+    .from("users")
+    .select("user_id, display_name, email, internalemailaddress")
+  if (error) return index
+  for (const u of (data ?? []) as IdentityRow[]) {
+    const entry = {
+      userId: u.user_id,
+      name: u.display_name?.trim() || u.email?.trim() || u.user_id,
+    }
+    for (const raw of [u.email, u.internalemailaddress]) {
+      const k = raw?.trim().toLowerCase()
+      if (!k) continue
+      const list = index.get(k) ?? []
+      // Count each users row ONCE per email key (email may equal
+      // internalemailaddress) — dedupe by user_id so that isn't a false dup.
+      if (!list.some((x) => x.userId === entry.userId)) list.push(entry)
+      index.set(k, list)
+    }
+  }
+  return index
+}
+
 export default async function UsersRolesPage() {
   const sb = getSupabaseServer()
 
-  const [usersRes, grantsRes, scopesRes] = await Promise.all([
+  const [usersRes, grantsRes, scopesRes, identityIndex] = await Promise.all([
     sb
       .from("users")
       .select("display_name, email")
@@ -103,11 +151,12 @@ export default async function UsersRolesPage() {
       .order("display_name", { ascending: true }),
     loadGrants(sb),
     loadScopes(sb),
+    loadIdentityIndex(sb),
   ])
 
   if (usersRes.error) {
     return (
-      <PageShell title="Users & Roles" description="Stage a role for each staff member">
+      <PageShell title="Users" description="Stage a role for each staff member">
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
           <div className="font-medium text-destructive">Could not load users</div>
           <div className="mt-1 text-muted-foreground">{usersRes.error.message}</div>
@@ -129,20 +178,40 @@ export default async function UsersRolesPage() {
     const key = email.toLowerCase()
     if (!key.endsWith(DOMAIN) || seen.has(key)) continue
     seen.add(key)
+
+    // Identity-mapping check (display-only): does this login email resolve to
+    // exactly one CRM users row?
+    const matches = identityIndex.get(key) ?? []
+    const resolution: Resolution =
+      matches.length === 1
+        ? { state: "resolved", userId: matches[0].userId, name: matches[0].name }
+        : matches.length === 0
+          ? { state: "no_match" }
+          : { state: "duplicate", count: matches.length }
+
     users.push({
       email,
       name: u.display_name?.trim() || email,
       role: grants.get(key) ?? null,
       scopes: scopes.get(key) ?? DEFAULT_SCOPES,
+      resolution,
     })
   }
   users.sort((a, b) => a.name.localeCompare(b.name))
 
   return (
     <PageShell
-      title="Users & Roles"
+      title="Users"
       description="Live — the role set here controls what each person can access."
     >
+      <div className="mb-4">
+        <Link
+          href="/admin"
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          ← Back
+        </Link>
+      </div>
       <UsersView
         users={users}
         missingTable={missingTable}

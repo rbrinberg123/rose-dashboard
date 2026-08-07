@@ -1,6 +1,8 @@
 import type { Metadata } from "next"
+import Link from "next/link"
 
 import { PageShell } from "@/components/page-shell"
+import { buttonVariants } from "@/components/ui/button"
 import { getSupabaseServer } from "@/lib/supabase"
 import { RolesView } from "./roles-view"
 
@@ -50,6 +52,14 @@ export default async function RolesPage() {
       title="Roles"
       description="Live — this matrix controls which pages each role can access."
     >
+      <div className="mb-4">
+        <Link
+          href="/admin"
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          ← Back
+        </Link>
+      </div>
       <RolesView grants={grants} missingTable={missingTable} />
     </PageShell>
   )

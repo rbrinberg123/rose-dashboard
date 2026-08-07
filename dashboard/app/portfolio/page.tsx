@@ -1,6 +1,9 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
+import { getEffectiveIdentity } from "@/lib/effective-identity"
+import { resolveClientScope } from "@/lib/access/data-scope"
+import { NoClientsAssigned } from "@/components/scoped-empty"
 import type { ClientPortfolioRow } from "@/lib/types"
 import { PortfolioTable } from "./portfolio-table"
 
@@ -12,10 +15,24 @@ export const metadata: Metadata = { title: "Client Portfolio" }
 
 export default async function ClientPortfolioPage() {
   const sb = getSupabaseServer()
-  const { data, error } = await sb
+
+  // Level-2 client scoping (Account Management). null = see all (super / All);
+  // a Set = only those account ids; empty Set = none.
+  const scope = await resolveClientScope(await getEffectiveIdentity())
+  if (scope && scope.size === 0) {
+    return (
+      <PageShell title="Client Portfolio" description="Clients on your account team">
+        <NoClientsAssigned />
+      </PageShell>
+    )
+  }
+
+  let portfolioQuery = sb
     .from("v_client_portfolio")
     .select("*")
     .order("name", { ascending: true })
+  if (scope) portfolioQuery = portfolioQuery.in("account_id", [...scope])
+  const { data, error } = await portfolioQuery
 
   if (error) {
     return (

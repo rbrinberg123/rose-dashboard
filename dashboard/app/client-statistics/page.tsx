@@ -1,6 +1,9 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
+import { getEffectiveIdentity } from "@/lib/effective-identity"
+import { resolveClientScope } from "@/lib/access/data-scope"
+import { StatsRestricted } from "@/components/scoped-empty"
 import type { ClientStatisticsRow, ClientStatsBucketRow } from "@/lib/types"
 import { ClientStatisticsView } from "./client-statistics-view"
 
@@ -10,6 +13,18 @@ export const metadata: Metadata = { title: "Client Statistics" }
 
 export default async function ClientStatisticsPage() {
   const sb = getSupabaseServer()
+
+  // These views aggregate the ENTIRE client book, so they can't be row-filtered
+  // to one person's account team. A scoped user (anything other than all/super,
+  // i.e. a non-null scope) must not see whole-book totals — block the page.
+  const scope = await resolveClientScope(await getEffectiveIdentity())
+  if (scope) {
+    return (
+      <PageShell title="Client Statistics" description="Top-line numbers across the client book">
+        <StatsRestricted />
+      </PageShell>
+    )
+  }
 
   const [statsRes, marketCapRes, regionRes, sectorRes, managerRes, statusRes, daysLeftRes] =
     await Promise.all([

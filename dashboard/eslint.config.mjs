@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Node-runner unit tests (run via `npm test`, not part of the Next build).
+    "**/*.test.ts",
+    "**/*.test.tsx",
   ]),
 ]);
 

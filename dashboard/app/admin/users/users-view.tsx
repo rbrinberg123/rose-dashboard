@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Check, Loader2, AlertTriangle, Eye, Info } from "lucide-react"
+import { Check, Loader2, AlertTriangle, Eye, Info, Flag } from "lucide-react"
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
@@ -13,12 +13,24 @@ import { setViewAsUserAction } from "@/app/view-as-actions"
 /** null === "None" (no staged grant). */
 export type RoleValue = "user" | "client_manager" | "logistics" | "super_user" | null
 
+/**
+ * Identity-mapping result for the "Resolves?" indicator — whether a login email
+ * maps to exactly one CRM `users` row (display-only diagnostic; see page.tsx).
+ */
+export type Resolution =
+  | { state: "resolved"; userId: string; name: string }
+  | { state: "no_match" }
+  | { state: "duplicate"; count: number }
+  | { state: "blank" }
+
 export type UserRow = {
   email: string
   name: string
   role: RoleValue
   /** Level-2 data scopes (staging only — see actions.ts). */
   scopes: DataScopes
+  /** Does the login email resolve to exactly one CRM users row? */
+  resolution: Resolution
 }
 
 /**
@@ -63,6 +75,62 @@ function rank(role: RoleValue): number {
   return role === null ? 4 : ROLE_META[role].rank
 }
 
+// Identity-mapping badge colors (reuse the site status palette).
+const RESOLVE_GREEN = "#0E7C56"
+const RESOLVE_AMBER = "#B7791F"
+const RESOLVE_GREY = "#9AA1AD"
+
+/**
+ * Compact "Resolves?" badge shown inline at the end of a person's email line.
+ * Display-only: it reports whether the login email maps to exactly one CRM
+ * `users` row (see page.tsx). Kept to icon-height so it adds no row height.
+ */
+function ResolveBadge({ resolution, email }: { resolution: Resolution; email: string }) {
+  switch (resolution.state) {
+    case "resolved":
+      return (
+        <span
+          className="inline-flex items-center"
+          style={{ color: RESOLVE_GREEN }}
+          title={`Resolves to exactly one CRM user — ${resolution.name} (${resolution.userId})`}
+          aria-label={`Email resolves to one CRM user: ${resolution.name}`}
+        >
+          <Check className="size-3.5" />
+        </span>
+      )
+    case "no_match":
+      return (
+        <span
+          className="inline-flex items-center gap-0.5 text-[11px] font-medium"
+          style={{ color: RESOLVE_AMBER }}
+          title={`${email} matches no CRM users row`}
+        >
+          <Flag className="size-3" /> No match
+        </span>
+      )
+    case "duplicate":
+      return (
+        <span
+          className="inline-flex items-center gap-0.5 text-[11px] font-medium"
+          style={{ color: RESOLVE_AMBER }}
+          title={`${email} matches ${resolution.count} CRM users rows (ambiguous)`}
+        >
+          <Flag className="size-3" /> Duplicate ({resolution.count})
+        </span>
+      )
+    case "blank":
+      return (
+        <span
+          className="inline-flex items-center text-[11px]"
+          style={{ color: RESOLVE_GREY }}
+          title="No email on file"
+        >
+          —
+        </span>
+      )
+  }
+}
+
 type SaveState = "idle" | "saving" | "saved"
 
 export function UsersView({
@@ -96,6 +164,19 @@ export function UsersView({
   const total = users.length
   const granted = Object.values(roles).filter((r) => r !== null).length
   const none = total - granted
+
+  // Identity-mapping tally for the diagnostic summary line (static server data).
+  const resolveStats = React.useMemo(() => {
+    let resolved = 0
+    let noMatch = 0
+    let duplicate = 0
+    for (const u of users) {
+      if (u.resolution.state === "resolved") resolved++
+      else if (u.resolution.state === "no_match") noMatch++
+      else if (u.resolution.state === "duplicate") duplicate++
+    }
+    return { resolved, noMatch, duplicate }
+  }, [users])
 
   // Display order: granted first (by role priority), then None, each group
   // alphabetical by name. Recomputed from the live `roles` map so a row
@@ -235,6 +316,19 @@ export function UsersView({
         </div>
       ) : null}
 
+      {/* Identity-mapping diagnostic summary (display-only) */}
+      <div className="text-xs" style={{ color: TEXT_MUTED }}>
+        <span className="font-medium" style={{ color: TEXT_PRIMARY }}>
+          Identity mapping:
+        </span>{" "}
+        <span className="tabular-nums">{resolveStats.resolved}</span> of{" "}
+        <span className="tabular-nums">{total}</span> resolve
+        <span aria-hidden> · </span>
+        <span className="tabular-nums">{resolveStats.noMatch}</span> no-match
+        <span aria-hidden> · </span>
+        <span className="tabular-nums">{resolveStats.duplicate}</span> duplicate
+      </div>
+
       {/* Roster */}
       <div className={CARD_CLASS}>
         {displayed.length === 0 ? (
@@ -271,6 +365,10 @@ export function UsersView({
                     </span>
                     <span className="truncate" style={{ color: TEXT_MUTED }}>
                       {u.email}
+                    </span>
+                    {/* Identity-mapping indicator — display-only diagnostic */}
+                    <span className="shrink-0 self-center">
+                      <ResolveBadge resolution={u.resolution} email={u.email} />
                     </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">

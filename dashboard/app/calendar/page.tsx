@@ -1,6 +1,9 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
+import { getEffectiveIdentity } from "@/lib/effective-identity"
+import { resolveClientScope } from "@/lib/access/data-scope"
+import { NoClientsAssigned } from "@/components/scoped-empty"
 import type { MarketingCalendarRow } from "@/lib/types"
 import { CalendarView } from "./calendar-view"
 
@@ -17,13 +20,24 @@ const PAGE_SIZE = 1000
 export default async function CalendarPage() {
   const sb = getSupabaseServer()
 
+  // Level-2 client scoping (Account Management). On this view the client key is
+  // `client_account_id`. null = all; Set = only those; empty = none.
+  const scope = await resolveClientScope(await getEffectiveIdentity())
+  if (scope && scope.size === 0) {
+    return (
+      <PageShell title="NDRS Calendar" hideHeader canvas>
+        <NoClientsAssigned />
+      </PageShell>
+    )
+  }
+  const scopedIds = scope ? [...scope] : null
+
   const rows: MarketingCalendarRow[] = []
   let error: string | null = null
   for (let offset = 0; ; offset += PAGE_SIZE) {
-    const { data, error: err } = await sb
-      .from("v_marketing_calendar")
-      .select("*")
-      .range(offset, offset + PAGE_SIZE - 1)
+    let query = sb.from("v_marketing_calendar").select("*")
+    if (scopedIds) query = query.in("client_account_id", scopedIds)
+    const { data, error: err } = await query.range(offset, offset + PAGE_SIZE - 1)
 
     if (err) {
       error = err.message

@@ -696,7 +696,7 @@ export default async function AdminHubPage() {
             />
             <InternalCard
               icon={Users}
-              title="Users &amp; Roles"
+              title="Users"
               description="Set each staff member's role — live, controls what they can access."
               href="/admin/users"
             />
