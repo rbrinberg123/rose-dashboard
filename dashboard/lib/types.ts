@@ -844,6 +844,11 @@ export type FeedbackOutstandingRow = {
   feedback_status_label: string | null
   days_since: number
   client_ticker: string | null
+  // Feedback assignee (bcs_feedback) — the named owner even when the meeting has
+  // no host. Null when unset. Trailing columns on v_feedback_outstanding; the UI
+  // falls back host_name → feedback_name for the responsible person.
+  feedback_id: string | null
+  feedback_name: string | null
 }
 
 /**

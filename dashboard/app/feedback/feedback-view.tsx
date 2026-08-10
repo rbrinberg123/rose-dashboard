@@ -92,8 +92,16 @@ type Group = {
 const NO_CLIENT = "No client"
 const NO_INSTITUTION = "No institution"
 
+// Responsible person for a row: the meeting Host, falling back to the named
+// Feedback assignee (feedback_name) when there is no host. Host-less meetings
+// with a feedback owner now qualify for the tracker (v_feedback_outstanding),
+// so they must render with that owner rather than a blank cell.
+function ownerName(r: FeedbackOutstandingRow): string | null {
+  return r.host_name || r.feedback_name || null
+}
+
 function groupName(view: ViewKey, r: FeedbackOutstandingRow): string {
-  if (view === "person") return r.host_name || "Unknown host"
+  if (view === "person") return ownerName(r) || "Unknown owner"
   if (view === "client") return r.client_account_name || NO_CLIENT
   return r.institution_name || NO_INSTITUTION
 }
@@ -460,7 +468,7 @@ function GroupCard({
               <tr>
                 <th className="px-3 py-2 text-left font-medium">Date</th>
                 {view !== "person" && (
-                  <th className="px-3 py-2 text-left font-medium">Host</th>
+                  <th className="px-3 py-2 text-left font-medium">Owner</th>
                 )}
                 {view !== "client" && (
                   <th className="px-3 py-2 text-left font-medium">Client</th>
@@ -481,8 +489,8 @@ function GroupCard({
                     {fmtDate(r.meeting_date)}
                   </td>
                   {view !== "person" && (
-                    <td className="truncate px-3 py-2.5" title={r.host_name || undefined}>
-                      {r.host_name || "—"}
+                    <td className="truncate px-3 py-2.5" title={ownerName(r) || undefined}>
+                      {ownerName(r) || "—"}
                     </td>
                   )}
                   {view !== "client" && (

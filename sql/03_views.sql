@@ -2954,9 +2954,15 @@ WHERE m.meeting_status_label = 'Confirmed'
 
 -- -----------------------------------------------------------------------------
 -- v_feedback_outstanding
--- One row per concluded, confirmed, hosted meeting whose feedback is still
--- incomplete — i.e. the host has not closed it out. Powers the Feedback page's
+-- One row per concluded, confirmed meeting whose feedback is still incomplete —
+-- i.e. the responsible person has not closed it out. Powers the Feedback page's
 -- "outstanding feedback" tracker.
+--
+-- Outstanding feedback is keyed on the meeting having a HOST *or* a named
+-- FEEDBACK ASSIGNEE (bcs_feedback) — NOT host alone. A concluded meeting with a
+-- feedback owner but no host (e.g. the 5 Jul TNL-US meetings) still needs its
+-- feedback chased, so it belongs here. The assignee lives only in meetings._raw
+-- (the mirror table has no feedback_id/feedback_name column).
 --
 -- "Incomplete" = feedback_status_label IS NULL (never started / blank) OR
 -- 'Awaiting Additional' (partial). Done states such as 'Closed - All in' and
@@ -3001,7 +3007,14 @@ SELECT
   -- Client stock ticker (accounts.ticker_symbol), appended last so CREATE OR
   -- REPLACE VIEW only adds a trailing column (Postgres forbids reordering/
   -- renaming existing view columns). Same join pattern as v_scheduler_meetings.
-  a.ticker_symbol AS client_ticker
+  a.ticker_symbol AS client_ticker,
+  -- Feedback assignee (bcs_feedback) exposed so the UI can show an owner on
+  -- host-less rows. Sourced from _raw (the mirror has no feedback_id/_name
+  -- column) via the SAME expressions used in the host_id/host_name COALESCE
+  -- above. Appended as trailing columns so CREATE OR REPLACE VIEW only grows the
+  -- column list (Postgres forbids reordering/renaming existing view columns).
+  NULLIF(m._raw->>'_bcs_feedback_value', '')::uuid                                              AS feedback_id,
+  NULLIF(m._raw->>'_bcs_feedback_value@OData.Community.Display.V1.FormattedValue', '')          AS feedback_name
 FROM public.meetings m
 LEFT JOIN public.accounts a ON a.account_id = m.client_account_id
 WHERE m.meeting_status_label = 'Confirmed'
@@ -3010,7 +3023,14 @@ WHERE m.meeting_status_label = 'Confirmed'
   -- this, deactivated-but-still-Confirmed meetings leak onto the /feedback page
   -- and into the Outstanding Feedback email.
   AND m.state_label = 'Active'
-  AND m.host_id IS NOT NULL
+  -- A meeting qualifies if it has a HOST or a named FEEDBACK ASSIGNEE
+  -- (bcs_feedback, read from _raw — the mirror has no column). Previously
+  -- host-only, which dropped concluded meetings that had a feedback owner but no
+  -- host (e.g. the 5 Jul TNL-US meetings).
+  AND (
+    m.host_id IS NOT NULL
+    OR NULLIF(m._raw->>'_bcs_feedback_value', '') IS NOT NULL
+  )
   AND m.meeting_date IS NOT NULL
   AND (m.meeting_date AT TIME ZONE 'America/New_York')::date
       < (now() AT TIME ZONE 'America/New_York')::date

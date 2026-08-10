@@ -69,7 +69,7 @@ Two different concepts on two different grains — a frequent point of confusion
 |--|--------------------------|------------------------|
 | **Grain** | One row per **meeting** | One row per **Feedback task** |
 | **Means** | "We still owe feedback **collection** on this meeting" | "The feedback **report** for this event is being written / reviewed" |
-| **Included** | Concluded, Confirmed, hosted meetings whose feedback is incomplete (`feedback_status_label IS NULL` OR "Awaiting Additional") | Feedback tasks in an active state, split into **In Progress** vs **Pending Review** |
+| **Included** | Concluded, Confirmed meetings **with a host OR a named feedback assignee** whose feedback is incomplete (`feedback_status_label IS NULL` OR "Awaiting Additional"). Host-less meetings that have a feedback assignee now qualify (previously host-only); on the page such rows show the assignee as **Owner** (host_name → feedback_name). | Feedback tasks in an active state, split into **In Progress** vs **Pending Review** |
 | **Key join** | Responsible person from `_raw->>'_bcs_feedback_value'` → host | `event_key = COALESCE(regarding_id, bcs_event_id)` pairs a Feedback task to its "Feedback Report Sent" task |
 | **Page** | `/feedback` | `/feedback-manager` |
 
