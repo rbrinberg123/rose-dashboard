@@ -1,14 +1,8 @@
-import * as React from "react"
+"use client"
 
-// Initials from a person's name: first + last initial, uppercased. A single-word
-// name yields one letter. Shared by the Portfolio Account Team column and the
-// Profiles meeting cards so the treatment stays identical.
-export function initialsOf(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean)
-  if (words.length === 0) return ""
-  if (words.length === 1) return words[0][0].toUpperCase()
-  return (words[0][0] + words[words.length - 1][0]).toUpperCase()
-}
+import * as React from "react"
+import { lookupInitials } from "@/lib/team-initials"
+import { useTeamInitials } from "@/components/team-initials-context"
 
 // One team member to render as an avatar. `name` may be null/blank — those are
 // dropped, so callers can pass an optional secondary without pre-filtering.
@@ -22,7 +16,13 @@ export type TeamAvatarMember = {
 // Overlapping cluster of circular initials avatars. Only members with a non-blank
 // name render; if none do, an em-dash is shown. Earlier members sit on top of
 // later ones (matching the Portfolio Account Team column).
+//
+// Initials come from the GLOBAL account-team directory (via context): a person
+// whose two-letter initials collide with anyone else in that full set shows an
+// expanded three-letter form (e.g. "KMu"/"KMi"), the same on every page/team —
+// not just when the colliding people happen to share one circle.
 export function AccountTeamAvatars({ members }: { members: readonly TeamAvatarMember[] }) {
+  const initialsMap = useTeamInitials()
   const shown = members.filter(
     (m): m is TeamAvatarMember & { name: string } => Boolean(m.name && m.name.trim()),
   )
@@ -50,7 +50,7 @@ export function AccountTeamAvatars({ members }: { members: readonly TeamAvatarMe
             zIndex: shown.length - i,
           }}
         >
-          {initialsOf(m.name)}
+          {lookupInitials(m.name, initialsMap)}
         </span>
       ))}
     </div>

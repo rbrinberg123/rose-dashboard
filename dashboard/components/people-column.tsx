@@ -8,7 +8,7 @@
 // person's %, with a hover tooltip like "Brian Smith — hosted 6 of 12 (50%)".
 // ---------------------------------------------------------------------------
 import * as React from "react"
-import { initialsOf } from "@/components/account-team-avatars"
+import { initialsOf } from "@/lib/team-initials"
 import type { RelationshipPerson } from "@/lib/types"
 
 // Hosts vs bookers are visually distinguished by color: hosts read blue,

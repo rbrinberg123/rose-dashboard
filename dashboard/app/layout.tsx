@@ -3,7 +3,9 @@ import { cookies } from "next/headers"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Sidebar } from "@/components/nav"
 import { ViewAsBanner } from "@/components/view-as-banner"
+import { TeamInitialsProvider } from "@/components/team-initials-context"
 import { Toaster } from "@/components/ui/sonner"
+import { loadTeamInitialsMap } from "@/lib/team-initials-directory"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { getRealRole } from "@/lib/user-role"
 import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, viewAsLabel } from "@/lib/access-control"
@@ -67,6 +69,11 @@ export default async function RootLayout({
   // the nav so it hides links the proxy would block — one query, same source.
   const allowedRoutes = await getAllowedRoutes(role)
 
+  // Global account-team initials map — computed once here so same-initial people
+  // (e.g. Katie Murphy / Kaila Migliazza) disambiguate to KMu / KMi consistently
+  // on every avatar. Only for signed-in users; fail-soft to an empty map.
+  const teamInitials = userEmail ? await loadTeamInitialsMap() : {}
+
   // Banner label: PERSON mode names the person + their real role ("No role" when
   // they have none); ROLE mode names the abstract role. Only super-users ever
   // impersonate, so `person`/`roleView` are already gated on the real role.
@@ -83,10 +90,12 @@ export default async function RootLayout({
     >
       <body className="min-h-full bg-background text-foreground">
         {bannerLabel ? <ViewAsBanner label={bannerLabel} /> : null}
-        <div className="flex min-h-screen flex-col md:flex-row">
-          <Sidebar userEmail={userEmail} role={role} allowedRoutes={allowedRoutes} />
-          <main className="flex-1 overflow-x-hidden">{children}</main>
-        </div>
+        <TeamInitialsProvider value={teamInitials}>
+          <div className="flex min-h-screen flex-col md:flex-row">
+            <Sidebar userEmail={userEmail} role={role} allowedRoutes={allowedRoutes} />
+            <main className="flex-1 overflow-x-hidden">{children}</main>
+          </div>
+        </TeamInitialsProvider>
         <Toaster richColors position="top-right" />
       </body>
     </html>
