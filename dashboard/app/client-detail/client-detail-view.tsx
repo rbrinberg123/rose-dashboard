@@ -59,6 +59,7 @@ import type {
   ClientDetailTopHostRow,
   ClientDetailTopInstitutionRow,
   ClientDetailTouchpointRow,
+  MarketingCalendarRow,
 } from "@/lib/types"
 
 // Brand palette — inline-styled where Tailwind classes don't cover the exact hex.
@@ -198,6 +199,221 @@ function CardTitle({
   )
 }
 
+// ---------- Marketing Events & Dates ----------
+// The app treats the Eastern calendar day as the "today" boundary (mirrors
+// conference-rooms' todayEastern). We resolve each event's start/end to an
+// Eastern YYYY-MM-DD so the upcoming/previous split is stable regardless of the
+// viewer's browser zone. YYYY-MM-DD strings compare lexicographically, so plain
+// string ordering is also correct date ordering.
+const EASTERN_YMD = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+})
+function easternYmd(value: string | null | undefined): string | null {
+  const d = safeParseDate(value)
+  return d ? EASTERN_YMD.format(d) : null
+}
+function todayEasternYmd(): string {
+  return EASTERN_YMD.format(new Date())
+}
+
+const MONTHS_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+]
+function ymdTile(ymd: string): { mon: string; day: string; year: string } {
+  const [y, m, d] = ymd.split("-")
+  return { mon: MONTHS_SHORT[Number(m) - 1] ?? "—", day: String(Number(d)), year: y }
+}
+
+/** Compact "Aug 1 – Aug 31, 2025" span from two YYYY-MM-DD strings. Collapses to
+ *  a single date when start == end; drops the repeated year when both share one. */
+function formatYmdSpan(startYmd: string, endYmd: string): string {
+  const s = ymdTile(startYmd)
+  const e = ymdTile(endYmd)
+  if (startYmd === endYmd) return `${s.mon} ${s.day}, ${s.year}`
+  if (s.year === e.year) return `${s.mon} ${s.day} – ${e.mon} ${e.day}, ${e.year}`
+  return `${s.mon} ${s.day}, ${s.year} – ${e.mon} ${e.day}, ${e.year}`
+}
+
+// Stage → pill color, keyed by the distinct v_marketing_calendar.event_state_label
+// values. Mapped into the task's four semantic buckets (confirmed/active → green,
+// scheduled/planned → blue, tentative/transition → amber, wrapping-up/past →
+// grey); anything unrecognized falls back to grey. Tints reuse STATUS_PILL_LIGHT.
+const EVENT_STAGE_PILL: Record<string, { bg: string; text: string }> = {
+  "Pre-Launch": { bg: "#EEF2FB", text: "#2D4A8A" }, // planned → blue
+  "Live Outreach": { bg: "#E7F5EE", text: "#0E7C56" }, // active → green
+  "Meetings Ongoing": { bg: "#E7F5EE", text: "#0E7C56" }, // active → green
+  "Schedule Closed": { bg: "#FCF4E6", text: "#92600B" }, // transition → amber
+  "Preparing Feedback": { bg: "#F1F3F7", text: "#5B6472" }, // wrapping up → grey
+  Complete: { bg: "#F1F3F7", text: "#5B6472" }, // done → grey
+}
+const EVENT_STAGE_FALLBACK = { bg: "#F1F3F7", text: "#5B6472" }
+
+type MarketingEvent = {
+  row: MarketingCalendarRow
+  // Earliest / latest confirmed-meeting day (Eastern), falling back to the
+  // event's own actual window when it has no confirmed meetings yet.
+  startYmd: string
+  endYmd: string
+  // Soonest meeting day that is today-or-later (Eastern), for the left-column
+  // sort. Null when every meeting has already occurred.
+  soonestUpcomingYmd: string | null
+}
+
+/** One confirmed meeting of a marketing event, for the click-through drawer.
+ *  Fields mirror what Planning / Live Outreach use: date = meetings.meeting_date,
+ *  institution = meetings.institution_name, investor = meetings.investor_text. */
+export type MarketingEventMeeting = {
+  meeting_id: string
+  meeting_date: string | null
+  institution_name: string | null
+  investor_text: string | null
+}
+
+/** One compact event row: date tile · name + meta+count · stage pill. `muted`
+ *  renders the previous-event dashed/dimmed treatment. `confirmedCount` is the
+ *  event's confirmed/booked meeting tally (shown as a navy-tint chip). */
+function MarketingEventRow({
+  ev,
+  muted,
+  confirmedCount,
+  selected,
+  onSelect,
+}: {
+  ev: MarketingEvent
+  muted: boolean
+  confirmedCount: number
+  selected: boolean
+  onSelect: () => void
+}) {
+  const { row, startYmd, endYmd } = ev
+  const tile = ymdTile(startYmd)
+  const stage = row.event_state_label?.trim()
+  const pill = (stage && EVENT_STAGE_PILL[stage]) || EVENT_STAGE_FALLBACK
+  // Meta text: the full event window (start–end) so the span is visible even
+  // though the tile only shows the start day.
+  const meta = formatYmdSpan(startYmd, endYmd)
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      title={`View ${confirmedCount.toLocaleString()} confirmed meeting${confirmedCount === 1 ? "" : "s"} for ${row.event_name}`}
+      className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md px-1.5 py-1 text-left transition-colors ${
+        selected ? "bg-slate-100" : "hover:bg-slate-50"
+      }`}
+      style={{ opacity: muted ? 0.72 : 1 }}
+    >
+      <div
+        className="flex w-11 shrink-0 flex-col items-center justify-center rounded-md py-0.5 leading-none"
+        style={
+          muted
+            ? { border: "1px dashed #D8DDE6" }
+            : { backgroundColor: "#F4F6F9" }
+        }
+      >
+        <span className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: TEXT_MUTED }}>
+          {tile.mon}
+        </span>
+        <span className="text-sm font-semibold tabular-nums" style={{ color: NAVY_DEEP }}>
+          {tile.day}
+        </span>
+        <span className="text-[9px] tabular-nums" style={{ color: TEXT_MUTED }}>
+          {tile.year}
+        </span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div
+          className="truncate text-sm font-semibold"
+          style={{ color: NAVY_DEEP }}
+          title={row.event_name}
+        >
+          {row.event_name}
+        </div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11px]">
+          {/* Confirmed-meeting count — navy-tint chip, distinct from the span
+              text and the stage pill. Always "confirmed", shown even at 0. */}
+          <span
+            className="shrink-0 rounded px-1.5 py-0.5"
+            style={{ backgroundColor: "#EEF2FB", color: "#2D4A8A" }}
+          >
+            <span className="font-semibold tabular-nums">{confirmedCount}</span>{" "}
+            confirmed
+          </span>
+          {meta && (
+            <span className="truncate" style={{ color: TEXT_MUTED }} title={meta}>
+              {meta}
+            </span>
+          )}
+        </div>
+      </div>
+      {stage && (
+        <span
+          className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
+          style={{ backgroundColor: pill.bg, color: pill.text }}
+        >
+          {stage}
+        </span>
+      )}
+    </button>
+  )
+}
+
+/** One column (Upcoming / Previous) with its label and rows, or a soft dashed
+ *  placeholder that preserves the column when empty. */
+function MarketingEventColumn({
+  label,
+  events,
+  confirmedByEvent,
+  muted,
+  emptyText,
+  selectedEventId,
+  onSelectEvent,
+}: {
+  label: string
+  events: MarketingEvent[]
+  confirmedByEvent: Record<string, number>
+  muted: boolean
+  emptyText: string
+  selectedEventId: string | null
+  onSelectEvent: (ev: MarketingEvent) => void
+}) {
+  return (
+    <div>
+      <div
+        className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide"
+        style={{ color: TEXT_MUTED }}
+      >
+        {label}
+      </div>
+      {events.length === 0 ? (
+        <div
+          className="rounded-md px-3 py-4 text-center text-xs text-muted-foreground"
+          style={{ border: "1px dashed #E3E7EE" }}
+        >
+          {emptyText}
+        </div>
+      ) : (
+        <div className="space-y-0.5">
+          {events.map((ev) => (
+            <MarketingEventRow
+              key={ev.row.event_id}
+              ev={ev}
+              muted={muted}
+              confirmedCount={confirmedByEvent[ev.row.event_id] ?? 0}
+              selected={selectedEventId === ev.row.event_id}
+              onSelect={() => onSelectEvent(ev)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ClientDetailView({
   allClients,
   selected,
@@ -213,6 +429,10 @@ export function ClientDetailView({
   accountTeam,
   aiSummary,
   aiSummaryGeneratedAt,
+  marketingEvents,
+  confirmedByEvent,
+  meetingDatesByEvent,
+  confirmedMeetingsByEvent,
 }: {
   allClients: ClientDetailSummaryRow[]
   selected: ClientDetailSummaryRow
@@ -233,6 +453,10 @@ export function ClientDetailView({
   }
   aiSummary: string | null
   aiSummaryGeneratedAt: string | null
+  marketingEvents: MarketingCalendarRow[]
+  confirmedByEvent: Record<string, number>
+  meetingDatesByEvent: Record<string, string[]>
+  confirmedMeetingsByEvent: Record<string, MarketingEventMeeting[]>
 }) {
   const router = useRouter()
 
@@ -476,6 +700,62 @@ export function ClientDetailView({
     Boolean(m.name && m.name.trim()),
   )
 
+  // ---------- Marketing Events & Dates ----------
+  // Bucket the client's events off their CONFIRMED-meeting dates (Eastern day):
+  // a meeting is "not yet occurred" when its day is today-or-later. An event with
+  // no confirmed meetings yet falls back to its own actual window. Undated events
+  // (neither meetings nor an actual window) are dropped.
+  //   Current & Upcoming (left): latest meeting day today-or-later — ALL of them,
+  //     sorted by the soonest not-yet-occurred meeting day (nearest first).
+  //   Previous (right): all meetings ended — only the single most-recently ended.
+  const { currentEvents, previousEvents } = React.useMemo(() => {
+    const today = todayEasternYmd()
+    const built: MarketingEvent[] = []
+    for (const row of marketingEvents) {
+      let ymds = (meetingDatesByEvent[row.event_id] ?? [])
+        .map((d) => easternYmd(d))
+        .filter((v): v is string => Boolean(v))
+      if (ymds.length === 0) {
+        // No confirmed meetings — fall back to the event's own actual window.
+        ymds = [easternYmd(row.event_start_actual), easternYmd(row.event_end_actual)].filter(
+          (v): v is string => Boolean(v),
+        )
+      }
+      if (ymds.length === 0) continue
+      ymds.sort()
+      const startYmd = ymds[0]
+      const endYmd = ymds[ymds.length - 1]
+      const soonestUpcomingYmd = ymds.find((d) => d >= today) ?? null
+      built.push({ row, startYmd, endYmd, soonestUpcomingYmd })
+    }
+    const current = built
+      .filter((e) => e.endYmd >= today)
+      .sort((a, b) =>
+        (a.soonestUpcomingYmd ?? a.startYmd).localeCompare(
+          b.soonestUpcomingYmd ?? b.startYmd,
+        ),
+      )
+    const previous = built
+      .filter((e) => e.endYmd < today)
+      .sort((a, b) => b.endYmd.localeCompare(a.endYmd))
+      .slice(0, 1)
+    return { currentEvents: current, previousEvents: previous }
+  }, [marketingEvents, meetingDatesByEvent])
+  const hasMarketingEvents =
+    currentEvents.length > 0 || previousEvents.length > 0
+
+  // Which event's confirmed-meetings drawer is open (null = closed). Reuses the
+  // same Sheet drawer pattern as the Reach Depth section below.
+  const [openEvent, setOpenEvent] = React.useState<MarketingEvent | null>(null)
+  const openEventMeetings = React.useMemo(() => {
+    if (!openEvent) return []
+    // Confirmed meetings for this event, sorted by date ascending. A missing
+    // date sorts last.
+    return [...(confirmedMeetingsByEvent[openEvent.row.event_id] ?? [])].sort((a, b) =>
+      (a.meeting_date ?? "").localeCompare(b.meeting_date ?? ""),
+    )
+  }, [openEvent, confirmedMeetingsByEvent])
+
   // ---------- Render ----------
   return (
     <>
@@ -506,7 +786,9 @@ export function ClientDetailView({
           the masthead and above the KPIs. The team always shows when staffed; the
           AI summary (and the divider above it) appear only once one is generated.
           The card hides entirely when there's neither a team nor a summary. */}
-      {(accountTeamMembers.length > 0 || (aiSummary && aiSummary.trim())) && (
+      {(accountTeamMembers.length > 0 ||
+        (aiSummary && aiSummary.trim()) ||
+        hasMarketingEvents) && (
         <div className={`mb-6 p-5 ${CARD_CLASS}`}>
           {/* Account Team — label + avatar + role/name groups (moved as-is). */}
           {accountTeamMembers.length > 0 && (
@@ -577,6 +859,109 @@ export function ClientDetailView({
               <p className="text-sm leading-relaxed" style={{ color: TEXT_PRIMARY }}>
                 {aiSummary}
               </p>
+            </>
+          )}
+
+          {/* Marketing Events & Dates — spotlight of the client's NDRS/marketing
+              events (v_marketing_calendar). Sits under the AI Summary, separated
+              by a thin rule when there's content above it. */}
+          {hasMarketingEvents && (
+            <>
+              {(accountTeamMembers.length > 0 || (aiSummary && aiSummary.trim())) && (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    height: 1,
+                    background: "#EEF0F4",
+                    marginTop: 13,
+                    marginBottom: 13,
+                  }}
+                />
+              )}
+              <CardTitle icon={CalendarDays} color="#1C8C9C" className="mb-2.5">
+                Marketing Events &amp; Dates
+              </CardTitle>
+              <div className="grid grid-cols-1 gap-y-4 md:grid-cols-2 md:gap-x-0 md:gap-y-0">
+                <div className="md:pr-4">
+                  <MarketingEventColumn
+                    label="Current & Upcoming"
+                    events={currentEvents}
+                    confirmedByEvent={confirmedByEvent}
+                    muted={false}
+                    emptyText="No current or upcoming events"
+                    selectedEventId={openEvent?.row.event_id ?? null}
+                    onSelectEvent={setOpenEvent}
+                  />
+                </div>
+                <div className="md:border-l md:border-[#EEF0F4] md:pl-4">
+                  <MarketingEventColumn
+                    label="Previous"
+                    events={previousEvents}
+                    confirmedByEvent={confirmedByEvent}
+                    muted
+                    emptyText="No previous events"
+                    selectedEventId={openEvent?.row.event_id ?? null}
+                    onSelectEvent={setOpenEvent}
+                  />
+                </div>
+              </div>
+
+              {/* Confirmed-meetings drawer — reuses the Reach Depth Sheet pattern
+                  (same width, slide-in, header, close affordance). */}
+              <Sheet
+                open={openEvent !== null}
+                onOpenChange={(open) => {
+                  if (!open) setOpenEvent(null)
+                }}
+              >
+                <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
+                  <SheetHeader className="gap-1 border-b p-4 pr-12">
+                    <div
+                      className="text-[11px] font-medium uppercase tracking-wide"
+                      style={{ color: TEAL }}
+                    >
+                      Marketing Event
+                    </div>
+                    <SheetTitle className="text-base" style={{ color: NAVY_DEEP }}>
+                      {openEvent?.row.event_name ?? "Event"}
+                    </SheetTitle>
+                    <SheetDescription>
+                      {openEvent
+                        ? `${formatYmdSpan(openEvent.startYmd, openEvent.endYmd)} · ${openEventMeetings.length.toLocaleString()} confirmed meeting${openEventMeetings.length === 1 ? "" : "s"}`
+                        : null}
+                    </SheetDescription>
+                  </SheetHeader>
+                  <div className="flex-1 overflow-y-auto p-2">
+                    {openEventMeetings.length === 0 ? (
+                      <div className="px-2 py-10 text-center text-sm text-muted-foreground">
+                        No confirmed meetings for this event.
+                      </div>
+                    ) : (
+                      <ul>
+                        {openEventMeetings.map((m) => (
+                          <li key={m.meeting_id}>
+                            <div className="flex items-baseline justify-between gap-3 rounded-md px-2 py-2">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-medium text-[#1E2858]">
+                                  {m.institution_name ?? "—"}
+                                </div>
+                                {m.investor_text && (
+                                  <div className="truncate text-xs text-muted-foreground">
+                                    {m.investor_text}
+                                  </div>
+                                )}
+                              </div>
+                              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                                {formatShortDate(m.meeting_date)}
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </SheetContent>
+              </Sheet>
             </>
           )}
         </div>
