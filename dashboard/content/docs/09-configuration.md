@@ -24,7 +24,20 @@ Two rules to internalize:
 | Var | Purpose | Where set |
 |-----|---------|-----------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Same project URL, re-exposed under a public name for the sign-in client. | Vercel + `.env.local` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | The **anon** public key for magic-link auth. **Different** from the service-role key. | Vercel + `.env.local` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | The **anon** public key for sign-in (Microsoft SSO + magic link). **Different** from the service-role key. | Vercel + `.env.local` |
+
+#### Sign-in URLs & Microsoft/Entra SSO (Supabase dashboard — not app env vars)
+
+Microsoft/Entra SSO and the magic link both come back to the app's **`/auth/callback`**. Because the app derives `redirectTo` from the request origin / `window.location.origin`, **no app env var is needed** — but these dashboard settings must be right (placeholders only; set real values in the dashboards):
+
+| Setting | Where | Placeholder |
+|---------|-------|-------------|
+| **Site URL** | Supabase → Authentication → URL Configuration | `https://<your-app-domain>` |
+| **Redirect URLs** allowlist | Supabase → Authentication → URL Configuration | `https://<your-app-domain>/auth/callback`, `http://localhost:3000/auth/callback` |
+| **Azure provider** (client ID/secret, tenant URL) | Supabase → Authentication → Providers → Azure | single-tenant `https://login.microsoftonline.com/<TENANT_ID>/v2.0` — **stored in Supabase, never in the repo** |
+| **Entra app Redirect URI** | Azure → App registrations | `https://<project-ref>.supabase.co/auth/v1/callback` |
+
+> The Azure SSO **client secret lives only in the Supabase dashboard** — it is not an app env var and must not be committed. See [01 — Access & Users](01-access-and-users.md) for the sign-in flow and domain guard.
 
 #### Dynamics sync (Azure app #1)
 

@@ -33,6 +33,23 @@ export function isAllowedEmail(rawEmail: string): boolean {
   return ALLOWED_DOMAINS.some((d) => d.toLowerCase() === domain)
 }
 
+/**
+ * Domain guard for an already-established session (defense in depth).
+ *
+ * Both sign-in methods — magic link and Microsoft/Entra SSO — land the user
+ * on the auth callback once a Supabase session exists. This is the single
+ * choke point where we re-check the *verified* session email against the
+ * same allowlist that gates the login form, so a non-Rose account can never
+ * hold a session even if it somehow reached the callback. Returns false for a
+ * null/blank email (fail closed).
+ */
+export function isAllowedSessionEmail(
+  email: string | null | undefined,
+): boolean {
+  if (!email) return false
+  return isAllowedEmail(email)
+}
+
 /** Human-readable rejection message used by the login form. */
 export const ALLOWLIST_REJECTION_MESSAGE =
   "Access restricted to Rose & Company staff."

@@ -2,7 +2,12 @@
 
 ## What it does (plain language)
 
-Everyone signs in with a **magic link** — you type your email, get a link, click it, and you're in. There are no passwords.
+Everyone signs in with their **@roseandco.com account**, two ways:
+
+- **Sign in with Microsoft** (recommended) — one click, uses your existing Microsoft 365 / Entra sign-in. No email round-trip.
+- **Magic link** (fallback) — type your email, get a one-time link, click it, and you're in.
+
+Either way there are **no passwords stored in this app**, and either way your identity is your verified **@roseandco.com email** — so roles, page access, and data scopes work exactly the same no matter which button you used. A hard **domain guard** signs out anyone whose email isn't `@roseandco.com`, even if they somehow reach the app.
 
 Once signed in, access is controlled entirely from **two Admin screens** — no code change needed:
 
@@ -319,6 +324,25 @@ ON CONFLICT (role, route) DO NOTHING;
 -- User → nothing by default (configure explicitly in the Roles grid).
 ```
 
-### Magic-link auth
+### Sign-in — Microsoft/Entra SSO + magic-link fallback
 
-Sign-in uses Supabase's email magic-link flow. The browser/server/proxy Supabase clients live in `dashboard/lib/supabase/{browser,server,proxy}.ts` and use the **anon** key (safe for the client). Data reads, by contrast, use the **service-role** key server-side (`dashboard/lib/supabase.ts`) — a different, secret key. Don't mix them up (see [09 — Configuration](09-configuration.md)).
+Sign-in runs entirely through **Supabase Auth**. Two methods, one identity:
+
+- **Microsoft/Entra SSO (Azure provider).** The login page's **"Sign in with Microsoft"** button (`dashboard/app/login/microsoft-button.tsx`, a client component) calls `supabase.auth.signInWithOAuth({ provider: "azure", options: { redirectTo: <origin>/auth/callback, scopes: "email openid profile" } })`. The `redirectTo` is derived from `window.location.origin`, so localhost / preview / production all work without an env var. The provider (client ID/secret, tenant) is configured **only in the Supabase dashboard** — single-tenant, so only the Rose directory can sign in. **No client secret lives in this repo.**
+- **Magic link (fallback).** The email form below the button (`dashboard/app/login/login-form.tsx` → `sendMagicLink` in `actions.ts`) still calls `signInWithOtp`, gated by the login allowlist (`isAllowedEmail`, `dashboard/lib/auth-allowlist.ts`). Unchanged.
+
+**One callback for both.** Both methods land on `dashboard/app/auth/callback/route.ts`, which calls `supabase.auth.exchangeCodeForSession(code)` — the same authorization-code exchange handles the OAuth (PKCE) flow and the magic-link flow, so there's no separate OAuth handling. On success it redirects to the requested page (default `/portfolio`, validated to be a same-origin path — no open redirect); a missing code or a failed exchange returns to `/login?error=…`.
+
+**Domain guard (defense in depth).** Immediately after the exchange, the callback re-checks the **verified** session email with `isAllowedSessionEmail` (`dashboard/lib/auth-allowlist.ts`, the same `@roseandco.com` allowlist as the login form). If it isn't a Rose address, the callback **signs the session out and redirects to `/no-access`**. Single-tenant Entra should already block outsiders — this enforces it app-side regardless of how a session was obtained. The branching is a pure, unit-tested function (`decideAuthCallback`, `dashboard/lib/auth-callback.ts`; tests in `lib/auth-callback.test.ts` + `lib/auth-allowlist.test.ts`).
+
+**Identity is unchanged.** The OAuth session exposes `user.email` as the `@roseandco.com` address, exactly like magic link. Everything downstream — `getRealRole`, `getEffectiveIdentity`, `getUserScopes`/`resolveClientScope`/`resolveMeetingScope`, and the identity index — keys on that session email and needs **no changes** for SSO.
+
+The browser/server/proxy Supabase clients live in `dashboard/lib/supabase/{browser,server,proxy}.ts` and use the **anon** key (safe for the client). Data reads, by contrast, use the **service-role** key server-side (`dashboard/lib/supabase.ts`) — a different, secret key. Don't mix them up (see [09 — Configuration](09-configuration.md)).
+
+#### Config steps (one-time, in dashboards — no code)
+
+1. **Supabase → Authentication → Providers → Azure:** enable it; set the Application (client) ID, client secret, and the Azure URL (`https://login.microsoftonline.com/<TENANT_ID>/v2.0`) for the single tenant. These are stored in Supabase, **not** in this repo.
+2. **Supabase → Authentication → URL Configuration:** set the **Site URL** and add the app's **`/auth/callback`** to the **Redirect URLs** allowlist for every environment (production, preview, `http://localhost:3000`). Placeholders: `https://<your-app-domain>/auth/callback`, `http://localhost:3000/auth/callback`.
+3. **Entra (Azure) app registration → Redirect URIs:** add Supabase's provider callback `https://<project-ref>.supabase.co/auth/v1/callback` (project ref `uegfmuvkavexmxxaxnwe`). Grant delegated `openid`, `email`, `profile`.
+
+No new app env vars are required — `redirectTo` is derived at runtime and all provider secrets live in Supabase. See [09 — Configuration](09-configuration.md) for the sign-in URL settings.

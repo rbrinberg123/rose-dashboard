@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { LoginForm } from "./login-form"
+import { MicrosoftSignInButton } from "./microsoft-button"
 
 export const dynamic = "force-dynamic"
 
@@ -26,11 +27,19 @@ export default async function LoginPage() {
           </div>
           <h1 className="text-xl font-semibold">Rose &amp; Co. Dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            Sign in with your @roseandco.com email. We&apos;ll send you a one-time link.
+            Sign in with your @roseandco.com account — Microsoft, or a one-time email link.
           </p>
         </div>
 
-        <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
+        <div className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
+          <MicrosoftSignInButton />
+
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">or</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
           <LoginForm />
         </div>
 
