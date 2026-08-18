@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import { ListTitleCard } from "@/components/page-masthead"
 import { BRAND_BLUE, CARD_CLASS, STATUS_PILL_LIGHT } from "@/lib/design"
 import { cn } from "@/lib/utils"
@@ -600,29 +601,37 @@ export function TodoTable({
           ))}
         </select>
 
-        <div className="relative ml-auto w-64">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search client, ticker, event…"
-            className="pl-8"
-          />
-        </div>
-        <button
-          type="button"
-          onClick={onExport}
-          disabled={exporting || sorted.length === 0}
-          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-sm hover:bg-slate-50 disabled:cursor-default disabled:opacity-50"
-          title="Download the rows shown below as an Excel file"
-        >
-          <Download className="size-3.5" />
-          {exporting ? "Exporting…" : "Export to Excel"}
-        </button>
+        {/* Right-hand cluster — kept in its own flex box so the count, search
+            and Export stay together and Export is always the last (top-right)
+            control rather than being pushed around by wrapping. */}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {filtered.length.toLocaleString()} of {rows.length.toLocaleString()}
+          </span>
 
-        <span className="text-xs tabular-nums text-muted-foreground">
-          {filtered.length.toLocaleString()} of {rows.length.toLocaleString()}
-        </span>
+          <div className="relative w-64">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search client, ticker, event…"
+              className="pl-8"
+            />
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            onClick={onExport}
+            disabled={exporting || sorted.length === 0}
+            className="shrink-0 whitespace-nowrap"
+            title="Download the rows shown below as an Excel file"
+          >
+            <Download />
+            {exporting ? "Exporting…" : "Export to Excel"}
+          </Button>
+        </div>
       </div>
 
       <div
