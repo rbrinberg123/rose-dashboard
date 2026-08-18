@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, Check } from "lucide-react"
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, Check, Download } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -18,6 +18,13 @@ import { ListTitleCard } from "@/components/page-masthead"
 import { BRAND_BLUE, CARD_CLASS, STATUS_PILL_LIGHT } from "@/lib/design"
 import { cn } from "@/lib/utils"
 import {
+  baseTicker,
+  formatDay,
+  formatDaySpan,
+  stripTickerPrefix,
+} from "@/lib/client-todo-format"
+import { exportClientTodoList } from "@/lib/client-todo-excel"
+import {
   EventMeetingsPane,
   type EventMeetingsPaneEvent,
 } from "@/components/event-meetings-pane"
@@ -32,37 +39,6 @@ import { saveClientTodoNote } from "./actions"
 
 const NAVY = "#1E2858"
 const ALL = "__all__" // client-manager filter sentinel for "All"
-
-/**
- * Strip a ticker's exchange/country suffix for display ("TNL-US" -> "TNL",
- * "4DX-AU" -> "4DX"); dotted class tickers like "BRK.B" are preserved. Same
- * logic (and the same name) as the Planning V2 view and the email builders.
- */
-function baseTicker(t: string): string {
-  return t.trim().split(/[\s:]/)[0].replace(/-[A-Za-z]{1,4}$/, "")
-}
-
-/**
- * Event names lead with the client's own ticker — "4DX-AU -  Virtual -
- * September, October (TBC)". The ticker is the row's identity now that the
- * Client column is gone, so that prefix is pure duplication: strip it.
- *
- * Both the full ticker and its base form are tried (an event can be named
- * "4DX - …" while the account carries "4DX-AU"), separator spacing is loose
- * because the CRM names are inconsistent, and anything that does NOT start with
- * this row's ticker is left completely alone.
- */
-function stripTickerPrefix(name: string, ticker: string | null): string {
-  if (!ticker) return name
-  const base = baseTicker(ticker)
-  for (const candidate of [ticker.trim(), base]) {
-    if (!candidate) continue
-    const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    const stripped = name.replace(new RegExp(`^\\s*${escaped}\\s*-\\s*`, "i"), "")
-    if (stripped !== name) return stripped.trim()
-  }
-  return name
-}
 
 // ---------------------------------------------------------------------------
 // Aging thresholds (calendar days since the date). Chosen from the live spread
@@ -200,24 +176,6 @@ function SortHeader({
 // ---------------------------------------------------------------------------
 // Cells
 // ---------------------------------------------------------------------------
-
-/** "Mar 4, 2026" from a plain YYYY-MM-DD day, with no timezone shifting. */
-function formatDay(ymd: string | null): string {
-  if (!ymd) return "—"
-  const [y, m, d] = ymd.split("-").map(Number)
-  if (!y || !m || !d) return "—"
-  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-  return `${MONTHS[m - 1]} ${d}, ${y}`
-}
-
-/** The event's window: one day, or a span (collapsed when the year matches). */
-function formatDaySpan(startYmd: string | null, endYmd: string | null): string {
-  if (!startYmd) return "—"
-  if (!endYmd || endYmd === startYmd) return formatDay(startYmd)
-  const sameYear = startYmd.slice(0, 4) === endYmd.slice(0, 4)
-  const start = sameYear ? formatDay(startYmd).replace(/,\s*\d{4}$/, "") : formatDay(startYmd)
-  return `${start} – ${formatDay(endYmd)}`
-}
 
 /**
  * A date that ages: plain when fresh, amber past the first threshold, red past
@@ -596,6 +554,22 @@ export function TodoTable({
     [rows],
   )
 
+  // ---- Excel export -------------------------------------------------------
+  // Exports `sorted` — the CURRENT VIEW (search + Client Manager filter, in the
+  // active sort order), not the full table. Those rows came from the
+  // client-scoped loader, so the export inherits that scoping. ExcelJS loads
+  // lazily inside the handler, so the first click may take a beat; `exporting`
+  // disables the button meanwhile. Same pattern as Upcoming Meetings.
+  const [exporting, setExporting] = React.useState(false)
+  const onExport = React.useCallback(async () => {
+    setExporting(true)
+    try {
+      await exportClientTodoList(sorted)
+    } finally {
+      setExporting(false)
+    }
+  }, [sorted])
+
   const headerProps = {
     currentKey: sortKey,
     currentDir: sortDir,
@@ -635,6 +609,17 @@ export function TodoTable({
             className="pl-8"
           />
         </div>
+        <button
+          type="button"
+          onClick={onExport}
+          disabled={exporting || sorted.length === 0}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-sm hover:bg-slate-50 disabled:cursor-default disabled:opacity-50"
+          title="Download the rows shown below as an Excel file"
+        >
+          <Download className="size-3.5" />
+          {exporting ? "Exporting…" : "Export to Excel"}
+        </button>
+
         <span className="text-xs tabular-nums text-muted-foreground">
           {filtered.length.toLocaleString()} of {rows.length.toLocaleString()}
         </span>

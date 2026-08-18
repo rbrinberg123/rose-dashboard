@@ -24,6 +24,7 @@ Access to the page itself is separate from that: it's an independently-grantable
 
 - **Client Manager** — narrows the table to one manager's clients. Defaults to **all**. The dropdown lists only managers of clients **you can already see**, so it never reveals who runs an account outside your scope. "Client Manager" here means the client's **account manager** (`accounts.sales_lead_primary_name`), which is owned in the CRM and read-only in the dashboard — this is a filter, not an assignment control.
 - **Search** — matches client name, ticker, or event name.
+- **Export to Excel** — downloads an `.xlsx` of **exactly what's on screen**: the rows as currently filtered (search + Client Manager) and in the current sort order, not the whole table. Filter first, then export. The file is named `client-todo-list_YYYY-MM-DD.xlsx`.
 - The count on the right reads "*N* of *M*" so you can see how much the filters are hiding.
 
 ### The columns
@@ -68,6 +69,8 @@ Type in the box and click (or tab) away — that's the save. There is no Save bu
 | `dashboard/app/clients/to-do/todo-scope.ts` | **Pure** scoping decisions (`decideTodoLoad`, `visibleTodoRows`, `canEditClientNote`). |
 | `dashboard/app/clients/to-do/todo-scope.test.ts` | Unit tests for all three (`npm test`). |
 | `dashboard/app/clients/to-do/actions.ts` | `saveClientTodoNote` — the scoped upsert behind the inline note. |
+| `dashboard/lib/client-todo-excel.ts` | ExcelJS workbook + download for the "Export to Excel" button. |
+| `dashboard/lib/client-todo-format.ts` | Pure display helpers shared by the table and the export. |
 | `dashboard/components/event-meetings-pane.tsx` | **Shared** right-side confirmed-meetings drawer. Also used by Client Detail. |
 | `dashboard/lib/event-meetings.ts` | **Shared** event → confirmed-meetings read. Also used by Client Detail. |
 | `sql/20_client_todo.sql` | `public.client_todo_notes` + `public.v_client_todo`. **Must be run in the Supabase SQL editor** before the page will load. |
@@ -89,6 +92,23 @@ Three cells carry a hover panel (the same group-hover treatment the Capacity cha
 - **Ticker** — the full client name, as a plain `title` tooltip.
 - **Last Touch** — the touchpoint behind the date: `touchpoint_type_label`, `subject`, the exact `scheduled_start`, and `owner_name`. `v_client_todo` carries only the date, so the row itself comes from the base `touchpoints` table. The loader walks that client's touchpoints newest-first and takes the first one landing **on or before the Eastern day the cell shows** — matching on the day rather than just taking the newest row is what stops the tooltip and the date ever disagreeing (the view caps `last_touch_date` at today, so a touchpoint scheduled later today is skipped here too). The panel opens on hover *and* on focus, so it is reachable by click and keyboard.
 - **Open Items** — the event/subject of each open report and the date · institution of each open collection.
+
+### Excel export
+
+`lib/client-todo-excel.ts` builds the workbook with **ExcelJS**, lazily imported inside the click handler so its weight only loads when someone actually exports — the same pattern (and the same library) as the Upcoming Meetings export in `lib/pipeline-excel.ts`. `buildClientTodoWorkbook` is split out from the download so the sheet's shape and cell types can be exercised without a DOM.
+
+**Scoping:** the export is generated client-side from `sorted` — the rows already rendered — and fetches nothing. Those rows came through `resolveClientScope` and `visibleTodoRows` in the loader, so the file can only ever contain clients the viewer is authorised to see.
+
+Thirteen columns, flattened from the interactive cells: Ticker (base form), Meetings YTD, Meetings L12M, Last Touch (CRM), Last Data Upload, Current & Upcoming Event (ticker prefix stripped, as displayed), Event Status, Event Date, Event Meetings, Open Slots, Open Reports, Open Collections, Notes. The header row is bold and frozen, and an autofilter spans it.
+
+Types are real wherever a real type exists — counts as numbers, the two touchpoint dates as Dates with a `mmm d, yyyy` format — so the sheet sorts and filters natively. Two deliberate choices:
+
+- **Missing values are blank, never `0` or "None".** An event with no slot capacity, a client never touched, a row with no upcoming event — all leave the cell empty, so "unknown" can't be mistaken for "zero" in a pivot or a sum.
+- **Event Date stays text.** It is a *window* (`Sep 21 – Oct 16, 2026`), and no single date cell would be correct for a multi-day event. Splitting it into real Event Start / Event End columns is the alternative if sorting on it ever matters.
+
+Dates are built at UTC midnight (`dayToDate` in `lib/client-todo-format.ts`) because ExcelJS converts a `Date` via its UTC epoch with no timezone shift — so the day in the cell is exactly the Eastern day the view computed, regardless of the exporter's browser zone.
+
+The display helpers the export shares with the screen (`baseTicker`, `stripTickerPrefix`, `formatDay`, `formatDaySpan`) live in **`lib/client-todo-format.ts`** precisely so an exported cell can't drift from the cell it mirrors.
 
 ### The shared event-detail pane
 
