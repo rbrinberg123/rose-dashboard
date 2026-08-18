@@ -55,6 +55,7 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   { route: "/client-statistics", label: "Client Statistics", section: "Clients" },
   { route: "/portfolio", label: "Client Portfolio", section: "Clients" },
   { route: "/client-detail", label: "Client Detail", section: "Clients" },
+  { route: "/clients/to-do", label: "To-Do List", section: "Clients" },
 
   // ---- Institutions ----
   { route: "/institutions", label: "Institution Summary", section: "Institutions" },

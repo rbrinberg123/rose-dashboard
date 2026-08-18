@@ -16,7 +16,8 @@ import type {
 import { getEffectiveIdentity } from "@/lib/effective-identity"
 import { resolveClientScope } from "@/lib/access/data-scope"
 import { NoClientsAssigned, ClientNotInScope } from "@/components/scoped-empty"
-import { ClientDetailView, type MarketingEventMeeting } from "./client-detail-view"
+import { loadConfirmedMeetingsByEvent } from "@/lib/event-meetings"
+import { ClientDetailView } from "./client-detail-view"
 
 export const dynamic = "force-dynamic"
 
@@ -197,46 +198,21 @@ export default async function ClientDetailPage({
   // and the raw meeting dates per event (bcs_date; a meeting is a single point
   // in time, so it is both the start and end) — the view buckets Current/Previous
   // off these dates. Fail-soft: any error just leaves the maps empty.
-  const eventIds = Array.from(
-    new Set(marketingEvents.map((e) => e.event_id).filter(Boolean)),
-  )
-  const confirmedByEvent: Record<string, number> = {}
-  const meetingDatesByEvent: Record<string, string[]> = {}
   // Full confirmed-meeting rows per event, for the click-through drawer. Fields
   // mirror Planning / Live Outreach: institution_name + investor_text (bcs_investor).
-  const confirmedMeetingsByEvent: Record<string, MarketingEventMeeting[]> = {}
-  if (eventIds.length > 0) {
-    const { data: mtgRows } = await sb
-      .from("meetings")
-      .select("event_id, meeting_id, meeting_date, institution_name, investor_text")
-      .in("event_id", eventIds)
-      .eq("meeting_status_label", "Confirmed")
-    for (const r of mtgRows ?? []) {
-      const row = r as {
-        event_id: string | null
-        meeting_id: string
-        meeting_date: string | null
-        institution_name: string | null
-        investor_text: string | null
-      }
-      const id = row.event_id
-      if (!id) continue
-      confirmedByEvent[id] = (confirmedByEvent[id] ?? 0) + 1
-      if (row.meeting_date) {
-        const list = meetingDatesByEvent[id]
-        if (list) list.push(row.meeting_date)
-        else meetingDatesByEvent[id] = [row.meeting_date]
-      }
-      const meeting: MarketingEventMeeting = {
-        meeting_id: row.meeting_id,
-        meeting_date: row.meeting_date,
-        institution_name: row.institution_name,
-        investor_text: row.investor_text,
-      }
-      const mlist = confirmedMeetingsByEvent[id]
-      if (mlist) mlist.push(meeting)
-      else confirmedMeetingsByEvent[id] = [meeting]
-    }
+  const confirmedMeetingsByEvent = await loadConfirmedMeetingsByEvent(
+    marketingEvents.map((e) => e.event_id),
+  )
+  // The chip count and the bucketing dates are both derived from that same set,
+  // so there is only ever one read behind all three.
+  const confirmedByEvent: Record<string, number> = {}
+  const meetingDatesByEvent: Record<string, string[]> = {}
+  for (const [id, meetings] of Object.entries(confirmedMeetingsByEvent)) {
+    confirmedByEvent[id] = meetings.length
+    const dates = meetings
+      .map((m) => m.meeting_date)
+      .filter((d): d is string => Boolean(d))
+    if (dates.length > 0) meetingDatesByEvent[id] = dates
   }
 
   return (

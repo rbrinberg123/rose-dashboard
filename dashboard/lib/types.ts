@@ -1141,3 +1141,98 @@ export type PlanningEventRow = {
   // clickable Client column; the UI strips the suffix via baseTicker().
   client_ticker: string | null
 }
+
+/**
+ * One row per ACTIVE client on the Clients → To-Do List page (v_client_todo).
+ * See sql/20_client_todo.sql for each column's definition and
+ * content/docs/10-to-do-list.md for the plain-language version.
+ *
+ * Dates are plain `YYYY-MM-DD` day strings (the view resolves every timestamp
+ * to an Eastern calendar day), so they can be compared and rendered without any
+ * further timezone handling.
+ */
+export type ClientTodoRow = {
+  account_id: string
+  ticker_symbol: string | null
+  client_name: string
+  /** Confirmed meetings from Jan 1 of the current year through today. */
+  meetings_ytd: number
+  /** Confirmed meetings over the trailing 12 months through today. */
+  meetings_l12m: number
+  /** Latest touchpoint (public.touchpoints) day; null = never. */
+  last_touch_date: string | null
+  last_touch_days: number | null
+  /** Latest completed Outreach → "Data Upload" task day; null = never. */
+  last_data_upload_date: string | null
+  last_data_upload_days: number | null
+  /** Soonest current/upcoming marketing event — all null when there is none. */
+  next_event_id: string | null
+  next_event_name: string | null
+  next_event_state_label: string | null
+  next_event_start: string | null
+  next_event_end: string | null
+  next_event_confirmed_meetings: number
+  /** events.of_slots (Dynamics bcs_ofslots) — null when the event has no capacity set. */
+  next_event_total_slots: number | null
+  /** of_slots − confirmed meetings, floored at 0; null when total slots is null. */
+  next_event_open_slots: number | null
+  /** Items in the Feedback Reports pipeline (in_progress + pending_review). */
+  open_reports: number
+  /** Meetings still needing feedback collection (v_feedback_outstanding). */
+  open_collections: number
+  note: string | null
+  note_updated_at: string | null
+}
+
+/**
+ * One confirmed meeting of a marketing event, for the shared event-detail pane
+ * (components/event-meetings-pane.tsx). Fields mirror what Planning / Live
+ * Outreach use: date = meetings.meeting_date, institution =
+ * meetings.institution_name, investor = meetings.investor_text. Loaded by
+ * lib/event-meetings.ts.
+ */
+export type MarketingEventMeeting = {
+  meeting_id: string
+  meeting_date: string | null
+  institution_name: string | null
+  investor_text: string | null
+}
+
+/**
+ * A To-Do List row as the TABLE sees it: the view row plus the client manager,
+ * which lives on `accounts` rather than the view and is merged in by the loader
+ * — the same bulk-read-and-merge-by-account_id pattern Portfolio uses for the
+ * account-team columns.
+ */
+export type ClientTodoTableRow = ClientTodoRow & {
+  /** accounts.sales_lead_primary_name — the client's account/Client Manager. */
+  client_manager_name: string | null
+}
+
+/** One open Feedback Reports item, for the To-Do List's Feedback tooltip. */
+export type ClientTodoReportDetail = {
+  client_account_id: string
+  event_name: string | null
+  category: string | null
+}
+
+/** One meeting still needing feedback collection, for the same tooltip. */
+export type ClientTodoCollectionDetail = {
+  client_account_id: string
+  meeting_date: string | null
+  institution_name: string | null
+}
+
+/**
+ * The single touchpoint behind a row's Last Touch date, for that cell's hover
+ * detail. Read from the base `touchpoints` table (v_client_todo carries only
+ * the date), and matched to the date the cell shows — see app/clients/to-do.
+ */
+export type ClientTodoTouchDetail = {
+  client_account_id: string
+  touchpoint_id: string
+  scheduled_start: string | null
+  subject: string | null
+  touchpoint_type_label: string | null
+  owner_name: string | null
+}

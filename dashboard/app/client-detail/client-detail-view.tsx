@@ -41,6 +41,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { StatCard } from "@/components/stat-card"
+import { EventMeetingsPane } from "@/components/event-meetings-pane"
 import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
 import { type PillVariant } from "@/lib/gradients"
 import {
@@ -60,6 +61,7 @@ import type {
   ClientDetailTopInstitutionRow,
   ClientDetailTouchpointRow,
   MarketingCalendarRow,
+  MarketingEventMeeting,
 } from "@/lib/types"
 
 // Brand palette — inline-styled where Tailwind classes don't cover the exact hex.
@@ -261,16 +263,6 @@ type MarketingEvent = {
   // Soonest meeting day that is today-or-later (Eastern), for the left-column
   // sort. Null when every meeting has already occurred.
   soonestUpcomingYmd: string | null
-}
-
-/** One confirmed meeting of a marketing event, for the click-through drawer.
- *  Fields mirror what Planning / Live Outreach use: date = meetings.meeting_date,
- *  institution = meetings.institution_name, investor = meetings.investor_text. */
-export type MarketingEventMeeting = {
-  meeting_id: string
-  meeting_date: string | null
-  institution_name: string | null
-  investor_text: string | null
 }
 
 /** One compact event row: date tile · name + meta+count · stage pill. `muted`
@@ -744,17 +736,13 @@ export function ClientDetailView({
   const hasMarketingEvents =
     currentEvents.length > 0 || previousEvents.length > 0
 
-  // Which event's confirmed-meetings drawer is open (null = closed). Reuses the
-  // same Sheet drawer pattern as the Reach Depth section below.
+  // Which event's confirmed-meetings drawer is open (null = closed). The pane
+  // itself is the shared EventMeetingsPane (it does the date sort).
   const [openEvent, setOpenEvent] = React.useState<MarketingEvent | null>(null)
-  const openEventMeetings = React.useMemo(() => {
-    if (!openEvent) return []
-    // Confirmed meetings for this event, sorted by date ascending. A missing
-    // date sorts last.
-    return [...(confirmedMeetingsByEvent[openEvent.row.event_id] ?? [])].sort((a, b) =>
-      (a.meeting_date ?? "").localeCompare(b.meeting_date ?? ""),
-    )
-  }, [openEvent, confirmedMeetingsByEvent])
+  const openEventMeetings = React.useMemo(
+    () => (openEvent ? confirmedMeetingsByEvent[openEvent.row.event_id] ?? [] : []),
+    [openEvent, confirmedMeetingsByEvent],
+  )
 
   // ---------- Render ----------
   return (
@@ -906,62 +894,21 @@ export function ClientDetailView({
                 </div>
               </div>
 
-              {/* Confirmed-meetings drawer — reuses the Reach Depth Sheet pattern
-                  (same width, slide-in, header, close affordance). */}
-              <Sheet
-                open={openEvent !== null}
-                onOpenChange={(open) => {
-                  if (!open) setOpenEvent(null)
-                }}
-              >
-                <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
-                  <SheetHeader className="gap-1 border-b p-4 pr-12">
-                    <div
-                      className="text-[11px] font-medium uppercase tracking-wide"
-                      style={{ color: TEAL }}
-                    >
-                      Marketing Event
-                    </div>
-                    <SheetTitle className="text-base" style={{ color: NAVY_DEEP }}>
-                      {openEvent?.row.event_name ?? "Event"}
-                    </SheetTitle>
-                    <SheetDescription>
-                      {openEvent
-                        ? `${formatYmdSpan(openEvent.startYmd, openEvent.endYmd)} · ${openEventMeetings.length.toLocaleString()} confirmed meeting${openEventMeetings.length === 1 ? "" : "s"}`
-                        : null}
-                    </SheetDescription>
-                  </SheetHeader>
-                  <div className="flex-1 overflow-y-auto p-2">
-                    {openEventMeetings.length === 0 ? (
-                      <div className="px-2 py-10 text-center text-sm text-muted-foreground">
-                        No confirmed meetings for this event.
-                      </div>
-                    ) : (
-                      <ul>
-                        {openEventMeetings.map((m) => (
-                          <li key={m.meeting_id}>
-                            <div className="flex items-baseline justify-between gap-3 rounded-md px-2 py-2">
-                              <div className="min-w-0">
-                                <div className="truncate text-sm font-medium text-[#1E2858]">
-                                  {m.institution_name ?? "—"}
-                                </div>
-                                {m.investor_text && (
-                                  <div className="truncate text-xs text-muted-foreground">
-                                    {m.investor_text}
-                                  </div>
-                                )}
-                              </div>
-                              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                                {formatShortDate(m.meeting_date)}
-                              </span>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                </SheetContent>
-              </Sheet>
+              {/* Confirmed-meetings drawer — the shared pane (extracted from
+                  here), also used by the To-Do List's event cluster. */}
+              <EventMeetingsPane
+                event={
+                  openEvent
+                    ? {
+                        eventId: openEvent.row.event_id,
+                        eventName: openEvent.row.event_name,
+                        dateSpan: formatYmdSpan(openEvent.startYmd, openEvent.endYmd),
+                      }
+                    : null
+                }
+                meetings={openEventMeetings}
+                onClose={() => setOpenEvent(null)}
+              />
             </>
           )}
         </div>
