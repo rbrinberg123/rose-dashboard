@@ -3,6 +3,11 @@ import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import { getEffectiveIdentity } from "@/lib/effective-identity"
 import { resolveClientScope } from "@/lib/access/data-scope"
+import { canSeeFinancials } from "@/lib/access/financials"
+import {
+  applyFinancialsGate,
+  PORTFOLIO_FINANCIAL_FIELDS,
+} from "@/lib/access/financials-policy"
 import { NoClientsAssigned } from "@/components/scoped-empty"
 import type { ClientPortfolioRow } from "@/lib/types"
 import { PortfolioTable } from "./portfolio-table"
@@ -18,7 +23,12 @@ export default async function ClientPortfolioPage() {
 
   // Level-2 client scoping (Account Management). null = see all (super / All);
   // a Set = only those account ids; empty Set = none.
-  const scope = await resolveClientScope(await getEffectiveIdentity())
+  const identity = await getEffectiveIdentity()
+  const scope = await resolveClientScope(identity)
+  // Field-level Financials grant — independent of the row scope above. When
+  // false, the money fields are stripped from every row BEFORE the payload
+  // reaches the client, and the Retainer / Doc columns are not rendered.
+  const showFinancials = await canSeeFinancials(identity)
   if (scope && scope.size === 0) {
     return (
       <PageShell title="Client Portfolio" description="Clients on your account team">
@@ -71,13 +81,16 @@ export default async function ClientPortfolioPage() {
 
   // contract_url isn't on v_contract_management, so look it up from the contracts
   // table by contract_id and attach it per client. Mirrors the Contract tab.
-  const contractIds = Array.from(
-    new Set(
-      (contractData ?? [])
-        .map((c) => c.contract_id as string | null)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  )
+  // Skipped entirely for an ungranted viewer — we don't even read the links.
+  const contractIds = showFinancials
+    ? Array.from(
+        new Set(
+          (contractData ?? [])
+            .map((c) => c.contract_id as string | null)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      )
+    : []
   const urlByContractId = new Map<string, string | null>()
   if (contractIds.length > 0) {
     const urlRes = await sb
@@ -92,7 +105,7 @@ export default async function ClientPortfolioPage() {
     }
   }
 
-  const rows = ((data ?? []) as ClientPortfolioRow[]).map((r) => {
+  const merged = ((data ?? []) as ClientPortfolioRow[]).map((r) => {
     const t = teamById.get(r.account_id)
     const c = contractById.get(r.account_id)
     const contractId = (c?.contract_id ?? null) as string | null
@@ -114,6 +127,15 @@ export default async function ClientPortfolioPage() {
     }
   })
 
+  // SERVER-SIDE omission: for an ungranted viewer the retainer amounts and the
+  // contract-document link are DELETED from the rows here, so they are absent
+  // from the props serialized into the page — never hidden client-side.
+  const rows = applyFinancialsGate(
+    merged,
+    PORTFOLIO_FINANCIAL_FIELDS,
+    showFinancials,
+  )
+
   return (
     <PageShell
       title="Client Portfolio"
@@ -121,7 +143,7 @@ export default async function ClientPortfolioPage() {
       hideHeader
       canvas
     >
-      <PortfolioTable rows={rows} />
+      <PortfolioTable rows={rows} showFinancials={showFinancials} />
     </PageShell>
   )
 }

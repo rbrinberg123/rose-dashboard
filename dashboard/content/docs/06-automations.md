@@ -6,7 +6,7 @@ A few jobs run on a schedule without anyone clicking anything. They're defined i
 
 1. **Sync** — copy new Dynamics changes into Supabase (every 10 minutes, business hours, weekdays).
 2. **Reconcile** — check for records deleted in Dynamics (nightly).
-3. **AI client summaries** — regenerate the nightly client-summary text (nightly).
+3. **AI client summaries** — regenerate the nightly client-summary text (nightly). Only *stale* clients, so after a prompt change you rewrite the whole book yourself: click **Refresh all AI summaries** in **Admin → Maintenance** (no command line needed), or run `npm run refresh-summaries`. See _One-time forced regenerate_ below.
 4. **Live Outreach email** — send the outreach digest to the team (weekday mornings).
 5. **Feedback email (Monday)** — the outstanding-feedback digest, Monday.
 6. **Feedback email (Tue–Fri)** — same digest, rest of the week.
@@ -25,7 +25,7 @@ Eastern effect assumes EDT (UTC−4) in summer, EST (UTC−5) in winter.
 |------|--------------|----------------|--------------|
 | `/api/sync-dynamics` | `*/10 11-22 * * 1-5` | Every 10 min, ~7:00 AM–6:50 PM ET (EDT) / 6:00 AM–5:50 PM ET (EST), Mon–Fri | Incremental Dynamics → Supabase sync. Returns HTTP 207 if any entity errored. |
 | `/api/reconcile-dynamics` | `0 5 * * *` | ~1:00 AM ET (EDT) / midnight ET (EST), daily | Deletion-reconciliation sweep (runs after the sync). |
-| `/api/client-summary/refresh-all` | `0 8 * * *` | ~4:00 AM ET (EDT) / 3:00 AM ET (EST), daily | Nightly AI client-summary batch; regenerates only stale clients, paced to respect the Anthropic rate limit. Costs API money → must stay non-public. |
+| `/api/client-summary/refresh-all` | `0 8 * * *` | ~4:00 AM ET (EDT) / 3:00 AM ET (EST), daily | Nightly AI client-summary batch; regenerates only stale clients, paced to respect the Anthropic rate limit. Costs API money → must stay non-public. **The summary is shown to everyone**, so it never states retainer / fee amounts for anyone — the retainer is withheld from the model's input and the prompt forbids money figures (renewal **dates** are kept). See [01 — Access & Users → The Financials permission](01-access-and-users.md). Summaries cached before that change may still quote a figure until this batch regenerates them. |
 | `/api/live-outreach/send-email` | `30 11,12 * * 1-5` | Net **7:30 AM ET, Mon–Fri**, year-round | Emails the "Non-Deal Roadshow Update" digest to `team@rosecoglobal.com`. |
 | `/api/feedback/send-email` | `15 12,13 * * 1` | Net **Monday 8:15 AM ET** | "Outstanding Feedback" digest (Monday variant). |
 | `/api/feedback/send-email` | `45 12,13 * * 2-5` | Net **Tue–Fri 8:45 AM ET** | Same digest, Tue–Fri (30 min later than Monday). |
@@ -94,6 +94,64 @@ return { claimed: false, reason: `claim-error: ${error.message}` }   // ANY DB e
 
 Each route's sequence: **gate → claim → (skip if not claimed) → send → release-on-failure.**
 
+### Admin button — "Refresh all AI summaries" (super-user)
+
+**Admin → Maintenance** has a **Refresh all AI summaries** button. It does exactly what the command below does, from the browser, so nobody has to touch a terminal or the cron secret.
+
+- **Confirms first.** It is a paid action, so it asks — *"Regenerate ~108 client summaries? This calls the AI and may take a few minutes."* — with the live active-client count filled in. Nothing happens until you confirm.
+- **Live progress.** A line under the button reads `Regenerating… 45 of 108 (0 failed)` and settles to `Done — 108 summaries regenerated.` (or a "finished with errors, run it again to retry" line).
+- **One run at a time.** The button disables while running and a synchronous lock blocks a double-click or a second concurrent run.
+- **Whatever environment you click it in.** It uses the prompt the *server* is running and writes to that server's Supabase — so clicking it on production refreshes production with the deployed prompt. The nightly cron is untouched.
+- **Interruptible.** Closing the tab stops the run; clicking again resumes from where it stopped rather than starting over.
+
+**How it works.** `dashboard/app/admin/refresh-summaries-card.tsx` drives the **existing** `/api/client-summary/refresh-all` route in small batches from the browser — the same `force=1` + `before=` + `limit=` loop as the CLI script — repeating until the response's `remaining` hits 0. It contains no generation logic: pacing, per-client backoff, and the resume window all come from the route. Short requests are what keep any single call clear of a serverless timeout. The loop's stopping rules (finished / no-forward-progress) are the pure, unit-tested `lib/client-summary-refresh.ts`.
+
+**Auth.** The route now authorizes **either** the cron bearer token **or** a signed-in `super_user` session (`requireSuperUser()`, the same guard the email routes' manual sends use) — so the browser sends only its session cookie and `CRON_SECRET` never reaches the client. The server is the gate: rendering the button is not what authorizes it, and an unauthenticated `POST` to the route gets a 401.
+
+### One-time forced regenerate from the command line — `npm run refresh-summaries`
+
+The nightly cron only touches **stale** clients, so a change to the summary prompt reaches everyone slowly (and never reaches a client whose data hasn't moved). To rewrite the whole book at once — the case after the retainer/fee amounts were removed from the prompt — run:
+
+```bash
+npm run refresh-summaries
+```
+
+It is **manual only**. Nothing triggers it: no cron entry, no deploy hook, no build step. It fires when you run it.
+
+> **⚠️ Sequencing.** The prompt used is whatever the **target server** is running, not what is in your working tree. `npm run refresh-summaries` targets `http://localhost:3000` (your local dev server → your local code), writing to whichever Supabase project `.env.local` points at. To run it against the deployed app instead, deploy the prompt change **first**, then:
+>
+> ```bash
+> npm run refresh-summaries -- --url https://<your-app>.vercel.app
+> ```
+>
+> Running it against a server still on the old prompt just re-bakes the old text in.
+
+**What it does.** `dashboard/scripts/refresh-summaries.mjs` drives `/api/client-summary/refresh-all` in small batches with `force=1`, printing a line per pass:
+
+```
+pass  1 — 15 regenerated, 0 failed · 15/108 clients complete · 93 remaining · 58s
+```
+
+**Flags:** `--url <base>` target server · `--batch <n>` clients per request (default 15) · `--dry-run` regenerate exactly one client and stop · `--restart` ignore a saved campaign and begin fresh.
+
+**Resumable.** The script stamps a campaign timestamp and passes it as `before=`; the route regenerates only clients whose `ai_summary_generated_at` is null or **older** than it. A client that succeeds gets a newer timestamp and drops out of the filter, so **re-running the same command after a crash, timeout, or Ctrl-C continues where it stopped** rather than starting over (and re-paying for work already done). The timestamp is saved in `dashboard/.refresh-summaries-state.json` (gitignored), reused automatically for 24 hours, and deleted when the campaign completes.
+
+**Safe.** Writes are `UPDATE`s of `accounts.ai_summary` / `ai_summary_generated_at` — always **overwrite**, never append — so a re-run cannot duplicate or corrupt anything. Generation stays paced at 2 concurrent calls with a 2-second gap between chunks (~27 req/min), and each client now gets its own **exponential backoff** (5s → 15s → 45s) on a 429 / 529 / 5xx before being counted as failed. One client failing never stops the batch; failures are listed at the end and are picked up by simply re-running. If a whole pass fails, the script stops rather than looping, so a bad key or exhausted quota surfaces immediately.
+
+**Raw endpoint**, if you'd rather not use the script:
+
+```bash
+curl -X POST -H "Authorization: Bearer $CRON_SECRET"   "http://localhost:3000/api/client-summary/refresh-all?force=1&before=2026-08-19T00:00:00Z&limit=15"
+```
+
+| Param | Meaning |
+|---|---|
+| `force=1` | Regenerate every active client, skipping the staleness check. Required for the two below. |
+| `before=<ISO>` | Only clients whose summary is older than this instant — the resume window. Keep it **fixed** across retries. |
+| `limit=<n>` | Cap this invocation; the response's `remaining` says how many are left. |
+
+The response reports `active` / `eligible` / `attempted` / `skipped` / `succeeded` / `failed` / `remaining`. Loop while `remaining > 0`. Progress is also logged server-side (`[refresh-all] 30/108 done — 30 ok, 0 failed`).
+
 ### Authorization — `CRON_SECRET` bearer token
 
 `/api/*` routes are excluded from the auth proxy, so each cron route checks its own bearer token and **fails closed** if the secret is unset:
@@ -106,6 +164,8 @@ if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
 ```
 
 Vercel Cron injects this header automatically. The three data/AI routes also expose a **POST** behind the same bearer check for the admin "Run now" buttons (a server action adds the header server-side). The two email routes' POST instead requires a signed-in `super_user` (`requireSuperUser()`) for manual/test sends — that path is not part of the cron flow.
+
+`/api/client-summary/refresh-all` accepts **either**: the bearer token (cron + the CLI script) **or** a signed-in `super_user` session, so the Admin → Maintenance button can call it straight from the browser with no token. The session check runs only when the header is absent, leaving the cron path a pure header comparison. The header half is the pure, unit-tested `hasCronBearer` (`dashboard/lib/cron-auth.ts`), which **fails closed** on an unset secret.
 
 ### On/off state
 

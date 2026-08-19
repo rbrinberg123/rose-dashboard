@@ -51,6 +51,9 @@ test("save→read round-trip: a persisted Account-Management row is honored by t
     booker: true,
     host: true,
     feedback: true,
+    // Row scopes carry the field-level Financials grant too; it must NOT
+    // change any row decision (see financials-policy.test.ts).
+    financials: false,
   }
   const scopes = scopesFromRow(persistedRow)
   assert.deepEqual(scopes, {
@@ -59,6 +62,7 @@ test("save→read round-trip: a persisted Account-Management row is honored by t
     booker: true,
     host: true,
     feedback: true,
+    financials: false,
   })
   // With a scope assigned, the user sees exactly their scoped account ids.
   const scope = decideClientScope(scopes, ["acc-1", "acc-2", "acc-3"])

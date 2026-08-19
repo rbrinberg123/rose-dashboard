@@ -363,8 +363,12 @@ export type ClientPortfolioRow = {
   hq_country_name: string | null
   region_label: string | null
   sector_label: string | null
-  quarterly_retainer: number | null
-  annualized_retainer: number | null
+  // FINANCIALS-GATED (optional on purpose): omitted entirely from the payload
+  // for a viewer without the Financials permission — see
+  // lib/access/financials-policy.ts (PORTFOLIO_FINANCIAL_FIELDS). The key is
+  // ABSENT, not null, so an ungranted client never receives the value.
+  quarterly_retainer?: number | null
+  annualized_retainer?: number | null
   meetings_last_365d: number | null
   meetings_last_90d: number | null
   // Forward-looking: confirmed meetings scheduled in the next 3 months
@@ -395,7 +399,8 @@ export type ClientPortfolioRow = {
   total_contract_count: number | null
   // SharePoint contract file link. Not on either view; looked up page-side from
   // the contracts table by contract_id, same as the Contract Management page.
-  contract_url: string | null
+  // FINANCIALS-GATED (the contract document carries the fee schedule).
+  contract_url?: string | null
 }
 
 export type ClientStatisticsRow = {
@@ -476,8 +481,12 @@ export type ClientDetailSummaryRow = {
   ltm_feedback_rate: number | null
   client_since: string | null
   sales_lead_name: string | null
-  annualized_retainer: number
-  dollars_per_meeting_ltm: number | null
+  // FINANCIALS-GATED (optional on purpose) — omitted from the payload for a
+  // viewer without the Financials permission. dollars_per_meeting_ltm is
+  // DERIVED from the retainer, so it goes with it. See
+  // lib/access/financials-policy.ts (CLIENT_DETAIL_FINANCIAL_FIELDS).
+  annualized_retainer?: number
+  dollars_per_meeting_ltm?: number | null
   latest_term_end: string | null
   days_to_renewal: number | null
 }

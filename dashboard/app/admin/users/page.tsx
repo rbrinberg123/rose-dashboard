@@ -41,6 +41,7 @@ const DEFAULT_SCOPES: DataScopes = {
   booker: false,
   host: false,
   feedback: false,
+  financials: false,
 }
 
 /** Read staged grants; guard the table not existing yet (DDL run manually). */
@@ -68,19 +69,23 @@ type ScopeRow = {
   booker: boolean
   host: boolean
   feedback: boolean
+  /** Later addition — absent until the ALTER TABLE is run (see docs). */
+  financials?: boolean | null
 }
 
 /**
- * Read staged Level-2 data scopes; guard the table not existing yet. STAGING
- * ONLY — these values are recorded for the future Phase-3 enforcement and are
- * read by nothing else.
+ * Read each person's Level-2 data scopes; guard the table not existing yet.
+ * LIVE — the same rows getUserScopes reads to enforce (row scoping) and
+ * canSeeFinancials reads to gate dollar figures.
+ *
+ * SELECT * rather than a column list so a database that has not had the
+ * `financials` ALTER TABLE run yet still loads (a named missing column would
+ * error and silently blank every checkbox).
  */
 async function loadScopes(
   sb: ReturnType<typeof getSupabaseServer>,
 ): Promise<{ scopes: Map<string, DataScopes>; missingTable: boolean }> {
-  const { data, error } = await sb
-    .from("user_data_scopes")
-    .select("email, scope_all, account_mgmt, booker, host, feedback")
+  const { data, error } = await sb.from("user_data_scopes").select("*")
   if (error) {
     const missingTable = error.code === "42P01" || /does not exist/i.test(error.message)
     return { scopes: new Map(), missingTable }
@@ -93,6 +98,7 @@ async function loadScopes(
       booker: s.booker,
       host: s.host,
       feedback: s.feedback,
+      financials: !!s.financials,
     })
   }
   return { scopes, missingTable: false }

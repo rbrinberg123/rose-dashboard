@@ -4,11 +4,24 @@ import type {
   ClientDetailRecentNoteRow,
   ClientDetailSummaryRow,
 } from "@/lib/types"
+import {
+  buildClientDataBlock,
+  buildSummaryFields,
+  containsMoneyAmount,
+  SUMMARY_SYSTEM_PROMPT,
+} from "@/lib/client-summary-prompt"
 
 /**
  * Shared AI client-summary generation. Both routes call into here so the single
  * route (/api/client-summary) and the nightly batch (/api/client-summary/
  * refresh-all) can never drift in how a summary is produced or cached.
+ *
+ * ONE summary per client, shown to EVERYONE — there is no per-viewer variant.
+ * Because a reader may lack the Financials permission, the summary must never
+ * contain a money amount: the retainer is withheld from the model's input
+ * entirely AND the prompt forbids monetary figures. Renewal / term-end DATES are
+ * allowed. Summaries cached BEFORE this change may still mention amounts until
+ * they are regenerated (the nightly refresh, or /api/client-summary/refresh-all).
  *
  * Server-only: uses ANTHROPIC_API_KEY and the service_role Supabase client.
  */
@@ -21,13 +34,23 @@ const RECENT_TOUCHPOINTS = 5
 // can decide whether their duration genuinely stands out.
 const LONGEST_TO_TAG = 2
 
-/** Carries an HTTP status so the single route can map failures to a response. */
+/**
+ * Carries an HTTP status so the single route can map failures to a response.
+ *
+ * `upstreamStatus` preserves the ORIGINAL Anthropic status (429 rate-limited,
+ * 529 overloaded, 5xx transient) when there was one, so the batch route can
+ * tell "back off and retry this" apart from "this client is broken". Undefined
+ * for our own errors (missing client, cache write failure) — those are not
+ * retried.
+ */
 export class ClientSummaryError extends Error {
   status: number
-  constructor(message: string, status: number) {
+  upstreamStatus?: number
+  constructor(message: string, status: number, upstreamStatus?: number) {
     super(message)
     this.name = "ClientSummaryError"
     this.status = status
+    this.upstreamStatus = upstreamStatus
   }
 }
 
@@ -93,30 +116,6 @@ function buildTouchpointsBlock(rows: TouchpointRow[]): string {
     return `- ${line}`
   })
 
-  return lines.join("\n")
-}
-
-const SYSTEM_PROMPT =
-  "You are writing a brief relationship summary for an investor-relations advisory firm's internal dashboard. Below is structured data about one corporate client. Write a 2–3 sentence summary that helps an account manager quickly understand the state of this relationship.\n\n" +
-  "Guidelines:\n\n" +
-  "Be factual, concise, and neutral. Use only the data provided — do not invent details, numbers, or events. If a field is missing or null, omit it; do not speculate. Synthesize; do not recite every field.\n" +
-  "State what is true, not how good it is. Do not editorialize or apply subjective labels. Never use phrases like \"valued client,\" \"strong relationship,\" or \"well-positioned,\" and never use any adjective that is a judgment rather than a fact.\n" +
-  "Mention how long they have been a client (from the start date).\n" +
-  "Reflect the most recent client note and its sentiment if present.\n" +
-  "Summarize the recent touchpoints — what kinds of contact have happened and roughly when. Touchpoints tagged \"[longest]\" are the longest-duration recent ones; mention a long touchpoint only if its duration genuinely stands out from the others, and never imply there were tasks or activities beyond the touchpoints listed.\n" +
-  "You may state plain facts such as the number of recent meetings, the number of unique institutions met, and upcoming confirmed meetings. Do NOT comment on meeting pace in any way: no \"low\" or \"high,\" no \"light\" or \"active,\" no \"on track\" or \"behind.\" Report counts, never a judgment about them.\n" +
-  'Do not give explicit recommendations (no "you should…"). Describe the state; let the reader draw conclusions.\n' +
-  "Neutral, professional tone. No bullet points — 2–3 flowing sentences."
-
-/** Render only the non-null fields so the model never sees "null". */
-function buildClientDataBlock(
-  fields: Record<string, string | number | null>,
-): string {
-  const lines: string[] = []
-  for (const [label, value] of Object.entries(fields)) {
-    if (value === null || value === "") continue
-    lines.push(`${label}: ${value}`)
-  }
   return lines.join("\n")
 }
 
@@ -328,22 +327,26 @@ export async function generateAndCacheClientSummary(
     : null
   const monthsActive = clientSince ? monthsBetween(clientSince, new Date()) : 0
 
-  let clientData = buildClientDataBlock({
-    "Client name": summary.client_name,
-    "Client since": summary.client_since,
-    "Lifetime meetings": summary.lifetime_meetings,
-    "Trailing-12-month meetings": trailing12m,
-    "Confirmed upcoming meetings": upcomingConfirmed,
-    "Institutions met (last 12 months)": summary.ltm_unique_institutions,
-    "Annualized retainer (USD)": summary.annualized_retainer
-      ? Math.round(summary.annualized_retainer)
-      : null,
-    "Contract renewal date": summary.latest_term_end,
-    "Most recent client note date": note?.note_date ?? null,
-    "Most recent client note": note?.notes_text ?? null,
-    "Client note status / sentiment": note?.status_text ?? null,
-    "Primary risk driver": note?.primary_risk_driver ?? null,
-  })
+  // The retainer is deliberately NOT among these fields — see
+  // lib/client-summary-prompt.ts. One summary is shown to EVERYONE, including
+  // people without the Financials permission, so the strongest guarantee that
+  // no dollar figure appears is that the model never sees one. The renewal
+  // DATE stays: dates are not gated.
+  let clientData = buildClientDataBlock(
+    buildSummaryFields({
+      clientName: summary.client_name,
+      clientSince: summary.client_since,
+      lifetimeMeetings: summary.lifetime_meetings,
+      trailing12m,
+      upcomingConfirmed,
+      ltmUniqueInstitutions: summary.ltm_unique_institutions,
+      latestTermEnd: summary.latest_term_end,
+      noteDate: note?.note_date ?? null,
+      noteText: note?.notes_text ?? null,
+      noteStatus: note?.status_text ?? null,
+      noteRiskDriver: note?.primary_risk_driver ?? null,
+    }),
+  )
 
   const touchpointsBlock = buildTouchpointsBlock(touchpoints)
   if (touchpointsBlock) {
@@ -355,7 +358,7 @@ export async function generateAndCacheClientSummary(
     const message = await anthropic.messages.create({
       model: SUMMARY_MODEL,
       max_tokens: 400,
-      system: SYSTEM_PROMPT,
+      system: SUMMARY_SYSTEM_PROMPT,
       messages: [{ role: "user", content: `Client data:\n\n${clientData}` }],
     })
     summaryText = message.content
@@ -368,9 +371,22 @@ export async function generateAndCacheClientSummary(
       throw new ClientSummaryError(
         `Anthropic API error ${err.status}: ${err.message}`,
         502,
+        err.status,
       )
     }
     throw err
+  }
+
+  // TRIPWIRE: the summary is shown to everyone, so a money amount slipping
+  // through is a permission leak. We log loudly rather than rewriting the text
+  // (silently editing a cached summary would hide a prompt regression).
+  if (containsMoneyAmount(summaryText)) {
+    console.error(
+      "[client-summary] generated summary for",
+      accountId,
+      "appears to contain a money amount — it is shown to users WITHOUT the Financials permission. Review the prompt:",
+      summaryText,
+    )
   }
 
   // Persist to the cache columns. The Dynamics sync upsert only writes mapped

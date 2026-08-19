@@ -15,6 +15,11 @@ import type {
 } from "@/lib/types"
 import { getEffectiveIdentity } from "@/lib/effective-identity"
 import { resolveClientScope } from "@/lib/access/data-scope"
+import { canSeeFinancials } from "@/lib/access/financials"
+import {
+  applyFinancialsGate,
+  CLIENT_DETAIL_FINANCIAL_FIELDS,
+} from "@/lib/access/financials-policy"
 import { NoClientsAssigned, ClientNotInScope } from "@/components/scoped-empty"
 import { loadConfirmedMeetingsByEvent } from "@/lib/event-meetings"
 import { ClientDetailView } from "./client-detail-view"
@@ -32,7 +37,10 @@ export default async function ClientDetailPage({
   const { account_id: requestedId } = await searchParams
 
   // Level-2 client scoping (Account Management). null = all; Set = only those; empty = none.
-  const scope = await resolveClientScope(await getEffectiveIdentity())
+  const identity = await getEffectiveIdentity()
+  const scope = await resolveClientScope(identity)
+  // Field-level Financials grant — independent of the row scope above.
+  const showFinancials = await canSeeFinancials(identity)
   if (scope && scope.size === 0) {
     return (
       <PageShell title="Client Detail">
@@ -68,7 +76,15 @@ export default async function ClientDetailPage({
     )
   }
 
-  const summaryRows = (summaryRes.data ?? []) as ClientDetailSummaryRow[]
+  // SERVER-SIDE omission: without the Financials grant, annualized_retainer and
+  // the retainer-DERIVED dollars_per_meeting_ltm are deleted from every row here
+  // — including the `allClients` list behind the client switcher — so they are
+  // absent from the props serialized into the page rather than hidden in CSS.
+  const summaryRows = applyFinancialsGate(
+    (summaryRes.data ?? []) as ClientDetailSummaryRow[],
+    CLIENT_DETAIL_FINANCIAL_FIELDS,
+    showFinancials,
+  )
 
   if (summaryRows.length === 0) {
     return (
@@ -220,6 +236,7 @@ export default async function ClientDetailPage({
       <ClientDetailView
         allClients={summaryRows}
         selected={selected}
+        showFinancials={showFinancials}
         clientTicker={(accountRes.data?.ticker_symbol ?? null) as string | null}
         aiSummary={(accountRes.data?.ai_summary ?? null) as string | null}
         aiSummaryGeneratedAt={

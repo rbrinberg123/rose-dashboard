@@ -37,6 +37,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# one-time AI-summary force-refresh resume marker (scripts/refresh-summaries.mjs)
+.refresh-summaries-state.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

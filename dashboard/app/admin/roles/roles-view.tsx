@@ -10,10 +10,12 @@ import {
   PAGE_REGISTRY,
   PAGE_SECTIONS,
   ASSIGNABLE_ROLES,
+  DATA_PERMISSIONS,
   type AssignableRole,
+  type DataPermissionEntry,
   type PageEntry,
 } from "@/lib/page-registry"
-import { setRolePageAccess } from "./actions"
+import { setRolePageAccess, setRoleDataPermission } from "./actions"
 
 /** Flat key into the grant/override maps. */
 function keyFor(role: string, route: string): string {
@@ -49,6 +51,14 @@ export function RolesView({
         init[k] = grants[k] ?? false
       }
     }
+    // Data permissions live in the same table under their `data:` key, so they
+    // seed from the same map.
+    for (const perm of DATA_PERMISSIONS) {
+      for (const r of editableRoles) {
+        const k = keyFor(r.value, perm.key)
+        init[k] = grants[k] ?? false
+      }
+    }
     return init
   })
   const [pending, setPending] = React.useState<Set<string>>(new Set())
@@ -62,6 +72,36 @@ export function RolesView({
 
     startTransition(async () => {
       const res = await setRolePageAccess(role, entry.route, next)
+      setPending((p) => {
+        const n = new Set(p)
+        n.delete(k)
+        return n
+      })
+      if (!res.ok) {
+        setAllow((a) => ({ ...a, [k]: prev })) // roll back
+        toast.error("Could not save", { description: res.error })
+      } else {
+        router.refresh()
+      }
+    })
+  }
+
+  /**
+   * Same optimistic save as `toggle`, but for a field-level data permission —
+   * a different server action with its own key-space validation.
+   */
+  function toggleDataPermission(
+    role: AssignableRole,
+    perm: DataPermissionEntry,
+    next: boolean,
+  ) {
+    const k = keyFor(role, perm.key)
+    const prev = allow[k]
+    setAllow((a) => ({ ...a, [k]: next }))
+    setPending((p) => new Set(p).add(k))
+
+    startTransition(async () => {
+      const res = await setRoleDataPermission(role, perm.key, next)
       setPending((p) => {
         const n = new Set(p)
         n.delete(k)
@@ -119,7 +159,10 @@ export function RolesView({
           <span className="font-medium">Live.</span> A page is allowed for a role only when its box
           is checked here — default deny, so a role with nothing checked can reach nothing.
           Super&nbsp;User always sees everything (locked). Changes take effect on the user&apos;s
-          next page load.
+          next page load. The <span className="font-medium">Data permissions</span> rows at the
+          bottom are not pages — they gate which <span className="font-medium">fields</span> a role
+          receives. A person is also granted a data permission individually on{" "}
+          <span className="font-medium">Users</span>; either grant is enough.
         </p>
       </div>
 
@@ -207,6 +250,57 @@ export function RolesView({
                 ))}
               </React.Fragment>
             ))}
+
+            {/* Data permissions — NOT pages. These gate which FIELDS a role
+                receives (today: dollar figures), independent of which routes it
+                may open. Same table, `data:`-prefixed key. */}
+            {DATA_PERMISSIONS.length > 0 && (
+              <React.Fragment key="__data_permissions__">
+                <tr>
+                  <td
+                    colSpan={colCount + 1}
+                    className="bg-[#F7F8FA] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                    style={{ color: TEXT_MUTED }}
+                  >
+                    Data permissions
+                  </td>
+                </tr>
+                {DATA_PERMISSIONS.map((perm) => (
+                  <tr
+                    key={perm.key}
+                    className="border-b border-[rgba(16,24,40,0.05)] last:border-0 hover:bg-[#FAFBFC]"
+                  >
+                    <td className="sticky left-0 z-10 bg-card px-4 py-1.5">
+                      <span className="font-medium" style={{ color: TEXT_PRIMARY }}>
+                        {perm.label}
+                      </span>
+                      <span className="ml-2 text-[11px]" style={{ color: "#9AA1AD" }}>
+                        {perm.description}
+                      </span>
+                    </td>
+                    {ASSIGNABLE_ROLES.map((r) => {
+                      const k = keyFor(r.value, perm.key)
+                      const checked = r.locked ? true : allow[k]
+                      const isPending = pending.has(k)
+                      return (
+                        <td key={r.value} className="px-3 py-1.5 text-center">
+                          <input
+                            type="checkbox"
+                            aria-label={`${r.label} can see ${perm.label}`}
+                            checked={checked}
+                            disabled={r.locked || isPending}
+                            onChange={(e) =>
+                              !r.locked && toggleDataPermission(r.value, perm, e.target.checked)
+                            }
+                            className="size-4 cursor-pointer accent-[#0E7C56] disabled:cursor-not-allowed disabled:opacity-60"
+                          />
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </React.Fragment>
+            )}
           </tbody>
         </table>
       </div>

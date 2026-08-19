@@ -48,8 +48,9 @@ export type UserRow = {
 }
 
 /**
- * The four specific data-scope toggles (All is handled separately as the
- * override). STAGING ONLY — recorded here, enforced by nothing yet.
+ * The four specific ROW-scope toggles (All is handled separately as the
+ * override). Financials is deliberately NOT in this list — it is a field-level
+ * grant, not a row scope, so All must not override or dim it.
  */
 const SCOPE_FIELDS: { key: keyof Omit<DataScopes, "all">; label: string; title: string }[] = [
   {
@@ -390,7 +391,12 @@ export function UsersView({
           nothing checked = no client rows (deny-by-default); Super Users always see everything.
           Changes take effect on the user&apos;s next page load.{" "}
           <span className="font-medium">Booker / Host / Feedback</span> (meeting-level) are recorded
-          here but enforced in a later pass.
+          here but enforced in a later pass.{" "}
+          <span className="font-medium">Financials</span> is not a row scope: it is a separate
+          field-level grant deciding whether the person sees retainer / fee dollar figures at all
+          (Portfolio&apos;s Retainer column and contract doc link, Client Detail&apos;s Annualized
+          Retainer and $ per Meeting). Ungranted users never receive those values. It composes with
+          row scoping — row scoping picks the clients, Financials picks whether their dollars show.
         </p>
       </div>
 
@@ -521,6 +527,35 @@ export function UsersView({
                           </label>
                         )
                       })}
+
+                      {/* Financials — FIELD-level grant, orthogonal to the row
+                          scopes above: it decides whether this person may see
+                          dollar figures (Portfolio Retainer + contract doc,
+                          Client Detail Annualized Retainer + $ per Meeting), not
+                          which rows they get. Deliberately NOT dimmed by "All"
+                          (All is a row override and says nothing about money);
+                          only Super User locks it on. */}
+                      <span aria-hidden style={{ color: "#C3C8D2" }}>
+                        |
+                      </span>
+                      <label
+                        title="Financials — may see retainer / fee dollar figures (Portfolio Retainer column + contract doc, Client Detail Annualized Retainer and $ per Meeting). Independent of the row scopes."
+                        className={cn(
+                          "flex items-center gap-1",
+                          superLock ? "cursor-default" : "cursor-pointer",
+                        )}
+                        style={{ color: TEXT_PRIMARY }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={superLock || rowScopes.financials}
+                          disabled={superLock || scState === "saving"}
+                          onChange={(e) => handleScopeChange(u, "financials", e.target.checked)}
+                          className="size-3.5 cursor-pointer accent-[#0E7C56] disabled:cursor-not-allowed"
+                          aria-label={`Financials for ${u.name}`}
+                        />
+                        Financials
+                      </label>
 
                       {superLock ? (
                         <span style={{ color: TEXT_MUTED }}>· implied by Super User</span>

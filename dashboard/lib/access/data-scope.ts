@@ -37,11 +37,15 @@ const DENY_SCOPES: UserScopes = {
   booker: false,
   host: false,
   feedback: false,
+  financials: false,
 }
 
 /**
  * Read a person's LIVE data scopes from `user_data_scopes` (keyed by lower-cased
  * email) — the same table the Admin → Users checkboxes write to.
+ *
+ * Also carries the FIELD-level `financials` grant (see ./financials.ts) so the
+ * one read serves both; it is NOT a row scope and no row filter consults it.
  *
  * LOCKOUT GUARD: a Super User is ALWAYS `{ all: true }` regardless of any row
  * (short-circuits before the table read), so activating scope enforcement can
@@ -56,12 +60,17 @@ export async function getUserScopes(
 
   // Super User → sees everything, no matter what the scopes table says.
   const role = await getRealRole(email)
-  if (role === "super_user") return { ...DENY_SCOPES, all: true }
+  if (role === "super_user") return { ...DENY_SCOPES, all: true, financials: true }
 
   const sb = getSupabaseServer()
   const { data, error } = await sb
     .from("user_data_scopes")
-    .select("scope_all, account_mgmt, booker, host, feedback")
+    // SELECT * (not a column list) on purpose: the `financials` column is a
+    // later addition, and naming a column Postgres doesn't have yet would turn
+    // this into a query ERROR — which fails closed and would deny EVERY row to
+    // EVERYONE until the DDL is run. With *, a not-yet-migrated database simply
+    // yields no `financials` key and scopesFromRow reads it as false.
+    .select("*")
     .eq("email", email.trim().toLowerCase())
     .maybeSingle()
   if (error) {

@@ -425,9 +425,18 @@ export function ClientDetailView({
   confirmedByEvent,
   meetingDatesByEvent,
   confirmedMeetingsByEvent,
+  showFinancials,
 }: {
   allClients: ClientDetailSummaryRow[]
   selected: ClientDetailSummaryRow
+  /**
+   * Does this viewer hold the Financials permission? Decided server-side
+   * (canSeeFinancials) — when false, `selected.annualized_retainer` and
+   * `selected.dollars_per_meeting_ltm` are already ABSENT from the payload and
+   * this flag drops their two KPI tiles, so the remaining four stretch to fill
+   * the row instead of leaving holes.
+   */
+  showFinancials: boolean
   clientTicker: string | null
   quarterly: ClientDetailQuarterlyRow[]
   topInstitutions: ClientDetailTopInstitutionRow[]
@@ -526,7 +535,10 @@ export function ClientDetailView({
   const feedbackColor =
     feedbackPct != null && feedbackPct < 60 ? RED : TEXT_PRIMARY
 
-  const quarterlyDollars = selected.annualized_retainer / 4
+  // Retainer-derived display values. Guarded with `?? 0` / undefined because the
+  // underlying fields are omitted from the payload for an ungranted viewer —
+  // none of these are read in that case (the tiles below aren't built).
+  const quarterlyDollars = (selected.annualized_retainer ?? 0) / 4
 
   const days = selected.days_to_renewal
   const renewalValue = days == null ? "—" : days.toLocaleString()
@@ -545,7 +557,7 @@ export function ClientDetailView({
 
   // Exact-on-hover for the abbreviated dollar values.
   const retainerExact =
-    selected.annualized_retainer > 0
+    selected.annualized_retainer != null && selected.annualized_retainer > 0
       ? formatCurrency(selected.annualized_retainer)
       : undefined
   const perMeetingExact =
@@ -561,6 +573,37 @@ export function ClientDetailView({
     valueColor?: string
     sparkline?: React.ReactNode
   }
+  // The two money tiles are OMITTED (not blanked) without the Financials grant;
+  // `tiles` then has 4 entries and the grid below sizes its columns to
+  // tiles.length, so the survivors stretch evenly across the full row.
+  const financialTiles: Tile[] = showFinancials
+    ? [
+        {
+          label: "Annualized Retainer",
+          value: (
+            <span title={retainerExact}>
+              {formatCompactDollars(selected.annualized_retainer)}
+            </span>
+          ),
+          valueColor: MONEY_GREEN,
+          hint:
+            (selected.annualized_retainer ?? 0) > 0
+              ? `${formatCompactDollars(quarterlyDollars)}/quarter`
+              : "No active contract",
+        },
+        {
+          label: "$ per Meeting",
+          value: (
+            <span title={perMeetingExact}>
+              {formatCompactDollars(selected.dollars_per_meeting_ltm)}
+            </span>
+          ),
+          valueColor: MONEY_GREEN,
+          hint: "LTM, retainer ÷ meetings",
+        },
+      ]
+    : []
+
   const tiles: Tile[] = [
     {
       label: "Meetings (LTM / All-time)",
@@ -580,21 +623,7 @@ export function ClientDetailView({
       sparkline: feedbackPct != null ? <RatioBar pct={feedbackPct} /> : undefined,
       hint: `${selected.ltm_feedback_collected.toLocaleString()} of ${selected.ltm_feedback_total_closed.toLocaleString()} closed`,
     },
-    {
-      label: "Annualized Retainer",
-      value: <span title={retainerExact}>{formatCompactDollars(selected.annualized_retainer)}</span>,
-      valueColor: MONEY_GREEN,
-      hint:
-        selected.annualized_retainer > 0
-          ? `${formatCompactDollars(quarterlyDollars)}/quarter`
-          : "No active contract",
-    },
-    {
-      label: "$ per Meeting",
-      value: <span title={perMeetingExact}>{formatCompactDollars(selected.dollars_per_meeting_ltm)}</span>,
-      valueColor: MONEY_GREEN,
-      hint: "LTM, retainer ÷ meetings",
-    },
+    ...financialTiles,
     {
       label: "Contract Renewal",
       value: renewalValue,
@@ -914,8 +943,17 @@ export function ClientDetailView({
         </div>
       )}
 
-      {/* Section 2: 6 KPI cards — floating style */}
-      <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      {/* Section 2: KPI cards — floating style. 6 tiles normally; 4 when the
+          viewer lacks the Financials grant (the two money tiles are omitted
+          server-side). The column count follows tiles.length so the row is
+          always evenly filled — no empty placeholders where the money was. */}
+      <div
+        className={`mb-6 grid gap-2 ${
+          showFinancials
+            ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-6"
+            : "grid-cols-2 sm:grid-cols-2 lg:grid-cols-4"
+        }`}
+      >
         {tiles.map((t) => (
           <StatCard
             key={t.label}

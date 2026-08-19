@@ -131,6 +131,45 @@ export function isRegisteredRoute(route: string): boolean {
   return PAGE_REGISTRY.some((p) => p.route === route)
 }
 
+// ---- data permissions (matrix rows that are NOT pages) ---------------------
+/**
+ * Field-level DATA permissions, shown as their own section of rows in the Roles
+ * matrix beneath the page rows. These are NOT pages: they gate which FIELDS a
+ * role may receive, not which routes it may open.
+ *
+ * They are persisted in the same `public.role_page_access` table, under a
+ * `data:`-prefixed key in the `route` column. That prefix can never collide
+ * with a real route, and `getAllowedRoutes` filters its result through
+ * PAGE_REGISTRY, so a data-permission row can never be mistaken for a page a
+ * role may navigate to.
+ */
+export type DataPermissionEntry = {
+  /** Storage key written to role_page_access.route. */
+  key: string
+  label: string
+  /** One-line explanation shown next to the row. */
+  description: string
+}
+
+export const DATA_PERMISSIONS: readonly DataPermissionEntry[] = [
+  {
+    // Must stay identical to FINANCIALS_PERMISSION_KEY in
+    // lib/access/financials-policy.ts (the resolver reads that constant). Kept
+    // as a literal rather than an import so this module stays dependency-free
+    // and unit-testable on its own; lib/page-registry.test.ts asserts the two
+    // are the same string, so a drift fails the test run.
+    key: "data:financials",
+    label: "Financials",
+    description:
+      "See retainer / fee dollar figures — Portfolio Retainer column + contract doc, Client Detail Annualized Retainer and $ per Meeting",
+  },
+] as const
+
+/** True when `key` is a real data permission (guards the save action). */
+export function isDataPermissionKey(key: string): boolean {
+  return DATA_PERMISSIONS.some((p) => p.key === key)
+}
+
 /**
  * The intended default access per role — the reference for the OPTIONAL go-live
  * seed SQL (see docs 01-access-and-users.md). NOTE: the live Roles matrix no

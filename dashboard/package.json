@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test \"**/*.test.ts\""
+    "test": "node --test \"**/*.test.ts\"",
+    "refresh-summaries": "node --env-file=.env.local scripts/refresh-summaries.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",

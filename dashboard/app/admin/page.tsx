@@ -24,6 +24,7 @@ import { formatRelative, formatDate } from "@/lib/format"
 import { KPI_CARD_CLASS, CARD_CLASS, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
 import { VIEW_AS_ROLE_OPTIONS } from "@/lib/access-control"
 import { setViewAsAction } from "@/app/view-as-actions"
+import { RefreshSummariesCard } from "./refresh-summaries-card"
 
 export const dynamic = "force-dynamic"
 
@@ -203,6 +204,25 @@ async function loadEmailJobs() {
       }),
     )
     return { jobs: results, isWeekday, todayET }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * How many active clients a full AI-summary refresh would regenerate — shown in
+ * the confirmation dialog so the cost is explicit before the click. Same active
+ * set the batch itself uses (listActiveClientIds → v_client_detail_summary).
+ * Fails soft to null, which the dialog renders as "all".
+ */
+async function loadActiveClientCount(): Promise<number | null> {
+  try {
+    const sb = getSupabaseServer()
+    const { count, error } = await sb
+      .from("v_client_detail_summary")
+      .select("*", { count: "exact", head: true })
+    if (error) return null
+    return count ?? 0
   } catch {
     return null
   }
@@ -453,12 +473,13 @@ function ViewAsControl() {
 // ---------------------------------------------------------------------------
 
 export default async function AdminHubPage() {
-  const [sync, syncErrors, recon, emails, db] = await Promise.all([
+  const [sync, syncErrors, recon, emails, db, activeClients] = await Promise.all([
     loadSyncHealth(),
     loadSyncErrors(),
     loadReconciliation(),
     loadEmailJobs(),
     loadDatabase(),
+    loadActiveClientCount(),
   ])
 
   const env = process.env.VERCEL_ENV ?? "local"
@@ -713,6 +734,15 @@ export default async function AdminHubPage() {
               href="/admin/docs"
             />
           </div>
+        </section>
+
+        {/* ---- Maintenance ---- */}
+        <section>
+          <SectionTitle>Maintenance</SectionTitle>
+          <p className="-mt-2 mb-3 text-xs" style={{ color: TEXT_MUTED }}>
+            On-demand jobs. Each runs only when you click it — the scheduled crons are unaffected.
+          </p>
+          <RefreshSummariesCard clientCount={activeClients} />
         </section>
 
         {/* ---- Hidden Pages ---- */}

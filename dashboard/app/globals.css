@@ -179,9 +179,17 @@
      frozen offsets are inline styles, so !important is required to override. */
   .portfolio-print-root [data-slot="table-container"] {
     overflow: visible !important;
+    /* The screen layout bounds this container's height so the sticky header has
+       something to stick to. On paper that would clip the table to one
+       screenful — release it so every row paginates. */
+    max-height: none !important;
   }
   .portfolio-print-root table {
     width: 100% !important;
+    /* The screen table carries an inline min-width (its no-squish floor). On a
+       portrait page that floor is wider than the sheet, so drop it and let the
+       8px print type fit the columns to the paper instead. */
+    min-width: 0 !important;
     font-size: 8px !important;
   }
   /* Repeat the header on every page; drop its sticky positioning. */

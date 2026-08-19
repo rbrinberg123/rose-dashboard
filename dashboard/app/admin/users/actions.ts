@@ -93,6 +93,13 @@ export async function setUserRole(
  *   - booker/host/feedback → meeting-level: meetings where they are the
  *                    booker / host / feedback assignee. RECORDED here; enforced
  *                    in a later pass.
+ *   - financials   → NOT a row scope: a FIELD-level grant deciding whether the
+ *                    person may see dollar figures (Portfolio's Retainer column
+ *                    + contract doc link; Client Detail's Annualized Retainer
+ *                    and $ per Meeting KPIs). Orthogonal to the four above —
+ *                    row scoping picks which clients, this picks whether their
+ *                    money is in the payload at all. Read by canSeeFinancials
+ *                    (lib/access/financials.ts). Deny-by-default.
  *
  * ENFORCEMENT MAPPING (client-level is wired; meeting-level is the later pass):
  *   - Account Management team = accounts.sales_lead_primary_id,
@@ -109,6 +116,8 @@ export type DataScopes = {
   booker: boolean
   host: boolean
   feedback: boolean
+  /** Field-level Financials grant (see above) — NOT a row scope. */
+  financials: boolean
 }
 
 /**
@@ -142,6 +151,7 @@ export async function setUserDataScopes(
       booker: scopes.booker,
       host: scopes.host,
       feedback: scopes.feedback,
+      financials: scopes.financials,
       updated_at: new Date().toISOString(),
       updated_by: auth.email,
     },

@@ -22,6 +22,24 @@ So a person's access = *their role* (from the Users page) → *the pages that ro
 
 The rule is **deny-by-default**: a page is blocked for a role unless its box is checked in the Roles grid. A brand-new page is therefore Super-User-only until someone ticks it on for a role — you can't accidentally leak a new finance page to everyone.
 
+### Seeing money — the "Financials" permission
+
+Being allowed onto a page is not the same as being allowed to see the **dollar figures** on it. **Financials** is a separate tick-box that decides whether a person sees retainer / fee amounts at all:
+
+- **Admin → Users** — a **Financials** checkbox on each person's row, next to their data-scope boxes.
+- **Admin → Roles** — a **Financials** row in a **Data permissions** section at the bottom of the grid, so you can grant it to a whole role at once.
+
+Either one is enough — person **or** role. **Super Users always have it.** Everyone else starts **off** (deny-by-default).
+
+It is **independent of** which clients someone sees. Data scopes decide *which clients*; Financials decides *whether those clients' dollars show*. So a Client Manager can see their own clients with the money columns simply **not there** — no blanks, no dashes, no "—" placeholder. The values are left out of the page entirely, not hidden with styling, so they aren't recoverable by anyone poking at the page.
+
+Where it applies today:
+
+- **Client Portfolio** — without it, the **Retainer** column and the **contract document** link are gone (the Contract band just has four columns).
+- **Client Detail** — without it, the **Annualized Retainer** and **$ per Meeting** tiles are gone, and the remaining four tiles spread out evenly to fill the row.
+
+The **AI client summary** is a separate matter: there is only **one** summary per client and everyone sees the same one, so it now **never mentions retainer, fee, or rate amounts for anybody** — including Super Users. Renewal and term-end **dates** are still there; only money is gone. Summaries written before this change may still quote a figure until they're regenerated on the next refresh.
+
 ### "View as" — see the app as any role, or any person
 
 Super-users have two related testing tools, both super-user-only and both invisible to everyone else:
@@ -165,14 +183,15 @@ Until the table exists, the page renders the full roster with everyone at **None
 
 ### Level-2 data scopes (Admin → Users — **Account Management enforced**)
 
-Each user row also has a second line of **data-scope** checkboxes: **All · Account Mgmt · Booker · Host · Feedback**. Where a role (Level 1) decides *which pages* a person can open, data scopes (Level 2) decide *which rows on those pages* they see.
+Each user row also has a second line of **data-scope** checkboxes: **All · Account Mgmt · Booker · Host · Feedback**, followed (after a divider) by the field-level **Financials** grant. Where a role (Level 1) decides *which pages* a person can open, data scopes (Level 2) decide *which rows on those pages* they see — and **Financials** decides which *fields* of those rows they receive.
 
 > **LIVE (Account Management).** `public.user_data_scopes` is the **single source of truth**: the checkboxes here **write** it and the loaders **read** it (`getUserScopes` → `resolveClientScope`) to enforce. **Account Management** is enforced on the client pages now (Portfolio, Client Detail, NDRS Calendar, Onboarding). **Booker / Host / Feedback** (meeting-level) are recorded but enforced in a later pass. Changes take effect on the user's **next page load**.
 
 - **All** — no row filtering: they see every row on any page they can open. When checked it **overrides and dims** the other four.
 - **Account Mgmt** — client-level: clients where they're on the account team. **Enforced.**
 - **Booker / Host / Feedback** — meeting-level: meetings where they are the booker / host / feedback assignee. **Recorded; Pass-2.**
-- **Super User** rows show **All** implied and **locked on** (the checkboxes are disabled) — and Super Users **always bypass** scope enforcement, so activating scopes can never lock a super out.
+- **Financials** — **not a row scope.** A field-level grant: may this person see retainer / fee **dollar figures**? Deliberately **not** dimmed by **All** (All is a row override and says nothing about money). **Enforced** — see _The Financials permission_ below.
+- **Super User** rows show **All** and **Financials** implied and **locked on** (the checkboxes are disabled) — and Super Users **always bypass** scope enforcement, so activating scopes can never lock a super out.
 - Everyone else defaults to **unchecked** (**deny-by-default** — nothing checked = no client rows), freely editable. Each toggle saves immediately through a super-user-gated server action (`dashboard/app/admin/users/actions.ts`, `setUserDataScopes` → `requireSuperUser`, domain-validated, upsert, `revalidatePath`). A non-super with **no** row is denied and that denial is **logged** (never a silent lockout).
 
 Create the table once in the Supabase SQL editor:
@@ -185,11 +204,21 @@ CREATE TABLE IF NOT EXISTS public.user_data_scopes (
   booker         boolean NOT NULL DEFAULT false,
   host           boolean NOT NULL DEFAULT false,
   feedback       boolean NOT NULL DEFAULT false,
+  financials     boolean NOT NULL DEFAULT false,
   updated_at     timestamptz NOT NULL DEFAULT now(),
   updated_by     text
 );
 ALTER TABLE public.user_data_scopes ENABLE ROW LEVEL SECURITY;
 ```
+
+> **RUN THIS if the table already exists** (`sql/21_financials_permission.sql`) — the `financials` column is a later addition:
+>
+> ```sql
+> ALTER TABLE public.user_data_scopes
+>   ADD COLUMN IF NOT EXISTS financials boolean NOT NULL DEFAULT false;
+> ```
+>
+> The loaders read this table with `SELECT *` precisely so a not-yet-migrated database degrades to "nobody has Financials" instead of erroring — an error here fails closed and would deny **every row** to **everyone**. Until the column exists, the Users checkbox will fail to save.
 
 **Enforcement mapping** — each scope matches rows where the person's `users.user_id` is:
 
@@ -199,6 +228,7 @@ ALTER TABLE public.user_data_scopes ENABLE ROW LEVEL SECURITY;
 | Booker | `meetings.booker_id` | **LIVE** — meeting pages |
 | Host | `meetings.host_id` | **LIVE** — meeting pages |
 | Feedback | `meetings.feedback_id` | **LIVE** — meeting pages |
+| Financials | *(not a row match — a field-level grant)* | **LIVE** — see below |
 
 All resolve against the **login-email → `users.user_id`** mapping (matched case-insensitively + trimmed against **`public.users.email` only** — see _Identity resolution_ above; same-name duplicate records are unioned by person).
 
@@ -216,6 +246,51 @@ The resolver lives in `dashboard/lib/access/`:
 - an **empty Set** → the loader renders a friendly "no clients assigned to you" state.
 
 Enforcement is server-side in the loaders only (the service-role key bypasses RLS, so the loader is the gate). Wired into: **Portfolio** (`v_client_portfolio`), **Client Detail** (`v_client_detail_summary` — and a direct URL to an out-of-scope client is blocked), **NDRS Calendar** (`v_marketing_calendar`), **Onboarding** (`v_client_onboarding`), and **Client Statistics** (whole-book aggregate — blocked entirely for any scoped, non-`null` user).
+
+#### The Financials permission (field-level) — **LIVE**
+
+**Financials is not a row scope.** Row scoping decides *which* clients a person sees; Financials decides whether those clients' **dollar figures** are in the payload at all. The two are orthogonal and compose in both directions:
+
+| | no Financials | Financials |
+|---|---|---|
+| **no row scope** | sees no rows | sees no rows (nothing to price) |
+| **Account Mgmt** | their clients, money fields **absent** | their clients, money fields present |
+| **All / Super User** | every client, money fields **absent** | every client, money fields present |
+
+**The resolver** — `canSeeFinancials(user)` in `dashboard/lib/access/financials.ts`, driven off `getEffectiveIdentity` (so **View as {person}** previews their money view):
+
+```ts
+export async function canSeeFinancials(
+  user: Pick<EffectiveIdentity, "email">,
+): Promise<boolean> {
+  if (!user.email) return false                       // unresolved identity → deny
+  const role = await getRealRole(user.email)
+  if (role === "super_user") return true              // Super User: always
+  const scopes = await getUserScopes(user.email)      // user_data_scopes.financials
+  const roleFlag = /* role_page_access(role, 'data:financials').allowed */
+  return decideFinancials({ isSuper: false, userFlag: scopes.financials, roleFlag })
+}
+```
+
+Granted when **any** of: real role is `super_user` · the person's `user_data_scopes.financials` flag · their role's `data:financials` grant. Everything else — flag off, role ungranted, no email, no scope row, or a query error (which is **logged**) — is **false**. The pure decision (`decideFinancials`) and the gated field lists live in `dashboard/lib/access/financials-policy.ts` and are unit-tested (`npm test`).
+
+**Where the role grant lives.** The **Data permissions → Financials** row in the Roles matrix writes `public.role_page_access` with `route = 'data:financials'` — the same table page access uses. The `data:` prefix can never collide with a real route, and `getAllowedRoutes` filters its result through `PAGE_REGISTRY`, so the row can never be mistaken for a page a role may navigate to. It is written by its own action (`setRoleDataPermission`), which accepts **only** registered data-permission keys — `setRolePageAccess` accepts **only** registered page routes, so neither can write the other's key space. `super_user` is never written (granted in code).
+
+**Enforcement is server-side omission, never CSS.** The loader **deletes** the fields from the rows before they are serialized into the page, so an ungranted user's payload has no key at all — not a null, not an empty string:
+
+| Surface | Omitted for an ungranted viewer |
+|---|---|
+| **Portfolio** (`app/portfolio/page.tsx`) | `annualized_retainer`, `quarterly_retainer`, `contract_url`. The **Retainer** and **Doc** columns are not rendered (the Contract band drops from 6 columns to 4), and the `contracts.contract_url` lookup is **skipped entirely** — the links are never even read. The **Export PDF** button prints the rendered table, so the printed output loses them too. |
+| **Client Detail** (`app/client-detail/page.tsx`) | `annualized_retainer` and the retainer-**derived** `dollars_per_meeting_ltm` — from the selected client *and* from the whole `allClients` switcher list. The **Annualized Retainer** and **$ per Meeting** KPI tiles are not built, so the tile set is **4 instead of 6** and the grid's column count follows `tiles.length` (`lg:grid-cols-4` instead of `lg:grid-cols-6`) — the survivors **stretch to fill the row**, with no empty placeholders where the money was. |
+
+`dollars_per_meeting_ltm` **must** go with the retainer: it is retainer ÷ LTM meetings, and the meeting count is on the same page, so leaving it would make the retainer trivially recoverable.
+
+**The AI summary is NOT gated — it is sanitized for everyone.** There is one cached summary per client (`accounts.ai_summary`) shown to every viewer, so a per-viewer variant is impossible without generating two. Instead the summary now **never contains a money amount at all**, for anyone including Super Users, enforced twice in `dashboard/lib/client-summary-prompt.ts`:
+
+1. `buildSummaryFields` **never puts the retainer in the model's input** — the model cannot quote a figure it was never given.
+2. `SUMMARY_SYSTEM_PROMPT` explicitly forbids contract-revenue / retainer / fee / rate figures, currency symbols, and per-quarter or per-meeting derivations.
+
+Renewal and term-end **dates** are deliberately kept — dates are not financials. A `containsMoneyAmount` tripwire runs after each generation and **logs** (never rewrites) if a figure slips through. **Existing cached summaries generated before this change may still quote an amount** until they are regenerated — the nightly batch refreshes stale ones, or force a full pass via `/api/client-summary/refresh-all`.
 
 #### Level-2 meeting scoping (Booker / Host / Feedback + account-team) — **LIVE**
 
@@ -251,6 +326,7 @@ Wired into: **Profiles** (`/profiles`, `v_profiles_upcoming` — filtered; a sco
 `/admin/roles` (`dashboard/app/admin/roles/`) is a **pages × roles** matrix that controls, per role, **which pages that role may reach**. It is reached from a **Roles** card on the Admin hub.
 
 - **Rows** come from a central **page registry** — `PAGE_REGISTRY` in `dashboard/lib/page-registry.ts`, one `{ route, label, section }` entry per navigable page, grouped by nav section. It also feeds `getAllowedRoutes` (route ordering for landing).
+- A final **Data permissions** section adds rows that are **not pages** — today just **Financials** (`DATA_PERMISSIONS` in the same registry). These gate which **fields** a role receives, not which routes it may open; see _The Financials permission_ above. They share `role_page_access` under a `data:`-prefixed key and are written by a separate action.
 - **Columns** are the assignable roles (`ASSIGNABLE_ROLES`): **User**, **Client Manager**, **Logistics**, **Super User**. Each cell is a checkbox — "this role can access this page." The **Super User** column is all-checked and **disabled** (a hard backstop) and is never written.
 - Toggling a cell saves immediately through a super-user-gated server action (`setRolePageAccess`), writing a `public.role_page_access` row.
 

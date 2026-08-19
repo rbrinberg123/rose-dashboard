@@ -21,7 +21,6 @@ import {
   NOTE_STATUS_PILL as NOTE_STATUS_STYLES,
   NOTE_STATUS_PILL_FALLBACK as NOTE_STATUS_FALLBACK,
 } from "@/lib/design"
-import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { DaysLeftPill, AutoRenewFlag, ContractDash } from "@/components/contract-fields"
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
@@ -56,7 +55,7 @@ const BAND_BG = "#DDE1E8"
 // card-colored gap instead — see GROUP_BAND_SEP_STYLE.)
 const GROUP_DIVIDER = "#EEF0F4"
 const GROUP_BAND_CLASS =
-  "rounded-t-md h-8 px-3 text-center text-[11px] font-semibold uppercase tracking-wider text-[#1A2233]"
+  "rounded-t-md h-8 px-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-[#1A2233]"
 const GROUP_BAND_STYLE: React.CSSProperties = {
   backgroundColor: BAND_BG,
 }
@@ -94,27 +93,79 @@ const VALID_SECTION_IDS = new Set<string>(TOGGLE_SECTIONS.map((s) => s.id))
 const DEFAULT_SECTIONS: SectionId[] = ["contract", "meetings", "activity"]
 
 // Frozen Core columns: when the table overflows horizontally, Client, Status and
-// Account Team stay pinned on the left. Fixed widths give each subsequent column
-// a stable left offset (computed cumulatively below). Header cells sit above body
-// cells; the sticky thead (z-20) stays above both so vertical scroll still tucks
-// rows under the header.
+// Account Team stay pinned on the left. Header cells sit above body cells; the
+// sticky thead (z-20) stays above both so vertical scroll tucks rows under the
+// header.
+//
+// All three are FIXED-width. NOTHING in the data grid stretches: leftover width
+// on a wide monitor pools in an empty trailing SPACER column at the far right
+// (see the spacer cells below), so every column keeps its tight width and there
+// is still no white gap.
+//
+// Client is a hard cap, not a preference: long names truncate with an ellipsis
+// and the full name is on hover (the cell wraps its link in a truncate div with
+// a title). NB a max-width would NOT work here — under table-layout:auto
+// browsers IGNORE max-width on table cells, so the ceiling must be a real width.
 const CLIENT_COL_W = 200
-const STATUS_COL_W = 116
-const TEAM_COL_W = 132
-// Cumulative left offsets for the three frozen columns.
-const STATUS_LEFT = CLIENT_COL_W
-const TEAM_LEFT = CLIENT_COL_W + STATUS_COL_W
-function frozenStyle(left: number, width: number, z: number): React.CSSProperties {
+const STATUS_COL_W = 92
+const TEAM_COL_W = 84
+
+/**
+ * Tight minimum for every data column, in table order — the smallest that still
+ * shows the value without wrapping, with headers abbreviated where the LABEL
+ * (not the data) was setting the width. Their sum is the table's no-squish
+ * floor: below it the wrapper scrolls rather than cramming.
+ *
+ * These feed ONLY the floor calculation — no per-column CSS width is applied to
+ * the data columns, so they size to their content naturally. That makes erring
+ * LOW safe (the table just ends up wider than the floor and the spacer takes
+ * less) and erring HIGH the only real mistake, since it would force width the
+ * content does not need. Values are measured from rendered content at the 6px
+ * cell padding, rounded up a couple of px.
+ */
+const SECTION_MIN_W = {
+  // Client + Status + Team, all fixed above.
+  core: CLIENT_COL_W + STATUS_COL_W + TEAM_COL_W,
+  // Mkt Cap, Region, Sector
+  classification: 64 + 90 + 80,
+  // Term End, Days, Renew, Term
+  contract: 68 + 45 + 48 + 46,
+  // Retainer, Doc — only rendered with the Financials grant
+  contractFinancials: 57 + 33,
+  // L12M, Inst, L3M, Next 3M, Last — these two groups carry 10px cell padding
+  // instead of the 6px base (they read as cramped at 6px), so each column here
+  // is its measured tight width + 8.
+  meetings: 50 + 43 + 44 + 67 + 76,
+  // Event, Note — same 10px padding as Meetings.
+  activity: 76 + 76,
+} as const
+
+/**
+ * Sticky style for a frozen column. `left` is the cumulative offset of the
+ * columns before it — Client flexes, so Status/Team offsets are measured at
+ * runtime rather than assumed (see clientColWidth below).
+ */
+function frozenStyle(left: number, z: number, width?: number): React.CSSProperties {
   return {
     position: "sticky",
     left,
     zIndex: z,
-    width,
-    minWidth: width,
-    maxWidth: width,
+    ...(width == null ? {} : { width, minWidth: width, maxWidth: width }),
     backgroundColor: "var(--card)",
   }
 }
+
+/**
+ * STRETCH-TO-FIT: the table is width:100% with no greedy column and no
+ * percentage width anywhere, so table-layout:auto spreads any leftover width
+ * PROPORTIONALLY across the auto-sized data columns — every column grows a
+ * little, none balloons, and there is no right-hand gap. The three frozen Core
+ * columns (Client / Status / Team) stay pinned at their fixed widths and take
+ * no part in it, which is what keeps the ~200px client cap and its ellipsis.
+ *
+ * min-width (SECTION_MIN_W) is still the floor: below it the wrapper scrolls
+ * rather than cramming.
+ */
 
 // Account-team roles, in display order. Account mgr = the sales lead. Colors are
 // drawn from the shared navy→teal palette; Logistics is light so it uses dark text.
@@ -329,7 +380,20 @@ function compareValues(
   return 0
 }
 
-export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
+export function PortfolioTable({
+  rows,
+  showFinancials,
+}: {
+  rows: ClientPortfolioRow[]
+  /**
+   * Does this viewer hold the Financials permission? Decided server-side
+   * (canSeeFinancials) — when false the rows arrive with annualized_retainer /
+   * quarterly_retainer / contract_url already DELETED, and this flag drops the
+   * Retainer and Doc columns so the Contract band has no empty placeholders.
+   * The flag alone is never the protection; the omitted payload is.
+   */
+  showFinancials: boolean
+}) {
   const searchParams = useSearchParams()
   // URL params are read once on mount only; filter changes are local-only and
   // are not pushed back to the URL.
@@ -403,12 +467,31 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
     meetings: activeSections.has("meetings"),
     activity: activeSections.has("activity"),
   }
+  // Cumulative sticky LEFT offsets for the frozen columns. Client and Status are
+  // both fixed width, so these are plain constants (no runtime measurement).
+  const statusLeft = CLIENT_COL_W
+  const teamLeft = CLIENT_COL_W + STATUS_COL_W
+
+  // The table's floor: the sum of every visible column's comfortable minimum.
+  // Wider than this and the table stretches to fill (no right-hand gap);
+  // narrower and the wrapper scrolls horizontally instead of squeezing.
+  const tableMinWidth =
+    SECTION_MIN_W.core +
+    (show.classification ? SECTION_MIN_W.classification : 0) +
+    (show.contract
+      ? SECTION_MIN_W.contract + (showFinancials ? SECTION_MIN_W.contractFinancials : 0)
+      : 0) +
+    (show.meetings ? SECTION_MIN_W.meetings : 0) +
+    (show.activity ? SECTION_MIN_W.activity : 0)
+
   const visibleColCount =
     3 +
     TOGGLE_SECTIONS.reduce(
       (n, s) => n + (activeSections.has(s.id) ? s.cols : 0),
       0,
-    )
+    ) -
+    // Contract loses its Retainer + Doc columns without the Financials grant.
+    (show.contract && !showFinancials ? 2 : 0)
 
   const sectors = React.useMemo(() => {
     const set = new Set<string>()
@@ -893,7 +976,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
             type="button"
             disabled
             title="Always shown"
-            className="inline-flex cursor-default items-center gap-1 rounded bg-[#1E2858] px-2.5 py-1 text-xs font-medium text-white opacity-70"
+            className="inline-flex cursor-default items-center gap-1 rounded bg-[#1E2858] px-1.5 py-1 text-xs font-medium text-white opacity-70"
           >
             <Lock className="size-3" aria-hidden="true" />
             Client
@@ -907,7 +990,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                 onClick={() => toggleSection(s.id)}
                 aria-pressed={active}
                 className={
-                  "rounded px-2.5 py-1 text-xs font-medium transition-colors " +
+                  "rounded px-1.5 py-1 text-xs font-medium transition-colors " +
                   (active ? "bg-[#1E2858] text-white" : "text-foreground hover:bg-slate-50")
                 }
               >
@@ -919,16 +1002,26 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
       </div>
       </div>
 
+      {/* The shared <Table> renders its own [data-slot=table-container] wrapper
+          with overflow-x:auto. Because overflow-x:auto forces overflow-y to
+          compute to auto as well, that wrapper is ALREADY a scroll container in
+          both axes — which means `sticky top-0` on the thead sticks to the
+          WRAPPER, not the viewport, and with an unbounded wrapper height it
+          never engages at all (the header just scrolls away with the page).
+          Bounding the height is what makes the sticky header actually work; the
+          rows then scroll inside the card and the header + frozen Client column
+          hold on both axes at once. */}
       <div
-        className={`${CARD_CLASS} [&_thead_tr:first-child_th:first-child]:rounded-tl-[14px] [&_thead_tr:first-child_th:last-child]:rounded-tr-[14px] [&_tbody_tr:last-child_td:first-child]:rounded-bl-[14px] [&_tbody_tr:last-child_td:last-child]:rounded-br-[14px]`}
+        className={`${CARD_CLASS} [&_[data-slot=table-container]]:max-h-[calc(100vh-15rem)] [&_[data-slot=table-container]]:overflow-y-auto [&_thead_tr:first-child_th:first-child]:rounded-tl-[14px] [&_thead_tr:first-child_th:last-child]:rounded-tr-[14px] [&_tbody_tr:last-child_td:first-child]:rounded-bl-[14px] [&_tbody_tr:last-child_td:last-child]:rounded-br-[14px]`}
       >
-        {/* w-auto overrides the shared Table's w-full: width:100% is what makes
-            the table stretch to fill the card and (under table-layout:auto) spread
-            the leftover width as slack *between* columns — the dead gap between
-            Term and Retainer. Sizing to content gives every column a uniform
-            padding-only gap; the wrapping div's overflow-x-auto + sticky columns
-            handle horizontal scroll when sections make the table wide. */}
-        <Table className="w-auto">
+        {/* width:100% so the table always fills the card — no right-hand white
+            gap — with min-width as the floor: below it the wrapper scrolls
+            horizontally rather than cramming the columns. The old dead gap
+            between Term and Retainer is gone because the columns themselves are
+            now tight (6px padding, abbreviated headers): the leftover is shared
+            PROPORTIONALLY across all of them rather than dumped between two, so
+            the row stays balanced at any width. */}
+        <Table className="w-full" style={{ minWidth: tableMinWidth }}>
           <TableHeader className="sticky top-0 z-20 bg-card">
             {/* Top tier: section bands. Only active sections render; each band's
                 colSpan equals its visible column count so it sits exactly over its
@@ -947,7 +1040,11 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                 </TableHead>
               )}
               {show.contract && (
-                <TableHead colSpan={6} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
+                <TableHead
+                  colSpan={showFinancials ? 6 : 4}
+                  className={GROUP_BAND_CLASS}
+                  style={GROUP_BAND_SEP_STYLE}
+                >
                   Contract
                 </TableHead>
               )}
@@ -964,46 +1061,52 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
             </TableRow>
             <TableRow style={{ backgroundColor: SUBHEADER_BG }}>
               {/* Core — frozen left */}
-              <TableHead className="h-8 px-2.5" style={{ ...frozenStyle(0, CLIENT_COL_W, 30), backgroundColor: SUBHEADER_BG }}>
+              <TableHead
+                className="h-8 px-1.5"
+                style={{ ...frozenStyle(0, 30, CLIENT_COL_W), backgroundColor: SUBHEADER_BG }}
+              >
                 <SortHeader label="Client" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               </TableHead>
-              <TableHead className="h-8 px-2.5" style={{ ...frozenStyle(STATUS_LEFT, STATUS_COL_W, 30), backgroundColor: SUBHEADER_BG }}>
+              <TableHead className="h-8 px-1.5" style={{ ...frozenStyle(statusLeft, 30, STATUS_COL_W), backgroundColor: SUBHEADER_BG }}>
                 <SortHeader label="Status" sortKey="note_status" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               </TableHead>
-              <TableHead className="h-8 px-2.5" style={{ ...frozenStyle(TEAM_LEFT, TEAM_COL_W, 30), backgroundColor: SUBHEADER_BG }}>
-                <span className="text-xs font-medium text-muted-foreground">Account Team</span>
+              <TableHead
+                className="h-8 px-1.5"
+                style={{ ...frozenStyle(teamLeft, 30, TEAM_COL_W), backgroundColor: SUBHEADER_BG }}
+              >
+                <span className="text-xs font-medium text-muted-foreground">Team</span>
               </TableHead>
               {show.classification && (
                 <>
-                  <TableHead className="h-8 px-2.5" style={GROUP_START_STYLE}>
+                  <TableHead className="h-8 px-1.5" style={GROUP_START_STYLE}>
                     <SortHeader label="Mkt Cap" sortKey="market_cap_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </TableHead>
-                  <TableHead className="h-8 px-2.5">
+                  <TableHead className="h-8 px-1.5">
                     <SortHeader label="Region" sortKey="region_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </TableHead>
-                  <TableHead className="h-8 px-2.5">
+                  <TableHead className="h-8 px-1.5">
                     <SortHeader label="Sector" sortKey="sector_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </TableHead>
                 </>
               )}
               {show.contract && (
                 <>
-                  <TableHead className="h-8 px-2.5" style={GROUP_START_STYLE}>
+                  <TableHead className="h-8 px-1.5" style={GROUP_START_STYLE}>
                     <SortHeader label="Term End" sortKey="initial_term_end" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </TableHead>
-                  <TableHead className="h-8 px-2.5">
+                  <TableHead className="h-8 px-1.5">
                     <SortHeader
-                      label="Days Left"
+                      label="Days"
                       sortKey="days_to_expiry"
                       currentKey={sortKey}
                       currentDir={sortDir}
                       onSort={handleSort}
-                      align="center"
+                      align="right"
                     />
                   </TableHead>
-                  <TableHead className="h-8 px-2.5">
+                  <TableHead className="h-8 px-1.5">
                     <SortHeader
-                      label="Auto-Renew"
+                      label="Renew"
                       sortKey="auto_renew"
                       currentKey={sortKey}
                       currentDir={sortDir}
@@ -1011,22 +1114,26 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       align="center"
                     />
                   </TableHead>
-                  <TableHead className="h-8 px-2.5">
+                  <TableHead className="h-8 px-1.5">
                     <SortHeader label="Term" sortKey="contract_status_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </TableHead>
-                  <TableHead className="h-8 px-2.5">
-                    <SortHeader
-                      label="Retainer"
-                      sortKey="annualized_retainer"
-                      currentKey={sortKey}
-                      currentDir={sortDir}
-                      onSort={handleSort}
-                      align="right"
-                    />
-                  </TableHead>
-                  <TableHead className="h-8 px-2.5 text-center">
-                    <span className="text-xs font-medium text-muted-foreground">Doc</span>
-                  </TableHead>
+                  {showFinancials && (
+                    <>
+                      <TableHead className="h-8 px-1.5">
+                        <SortHeader
+                          label="Retainer"
+                          sortKey="annualized_retainer"
+                          currentKey={sortKey}
+                          currentDir={sortDir}
+                          onSort={handleSort}
+                          align="right"
+                        />
+                      </TableHead>
+                      <TableHead className="h-8 px-1.5 text-center">
+                        <span className="text-xs font-medium text-muted-foreground">Doc</span>
+                      </TableHead>
+                    </>
+                  )}
                 </>
               )}
               {show.meetings && (
@@ -1038,17 +1145,17 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       currentKey={sortKey}
                       currentDir={sortDir}
                       onSort={handleSort}
-                      align="center"
+                      align="right"
                     />
                   </TableHead>
                   <TableHead className="h-8 px-2.5">
                     <SortHeader
-                      label="L12M Inst"
+                      label="Inst"
                       sortKey="unique_institutions_last_365d"
                       currentKey={sortKey}
                       currentDir={sortDir}
                       onSort={handleSort}
-                      align="center"
+                      align="right"
                     />
                   </TableHead>
                   <TableHead className="h-8 px-2.5">
@@ -1058,7 +1165,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       currentKey={sortKey}
                       currentDir={sortDir}
                       onSort={handleSort}
-                      align="center"
+                      align="right"
                     />
                   </TableHead>
                   <TableHead className="h-8 px-2.5">
@@ -1068,7 +1175,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                       currentKey={sortKey}
                       currentDir={sortDir}
                       onSort={handleSort}
-                      align="center"
+                      align="right"
                     />
                   </TableHead>
                   <TableHead className="h-8 px-2.5">
@@ -1086,7 +1193,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                 <>
                   <TableHead className="h-8 px-2.5" style={GROUP_START_STYLE}>
                     <SortHeader
-                      label="Last Event"
+                      label="Event"
                       sortKey="last_event_date"
                       currentKey={sortKey}
                       currentDir={sortDir}
@@ -1095,7 +1202,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                   </TableHead>
                   <TableHead className="h-8 px-2.5">
                     <SortHeader
-                      label="Last Note"
+                      label="Note"
                       sortKey="last_note_date"
                       currentKey={sortKey}
                       currentDir={sortDir}
@@ -1132,8 +1239,8 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                   <TableRow key={r.account_id}>
                     {/* Client — frozen left */}
                     <TableCell
-                      className="px-2.5 py-1 align-top"
-                      style={frozenStyle(0, CLIENT_COL_W, 10)}
+                      className="px-1.5 py-1 align-top"
+                      style={{ ...frozenStyle(0, 10, CLIENT_COL_W), overflow: "hidden" }}
                     >
                       <div className="truncate" title={r.name}>
                         <Link
@@ -1153,22 +1260,22 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                     </TableCell>
 
                     {/* Status — frozen left */}
-                    <TableCell className="px-2.5 py-1 align-top" style={frozenStyle(STATUS_LEFT, STATUS_COL_W, 10)}>
+                    <TableCell className="px-1.5 py-1 align-top" style={frozenStyle(statusLeft, 10, STATUS_COL_W)}>
                       <NoteStatusPill status={r.note_status} date={r.note_status_date} />
                     </TableCell>
 
                     {/* Account Team — frozen left */}
-                    <TableCell className="px-2.5 py-1 align-top" style={frozenStyle(TEAM_LEFT, TEAM_COL_W, 10)}>
+                    <TableCell className="px-1.5 py-1 align-top" style={frozenStyle(teamLeft, 10, TEAM_COL_W)}>
                       <AccountTeamAvatars row={r} />
                     </TableCell>
 
                     {show.classification && (
                       <>
                         {/* Mkt Cap */}
-                        <TableCell className="px-2.5 py-1 align-top" style={GROUP_START_STYLE}>{r.market_cap_label ?? "—"}</TableCell>
+                        <TableCell className="px-1.5 py-1 align-top" style={GROUP_START_STYLE}>{r.market_cap_label ?? "—"}</TableCell>
 
                         {/* Region */}
-                        <TableCell className="px-2.5 py-1 align-top" style={{ maxWidth: 132 }}>
+                        <TableCell className="px-1.5 py-1 align-top" style={{ maxWidth: 132 }}>
                           <div className="truncate" title={r.hq_country_name ?? ""}>
                             {r.hq_country_name ?? "—"}
                           </div>
@@ -1182,7 +1289,7 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
 
                         {/* Sector */}
                         <TableCell
-                          className="px-2.5 py-1 align-top"
+                          className="px-1.5 py-1 align-top"
                           style={{ maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                           title={r.sector_label ?? ""}
                         >
@@ -1194,12 +1301,12 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                     {show.contract && (
                       <>
                         {/* Term End */}
-                        <TableCell className="px-2.5 py-1 align-top whitespace-nowrap" style={GROUP_START_STYLE}>
-                          {inactive ? <ContractDash /> : formatDate(r.initial_term_end)}
+                        <TableCell className="px-1.5 py-1 align-top whitespace-nowrap" style={GROUP_START_STYLE}>
+                          {inactive ? <ContractDash /> : formatShortDate(r.initial_term_end)}
                         </TableCell>
 
                         {/* Days Left */}
-                        <TableCell className="px-2.5 py-1 align-top text-center">
+                        <TableCell className="px-1.5 py-1 align-top text-right">
                           <DaysLeftPill
                             days={inactive ? null : r.days_to_expiry}
                             hasContract={!!r.has_active_contract}
@@ -1208,62 +1315,68 @@ export function PortfolioTable({ rows }: { rows: ClientPortfolioRow[] }) {
                         </TableCell>
 
                         {/* Auto-Renew */}
-                        <TableCell className="px-2.5 py-1 align-top text-center text-base">
+                        <TableCell className="px-1.5 py-1 align-top text-center text-base">
                           <AutoRenewFlag value={inactive ? null : r.auto_renew} />
                         </TableCell>
 
                         {/* Status */}
                         <TableCell
-                          className="px-2.5 py-1 align-top"
+                          className="px-1.5 py-1 align-top"
                           style={{ maxWidth: 124, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                           title={r.contract_status_label ?? ""}
                         >
                           {inactive ? <ContractDash /> : shortenContractTerm(r.contract_status_label)}
                         </TableCell>
 
-                        {/* Annualized Retainer */}
-                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums">
-                          {formatCompactDollars(r.annualized_retainer)}
-                        </TableCell>
+                        {/* Annualized Retainer + contract doc — FINANCIALS-GATED.
+                            Not rendered at all without the grant, and the values
+                            aren't in `r` either (stripped server-side). */}
+                        {showFinancials && (
+                          <>
+                            <TableCell className="px-1.5 py-1 align-top text-right tabular-nums">
+                              {formatCompactDollars(r.annualized_retainer)}
+                            </TableCell>
 
-                        {/* Contract doc — SharePoint link, same treatment as Contract Management */}
-                        <TableCell className="px-2.5 py-1 align-top text-center">
-                          {r.contract_url?.trim() ? (
-                            <a
-                              href={r.contract_url.trim()}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title="Open contract"
-                              aria-label="Open contract"
-                              className="text-muted-foreground transition-colors hover:text-[#1E2858]"
-                            >
-                              <FileText className="size-3.5" aria-hidden="true" />
-                            </a>
-                          ) : null}
-                        </TableCell>
+                            {/* Contract doc — SharePoint link, same treatment as Contract Management */}
+                            <TableCell className="px-1.5 py-1 align-top text-center">
+                              {r.contract_url?.trim() ? (
+                                <a
+                                  href={r.contract_url.trim()}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Open contract"
+                                  aria-label="Open contract"
+                                  className="text-muted-foreground transition-colors hover:text-[#1E2858]"
+                                >
+                                  <FileText className="size-3.5" aria-hidden="true" />
+                                </a>
+                              ) : null}
+                            </TableCell>
+                          </>
+                        )}
                       </>
                     )}
 
                     {show.meetings && (
                       <>
                         {/* Mtgs L12M */}
-                        <TableCell className="px-2.5 py-1 align-top text-center tabular-nums" style={GROUP_START_STYLE}>{meetings365}</TableCell>
+                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums" style={GROUP_START_STYLE}>{meetings365}</TableCell>
 
                         {/* Inst L12M */}
-                        <TableCell className="px-2.5 py-1 align-top text-center tabular-nums text-muted-foreground">
+                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums text-muted-foreground">
                           {r.unique_institutions_last_365d ?? 0}
                         </TableCell>
 
                         {/* Mtgs L3M with velocity */}
-                        <TableCell className="px-2.5 py-1 align-top text-center tabular-nums">
-                          <span className="inline-flex items-center justify-center gap-1">
+                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums">
+                          <span className="inline-flex items-center justify-end gap-1">
                             {velocity && <span style={{ color: velocity.color }}>{velocity.glyph}</span>}
                             <span>{meetings90}</span>
                           </span>
                         </TableCell>
 
                         {/* Mtgs Next 3M — forward-looking confirmed count */}
-                        <TableCell className="px-2.5 py-1 align-top text-center tabular-nums">
+                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums">
                           {r.meetings_next_3m ?? 0}
                         </TableCell>
 

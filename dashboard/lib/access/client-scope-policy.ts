@@ -23,6 +23,14 @@ export type UserScopes = {
   booker: boolean
   host: boolean
   feedback: boolean
+  /**
+   * FIELD-level "Financials" grant — NOT a row scope. It never narrows or
+   * widens which rows are returned; it decides whether those rows' dollar
+   * figures are in the payload. Carried here only so the ONE table read in
+   * getUserScopes serves both, and deliberately ignored by decideClientScope
+   * and decideMeetingMode. See ./financials-policy.ts.
+   */
+  financials: boolean
 }
 
 /** A resolved client filter: `null` = no filter (see all), else the allowed set. */
@@ -35,6 +43,7 @@ export type UserDataScopeRow = {
   booker?: boolean | null
   host?: boolean | null
   feedback?: boolean | null
+  financials?: boolean | null
 }
 
 /**
@@ -50,6 +59,7 @@ export function scopesFromRow(row: UserDataScopeRow | null | undefined): UserSco
     booker: !!row?.booker,
     host: !!row?.host,
     feedback: !!row?.feedback,
+    financials: !!row?.financials,
   }
 }
 

@@ -5,7 +5,11 @@ import { revalidatePath } from "next/cache"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { getSupabaseServer } from "@/lib/supabase"
 import { requireSuperUser } from "@/lib/api-auth"
-import { isRegisteredRoute, type AssignableRole } from "@/lib/page-registry"
+import {
+  isDataPermissionKey,
+  isRegisteredRoute,
+  type AssignableRole,
+} from "@/lib/page-registry"
 
 const PATH = "/admin/roles"
 
@@ -48,6 +52,44 @@ export async function setRolePageAccess(
   const { error } = await sb
     .from("role_page_access")
     .upsert({ role, route, allowed }, { onConflict: "role,route" })
+  if (error) return fail(describeError(error))
+
+  revalidatePath(PATH)
+  return ok()
+}
+
+/**
+ * Set whether `role` holds a field-level DATA permission (today: Financials).
+ *
+ * Stored in the SAME public.role_page_access table as page access, under the
+ * permission's `data:`-prefixed key in the `route` column — so it persists,
+ * revalidates, and is super-user-gated exactly like a page toggle. It is a
+ * separate action from setRolePageAccess so neither can be used to write the
+ * other's key space: this one accepts ONLY registered data-permission keys, and
+ * setRolePageAccess accepts ONLY registered page routes.
+ *
+ * super_user is never written here either — canSeeFinancials grants a super
+ * unconditionally (the same lockout guard row scoping uses).
+ */
+export async function setRoleDataPermission(
+  role: string,
+  key: string,
+  allowed: boolean,
+): Promise<ActionResult> {
+  const auth = await requireSuperUser()
+  if (!auth.ok) return fail("Not authorized.")
+
+  if (!EDITABLE_ROLES.includes(role as AssignableRole)) {
+    return fail(`Role is not editable here: ${role}`)
+  }
+  if (!isDataPermissionKey(key)) {
+    return fail(`Unknown data permission: ${key}`)
+  }
+
+  const sb = getSupabaseServer()
+  const { error } = await sb
+    .from("role_page_access")
+    .upsert({ role, route: key, allowed }, { onConflict: "role,route" })
   if (error) return fail(describeError(error))
 
   revalidatePath(PATH)
