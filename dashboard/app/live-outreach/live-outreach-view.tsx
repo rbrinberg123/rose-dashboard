@@ -1,13 +1,19 @@
 import * as React from "react"
-import { Video, MapPin, Shuffle } from "lucide-react"
+import { Video, MapPin, Shuffle, ArrowDownToLine } from "lucide-react"
 import { ListTitleCard } from "@/components/page-masthead"
-import { CARD_CLASS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, TEXT_TERTIARY, BRAND_NAVY, STATUS_PILL_LIGHT } from "@/lib/design"
+import { CARD_CLASS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, TEXT_TERTIARY, BRAND_NAVY, BRAND_BLUE, STATUS_PILL_LIGHT } from "@/lib/design"
 import { format } from "date-fns"
 import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { LiveOutreachRow, LiveOutreachMeeting } from "@/lib/types"
 import { priorityFlagKind, PRIORITY_FLAG_STYLE } from "./priority-flag"
+import {
+  buildLiveOutreachSummary,
+  liveOutreachTotals,
+  type LiveOutreachSummaryRow,
+} from "./summary"
 import { SendEmailControls } from "./send-email-button"
+import { SummaryJumpScroller } from "./summary-jump"
 
 // NEW recency flag uses the palette's "new" blue.
 const NEW_FLAG = STATUS_PILL_LIGHT.new
@@ -213,7 +219,13 @@ function MeetingLine({ m }: { m: LiveOutreachMeeting }) {
 function OutreachCard({ row }: { row: LiveOutreachRow }) {
   const meetings = row.confirmed_meetings ?? []
   return (
-    <div className={cn("flex flex-col overflow-hidden md:flex-row", CARD_CLASS)}>
+    // scroll-mt clears the sticky mobile top bar (h-12) plus breathing room, so
+    // the card is never tucked under it on arrival. scrollIntoView honours
+    // scroll-margin too, so this covers both the JS and no-JS paths.
+    <div
+      id={eventAnchorId(row.event_id)}
+      className={cn("scroll-mt-16 flex flex-col overflow-hidden md:flex-row", CARD_CLASS)}
+    >
       {/* LEFT — client + event facts */}
       <div className="min-w-0 flex-1 p-5">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -285,8 +297,154 @@ function OutreachCard({ row }: { row: LiveOutreachRow }) {
   )
 }
 
+// ---- Event Summary ---------------------------------------------------------
+// The page rendering of the SAME roll-up the email sends: one compact line per
+// event — number · ticker · client · flag · confirmed · open · dates — in the
+// same tiered order as the numbered cards below, because both read
+// buildLiveOutreachSummary(). Only the presentation differs: the email is
+// Outlook-safe nested tables, this is a normal card + <table>.
+//
+// Split into two columns COLUMN-MAJOR (down the left half, then down the right),
+// mirroring the email's layout so a reader moving between them finds events in
+// the same place. Collapses to one column below md.
+
+/** Anchor id for an event's detail card — the jump target for its summary row. */
+function eventAnchorId(eventId: string): string {
+  return `event-${eventId}`
+}
+
+/** Muted em-dash used wherever a summary value is absent. */
+function SummaryDash() {
+  return <span style={{ color: TEXT_TERTIARY }}>—</span>
+}
+
+// Shared track sizing for the summary header and its rows. The row is a GRID
+// rather than a table row because the whole row has to be one <a>: a table
+// cannot wrap a <tr> in an anchor, and the usual workaround (a stretched
+// ::after over a position:relative <tr>) is unreliable. Fixed widths on the
+// narrow columns so the left and right halves line up with each other.
+const SUMMARY_GRID = "76px minmax(0,1fr) 88px 30px 30px minmax(0,110px) 14px"
+
+function SummaryRow({ r }: { r: LiveOutreachSummaryRow }) {
+  const id = eventAnchorId(r.eventId)
+  const label = r.name ?? r.ticker ?? "this event"
+  return (
+    <a
+      href={`#${id}`}
+      data-jump-to={id}
+      title={`Jump to ${label}`}
+      aria-label={`Jump to ${label}`}
+      className="group grid cursor-pointer items-center gap-x-2 border-b border-border/50 py-1 transition-colors last:border-b-0 hover:bg-[#F4F6F9] focus-visible:bg-[#F4F6F9] focus-visible:outline-none"
+      style={{ gridTemplateColumns: SUMMARY_GRID }}
+    >
+      <span className="truncate text-[13px] font-semibold leading-tight">
+        <span style={{ color: TEXT_TERTIARY }} className="font-normal">
+          {r.index}.{" "}
+        </span>
+        <span style={{ color: BRAND_NAVY }}>{r.ticker ?? "—"}</span>
+      </span>
+      <span
+        className="truncate text-[13px] leading-tight group-hover:underline"
+        style={{ color: TEXT_PRIMARY }}
+      >
+        {r.name ?? <SummaryDash />}
+      </span>
+      <span className="truncate leading-tight">
+        {r.flag ? (
+          <span
+            className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full font-semibold"
+            style={{
+              padding: "1px 7px",
+              fontSize: 10,
+              lineHeight: 1.4,
+              background: PRIORITY_FLAG_STYLE[r.flag].bg,
+              color: PRIORITY_FLAG_STYLE[r.flag].text,
+            }}
+          >
+            {PRIORITY_FLAG_STYLE[r.flag].label}
+          </span>
+        ) : (
+          <SummaryDash />
+        )}
+      </span>
+      <span
+        className="text-center text-[13px] leading-tight tabular-nums"
+        style={{ color: TEXT_PRIMARY }}
+      >
+        {r.confirmed}
+      </span>
+      <span
+        className="text-center text-[13px] leading-tight tabular-nums"
+        // Same alert threshold the email and the Open Slots stat use.
+        style={{
+          color: r.openTight ? PRIORITY_FLAG_STYLE.high.text : TEXT_PRIMARY,
+          fontWeight: r.openTight ? 600 : 400,
+        }}
+      >
+        {r.open ?? "—"}
+      </span>
+      <span className="truncate text-[13px] leading-tight" style={{ color: TEXT_MUTED }}>
+        {r.dates ?? <SummaryDash />}
+      </span>
+      {/* Jump affordance. Always visible (muted) so the row reads as a link at
+          rest, and full strength on hover/focus. */}
+      <ArrowDownToLine
+        aria-hidden="true"
+        className="size-3.5 shrink-0 opacity-45 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+        style={{ color: BRAND_BLUE }}
+      />
+    </a>
+  )
+}
+
+function SummaryColumn({ rows }: { rows: LiveOutreachSummaryRow[] }) {
+  return (
+    <div className="min-w-0">
+      <div
+        className="grid items-end gap-x-2 border-b border-border pb-1.5 text-[9px] font-semibold uppercase tracking-wider"
+        style={{ gridTemplateColumns: SUMMARY_GRID, color: TEXT_TERTIARY }}
+      >
+        <span>Ticker</span>
+        <span>Client</span>
+        <span>Status</span>
+        <span className="text-center">Conf</span>
+        <span className="text-center">Open</span>
+        <span>Dates</span>
+        <span />
+      </div>
+      {rows.map((r) => (
+        <SummaryRow key={r.eventId} r={r} />
+      ))}
+    </div>
+  )
+}
+
+function EventSummary({ rows }: { rows: LiveOutreachRow[] }) {
+  const summary = buildLiveOutreachSummary(rows)
+  if (summary.length === 0) return null
+  const half = Math.ceil(summary.length / 2)
+  return (
+    <div className={cn("mb-3 overflow-hidden", CARD_CLASS)}>
+      <div className="border-b border-border/60 px-4 py-2.5">
+        <h2 className="text-sm font-semibold" style={{ color: TEXT_PRIMARY }}>
+          Event Summary
+        </h2>
+      </div>
+      {/* One delegated click listener for every row — see summary-jump.tsx. */}
+      <SummaryJumpScroller>
+        <div className="grid gap-x-8 px-4 py-2 md:grid-cols-2">
+          <SummaryColumn rows={summary.slice(0, half)} />
+          {/* Hidden rather than absent when the right half is empty, so a
+              single-event page doesn't render a stray header row. */}
+          {summary.length > 1 ? <SummaryColumn rows={summary.slice(half)} /> : null}
+        </div>
+      </SummaryJumpScroller>
+    </div>
+  )
+}
+
 export function LiveOutreachView({ rows, userEmail }: { rows: LiveOutreachRow[]; userEmail?: string }) {
-  const totalMeetings = rows.reduce((sum, r) => sum + (r.confirmed_meeting_count ?? 0), 0)
+  const { meetings: totalMeetings } = liveOutreachTotals(rows)
   // Today's date, rendered server-side on every request (the page is
   // force-dynamic), so it rolls over to the current day automatically.
   const todayLabel = format(new Date(), "MMMM d, yyyy")
@@ -304,6 +462,9 @@ export function LiveOutreachView({ rows, userEmail }: { rows: LiveOutreachRow[];
           rightSlot={<SendEmailControls userEmail={userEmail} />}
         />
       </div>
+
+      {/* The same roll-up the email leads with, above the detail cards. */}
+      <EventSummary rows={rows} />
 
       {rows.length > 0 ? <HistoryLegend /> : null}
 

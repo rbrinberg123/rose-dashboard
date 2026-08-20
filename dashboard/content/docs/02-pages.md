@@ -45,13 +45,23 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 | `/planning-v2` | Planning | `v_planning_events` | Event planning & logistics tracker (current planning tool). |
 | `/calendar` | NDRS Calendar | `v_marketing_calendar` | Marketing calendar Gantt. |
 | `/scheduler` | Host Calendar | `v_scheduler_meetings`, `v_scheduler_unassigned`, `v_scheduler_time_off` (+ Graph free/busy) | Host availability & scheduling. Also the plain-user home (`USER_HOME_ROUTE`). |
-| `/live-outreach` | Live Outreach | `v_live_outreach` | Event outreach board with per-client cards. |
+| `/live-outreach` | Live Outreach | `v_live_outreach` | Event outreach board with per-client cards, led by an **Event Summary** roll-up — see below. |
 | `/profiles` | Profiles | `v_profiles_upcoming` | Upcoming-meeting profile pipeline board. |
 | `/feedback-manager` | Feedback Reports | `v_feedback_pipeline` | The report pipeline — Open (being written) + Pending Review tables with the pipeline-flow KPIs and Claimed By / Account Manager filters. **All-access** (route-gated only, no row scoping). Own "Feedback Reports" banner. |
 | `/feedback-collection` | Feedback Collection | `v_feedback_outstanding` | Concluded meetings still needing feedback. **Row-scoped** by the Pass-2 meeting resolver (`resolveMeetingScope`: booker / host / feedback / account-team), with a "No meetings assigned to you" empty-state. Super-users see the Send email / Send test controls (the send route enforces the same gate). Separate route from Reports with its **own independent role grant**. |
 | `/feedback` | — (redirect) | — | Redirects to `/feedback-collection`, preserving query params (e.g. the `?client=<id>` deep link). No page of its own. |
 | `/onboarding` | Onboarding | `v_client_onboarding` | New-client onboarding checklist tracker. A client stays until its **first Feedback Report Sent task completes** — see [Onboarding membership](#onboarding-membership) below. **Row-scoped** by `resolveClientScope`. |
 | `/time-off` | Time Off | `v_time_off` | OOO / Remote calendar. |
+
+#### Live Outreach — Event Summary
+
+The page opens with an **Event Summary** card above the detail cards: one compact line per event — number · ticker · client · status flag · confirmed meetings · open slots · dates — split into two columns and read **column-major** (down the left half, then down the right).
+
+**It is the same summary the Live Outreach email leads with.** Both render from `buildLiveOutreachSummary()` in **`app/live-outreach/summary.ts`**, which is the single source for which events appear, in what order, and with what numbers. Only the presentation differs: the email is Outlook-safe nested tables, the page is a normal card + `<table>`. The line numbers are each event's position in the tiered sort from `load.ts`, so they match the numbered detail cards below 1:1 — and the same column-major split means an event sits in the same place in both.
+
+That module also owns `baseTicker` (drops the exchange suffix — `NVCR US` → `NVCR`), `truncateDates`, the ≤2-slots alert threshold, and `liveOutreachTotals` (the "N events · M confirmed meetings" roll-up in the page subtitle and the email header). The page shows the **client name** as an extra column, which the email's narrow fixed-width columns omit; every other field is identical, including the red/bold treatment on tight open slots.
+
+**Summary rows jump to their detail card (page only — the email is unaffected).** Each detail card carries `id="event-<event_id>"`, and each summary row is a real `<a href="#event-…">` covering the whole row, with a brand-blue jump arrow that brightens on hover, a row tint, and an underlined client name. Because the row is a genuine anchor it works with **no JavaScript** — the plain hash jump — and `scroll-mt-16` on the card keeps it clear of the sticky mobile top bar (both the native jump and `scrollIntoView` honour `scroll-margin`). `app/live-outreach/summary-jump.tsx` is a thin client wrapper that upgrades this with **one delegated listener** for the whole summary (not one per row): smooth scrolling, a `replaceState` hash update that avoids a second jump, and a brief blue arrival flash via the Web Animations API. Reduced-motion preferences skip both the smooth scroll and the flash. The row is laid out as a **CSS grid rather than a table row**, because a `<tr>` cannot be wrapped in an anchor and the stretched-`::after` workaround is unreliable.
 
 #### Onboarding membership
 

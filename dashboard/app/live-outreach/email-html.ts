@@ -9,6 +9,12 @@
 
 import type { LiveOutreachRow, LiveOutreachMeeting } from "@/lib/types"
 import { priorityFlagKind, PRIORITY_FLAG_STYLE } from "./priority-flag"
+import {
+  buildLiveOutreachSummary,
+  liveOutreachTotals,
+  truncateDates,
+  type LiveOutreachSummaryRow,
+} from "./summary"
 
 // Layout widths (px). Wider build, matching the approved snapshot.
 const LEFT = 380
@@ -47,13 +53,6 @@ function fmtMeetingDate(iso: string | null): string {
   if (Number.isNaN(d.getTime())) return "—"
   // UTC parts so the date matches what the page/snapshot shows.
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`
-}
-
-// Show only the base ticker, dropping an exchange/country qualifier such as
-// "NVCR US", "SGO:FP", or "STVL-LN". Share-class dots (e.g. "BRK.B") are kept.
-// Same logic as the Feedback email's baseTicker().
-function baseTicker(t: string): string {
-  return t.trim().split(/[\s:]/)[0].replace(/-[A-Za-z]{1,4}$/, "")
 }
 
 const MODE_STYLE: Record<string, { bg: string; text: string }> = {
@@ -258,13 +257,6 @@ const SUMMARY_HEADER_RULE = "#C7CCD4" // slightly darker rule under the headers
 // ellipsizes) so each column — and the whole table — keeps its previous width.
 const SUM_W = { ticker: 74, status: 92, conf: 40, open: 40, dates: 260 } as const
 
-/** Trim the free-text dates to a single line, ellipsizing what doesn't fit. This
- *  is the hard guard for Outlook (which ignores CSS text-overflow); modern
- *  clients also get the CSS ellipsis on the fixed-width Dates cell. */
-function truncateDates(s: string, n: number): string {
-  return s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s
-}
-
 /** The five uppercase column headers for one column, with a darker bottom rule. */
 function summaryHeaderCells(): string {
   const rule = `border-bottom:2px solid ${SUMMARY_HEADER_RULE};`
@@ -280,11 +272,19 @@ function summaryHeaderCells(): string {
   )
 }
 
+/** Pill for a summary row's flag, from the SHARED kind rather than re-deciding. */
+function summaryFlagPill(kind: LiveOutreachSummaryRow["flag"]): string {
+  if (!kind) return ""
+  const s = PRIORITY_FLAG_STYLE[kind]
+  return pill(s.bg, s.text, s.label, 10, "3px 9px")
+}
+
 /** The five body cells for one event (or blank placeholders when `row` is
  *  undefined — the tail of the shorter, right-hand column). `isLast` drops the
  *  bottom hairline on the final row. Every cell is white-space:nowrap so the event
- *  can never wrap to a second line. */
-function summaryBodyCells(row: LiveOutreachRow | undefined, isLast: boolean, num?: number): string {
+ *  can never wrap to a second line. Values come from the shared summary row, so
+ *  the page prints exactly the same numbers. */
+function summaryBodyCells(row: LiveOutreachSummaryRow | undefined, isLast: boolean): string {
   const border = isLast ? "" : `border-bottom:1px solid ${SUMMARY_HAIRLINE};`
   const pad = "padding:4px 6px 4px 0;vertical-align:middle;white-space:nowrap;"
   if (!row) {
@@ -292,25 +292,25 @@ function summaryBodyCells(row: LiveOutreachRow | undefined, isLast: boolean, num
       `<td width="${w}" align="${align}" style="width:${w}px;text-align:${align};${pad}${border}">&nbsp;</td>`
     return e(SUM_W.ticker, "left") + e(SUM_W.status, "left") + e(SUM_W.conf, "center") + e(SUM_W.open, "center") + e(SUM_W.dates, "left")
   }
-  const rem = row.slots_remaining
-  const openNum = rem == null ? "—" : String(Math.max(0, rem))
+  const openNum = row.open == null ? "—" : String(row.open)
   // Red/bold when ≤2 (this also covers overbooked, which clamps to 0).
-  const openStyle = rem != null && rem <= 2 ? "color:#A32D2D;font-weight:bold;" : "color:#1A2233;"
-  const flag = priorityPill(row) || `<span style="color:#C7CCD4;font-size:11px;">—</span>`
-  const dates = row.event_dates
-    ? `<span style="color:#6B7280;">${esc(truncateDates(row.event_dates, 34))}</span>`
+  const openStyle = row.openTight ? "color:#A32D2D;font-weight:bold;" : "color:#1A2233;"
+  const flag = summaryFlagPill(row.flag) || `<span style="color:#C7CCD4;font-size:11px;">—</span>`
+  const dates = row.dates
+    ? `<span style="color:#6B7280;">${esc(truncateDates(row.dates, 34))}</span>`
     : `<span style="color:#C7CCD4;">—</span>`
   return (
-    `<td width="${SUM_W.ticker}" valign="middle" style="width:${SUM_W.ticker}px;${pad}${border}font-size:13px;font-weight:bold;">${num != null ? `<span style="color:#9AA1AD;font-weight:normal;">${num}. </span>` : ""}<span style="color:#1E2858;">${esc(row.ticker ? baseTicker(row.ticker) : "—")}</span></td>` +
+    `<td width="${SUM_W.ticker}" valign="middle" style="width:${SUM_W.ticker}px;${pad}${border}font-size:13px;font-weight:bold;"><span style="color:#9AA1AD;font-weight:normal;">${row.index}. </span><span style="color:#1E2858;">${esc(row.ticker ?? "—")}</span></td>` +
     `<td width="${SUM_W.status}" valign="middle" style="width:${SUM_W.status}px;${pad}${border}">${flag}</td>` +
-    `<td width="${SUM_W.conf}" align="center" valign="middle" style="width:${SUM_W.conf}px;text-align:center;${pad}${border}font-size:13px;"><span style="color:#1A2233;">${row.confirmed_meeting_count ?? 0}</span></td>` +
+    `<td width="${SUM_W.conf}" align="center" valign="middle" style="width:${SUM_W.conf}px;text-align:center;${pad}${border}font-size:13px;"><span style="color:#1A2233;">${row.confirmed}</span></td>` +
     `<td width="${SUM_W.open}" align="center" valign="middle" style="width:${SUM_W.open}px;text-align:center;${pad}${border}font-size:13px;"><span style="${openStyle}">${openNum}</span></td>` +
     `<td width="${SUM_W.dates}" valign="middle" style="width:${SUM_W.dates}px;max-width:${SUM_W.dates}px;${pad}${border}font-size:13px;overflow:hidden;text-overflow:ellipsis;">${dates}</td>`
   )
 }
 
 /** The pure-white, two-column, column-major summary table. */
-function summaryGrid(rows: LiveOutreachRow[]): string {
+function summaryGrid(sourceRows: LiveOutreachRow[]): string {
+  const rows = buildLiveOutreachSummary(sourceRows)
   const half = Math.ceil(rows.length / 2)
   const left = rows.slice(0, half)
   const right = rows.slice(half)
@@ -322,11 +322,9 @@ function summaryGrid(rows: LiveOutreachRow[]): string {
   const bodyRows: string[] = []
   for (let i = 0; i < half; i++) {
     const isLast = i === half - 1
-    // Numbers reflect each event's position in the full (sorted) rows array — the
-    // left column is rows[i] (1-based i+1), the right column is rows[half+i]
-    // (1-based half+i+1) — so they line up 1:1 with the numbered detail cards.
-    const rightNum = right[i] ? half + i + 1 : undefined
-    bodyRows.push(`<tr>${summaryBodyCells(left[i], isLast, i + 1)}${mid}${summaryBodyCells(right[i], isLast, rightNum)}</tr>`)
+    // Each summary row already carries its own 1-based index from the shared
+    // builder, so the left/right columns stay numbered 1:1 with the detail cards.
+    bodyRows.push(`<tr>${summaryBodyCells(left[i], isLast)}${mid}${summaryBodyCells(right[i], isLast)}</tr>`)
   }
   return `<table width="${CONTAINER}" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:${CONTAINER}px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;background-color:#FFFFFF;">${headerRow}${bodyRows.join("")}</table>`
 }
@@ -343,7 +341,7 @@ function summarySection(rows: LiveOutreachRow[]): string {
 
 /** The rich-HTML fragment for clipboard/email use. `todayLabel` e.g. "June 30, 2026". */
 export function buildEmailHtml(rows: LiveOutreachRow[], todayLabel: string): string {
-  const totalMeetings = rows.reduce((s, r) => s + (r.confirmed_meeting_count ?? 0), 0)
+  const { meetings: totalMeetings } = liveOutreachTotals(rows)
   const summary = summarySection(rows)
   const detailsHeading = rows.length > 0 ? sectionHeading("Event Details") : ""
   const cards = rows.map(card).join("\n")
@@ -367,12 +365,10 @@ ${cards}
 </div>`
 }
 
-/** Plain-text priority flag label, matching priorityPill()/the page. */
-function priorityFlagText(row: LiveOutreachRow): string {
-  const kind = priorityFlagKind(row)
-  if (kind === "high") return "High Priority"
-  if (kind === "new") return "New Client"
-  return ""
+/** Plain-text priority flag label, read off the SHARED flag kind so it cannot
+ *  drift from the pill in the HTML summary or the page. */
+function priorityFlagText(kind: LiveOutreachSummaryRow["flag"]): string {
+  return kind ? PRIORITY_FLAG_STYLE[kind].label : ""
 }
 
 /** A minimal text/plain version, used only as the clipboard's plain-text flavor. */
@@ -383,17 +379,15 @@ export function buildEmailPlain(rows: LiveOutreachRow[], todayLabel: string): st
   // ticker · flag · conf · open · dates).
   if (rows.length > 0) {
     lines.push("EVENT SUMMARY")
-    rows.forEach((r, i) => {
-      const ticker = r.ticker ? baseTicker(r.ticker) : "—"
-      const rem = r.slots_remaining
-      const open = rem == null ? "—" : String(Math.max(0, rem))
+    // Same shared rows the HTML summary and the page render.
+    buildLiveOutreachSummary(rows).forEach((r) => {
       const parts = [
-        priorityFlagText(r),
-        `${r.confirmed_meeting_count ?? 0} conf`,
-        `${open} open`,
-        r.event_dates ? truncateDates(r.event_dates, 30) : "",
+        priorityFlagText(r.flag),
+        `${r.confirmed} conf`,
+        `${r.open == null ? "—" : r.open} open`,
+        r.dates ? truncateDates(r.dates, 30) : "",
       ].filter(Boolean)
-      lines.push(`  ${i + 1}. ${ticker} — ${parts.join(" · ")}`)
+      lines.push(`  ${r.index}. ${r.ticker ?? "—"} — ${parts.join(" · ")}`)
     })
     lines.push("", "----------------------------------------", "", "EVENT DETAILS", "")
   }
