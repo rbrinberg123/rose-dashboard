@@ -1,0 +1,35 @@
+/**
+ * Desktop sidebar collapse state.
+ *
+ * The collapsed flag lives in a plain (non-httpOnly) cookie so the *server*
+ * render already knows the right width — the sidebar comes back from the server
+ * at its remembered size instead of mounting wide and snapping narrow. The
+ * client writes it directly with `document.cookie` (see `components/nav.tsx`);
+ * nothing server-side needs to write it, so no server action is involved.
+ */
+export const SIDEBAR_COLLAPSED_COOKIE = "sidebar_collapsed"
+
+/** Icon-rail width, in px — fits a 40px icon button plus 9px of gutter. */
+export const SIDEBAR_COLLAPSED_WIDTH = 58
+/** Full width, in px — matches the original `w-64`. */
+export const SIDEBAR_EXPANDED_WIDTH = 256
+
+/** A year, in seconds — how long the remembered state sticks around. */
+const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
+
+/**
+ * Whether the sidebar should render collapsed for this request.
+ *
+ * **Collapsed is the default** — a user with no saved preference gets the icon
+ * rail. Only an explicit "0" (written when they expand it) opts out, so a
+ * deliberate choice always wins over the default on later loads.
+ */
+export function isSidebarCollapsed(value: string | undefined): boolean {
+  return value !== "0"
+}
+
+/** Persist the collapse state from the client. No-op on the server. */
+export function persistSidebarCollapsed(collapsed: boolean) {
+  if (typeof document === "undefined") return
+  document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${collapsed ? "1" : "0"}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}; samesite=lax`
+}

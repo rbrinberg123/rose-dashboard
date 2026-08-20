@@ -106,6 +106,19 @@ Public paths (`/login`, `/auth/callback`) are allowlisted. The matcher excludes 
 
 The root layout loads `getAllowedRoutes(effectiveRole)` once and passes it to the sidebar, which filters each section's items with `canAccessRoute(role, item.href, allowedRoutes)` and drops any section left empty — so the nav shows exactly the pages the grid grants, never one more query than needed. Admin is reached via a small **gear icon** (links to `/admin`) that renders only when `canAccessRoute(role, "/admin", allowedRoutes)` is true.
 
+### Collapsing the sidebar
+
+The desktop sidebar **starts collapsed** as a **58px icon rail**. The `«` / `»` chevron that toggles it sits in the **footer**, alongside the user avatar and admin gear — nothing sits above the logo. It's a manual toggle only; nothing auto-collapses it.
+
+- **Expanded** is the full nav: the full Rose & Co IQ lockup, section labels, sub-page links, active highlighting, and the footer row of *Sign out · admin gear · collapse chevron*.
+- **Collapsed** wears just the square **IQ logomark** (`public/favicon-512.png`) and shows one icon per top-level section, with the active section highlighted. **Hovering (or focusing) an icon opens a fly-out** to the right listing that section's label and all of its sub-pages, so every page is still one hover away; direct-link sections (Institutions, Contracts) get a plain label tooltip instead. The footer collapses to avatar (its fly-out carries the email + sign-out), gear, and chevron.
+- Fly-outs are keyboard-reachable: the trigger carries `aria-expanded`, Tab steps from the icon into the sub-links and back out to the next icon, Escape closes. The content column reflows to claim the reclaimed width, with a 200ms width transition.
+- The state is remembered per user in a **`sidebar_collapsed` cookie**, read by the root layout so the *server* render already has the right width — the sidebar never flashes wide before snapping narrow. **Collapsed is the default**: only an explicit `0` (written when a user expands it) opts out, so a deliberate choice always beats the default on later loads. See `dashboard/lib/sidebar.ts`.
+
+> **Why the fly-out is portaled.** `<aside>` is `position: sticky`, and sticky *always* establishes a stacking context — which capped the fly-out's z-index inside a layer that paints *before* `<main>`, so page tables covered it however high the z-index went. The panel is therefore rendered through `createPortal` into `<body>` (at `z-60`, clear of sticky table headers at `z-20` and sticky first columns at `z-30`; the sidebar itself is `z-40`). The portal costs the natural tab order, so `useFlyout` in `dashboard/components/nav.tsx` hands focus across the boundary by hand.
+
+Below `md` the sidebar is replaced by the existing hamburger sheet, which always shows the full nav — the collapse toggle is desktop-only.
+
 ### View as (super-user testing mode)
 
 A super-user can preview the app as an abstract **role** or as a specific **person**. It is built on a clean split between the caller's **real** identity/role and the **effective** identity/role:

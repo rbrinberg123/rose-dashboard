@@ -11,6 +11,7 @@ import { getRealRole } from "@/lib/user-role"
 import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, viewAsLabel } from "@/lib/access-control"
 import { resolveEffective } from "@/lib/impersonation"
 import { getAllowedRoutes } from "@/lib/page-access"
+import { SIDEBAR_COLLAPSED_COOKIE, isSidebarCollapsed } from "@/lib/sidebar"
 import "./globals.css"
 
 const geistSans = Geist({
@@ -69,6 +70,12 @@ export default async function RootLayout({
   // the nav so it hides links the proxy would block — one query, same source.
   const allowedRoutes = await getAllowedRoutes(role)
 
+  // Remembered sidebar width. Reading it here (rather than in the client) means
+  // the first paint already has the right width — no expand/collapse flash.
+  const sidebarCollapsed = isSidebarCollapsed(
+    cookieStore.get(SIDEBAR_COLLAPSED_COOKIE)?.value,
+  )
+
   // Global account-team initials map — computed once here so same-initial people
   // (e.g. Katie Murphy / Kaila Migliazza) disambiguate to KMu / KMi consistently
   // on every avatar. Only for signed-in users; fail-soft to an empty map.
@@ -92,7 +99,12 @@ export default async function RootLayout({
         {bannerLabel ? <ViewAsBanner label={bannerLabel} /> : null}
         <TeamInitialsProvider value={teamInitials}>
           <div className="flex min-h-screen flex-col md:flex-row">
-            <Sidebar userEmail={userEmail} role={role} allowedRoutes={allowedRoutes} />
+            <Sidebar
+              userEmail={userEmail}
+              role={role}
+              allowedRoutes={allowedRoutes}
+              defaultCollapsed={sidebarCollapsed}
+            />
             <main className="flex-1 overflow-x-hidden">{children}</main>
           </div>
         </TeamInitialsProvider>

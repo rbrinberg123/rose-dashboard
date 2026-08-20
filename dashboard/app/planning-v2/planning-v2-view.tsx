@@ -207,13 +207,22 @@ function ymdLocal(d: Date): string {
 // Client (a short ticker link) and Event (a single clickable icon) are both narrow
 // (NARROW_W); the space reclaimed from the old wide event-name column is handed to
 // the 8 tracking columns (wider TRACK_W).
-// ALL real columns are FIXED-width; a trailing 1fr spacer soaks up leftover width
-// on the right (it also keeps the header background + row borders spanning the
-// full card, since those live on the grid container). Fixed tracks make the column
-// geometry WIDTH-INVARIANT, so the columns land in the exact same place in every
-// view — even when By Week is tall enough to show a vertical scrollbar. (With the
-// old flex columns, that scrollbar shrank the content width and shifted By Week's
-// columns vs By Event/By Day.) gap-2 sits between tracks; only the row
+//
+// STRETCH-TO-FIT (same pattern as the Portfolio table): the grid fills the card at
+// any width, with a min-width floor below which the wrapper scrolls rather than
+// cramming. There is NO trailing spacer track — leftover width used to pool in an
+// empty column at the far right, which is what left the card looking unfilled on a
+// wide screen. Instead the two TEXT columns carry it: Institution and Time are
+// `minmax(floor, Nfr)`, so leftover is shared 3:1 between them (Institution earns
+// the larger share — it is the only column whose content is actually truncated).
+// Every other track stays FIXED: Client/Type/Event hold their compact widths, and
+// all 8 tracking columns keep TRACK_W, so the numeric block never balloons.
+//
+// Trade-off, inherited from the Portfolio pattern: the flexible tracks mean column
+// geometry is no longer strictly WIDTH-INVARIANT — a window scrollbar in a tall
+// view (By Week) narrows the card and nudges Institution/Time by a few px versus a
+// short view. Only those two move; the tracking block keeps its exact widths.
+// gap-2 sits between tracks; only the row
 // grouping/scope/title differ per view. All EIGHT tracking columns (the 3 stages
 // Profiles/Calendars/Hosts + the 5 logistics Sent/Confirm/Food/Driver/Notes) share
 // ONE identical width (TRACK_W) so they read as a single aligned block. It's narrow
@@ -229,12 +238,33 @@ function ymdLocal(d: Date): string {
 // constant guarantees the shared width can't drift between them.
 const TRACK_W = 103 // px — uniform width for all 8 tracking columns
 const NARROW_W = 52 // px — the compact Client-ticker and Event-icon columns
-// Time column right-sized to its content ("Wed, Sep 30 · 12:00 PM" ≈ 116px + a
-// safe buffer for the bold time). Was 160px, which left ~44px of dead space before
-// the Client column; the reclaimed width went into the 8 tracking columns.
-const TABLE_GRID_COLS = `260px 132px ${NARROW_W}px 64px ${NARROW_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1fr`
-// Floor for the horizontal-scroll area (the fixed tracks define the real width).
-const TABLE_MIN_W = "min-w-[1600px]"
+const TYPE_W = 64 // px — the Live/Virtual pill
+// The two flexible TEXT columns. Each number is a FLOOR, not a fixed width: above
+// the min-width floor they share the leftover 3:1. Institution's floor is what the
+// name needs before truncating; Time's is sized to its content
+// ("Wed, Sep 30 · 12:00 PM" ≈ 116px + a safe buffer for the bold time).
+const INSTITUTION_MIN_W = 260
+const TIME_MIN_W = 132
+const TABLE_GRID_COLS = `minmax(${INSTITUTION_MIN_W}px, 3fr) minmax(${TIME_MIN_W}px, 1fr) ${NARROW_W}px ${TYPE_W}px ${NARROW_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px 1px ${TRACK_W}px`
+
+/**
+ * No-squish floor for the horizontal-scroll area: the sum of every track at its
+ * minimum, plus the gap-2 between them and the px-4 card padding. Wider than this
+ * and the grid stretches to fill (no right-hand gap); narrower and the wrapper
+ * scrolls horizontally instead of cramming.
+ *
+ * Derived rather than hardcoded so it can't drift when a track width changes.
+ */
+const TABLE_TRACK_COUNT = 21 // 5 identity + 8 tracking + 8 dividers
+const TABLE_MIN_W =
+  INSTITUTION_MIN_W +
+  TIME_MIN_W +
+  NARROW_W * 2 +
+  TYPE_W +
+  TRACK_W * 8 +
+  8 * 1 + // the 1px column dividers
+  (TABLE_TRACK_COUNT - 1) * 8 + // gap-2 between tracks
+  16 * 2 // px-4 on the header/row grid containers
 
 // ---- per-event aggregation -------------------------------------------------
 type EventGroup = {
@@ -1553,7 +1583,11 @@ function MeetingTable({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <div className={TABLE_MIN_W}>
+          {/* Same shape as the Portfolio table: an overflow-x:auto wrapper around
+              content that is width:100% with a min-width floor. Above the floor
+              the grid fills the card (no right-hand gap); below it this wrapper
+              scrolls horizontally rather than squeezing the columns. */}
+          <div className="w-full" style={{ minWidth: TABLE_MIN_W }}>
             <MeetingTableHeader meetings={meetings} />
             {sections.map((sec) => {
               // For By Event, insert the Now divider before the first upcoming row.

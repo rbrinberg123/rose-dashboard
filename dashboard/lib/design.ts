@@ -27,6 +27,19 @@ export const ACCENT_STRIP = "linear-gradient(180deg, #1E2858, #0355A7, #1C8C9C)"
 /** Navy→blue badge / logo chip. */
 export const BADGE_GRADIENT = "linear-gradient(135deg, #1E2858, #0355A7)"
 
+// ---- Collapsed-sidebar rail accent ----------------------------------------
+// Blue→teal, the same two stops the distribution edges already pair
+// (`DISTRIBUTION_EDGES.region` in lib/gradients.ts). Interpolated from the
+// BRAND_BLUE / TEAL constants above rather than written out as hex, so a palette
+// change flows through instead of leaving these behind.
+
+/** Vertical — the 4px spine down the left edge of a rail fly-out. */
+export const RAIL_ACCENT_STRIP = `linear-gradient(180deg, ${BRAND_BLUE}, ${TEAL})`
+/** Diagonal — the same fade on the square active-section icon tile. */
+export const RAIL_ACCENT_FILL = `linear-gradient(135deg, ${BRAND_BLUE}, ${TEAL})`
+/** Faint teal wash behind the active sub-page row inside a fly-out. */
+export const RAIL_ACTIVE_TINT = `color-mix(in srgb, ${TEAL} 12%, white)`
+
 // ---- Floating surfaces ----------------------------------------------------
 // Static white card: barely-there border + soft layered shadow. NO hover lift,
 // because a lift implies the card is clickable. Use this for the vast majority
