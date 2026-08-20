@@ -43,7 +43,7 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 | Route | Label | Reads | Purpose |
 |-------|-------|-------|---------|
 | `/planning-v2` | Planning | `v_planning_events` | Event planning & logistics tracker (current planning tool). |
-| `/calendar` | NDRS Calendar | `v_marketing_calendar` | Marketing calendar Gantt. |
+| `/calendar` | NDRS Calendar | `v_marketing_calendar` + `public.meetings` (confirmed) | Marketing calendar Gantt. Box source and style depend on the event's stage — see [Calendar box logic](#calendar-box-logic) below. |
 | `/scheduler` | Host Calendar | `v_scheduler_meetings`, `v_scheduler_unassigned`, `v_scheduler_time_off` (+ Graph free/busy) | Host availability & scheduling. Also the plain-user home (`USER_HOME_ROUTE`). |
 | `/live-outreach` | Live Outreach | `v_live_outreach` | Event outreach board with per-client cards, led by an **Event Summary** roll-up — see below. |
 | `/profiles` | Profiles | `v_profiles_upcoming` | Upcoming-meeting profile pipeline board. |
@@ -52,6 +52,40 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 | `/feedback` | — (redirect) | — | Redirects to `/feedback-collection`, preserving query params (e.g. the `?client=<id>` deep link). No page of its own. |
 | `/onboarding` | Onboarding | `v_client_onboarding` | New-client onboarding checklist tracker. A client stays until its **first Feedback Report Sent task completes** — see [Onboarding membership](#onboarding-membership) below. **Row-scoped** by `resolveClientScope`. |
 | `/time-off` | Time Off | `v_time_off` | OOO / Remote calendar. |
+
+#### Calendar box logic
+
+**Colour always means stage; fill always means confirmed-vs-availability.** The two are independent axes and never trade places:
+
+- **Hue** comes from `event_state_label` via `STATE_COLORS` — the same mapping the stage key in the toolbar uses. A box is the event's stage colour whether or not that date has a meeting.
+- **Fill** is the only thing that distinguishes the two date sets: **solid** = a confirmed meeting on that date; **outlined + diagonal hatch** (no solid fill) = availability, i.e. a date parsed from the event title with nothing booked. The hatch is drawn in the *same* stage colour at ~35% alpha with transparent gaps, over a 1px outline of the full-strength stage colour — so an availability box reads as unfilled without changing hue.
+
+The toolbar carries a **Confirmed / Availability** swatch pair (deliberately neutral grey — that row is about fill, not hue) beside the stage key, plus a helper line beneath it: *"Solid = confirmed meeting · Outlined = availability. Box color reflects the event's stage."*
+
+Each event can contribute **two date sets**, and its stage (`events.event_state_label`, exposed as `event_state_label`) decides which are drawn and how:
+
+| Stage | Boxes drawn | Style |
+|---|---|---|
+| **Pre-Launch** | title dates only | outlined + hatched, in the Pre-Launch colour |
+| **Live Outreach** | confirmed **and** title | solid where a meeting is confirmed; hatch on title dates with nothing booked. A day that is both → **solid wins** |
+| **Schedule Closed** | confirmed only | solid |
+| **Preparing Feedback** | confirmed only | solid |
+| **Complete** | confirmed only | solid |
+| *anything else* | confirmed only | solid — the safe default |
+
+**Confirmed dates are real meeting records**, not parsed text: `public.meetings` rows with `meeting_status_label = 'Confirmed'`, read through the shared `loadConfirmedMeetingsByEvent` in `lib/event-meetings.ts` (the same read behind Client Detail's and the To-Do List's event drill-ins), so "confirmed" means the same thing on every page. `v_marketing_calendar` carries no meetings, so the page loads them alongside the view and chunks the ids — the helper issues one `.in(event_id, …)` per call, and a few hundred events would otherwise overrun a single request URL.
+
+**Title dates** are scraped from the free-text event **name** with one global scan:
+
+```
+/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?(?:\s*[-–]\s*(?:(\d{1,2})\/)?(\d{1,2})(?:\/(\d{2,4}))?)?/g
+```
+
+It accepts `6/23`, `6/23/26`, `6/23/2026`, `6/29-7/1` and `6/29-30`; ranges are **expanded into individual days** so both sets are plain sets of days. Scanning beats splitting on commas because the title carries a prefix (`"4DX-AU -  Virtual - "`) — and nothing else in a title has the shape of a slashed number pair.
+
+**Year inference** (the dates carry no year). An anchor is taken from, in order: the event's **earliest confirmed meeting** → else `event_start_actual` → else the current year. Each token then picks whichever of *anchor−1 / anchor / anchor+1* lands it **nearest** the anchor. Nearest-year is what makes both directions work — a naive "a month before the anchor rolls forward" rule pushed a `6/29` on an event whose first confirmed meeting is `7/13` a full year out.
+
+**Failure handling.** A token that doesn't match, names an impossible month/day, or resolves to a date the calendar rejects (`2/30`) is skipped; the remaining tokens still render, and the whole scan is wrapped so one bad title can never blank a lane. There is **deliberately no fallback** to the `event_start_actual..event_end_actual` window any more: at a confirmed-only stage the point is that only real meetings show, so an event with nothing to draw renders an **empty lane**. Both the boxes and the per-day density strip come from the same resolved set, so the heat map can't disagree with the marks.
 
 #### Live Outreach — Event Summary
 

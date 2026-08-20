@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight, Info } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ListTitleCard } from "@/components/page-masthead"
 import { CARD_CLASS, BRAND_NAVY, BRAND_BLUE, TEXT_MUTED } from "@/lib/design"
@@ -17,7 +17,8 @@ const GRID_WIDTH = 1020 // fallback day-axis width before the container is measu
 // to horizontal scroll instead of squashing bars to nothing.
 const MIN_DAY_WIDTH = 5.5
 const LANE_HEIGHT = 30 // one client lane
-const BAR_HEIGHT = 14 // event range bar
+// (The old multi-day range bar is gone: ranges are expanded into individual day
+// boxes so both date sets are plain sets of days.)
 const MARK_SIZE = 11 // single-day event mark
 const STRIP_BAR_MAX = 34 // tallest density bar (px)
 const MS_PER_DAY = 86_400_000
@@ -79,101 +80,67 @@ const MONTH_NAMES = [
 ]
 
 // -----------------------------------------------------------------------------
-// event_dates parser — defensive. Splits the free-text "dates" string into
-// concrete day marks / ranges, inferring the year from event_start_actual and
-// rolling a token to next year when its month is before the event's start month.
-// Never throws: unparseable tokens are skipped.
+// BOX SOURCE + STYLE BY STAGE
 // -----------------------------------------------------------------------------
-type Segment = { startIdx: number; endIdx: number; kind: "day" | "range" }
+// Two date sets per event:
+//   CONFIRMED — real meeting records (public.meetings, status Confirmed), keyed
+//               by event_id and passed in from the server.
+//   TITLE     — dates scraped out of the free-text event name.
+//
+// Which set is drawn, and how, depends on the event's workflow stage
+// (`event_state_label`). Anything not in this map falls back to confirmed-only,
+// which is the safe default: it can only ever show dates that really exist as
+// meetings, never a hand-typed guess.
+type BoxMode = "title" | "both" | "confirmed"
 
-/** Year + 0-based month the event started (for year inference), or null. */
-function startAnchor(startActual: string | null): { year: number; month0: number } | null {
-  if (!startActual) return null
-  const d = new Date(startActual)
-  if (Number.isNaN(d.getTime())) return null
-  // Use UTC parts — the stored value is an instant; we only need its calendar
-  // month/year to anchor the yearless "dates" tokens.
-  return { year: d.getUTCFullYear(), month0: d.getUTCMonth() }
+const STAGE_BOX_MODE: Record<string, BoxMode> = {
+  // Nothing is booked yet, so the typed dates are all there is to show — drawn
+  // hatched to read as "planned, not booked".
+  "Pre-Launch": "title",
+  // Mid-flight: solid for what is booked, hatch for typed dates still open.
+  "Live Outreach": "both",
+  // Past the booking window — the typed list is stale, so only real meetings.
+  "Schedule Closed": "confirmed",
+  "Preparing Feedback": "confirmed",
+  Complete: "confirmed",
+}
+/** Stages with no explicit rule (today: "Meetings Ongoing") land here. */
+const DEFAULT_BOX_MODE: BoxMode = "confirmed"
+
+function boxMode(stage: string | null): BoxMode {
+  if (!stage) return DEFAULT_BOX_MODE
+  return STAGE_BOX_MODE[stage] ?? DEFAULT_BOX_MODE
 }
 
-/** Resolve a yearless month to a concrete year: same year as the event start,
- *  bumped to the next year when the month falls before the start month (so a
- *  "1/5" on an event that started in December lands next January). */
-function resolveYear(month0: number, anchor: { year: number; month0: number }): number {
-  return month0 < anchor.month0 ? anchor.year + 1 : anchor.year
+// Diagonal cross-hatch for unbooked (title-only) dates. Same recipe as Planning
+// V2's VIRTUAL_HATCH; duplicated rather than imported to keep this change inside
+// /calendar, and paired with a visible outline so a hatched box still reads as a
+// box on the pale lane background.
+/**
+ * Diagonal hatch for an availability box, TINTED TO THE EVENT'S STAGE.
+ *
+ * Hue always carries stage; fill carries confirmed-vs-availability. So the hatch
+ * cannot be a fixed grey — it takes the same stage colour the solid box uses, at
+ * ~35% alpha, with transparent gaps so the box still reads as unfilled. The 45°
+ * geometry is the Planning V2 virtual-row treatment; the stripe period is tighter
+ * (3px on / 3px off vs 5/10) because these boxes are only MARK_SIZE across and
+ * the wider period showed barely one band.
+ *
+ * Every STATE_COLORS value and STATE_FALLBACK is a 6-digit hex, so the 8-digit
+ * `#RRGGBBAA` form below is always valid.
+ */
+function hatchFill(color: string): string {
+  return `repeating-linear-gradient(45deg, ${color}59 0, ${color}59 3px, transparent 3px, transparent 6px)`
 }
 
-function isValidMD(month: number, day: number): boolean {
-  return month >= 1 && month <= 12 && day >= 1 && day <= 31
-}
-
-function parseEventDates(dates: string | null, startActual: string | null): Segment[] {
-  if (!dates) return []
-  const anchor = startAnchor(startActual) ?? {
-    // No start date to anchor on — assume the current year and treat every month
-    // as "not before start" so nothing rolls.
-    year: new Date().getUTCFullYear(),
-    month0: 0,
-  }
-
-  const out: Segment[] = []
-  // Split on commas and ampersands; each piece is one token.
-  const tokens = dates.split(/[,&]/)
-  for (const raw of tokens) {
-    // Strip parenthetical notes like "(Chicago TBC)" and trim.
-    const token = raw.replace(/\([^)]*\)/g, "").trim()
-    if (!token) continue
-
-    try {
-      // Range: "M/D-M/D" (spaces around the dash allowed).
-      let m = token.match(/^(\d{1,2})\/(\d{1,2})\s*[-–]\s*(\d{1,2})\/(\d{1,2})$/)
-      if (m) {
-        const sMonth = Number(m[1]), sDay = Number(m[2])
-        const eMonth = Number(m[3]), eDay = Number(m[4])
-        if (!isValidMD(sMonth, sDay) || !isValidMD(eMonth, eDay)) continue
-        const sIdx = dayIndex(resolveYear(sMonth - 1, anchor), sMonth - 1, sDay)
-        let eYear = resolveYear(eMonth - 1, anchor)
-        let eIdx = dayIndex(eYear, eMonth - 1, eDay)
-        // Cross-year range whose end month didn't roll (e.g. "12/30-1/2" when the
-        // event started mid-year): push the end into the following year.
-        if (eIdx < sIdx) {
-          eYear += 1
-          eIdx = dayIndex(eYear, eMonth - 1, eDay)
-        }
-        if (eIdx < sIdx) continue
-        out.push({ startIdx: sIdx, endIdx: eIdx, kind: eIdx > sIdx ? "range" : "day" })
-        continue
-      }
-
-      // Range with a day-only right side: "M/D-D" (same month).
-      m = token.match(/^(\d{1,2})\/(\d{1,2})\s*[-–]\s*(\d{1,2})$/)
-      if (m) {
-        const sMonth = Number(m[1]), sDay = Number(m[2]), eDay = Number(m[3])
-        if (!isValidMD(sMonth, sDay) || !isValidMD(sMonth, eDay)) continue
-        const year = resolveYear(sMonth - 1, anchor)
-        const sIdx = dayIndex(year, sMonth - 1, sDay)
-        const eIdx = dayIndex(year, sMonth - 1, eDay)
-        if (eIdx < sIdx) continue
-        out.push({ startIdx: sIdx, endIdx: eIdx, kind: eIdx > sIdx ? "range" : "day" })
-        continue
-      }
-
-      // Single day: "M/D".
-      m = token.match(/^(\d{1,2})\/(\d{1,2})$/)
-      if (m) {
-        const month = Number(m[1]), day = Number(m[2])
-        if (!isValidMD(month, day)) continue
-        const idx = dayIndex(resolveYear(month - 1, anchor), month - 1, day)
-        out.push({ startIdx: idx, endIdx: idx, kind: "day" })
-        continue
-      }
-      // Anything else: skip quietly.
-    } catch {
-      // Never let one bad token break the lane.
-    }
-  }
-  return out
-}
+// -----------------------------------------------------------------------------
+// Title-date parser — defensive. Scrapes M/D, M/D/YY(YY) and M/D-M/D ranges out
+// of the free-text event name, expanding ranges into their individual days so
+// both date sets are plain sets of days. Never throws: a token that does not
+// parse, or that names an impossible day, is skipped and the rest still render.
+// -----------------------------------------------------------------------------
+/** event_id → the ISO dates of that event's CONFIRMED meetings, loaded server-side. */
+export type ConfirmedByEvent = Record<string, string[]>
 
 /** Day index from an ISO timestamp string (its UTC calendar day), or null. */
 function isoDayIndex(iso: string | null): number | null {
@@ -183,18 +150,182 @@ function isoDayIndex(iso: string | null): number | null {
   return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / MS_PER_DAY)
 }
 
-/** Segments to plot for one event: the parsed free-text dates, else a single
- *  fallback bar spanning start_actual..end_actual. Empty when nothing is placeable. */
-function eventSegments(row: MarketingCalendarRow): Segment[] {
-  const parsed = parseEventDates(row.event_dates, row.event_start_actual)
-  if (parsed.length > 0) return parsed
+function isValidMD(month: number, day: number): boolean {
+  return month >= 1 && month <= 12 && day >= 1 && day <= 31
+}
 
-  const start = isoDayIndex(row.event_start_actual)
-  if (start == null) return []
-  const end = isoDayIndex(row.event_end_actual) ?? start
-  const s = Math.min(start, end)
-  const e = Math.max(start, end)
-  return [{ startIdx: s, endIdx: e, kind: e > s ? "range" : "day" }]
+/**
+ * YEAR INFERENCE. The typed dates carry no year, so one is inferred from the
+ * event's own context, in this order:
+ *   1. the event EARLIEST confirmed meeting  (real data - the strongest signal)
+ *   2. else event_start_actual                (the event own window)
+ *   3. else the current year                  (last resort)
+ *
+ * The anchor only fixes a point in time; each token then picks whichever of
+ * anchor-1 / anchor / anchor+1 lands it NEAREST that anchor. Nearest-year is
+ * what makes both directions work: a "6/29" on an event whose first confirmed
+ * meeting is 7/13 stays in the same year (a naive "month before the anchor
+ * rolls forward" rule pushed it a year out), while a "1/2" on a December event
+ * still rolls correctly into January.
+ */
+type YearAnchor = { year: number; month0: number }
+
+function yearAnchor(row: MarketingCalendarRow, confirmedDays: number[]): YearAnchor {
+  if (confirmedDays.length > 0) {
+    const earliest = new Date(Math.min(...confirmedDays) * MS_PER_DAY)
+    return { year: earliest.getUTCFullYear(), month0: earliest.getUTCMonth() }
+  }
+  const start = row.event_start_actual ? new Date(row.event_start_actual) : null
+  if (start && !Number.isNaN(start.getTime())) {
+    return { year: start.getUTCFullYear(), month0: start.getUTCMonth() }
+  }
+  const now = new Date()
+  return { year: now.getUTCFullYear(), month0: now.getUTCMonth() }
+}
+
+/** The year, of the three candidates around the anchor, that lands month/day
+ *  closest to it. */
+function nearestYear(month0: number, day: number, anchor: YearAnchor): number {
+  const anchorMs = Date.UTC(anchor.year, anchor.month0, 15)
+  let best = anchor.year
+  let bestDist = Number.POSITIVE_INFINITY
+  for (const y of [anchor.year - 1, anchor.year, anchor.year + 1]) {
+    const dist = Math.abs(Date.UTC(y, month0, day) - anchorMs)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = y
+    }
+  }
+  return best
+}
+
+/** Day index for a month/day/year, or null when the calendar rejects it (e.g.
+ *  "2/30", which would otherwise silently roll into March). */
+function safeDayIndex(year: number, month0: number, day: number): number | null {
+  const d = new Date(Date.UTC(year, month0, day))
+  if (d.getUTCMonth() !== month0 || d.getUTCDate() !== day) return null
+  return Math.floor(d.getTime() / MS_PER_DAY)
+}
+
+/**
+ * One global scan over the event NAME. Each match is a date, optionally with an
+ * explicit year, optionally followed by a range end:
+ *
+ *   6/23        single
+ *   6/23/26     single, explicit 2-digit year
+ *   6/23/2026   single, explicit 4-digit year
+ *   6/29-7/1    range across months
+ *   6/29-30     range within the month
+ *
+ * Scanning (rather than splitting on commas and anchoring each token) is what
+ * lets this run against the whole title, which carries a prefix like
+ * "4DX-AU -  Virtual - " before the list. Nothing else in a title matches the
+ * shape: tickers and city names carry no slashed number pair.
+ */
+const TITLE_DATE_RE =
+  /(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?(?:\s*[-\u2013]\s*(?:(\d{1,2})\/)?(\d{1,2})(?:\/(\d{2,4}))?)?/g
+
+function explicitYear(raw: string | undefined, fallback: number): number {
+  if (raw == null) return fallback
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return fallback
+  return raw.length <= 2 ? 2000 + n : n
+}
+
+/**
+ * Title dates as day indices. Ranges are expanded into their individual days so
+ * the result is a plain SET of days, directly comparable with the confirmed set.
+ * Never throws - a malformed or impossible token is skipped and the remaining
+ * tokens still render.
+ */
+function parseTitleDays(title: string | null, anchor: YearAnchor): number[] {
+  if (!title) return []
+  const out = new Set<number>()
+  try {
+    for (const m of String(title).matchAll(TITLE_DATE_RE)) {
+      const sMonth = Number(m[1])
+      const sDay = Number(m[2])
+      if (!isValidMD(sMonth, sDay)) continue
+      const sYear = explicitYear(m[3], nearestYear(sMonth - 1, sDay, anchor))
+      const sIdx = safeDayIndex(sYear, sMonth - 1, sDay)
+      if (sIdx == null) continue
+
+      // No range end: a single day.
+      if (m[5] == null) {
+        out.add(sIdx)
+        continue
+      }
+      // Range end. A bare right side ("6/29-30") repeats the start month.
+      const eMonth = m[4] != null ? Number(m[4]) : sMonth
+      const eDay = Number(m[5])
+      if (!isValidMD(eMonth, eDay)) {
+        out.add(sIdx)
+        continue
+      }
+      let eYear = explicitYear(m[6], nearestYear(eMonth - 1, eDay, anchor))
+      let eIdx = safeDayIndex(eYear, eMonth - 1, eDay)
+      // A range that ends before it starts is a year wrap ("12/30-1/2").
+      if (eIdx != null && eIdx < sIdx) {
+        eYear += 1
+        eIdx = safeDayIndex(eYear, eMonth - 1, eDay)
+      }
+      if (eIdx == null || eIdx < sIdx) {
+        out.add(sIdx)
+        continue
+      }
+      for (let d = sIdx; d <= eIdx; d++) out.add(d)
+    }
+  } catch {
+    // Never let one bad title blank a lane - keep whatever parsed.
+  }
+  return [...out]
+}
+
+/** Confirmed-meeting days for one event, as day indices. */
+function confirmedDaysFor(eventId: string, confirmedByEvent: ConfirmedByEvent): number[] {
+  const iso = confirmedByEvent[eventId]
+  if (!iso || iso.length === 0) return []
+  const out = new Set<number>()
+  for (const s of iso) {
+    const idx = isoDayIndex(s)
+    if (idx != null) out.add(idx)
+  }
+  return [...out]
+}
+
+/** A single day to draw, and how. */
+type Box = { dayIdx: number; style: "solid" | "hatch" }
+
+/**
+ * The boxes for one event, per its stage (see STAGE_BOX_MODE). Confirmed always
+ * wins over a title date for the same day, so a day never draws twice.
+ *
+ * NB there is deliberately no fallback to event_start_actual..event_end_actual
+ * any more: at a confirmed-only stage the whole point is that only real meetings
+ * show, and inventing a bar from the event window would defeat that. An event
+ * with nothing to draw renders an empty lane.
+ */
+function eventBoxes(row: MarketingCalendarRow, confirmedByEvent: ConfirmedByEvent): Box[] {
+  const confirmed = confirmedDaysFor(row.event_id, confirmedByEvent)
+  const mode = boxMode(row.event_state_label)
+  if (mode === "confirmed") {
+    return confirmed.map((dayIdx) => ({ dayIdx, style: "solid" as const }))
+  }
+
+  const anchor = yearAnchor(row, confirmed)
+  const title = parseTitleDays(row.event_name, anchor)
+  if (mode === "title") {
+    return title.map((dayIdx) => ({ dayIdx, style: "hatch" as const }))
+  }
+
+  // "both": solid for booked days, hatch for typed days with nothing booked.
+  const confirmedSet = new Set(confirmed)
+  return [
+    ...confirmed.map((dayIdx) => ({ dayIdx, style: "solid" as const })),
+    ...title
+      .filter((d) => !confirmedSet.has(d))
+      .map((dayIdx) => ({ dayIdx, style: "hatch" as const })),
+  ]
 }
 
 // -----------------------------------------------------------------------------
@@ -234,7 +365,13 @@ function buildGroups(rows: MarketingCalendarRow[]): Group[] {
 // -----------------------------------------------------------------------------
 // View
 // -----------------------------------------------------------------------------
-export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
+export function CalendarView({
+  rows,
+  confirmedByEvent,
+}: {
+  rows: MarketingCalendarRow[]
+  confirmedByEvent: ConfirmedByEvent
+}) {
   const [zoom, setZoom] = React.useState<Zoom>(3)
   // Month offset from the current month; ‹ › move the window one month at a time.
   const [monthOffset, setMonthOffset] = React.useState(0)
@@ -312,25 +449,24 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
       : null
 
   // Per-day distinct-client density for the CURRENT window. Recomputed whenever
-  // the window (zoom / scroll) or the data changes, using the exact same resolved
-  // segments the grid draws (parsed event_dates, else the start→end fallback). A
-  // client is counted at most once per day via a per-day Set of client keys.
+  // the window (zoom / scroll) or the data changes, from the exact same boxes the
+  // grid draws — so the heat strip counts a day only when that day actually shows
+  // a box, hatched or solid. A client is counted at most once per day.
   const density = React.useMemo(() => {
     const totalDays = win.endIdx - win.startIdx
     const daySets: Set<string>[] = Array.from({ length: totalDays }, () => new Set())
     for (const g of groups) {
       for (const row of g.rows) {
-        for (const seg of eventSegments(row)) {
-          const from = Math.max(seg.startIdx, win.startIdx)
-          const to = Math.min(seg.endIdx, win.endIdx - 1)
-          for (let d = from; d <= to; d++) daySets[d - win.startIdx].add(g.key)
+        for (const box of eventBoxes(row, confirmedByEvent)) {
+          if (box.dayIdx < win.startIdx || box.dayIdx >= win.endIdx) continue
+          daySets[box.dayIdx - win.startIdx].add(g.key)
         }
       }
     }
     const counts = daySets.map((s) => s.size)
     const max = counts.reduce((m, c) => (c > m ? c : m), 0)
     return { counts, max }
-  }, [groups, win])
+  }, [groups, win, confirmedByEvent])
 
   return (
     <>
@@ -358,6 +494,30 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
               {s}
             </span>
           ))}
+          {/* Fill key, boxed off from the stage swatches to its left — the two
+              keys answer different questions (hue = stage, fill = booked or
+              not), so the border stops them reading as one continuous list.
+              Two sample boxes in a neutral grey, deliberately NOT a stage
+              colour, since this key is about FILL, not hue. Same 45° hatch and
+              1px outline the availability boxes use. */}
+          <span className="flex items-center gap-x-3 gap-y-1 rounded-md border border-[#E6E9EF] px-2 py-1">
+            <span className="flex items-center gap-1.5 text-xs" style={{ color: TEXT_MUTED }}>
+              <span
+                aria-hidden
+                className="inline-block size-3 rounded-[3px]"
+                style={{ background: TEXT_MUTED }}
+              />
+              Confirmed
+            </span>
+            <span className="flex items-center gap-1.5 text-xs" style={{ color: TEXT_MUTED }}>
+              <span
+                aria-hidden
+                className="inline-block size-3 rounded-[3px]"
+                style={{ backgroundImage: hatchFill(TEXT_MUTED), border: `1px solid ${TEXT_MUTED}` }}
+              />
+              Availability
+            </span>
+          </span>
         </div>
 
         {/* Window + zoom controls */}
@@ -410,6 +570,19 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
           </div>
         </div>
       </div>
+
+      {/* What the two fills mean. Stated once, quietly — the swatches above show
+          the difference but not what it signifies. */}
+      <p
+        className="-mt-1 flex items-center gap-1.5 text-[11px] italic"
+        style={{ color: TEXT_MUTED }}
+      >
+        <Info className="size-3.5 shrink-0" aria-hidden="true" />
+        <span>
+          Solid = confirmed meeting · Outlined = availability. Box color reflects
+          the event&apos;s stage.
+        </span>
+      </p>
 
       {/* The Gantt grid */}
       <div ref={scrollRef} className={cn(CARD_CLASS, "overflow-x-auto")}>
@@ -586,10 +759,10 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
                   {/* Track */}
                   <div className="relative" style={{ width: win.gridWidth }}>
                     {g.rows.map((row) =>
-                      eventSegments(row).map((seg, si) => (
-                        <Bar
-                          key={`${row.event_id}-${si}`}
-                          seg={seg}
+                      eventBoxes(row, confirmedByEvent).map((box) => (
+                        <DayBox
+                          key={`${row.event_id}-${box.dayIdx}-${box.style}`}
+                          box={box}
                           row={row}
                           startIdx={win.startIdx}
                           endIdx={win.endIdx}
@@ -609,67 +782,62 @@ export function CalendarView({ rows }: { rows: MarketingCalendarRow[] }) {
   )
 }
 
-// One event mark/bar, clipped to the visible window. Returns null when it falls
-// entirely outside the window.
-function Bar({
-  seg,
+// One DAY box, clipped to the visible window. Returns null when the day falls
+// outside it.
+//
+// SOLID  = a confirmed meeting on that day (the existing filled mark, coloured
+//          by the event stage, unchanged).
+// HATCH  = a date typed into the event title with nothing booked on it: the
+//          same diagonal cross-hatch Planning V2 uses for virtual rows, plus a
+//          stage-coloured outline so it still reads as this event box.
+function DayBox({
+  box,
   row,
   startIdx,
   endIdx,
   dayWidth,
 }: {
-  seg: Segment
+  box: Box
   row: MarketingCalendarRow
   startIdx: number
   endIdx: number
   dayWidth: number
 }) {
-  const color = stateColor(row.event_state_label)
-  const tip = `${row.event_name}${row.event_dates ? ` · ${row.event_dates}` : ""}${
-    row.event_state_label ? ` · ${row.event_state_label}` : ""
-  }`
+  if (box.dayIdx < startIdx || box.dayIdx >= endIdx) return null
 
-  if (seg.kind === "day") {
-    // Center a small mark on the day; skip if outside the window.
-    if (seg.startIdx < startIdx || seg.startIdx >= endIdx) return null
-    const center = (seg.startIdx + 0.5 - startIdx) * dayWidth
+  const color = stateColor(row.event_state_label)
+  const kindLabel = box.style === "solid" ? "confirmed meeting" : "planned (no meeting booked)"
+  const tip = `${row.event_name}${row.event_state_label ? ` · ${row.event_state_label}` : ""} · ${kindLabel}`
+
+  const center = (box.dayIdx + 0.5 - startIdx) * dayWidth
+  const common = {
+    left: center - MARK_SIZE / 2,
+    width: MARK_SIZE,
+    height: MARK_SIZE,
+    transform: "translateY(-50%)",
+  } as const
+
+  if (box.style === "solid") {
     return (
       <div
         title={tip}
         className="absolute top-1/2 rounded-[3px]"
-        style={{
-          left: center - MARK_SIZE / 2,
-          width: MARK_SIZE,
-          height: MARK_SIZE,
-          transform: "translateY(-50%)",
-          background: color,
-        }}
+        style={{ ...common, background: color }}
       />
     )
   }
 
-  // Range: inclusive of both ends → +1 day of width. Clip to the window.
-  const rawLeft = (seg.startIdx - startIdx) * dayWidth
-  const left = Math.max(0, rawLeft)
-  const right = Math.min(endIdx - startIdx, seg.endIdx + 1 - startIdx) * dayWidth
-  const width = right - left
-  if (width <= 0) return null
-
+  // Availability: outlined + hatched in the SAME stage colour as the solid box —
+  // only the fill differs, never the hue.
   return (
     <div
       title={tip}
-      className="absolute top-1/2 overflow-hidden rounded-[4px] px-1.5 text-[10px] font-medium leading-none text-white"
+      className="absolute top-1/2 rounded-[3px]"
       style={{
-        left,
-        width,
-        height: BAR_HEIGHT,
-        transform: "translateY(-50%)",
-        background: color,
-        display: "flex",
-        alignItems: "center",
+        ...common,
+        backgroundImage: hatchFill(color),
+        border: `1px solid ${color}`,
       }}
-    >
-      {width > 44 ? <span className="truncate">{row.event_name}</span> : null}
-    </div>
+    />
   )
 }

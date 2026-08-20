@@ -5,7 +5,8 @@ import { getEffectiveIdentity } from "@/lib/effective-identity"
 import { resolveClientScope } from "@/lib/access/data-scope"
 import { NoClientsAssigned } from "@/components/scoped-empty"
 import type { MarketingCalendarRow } from "@/lib/types"
-import { CalendarView } from "./calendar-view"
+import { loadConfirmedMeetingsByEvent } from "@/lib/event-meetings"
+import { CalendarView, type ConfirmedByEvent } from "./calendar-view"
 
 // Always fetch fresh — the view is time-windowed (its trailing cutoff moves each
 // day) and the underlying events change as the marketing pipeline advances.
@@ -61,9 +62,29 @@ export default async function CalendarPage() {
     )
   }
 
+  // CONFIRMED meeting dates per event — the real records behind the solid boxes.
+  // v_marketing_calendar carries no meetings, so they come from the shared
+  // event → confirmed-meetings read the Client Detail and To-Do drill-ins use,
+  // keeping "confirmed" identical across pages. Chunked because that helper
+  // issues one `.in(event_id, …)` per call and the calendar can carry a few
+  // hundred events — enough ids to push a single request's URL past its limit.
+  // Fail-soft is inherited: a failed chunk yields no dates, so the affected
+  // events fall back to showing nothing rather than blanking the page.
+  const confirmedByEvent: ConfirmedByEvent = {}
+  const eventIds = rows.map((r) => r.event_id).filter(Boolean)
+  for (let i = 0; i < eventIds.length; i += 100) {
+    const chunk = await loadConfirmedMeetingsByEvent(eventIds.slice(i, i + 100))
+    for (const [eventId, meetings] of Object.entries(chunk)) {
+      const days = meetings
+        .map((m) => m.meeting_date)
+        .filter((d): d is string => Boolean(d))
+      if (days.length > 0) confirmedByEvent[eventId] = days
+    }
+  }
+
   return (
     <PageShell title="NDRS Calendar" hideHeader canvas>
-      <CalendarView rows={rows} />
+      <CalendarView rows={rows} confirmedByEvent={confirmedByEvent} />
     </PageShell>
   )
 }
