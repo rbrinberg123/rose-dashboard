@@ -40,7 +40,7 @@ export default async function OnboardingPage() {
     return (
       <PageShell
         title="Onboarding"
-        description="Active clients still onboarding — one row per client with an incomplete step"
+        description="Active clients still onboarding — one row per client whose first feedback report has not been sent yet"
       >
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
           <div className="font-medium text-destructive">

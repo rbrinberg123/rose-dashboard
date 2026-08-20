@@ -7,8 +7,10 @@ import {
 } from "@/lib/client-todo-format"
 
 // Local YYYY-MM-DD for the filename (today's date), so repeated exports don't
-// overwrite each other. Same helper as lib/pipeline-excel.ts.
-function ymd(d: Date): string {
+// overwrite each other. Same helper as lib/pipeline-excel.ts. Exported so the
+// To-Do List's PDF export names its file off the same function — the two
+// downloads stay `client-todo-list_<same date>.{xlsx,pdf}`.
+export function ymd(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, "0")
   const day = String(d.getDate()).padStart(2, "0")

@@ -41,7 +41,7 @@ There are **two** definitions, by layer:
 ## New-client window
 
 - **Primary rule:** a client is "new" if its **earliest contract started within the last 6 months** — `v_live_outreach.is_new_client = earliest_contract_start >= CURRENT_DATE - INTERVAL '6 months'`. Drives the Live Outreach priority tier and "New Client" badge.
-- **Onboarding scope (different thing):** the Onboarding page is scoped by a **fixed cutoff**, `onboarding_start_date >= 2026-01-01`, not a rolling window (`v_client_onboarding`).
+- **Onboarding scope (different thing):** the Onboarding page is scoped by a **fixed cutoff**, `onboarding_start_date >= 2026-01-01`, not a rolling window (`v_client_onboarding`). That cutoff is the *scope*; the *exit* is separate — a client leaves the page when its first **Feedback Report Sent** task completes (see [Onboarding membership](02-pages.md#onboarding-membership)).
 - **"New Client" health flag (different again):** one of the five manually-set note statuses (parsed from note text `LIKE 'new client%'`), not a computed window.
 
 ---

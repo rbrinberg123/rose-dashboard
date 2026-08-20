@@ -25,7 +25,10 @@ Access to the page itself is separate from that: it's an independently-grantable
 - **Client Manager** — narrows the table to one manager's clients. Defaults to **all**. The dropdown lists only managers of clients **you can already see**, so it never reveals who runs an account outside your scope. "Client Manager" here means the client's **account manager** (`accounts.sales_lead_primary_name`), which is owned in the CRM and read-only in the dashboard — this is a filter, not an assignment control.
 - **Search** — matches client name, ticker, or event name.
 - **Export to Excel** — downloads an `.xlsx` of **exactly what's on screen**: the rows as currently filtered (search + Client Manager) and in the current sort order, not the whole table. Filter first, then export. The file is named `client-todo-list_YYYY-MM-DD.xlsx`.
+- **Export PDF** — the same current view, but as a **landscape PDF that looks like the table**: the same twelve columns with their status pills, open-slots ambers, aging colours and feedback pills intact, under a "Client To-Do List" header carrying the date and the filters that were applied. It opens your browser's print dialog — choose **"Save as PDF"** as the destination. Filter first, then export, exactly as with Excel. Suggested filename `client-todo-list_YYYY-MM-DD.pdf`.
 - The count on the right reads "*N* of *M*" so you can see how much the filters are hiding.
+
+Which to use: **Excel** when you want to sort, pivot or re-cut the numbers; **PDF** when you want to circulate or print the worklist as it looks.
 
 ### The columns
 
@@ -69,8 +72,9 @@ Type in the box and click (or tab) away — that's the save. There is no Save bu
 | `dashboard/app/clients/to-do/todo-scope.ts` | **Pure** scoping decisions (`decideTodoLoad`, `visibleTodoRows`, `canEditClientNote`). |
 | `dashboard/app/clients/to-do/todo-scope.test.ts` | Unit tests for all three (`npm test`). |
 | `dashboard/app/clients/to-do/actions.ts` | `saveClientTodoNote` — the scoped upsert behind the inline note. |
-| `dashboard/lib/client-todo-excel.ts` | ExcelJS workbook + download for the "Export to Excel" button. |
+| `dashboard/lib/client-todo-excel.ts` | ExcelJS workbook + download for the "Export to Excel" button. Also exports `ymd()`, shared with the PDF filename. |
 | `dashboard/lib/client-todo-format.ts` | Pure display helpers shared by the table and the export. |
+| `dashboard/app/globals.css` | The `@media print` block behind "Export PDF" — shared with Client Portfolio. |
 | `dashboard/components/event-meetings-pane.tsx` | **Shared** right-side confirmed-meetings drawer. Also used by Client Detail. |
 | `dashboard/lib/event-meetings.ts` | **Shared** event → confirmed-meetings read. Also used by Client Detail. |
 | `sql/20_client_todo.sql` | `public.client_todo_notes` + `public.v_client_todo`. **Must be run in the Supabase SQL editor** before the page will load. |
@@ -109,6 +113,33 @@ Types are real wherever a real type exists — counts as numbers, the two touchp
 Dates are built at UTC midnight (`dayToDate` in `lib/client-todo-format.ts`) because ExcelJS converts a `Date` via its UTC epoch with no timezone shift — so the day in the cell is exactly the Eastern day the view computed, regardless of the exporter's browser zone.
 
 The display helpers the export shares with the screen (`baseTicker`, `stripTickerPrefix`, `formatDay`, `formatDaySpan`) live in **`lib/client-todo-format.ts`** precisely so an exported cell can't drift from the cell it mirrors.
+
+### PDF export
+
+There is **no PDF library in the app.** "Export PDF" reuses the mechanism the Client Portfolio's button already uses (`app/portfolio/portfolio-table.tsx`): a bare `window.print()` over the `@media print` stylesheet in **`app/globals.css`**. The browser's own "Save as PDF" destination does the rendering. Nothing is added to the bundle.
+
+The contract between the table and the stylesheet is by class:
+
+- `.todo-print-root` wraps the whole component and scopes every print rule.
+- `.print-only` is the branded report header — `display: none` on screen, revealed only on paper. It carries "Rose & Co", **Client To-Do List**, the generated date, and a filter summary built from the *live* filter state (`Client Manager = …`, the search text, and the row count), so the sheet always states what it's a view of.
+- `.no-print` hides the screen chrome: the title card, the whole filter/search/export toolbar, and the event-meetings drawer.
+
+Because it prints the **rendered** table, the export inherits everything for free — the pills, the aging reds and ambers, and the client scoping (nothing is re-fetched; there's no second code path to drift, unlike the Excel export's parallel column list).
+
+What the print rules have to undo, and why:
+
+- **Landscape** (`@page { size: landscape }`) and `print-color-adjust: exact`, or browsers strip the pill fills.
+- `thead { display: table-header-group; position: static }` — repeats the two-tier header on **every page** and drops the sticky positioning that would otherwise pin it.
+- `min-width: 0` and `font-size: 8px` on the table, plus the card's `overflow-x-auto` forced to `visible` — on screen the table has a 1180px no-squish floor inside a sideways scroller; on paper there is no sideways, so that floor would run off the sheet and the scroller would clip the rows to one screenful instead of paginating.
+- **`white-space: normal` on every `th` and `td`.** This is the rule that actually fits the table to the page. Every cell is `nowrap` on screen, and those runs become the table's minimum width — with them the 12 columns need ~1045px, which overflows a landscape Letter sheet's ~979px printable area. Letting the long ones ("Current & Upcoming Event", an event date span) take two lines brings it to ~929px, inside both Letter and A4. The event name also drops its 150px ellipsis truncation, since hover doesn't exist on paper.
+- **Notes gets `width: 20%`.** It's the only free-text column, so once every other column is sized to its content it would otherwise collapse to a ~57px sliver.
+- `tr { break-inside: avoid }` so a client's row is never split across a page break.
+
+**The note field is the one thing that doesn't translate.** A `<textarea>` prints as an empty one-line box — its value isn't laid out for paper and the scroll position clips it. So `NoteCell` renders the control *and* a static `.todo-print-note` twin: the textarea carries `data-print="hide"`, and the twin is `.print-only` and wraps (`pre-wrap`). The twin reads the component's `value` state rather than `row.note`, so a note typed but not yet blurred still makes it into the PDF.
+
+**Filename.** The browser seeds "Save as PDF" from `document.title`, so the handler swaps the title to `client-todo-list_YYYY-MM-DD` for the duration of the print call and restores it on `afterprint`. The date comes from `ymd()` — exported from `lib/client-todo-excel.ts` and shared with the `.xlsx` name, so both downloads always agree on the date. This is a *suggestion*: the browser's save dialog lets the user rename, and some browsers ignore the title entirely.
+
+The shared reshaping rules are written as a selector list covering both `.portfolio-print-root` and `.todo-print-root`; only the fit-to-page rules above are To-Do-specific.
 
 ### The shared event-detail pane
 

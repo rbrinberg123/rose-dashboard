@@ -4167,13 +4167,22 @@ GRANT SELECT ON public.v_scheduler_time_off TO service_role;
 
 -- -----------------------------------------------------------------------------
 -- v_client_onboarding
--- One row per ACTIVE client (accounts.state_label = 'Active') that still has at
--- least one INCOMPLETE onboarding step. Fully-onboarded clients (all 9 steps
--- complete) drop off the view entirely. Powers the Logistics -> Onboarding page.
+-- One row per ACTIVE client (accounts.state_label = 'Active') that has NOT yet
+-- had its first feedback report sent. A client stays on the page until it has at
+-- least one 'Feedback Report Sent' task marked Completed; the first one to
+-- complete drops it off for good. Powers the Logistics -> Onboarding page.
+--
+-- The 9 steps below are PROGRESS ONLY — they are displayed and counted, but they
+-- do NOT decide membership. (This replaced a `filled_count < 9` gate, which had
+-- become inert: the step flags are barely maintained in Dynamics, so on
+-- 2026-08-20 the highest filled_count across all 28 in-scope clients was 1/9 and
+-- the gate had never actually excluded anyone. "First report sent" is the real
+-- signal that onboarding is done. Switching the gate took the page from 28 rows
+-- to 10.)
 --
 -- Scoped to clients whose onboarding started on/after 2026-01-01 (see the WHERE
--- cutoff at the bottom) so the page stays focused on genuinely-new clients;
--- currently 26 rows. Widen/narrow by editing that one date.
+-- cutoff at the bottom) so the page stays focused on genuinely-new clients and
+-- legacy clients can't reappear. Widen/narrow by editing that one date.
 --
 -- The 9 onboarding steps live on the account/client card in Dynamics and are
 -- already synced onto public.accounts (see lib/sync/mappers.ts). Two kinds:
@@ -4190,9 +4199,11 @@ GRANT SELECT ON public.v_scheduler_time_off TO service_role;
 --       f_recurring_call_scheduled   (bcs_recurringcallscheduled)
 --       f_report                     (bcs_report)
 --
--- filled_count is how many of the 9 are complete (the UI's "N/9" ring), and the
--- view keeps only rows where filled_count < 9. onboarding_field_count (=9) is
--- exposed so the UI never hard-codes the denominator.
+-- filled_count is how many of the 9 are complete (the UI's "N/9" ring) and
+-- onboarding_field_count (=9) is exposed so the UI never hard-codes the
+-- denominator. Both are purely informational now — see the exit condition above.
+-- A row CAN legitimately show 9/9 and still be on the page (steps all ticked,
+-- report not yet sent), so the UI's "complete" ring state is now reachable.
 --
 -- Account team: the same four role columns the Portfolio page feeds into the
 -- shared AccountTeamAvatars component. sales_lead_primary_name is the primary
@@ -4258,15 +4269,25 @@ SELECT
   + onb.f_report::int ) AS filled_count,
   9 AS onboarding_field_count
 FROM onb
-WHERE ( onb.f_onboarding_call::int
-      + onb.f_teach_in_date::int
-      + onb.f_calendar::int
-      + onb.f_calendar_confirmed::int
-      + onb.f_meeting_history_received::int
-      + onb.f_distro::int
-      + onb.f_bda_peers::int
-      + onb.f_recurring_call_scheduled::int
-      + onb.f_report::int ) < 9
+-- EXIT CONDITION: a client stays on the page until its FIRST 'Feedback Report
+-- Sent' task completes. Zero completed ones -> still onboarding; the moment one
+-- completes, the client drops off for good. Identified exactly as
+-- v_feedback_pipeline / v_client_marketing_status identify it: public.tasks rows
+-- by bcs_task_subtype_label (never by subject text), linked to the client by the
+-- task's own bcs_account_id, and complete when state_label = 'Completed'.
+--
+-- On 'Closed': there is no such task state. state_label is the Dataverse
+-- statecode and takes only 'Open' / 'Completed' / 'Canceled' (verified against
+-- live data 2026-08-20: 3265 Completed, 582 Open, 43 Canceled, zero anything
+-- else), so 'Completed' alone is the whole of "completed/closed". A Canceled
+-- report deliberately does NOT count as sent — the client keeps onboarding.
+WHERE NOT EXISTS (
+        SELECT 1
+        FROM public.tasks t
+        WHERE t.bcs_account_id         = onb.account_id
+          AND t.bcs_task_subtype_label = 'Feedback Report Sent'
+          AND t.state_label            = 'Completed'
+      )
   -- Scope cutoff: only clients whose onboarding started on/after this date, so
   -- the page focuses on genuinely-new clients and days_onboarding / the 60-day
   -- "stalled" flag stay meaningful (original_start_date otherwise reaches back

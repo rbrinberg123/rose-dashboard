@@ -2,7 +2,8 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, Check, Download } from "lucide-react"
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, Check, Download, Printer } from "lucide-react"
+import { format } from "date-fns"
 import { toast } from "sonner"
 
 import {
@@ -24,7 +25,7 @@ import {
   formatDaySpan,
   stripTickerPrefix,
 } from "@/lib/client-todo-format"
-import { exportClientTodoList } from "@/lib/client-todo-excel"
+import { exportClientTodoList, ymd } from "@/lib/client-todo-excel"
 import {
   EventMeetingsPane,
   type EventMeetingsPaneEvent,
@@ -449,27 +450,38 @@ function NoteCell({ row }: { row: ClientTodoTableRow }) {
   }
 
   return (
-    <textarea
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={handleBlur}
-      rows={1}
-      placeholder="Add a note…"
-      aria-label={`Note for ${row.client_name}`}
-      title={
-        row.note_updated_at
-          ? `Last saved ${new Date(row.note_updated_at).toLocaleString()}`
-          : undefined
-      }
-      className={cn(
-        // Single dense line at rest; it grows on focus so a longer note stays
-        // comfortable to type without costing every other row height.
-        "w-full min-w-[200px] resize-y rounded border border-transparent bg-transparent px-1.5 py-0.5",
-        "text-[11px] leading-[1.35] focus:h-16",
-        "hover:border-input focus:border-input focus:bg-white focus:outline-none focus:ring-1 focus:ring-ring",
-        saving && "opacity-60",
-      )}
-    />
+    <>
+      <textarea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={handleBlur}
+        rows={1}
+        placeholder="Add a note…"
+        aria-label={`Note for ${row.client_name}`}
+        title={
+          row.note_updated_at
+            ? `Last saved ${new Date(row.note_updated_at).toLocaleString()}`
+            : undefined
+        }
+        // Screen-only: a textarea prints as an empty one-line box (its value
+        // isn't laid out for paper, and the scroll position clips it), so the
+        // Export PDF path hides the control and prints the static twin below.
+        data-print="hide"
+        className={cn(
+          // Single dense line at rest; it grows on focus so a longer note stays
+          // comfortable to type without costing every other row height.
+          "w-full min-w-[200px] resize-y rounded border border-transparent bg-transparent px-1.5 py-0.5",
+          "text-[11px] leading-[1.35] focus:h-16",
+          "hover:border-input focus:border-input focus:bg-white focus:outline-none focus:ring-1 focus:ring-ring",
+          saving && "opacity-60",
+        )}
+      />
+      {/* Print-only static rendering of the same text — reads `value`, not
+          `row.note`, so an edit that hasn't been blurred yet still exports. */}
+      <div className="print-only todo-print-note" aria-hidden="true">
+        {value}
+      </div>
+    </>
   )
 }
 
@@ -571,6 +583,39 @@ export function TodoTable({
     }
   }, [sorted])
 
+  // ---- PDF export ---------------------------------------------------------
+  // Same mechanism as the Client Portfolio's Export PDF (app/portfolio/
+  // portfolio-table.tsx): no PDF library anywhere in the app — it's window.print()
+  // over the @media print stylesheet in app/globals.css, which hides the app
+  // chrome and reshapes `.todo-print-root` for landscape paper. Because it prints
+  // the *rendered* table, the export is the current view (search + Client Manager,
+  // in the active sort order) with its pills and colours intact, and it inherits
+  // the loader's client scoping for free — nothing is re-fetched.
+  //
+  // The browser's "Save as PDF" seeds its filename from document.title, so swap
+  // the title for the export name across the print call and restore it after.
+  const onExportPdf = React.useCallback(() => {
+    const previousTitle = document.title
+    document.title = `client-todo-list_${ymd(new Date())}`
+    window.addEventListener("afterprint", () => {
+      document.title = previousTitle
+    }, { once: true })
+    window.print()
+  }, [])
+
+  // Print-only report metadata, built from the *current* filter/sort state so the
+  // exported PDF's header describes exactly what's on screen. Only non-default
+  // filters are listed; the row count always shows. Mirrors Portfolio's header.
+  const genDate = format(new Date(), "MMMM d, yyyy")
+  const activeFilterParts: string[] = []
+  if (manager !== ALL) activeFilterParts.push(`Client Manager = ${manager}`)
+  const searchText = search.trim()
+  if (searchText) activeFilterParts.push(`"${searchText}"`)
+  const rowCountLabel = `${sorted.length} ${sorted.length === 1 ? "client" : "clients"}`
+  const filterSummary = activeFilterParts.length
+    ? `Filters: ${activeFilterParts.join(" · ")} · ${rowCountLabel}`
+    : rowCountLabel
+
   const headerProps = {
     currentKey: sortKey,
     currentDir: sortDir,
@@ -578,15 +623,45 @@ export function TodoTable({
   }
 
   return (
-    <>
-      <div className="mb-4">
+    <div className="todo-print-root">
+      {/* Print-only branded report header — hidden on screen, shown on paper. */}
+      <div className="print-only" aria-hidden="true">
+        <div style={{ borderBottom: "2px solid #1E2858", paddingBottom: 8, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+            <div>
+              <div
+                style={{
+                  fontSize: 10,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  color: "#1E2858",
+                  fontWeight: 700,
+                }}
+              >
+                Rose &amp; Co
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#111827", marginTop: 2 }}>
+                Client To-Do List
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: "#4B5563" }} suppressHydrationWarning>
+              {genDate}
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: "#374151", marginTop: 6 }}>{filterSummary}</div>
+        </div>
+      </div>
+
+      <div className="mb-4 no-print">
         <ListTitleCard
           title="To-Do List"
           subtitle={`${rows.length.toLocaleString()} active clients · ${openItemsCount.toLocaleString()} with open feedback items`}
         />
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      {/* Screen-only: the filter/search/export controls are chrome, not report
+          content. On paper the print header above states the same filters. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 no-print">
         <select
           value={manager}
           onChange={(e) => setManager(e.target.value)}
@@ -630,6 +705,19 @@ export function TodoTable({
           >
             <Download />
             {exporting ? "Exporting…" : "Export to Excel"}
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            onClick={onExportPdf}
+            disabled={sorted.length === 0}
+            className="shrink-0 whitespace-nowrap"
+            title="Print the rows shown below to a landscape PDF"
+          >
+            <Printer />
+            Export PDF
           </Button>
         </div>
       </div>
@@ -935,7 +1023,10 @@ export function TodoTable({
                     </TableCell>
 
                     {/* Notes */}
-                    <TableCell className={cn(CELL, "align-top")} style={GROUP_START_STYLE}>
+                    <TableCell
+                      className={cn(CELL, "align-top", "todo-print-note-cell")}
+                      style={GROUP_START_STYLE}
+                    >
                       <NoteCell row={r} />
                     </TableCell>
                   </TableRow>
@@ -950,11 +1041,15 @@ export function TodoTable({
           Marketing Events block opens, fed by the same event→confirmed-meetings
           query. Clicking another row's cluster just swaps `openEvent`, so the
           pane re-renders with that event's meetings. */}
-      <EventMeetingsPane
-        event={openEvent}
-        meetings={openEvent ? meetingsByEvent[openEvent.eventId] ?? [] : []}
-        onClose={() => setOpenEvent(null)}
-      />
-    </>
+      {/* no-print: if the pane happens to be open when someone exports, it's a
+          screen affordance, not part of the report. */}
+      <div className="no-print">
+        <EventMeetingsPane
+          event={openEvent}
+          meetings={openEvent ? meetingsByEvent[openEvent.eventId] ?? [] : []}
+          onClose={() => setOpenEvent(null)}
+        />
+      </div>
+    </div>
   )
 }

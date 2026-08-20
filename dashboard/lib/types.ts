@@ -1057,14 +1057,17 @@ export type ClientMarketingStatusRow = {
 }
 
 /**
- * One row per ACTIVE client that still has ≥1 incomplete onboarding step, for
- * the Logistics → Onboarding page (v_client_onboarding). Fully-onboarded clients
- * drop off the view. Scoped to clients whose onboarding started on/after the
- * cutoff date baked into the view (see sql/03_views.sql).
+ * One row per ACTIVE client whose first feedback report has NOT been sent yet,
+ * for the Logistics → Onboarding page (v_client_onboarding). A client stays until
+ * it has ≥1 'Feedback Report Sent' task marked Completed, then drops off for
+ * good. Scoped to clients whose onboarding started on/after the cutoff date baked
+ * into the view (see sql/03_views.sql).
  *
  * The nine f_* booleans are each onboarding step's completion state (true =
  * complete → green check; false = missing → muted dash). filled_count is how
  * many of onboarding_field_count (=9) are complete — the UI's "N/9" ring.
+ * These are PROGRESS ONLY: they no longer gate membership, so a row can show
+ * 9/9 and still be listed (all steps ticked, report not yet sent).
  * days_onboarding is whole days since onboarding_start_date (Dynamics Original
  * Start Date); the UI flags 60+ as stalled. The four account-team names feed the
  * shared AccountTeamAvatars cluster; sales_lead_primary_name drives the AM filter.

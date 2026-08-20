@@ -134,15 +134,16 @@
 /*                                                                           */
 /* Blocks marked .print-only render only on paper (hidden on screen). All    */
 /* the reshaping below lives under @media print, so the on-screen layout is  */
-/* completely unaffected. Used by the Client Portfolio "Export PDF" button   */
-/* (app/portfolio/portfolio-table.tsx), which just calls window.print().     */
+/* completely unaffected. Used by the "Export PDF" buttons on Client         */
+/* Portfolio (app/portfolio/portfolio-table.tsx) and the To-Do List          */
+/* (app/clients/to-do/todo-table.tsx) — both just call window.print().       */
 /* ------------------------------------------------------------------------- */
 .print-only {
   display: none;
 }
 
 @media print {
-  /* The Portfolio table is wide — print it on landscape paper. */
+  /* Both exporting tables are wide — print them on landscape paper. */
   @page {
     size: landscape;
     margin: 0.4in;
@@ -174,42 +175,88 @@
     overflow: visible !important;
   }
 
-  /* Portfolio table reshaping. Un-freeze the frozen Core columns and remove the
-     horizontal-scroll container so the full table lays out and can paginate. The
-     frozen offsets are inline styles, so !important is required to override. */
-  .portfolio-print-root [data-slot="table-container"] {
+  /* Table reshaping, shared by both print roots. Un-freeze any frozen columns
+     and remove the horizontal-scroll container so the full table lays out and
+     can paginate. Portfolio's frozen offsets are inline styles, so !important is
+     required to override. */
+  .portfolio-print-root [data-slot="table-container"],
+  .todo-print-root [data-slot="table-container"] {
     overflow: visible !important;
     /* The screen layout bounds this container's height so the sticky header has
        something to stick to. On paper that would clip the table to one
        screenful — release it so every row paginates. */
     max-height: none !important;
   }
-  .portfolio-print-root table {
+  .portfolio-print-root table,
+  .todo-print-root table {
     width: 100% !important;
-    /* The screen table carries an inline min-width (its no-squish floor). On a
-       portrait page that floor is wider than the sheet, so drop it and let the
-       8px print type fit the columns to the paper instead. */
+    /* The screen table carries a min-width (its no-squish floor) that's wider
+       than the sheet. Drop it and let the 8px print type fit the columns to the
+       paper instead. */
     min-width: 0 !important;
     font-size: 8px !important;
   }
   /* Repeat the header on every page; drop its sticky positioning. */
-  .portfolio-print-root thead {
+  .portfolio-print-root thead,
+  .todo-print-root thead {
     display: table-header-group !important;
     position: static !important;
   }
   .portfolio-print-root thead th,
-  .portfolio-print-root tbody td {
+  .portfolio-print-root tbody td,
+  .todo-print-root thead th,
+  .todo-print-root tbody td {
     position: static !important;
     left: auto !important;
     z-index: auto !important;
   }
   /* Avoid splitting a client's row across a page break. */
-  .portfolio-print-root tr {
+  .portfolio-print-root tr,
+  .todo-print-root tr {
     break-inside: avoid;
   }
   /* Tighter cell padding so more columns fit on the page. */
   .portfolio-print-root th,
-  .portfolio-print-root td {
+  .portfolio-print-root td,
+  .todo-print-root th,
+  .todo-print-root td {
     padding: 2px 4px !important;
+  }
+
+  /* --- To-Do List specifics --------------------------------------------- */
+  /* The table sits inside a card that is itself an overflow-x-auto scroller;
+     `overflow-x: auto` computes overflow-y to auto too, which would clip the
+     rows to one screenful instead of paginating. */
+  .todo-print-root .overflow-x-auto {
+    overflow: visible !important;
+  }
+  /* Every header label and body cell is whitespace-nowrap on screen (a dense,
+     scannable worklist you scroll sideways). On paper there's no sideways to
+     scroll into: those nowrap runs become the table's minimum width and push it
+     off the sheet. Letting them wrap is what actually fits the table to the
+     page — without it the 12 columns need ~1045px and a landscape Letter sheet
+     only offers ~979px. The long ones ("Current & Upcoming Event", an event
+     date span) simply take two lines. */
+  .todo-print-root thead th,
+  .todo-print-root tbody td {
+    white-space: normal !important;
+  }
+  .todo-print-root .todo-print-note-cell,
+  .todo-print-root .todo-print-note {
+    white-space: pre-wrap !important;
+    word-break: break-word;
+  }
+  /* Notes is the only free-text column, so with every other column sized to its
+     content it would otherwise collapse to a sliver. Claim a fixed share. */
+  .todo-print-root .todo-print-note-cell {
+    width: 20%;
+  }
+  /* The event name truncates to 150px on screen with the full text on hover —
+     hover doesn't exist on paper, so print it in full and let it wrap. */
+  .todo-print-root .truncate {
+    max-width: none !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
   }
 }
