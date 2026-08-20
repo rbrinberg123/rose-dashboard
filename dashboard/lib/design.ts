@@ -19,6 +19,13 @@ export const TEXT_TERTIARY = "#9AA1AD"
 export const BRAND_NAVY = "#1E2858"
 export const BRAND_BLUE = "#0355A7"
 export const TEAL = "#1C8C9C"
+/**
+ * The LIGHT end of the teal ramp — the Logistics account-team avatar fill, and
+ * the far stop of the teal gradients in lib/gradients.ts (`#1C8C9C → #4FC6BC`).
+ * Tokenised because it had been hand-copied into four pages; it is a distinct
+ * value from TEAL above, not a substitute for it.
+ */
+export const TEAL_LIGHT = "#4FC6BC"
 /** The one green, reserved for money. */
 export const MONEY_GREEN = "#0E7C56"
 

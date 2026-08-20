@@ -5,7 +5,13 @@ import { useSearchParams } from "next/navigation"
 import { Check, FileText, CalendarCheck, UserRound, Clock, ChevronDown, ChevronLeft, ChevronRight, Send, CheckCheck, Utensils, Car, StickyNote, Video, MapPin } from "lucide-react"
 import { ListTitleCard } from "@/components/page-masthead"
 import { SegmentedToggle } from "@/components/segmented-toggle"
-import { BRAND_BLUE, CARD_CLASS, DAYS_LEFT_PILL, TEAL, TEXT_SECONDARY } from "@/lib/design"
+import {
+  BRAND_BLUE,
+  BRAND_NAVY,
+  CARD_CLASS,
+  DAYS_LEFT_PILL,
+  TEXT_SECONDARY,
+} from "@/lib/design"
 import type { PlanningEventRow } from "@/lib/types"
 
 // ⚗️ EXPERIMENTAL SANDBOX COPY of app/planning/planning-view.tsx.
@@ -14,9 +20,25 @@ import type { PlanningEventRow } from "@/lib/types"
 // app/planning-v2 folder + the "Planning Lab" nav entry to remove it.
 
 const NAVY_DEEP = "#1E2858"
-// The done-green for checkmarks and full progress bars. Deliberately NOT
-// MONEY_GREEN (reserved for money) — this reuses the "Stable" pill green.
-const DONE_GREEN = "#2D7A2D"
+/**
+ * THE teal for this page. Every teal-family accent derives from this one
+ * constant so they cannot drift apart — a deep blue-teal, darker than both the
+ * old #159E77 done-green and the shared TEAL / TEAL_LIGHT tokens, which is why
+ * it is defined here rather than imported: TEAL_LIGHT (#4FC6BC) is the Logistics
+ * account-team avatar fill and is used by Portfolio, Onboarding and Client
+ * Detail, so darkening it centrally would repaint those pages too.
+ *
+ * Drives, in this file:
+ *   - the completed-step check circles (StageCell + BoolCell)
+ *   - the green left border on a fully-ready row
+ *   - pctColor, hence the completion ring and its "X / Y steps complete" readout
+ *   - the "Live Meetings Only" band rule + its count-pill tint
+ *   - the Now divider
+ *   - the two filter checkbox accents
+ *
+ * Still deliberately NOT MONEY_GREEN (#0E7C56), which is reserved for money.
+ */
+const DEEP_TEAL = "#0E8A7C"
 const EMPTY_RING = "#D1D6DE"
 
 // Hairline divider between the meeting-info columns and the four tracking columns.
@@ -24,23 +46,29 @@ const COL_DIVIDER = "#E6E9EF"
 // Fainter hairline between individual stage columns (Calendars|Profiles|Hosts).
 const STAGE_DIVIDER = "#EEF1F6"
 // Top-tier grouping bands over the stage block ("All Meetings") and the logistics
-// block ("Live Meetings Only"), differentiated so they read as distinct categories.
-// ALL MEETINGS is the heavier band — a darker stone grey with dark graphite text.
-// LIVE MEETINGS ONLY is a soft green echoing the Live pill (#E7F5EE/#0E7C56); it's
-// kept distinct from the pale green completion pills in the same row by a green
-// bottom border, so it reads as a CATEGORY ("these columns are about live
-// meetings"), not a "done" status.
-const ALL_BAND_BG = "#DDE3EC" // darker stone grey
-const ALL_BAND_FG = "#384150" // dark graphite text
-const ALL_BAND_BORDER = "2px solid #C8D4E3" // grey underline, a shade darker than the
-                                            // band bg — mirrors LIVE's green underline
-const LIVE_BAND_BG = "#D6EEE0" // soft Live-pill-family green, deeper than the pale
-                               // completion pills (#E7F3EC) so it can't be confused
-                               // for a "done" status
-const LIVE_BAND_FG = "#0E7C56" // Live-pill green text
-const LIVE_BAND_BORDER = "2px solid rgba(14,124,86,0.40)" // green underline = category cue
+// block ("Live Meetings Only").
+//
+// Both bands are UNFILLED — navy small-caps over the header strip — and are told
+// apart by a thin gradient rule underneath rather than by a background colour.
+// The previous treatment filled them (stone grey / soft green), and the green one
+// sat in the same row as the pale green completion pills, so a category band and
+// a "done" status read as the same kind of object. Removing the fills makes the
+// group heading recede and the per-column pills the only coloured thing in the
+// header, which is where the eye should go.
+//
+// The rules carry the blue = ALL / teal = LIVE signal. Both are composed from the
+// brand tokens rather than written as hex, so a palette shift flows through.
+const ALL_BAND_RULE = `linear-gradient(90deg, ${BRAND_NAVY}, ${BRAND_BLUE})`
+const LIVE_BAND_RULE = `linear-gradient(90deg, ${BRAND_BLUE}, ${DEEP_TEAL})`
+// Faint matching tints behind each band's group-count pill. Percentages differ
+// because the two stops differ in weight; DEEP_TEAL is dark, so a smaller share
+// lands at the same visual lightness the pale TEAL_LIGHT needed 22% to reach.
+const ALL_BAND_TINT = `color-mix(in srgb, ${BRAND_BLUE} 10%, white)`
+const LIVE_BAND_TINT = `color-mix(in srgb, ${DEEP_TEAL} 14%, white)`
+// self-START, so the band and its rule stay pinned to the very top of the header
+// even if row 1 grows (a spanning base label can push height into it).
 const SECTION_BAND_CLASS =
-  "flex h-6 items-center justify-center self-end rounded-t-md text-[10px] font-semibold uppercase tracking-wider"
+  "flex flex-col items-center gap-1 self-start px-3 text-[10px] font-semibold uppercase tracking-wider"
 
 // Virtual meetings don't use the 5 logistics fields, so their whole logistics
 // block renders as ONE continuous grayed-out band (a subtle diagonal hatch) with
@@ -90,7 +118,7 @@ const STAGES: Stage[] = [
   {
     key: "calendars",
     label: "Calendars",
-    color: TEAL, // teal
+    color: DEEP_TEAL,
     Icon: CalendarCheck,
     value: (r) => r.calendar_label,
     // ✓ when the calendar value CONTAINS the word "Sent" (Calendar Sent /
@@ -333,8 +361,11 @@ function buildGroups(rows: PlanningEventRow[]): EventGroup[] {
 
 // Threshold color for a progress bar / ratio.
 function pctColor(pct: number): string {
-  if (pct >= 0.999) return DONE_GREEN
-  if (pct >= 0.66) return TEAL
+  if (pct >= 0.999) return DEEP_TEAL
+  // 66-99% shares the 100% teal rather than carrying its own lighter one — the
+  // ring's arc length and the percentage printed inside it already separate the
+  // two states, and a second teal would reintroduce the lighter shade.
+  if (pct >= 0.66) return DEEP_TEAL
   if (pct >= 0.33) return "#B7791F" // amber
   return "#C53030" // red
 }
@@ -495,12 +526,32 @@ function LiveVirtualPill({ isLive }: { isLive: boolean }) {
 // the meeting-info section from the tracking block; `faint` uses a lighter tone
 // for the dividers BETWEEN the four stage columns. self-stretch makes it span the
 // full row height regardless of the row's vertical alignment.
-function ColDivider({ faint }: { faint?: boolean }) {
+// `row` / `column` pin the divider to explicit grid lines. The header is one
+// grid whose first five columns span BOTH rows, so its row-2 children must say
+// which row they belong to or auto-placement would drop them into the gaps in
+// row 1. The two SECTION dividers additionally take `row="1 / 3"` + an explicit
+// column, so each primary block is bounded by a rule running the full header
+// height; self-stretch makes the line span the row gap as well, so it reads as
+// one continuous stroke rather than two segments. Body rows omit both props and
+// place normally.
+function ColDivider({
+  faint,
+  row,
+  column,
+}: {
+  faint?: boolean
+  row?: number | string
+  column?: number
+}) {
   return (
     <div
       aria-hidden
       className="h-full self-stretch"
-      style={{ backgroundColor: faint ? STAGE_DIVIDER : COL_DIVIDER }}
+      style={{
+        backgroundColor: faint ? STAGE_DIVIDER : COL_DIVIDER,
+        ...(row ? { gridRow: row } : null),
+        ...(column ? { gridColumn: column } : null),
+      }}
     />
   )
 }
@@ -540,7 +591,7 @@ function BoolCell({ value, live }: { value: boolean | null; live: boolean }) {
       {value ? (
         <span
           className="flex size-[16px] shrink-0 items-center justify-center rounded-full"
-          style={{ backgroundColor: DONE_GREEN }}
+          style={{ backgroundColor: DEEP_TEAL }}
         >
           <Check className="size-[10px] text-white" strokeWidth={3} />
         </span>
@@ -583,13 +634,19 @@ function TrackingHeaderCell({
   Icon,
   label,
   pill,
+  row,
 }: {
   Icon: React.ComponentType<{ className?: string }>
   label: string
   pill?: HeaderPill
+  /** Explicit grid row — see the note on ColDivider. */
+  row?: number
 }) {
   return (
-    <div className="flex flex-col items-center gap-1 self-start">
+    <div
+      className="flex flex-col items-center gap-1 self-start"
+      style={row ? { gridRow: row } : undefined}
+    >
       <div
         className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide"
         style={{ color: TEXT_SECONDARY }}
@@ -619,6 +676,58 @@ const LOGISTICS_COLS = [
   { key: "driver", label: "Driver", Icon: Car, ratio: true },
   { key: "notes", label: "Notes", Icon: StickyNote, ratio: false },
 ] as const
+/** How many logistics columns carry a done/total ratio — drives the LIVE group
+ *  tally. Derived, so adding a ratio column cannot leave the band out of step. */
+const RATIO_LOGISTICS_COUNT = LOGISTICS_COLS.filter((c) => c.ratio).length
+
+/**
+ * One top-tier grouping band: navy small-caps label, a faint-tinted count pill,
+ * and the gradient rule beneath. `gridColumn` spans the block's tracks so the
+ * rule sits exactly over its columns; `px-3` on the wrapper is what insets the
+ * rule from the block's edges so it reads as an accent, not a full-width border.
+ *
+ * The count is the group's whole cell tally — every tracked cell in the block —
+ * so it answers "how much of this section is done" in one number, above the
+ * per-column breakdown in the row below.
+ */
+function GroupBand({
+  label,
+  done,
+  total,
+  rule,
+  tint,
+  gridColumn,
+  gridRow,
+  title,
+}: {
+  label: string
+  done: number
+  total: number
+  rule: string
+  tint: string
+  gridColumn: string
+  gridRow: number
+  title?: string
+}) {
+  return (
+    <div className={SECTION_BAND_CLASS} style={{ gridColumn, gridRow }} title={title}>
+      <div className="flex items-center gap-1.5 whitespace-nowrap">
+        <span style={{ color: BRAND_NAVY }}>{label}</span>
+        <span
+          className="rounded-full px-1.5 py-px font-medium tabular-nums"
+          style={{ backgroundColor: tint, color: BRAND_NAVY }}
+        >
+          {done}/{total}
+        </span>
+      </div>
+      <div
+        aria-hidden="true"
+        className="h-[2.5px] w-full rounded-full"
+        style={{ backgroundImage: rule }}
+      />
+    </div>
+  )
+}
 
 // Shared column header used by ALL three views. Two tiers: a top row of grouping
 // bands ("All Meetings" over the 3 stages, "Live Meetings Only" over the 5
@@ -643,96 +752,127 @@ function MeetingTableHeader({ meetings }: { meetings: PlanningEventRow[] }) {
   }
   const label = "text-[11px] font-semibold uppercase tracking-wide text-[#9AA1AD]"
   return (
-    <>
-      {/* Tier 1: grouping bands over the stage and logistics blocks. Each band's
-          gridColumn spans its block's tracks (including the faint dividers) so it
-          aligns exactly with the columns beneath it, across every view. */}
-      <div
-        className="grid gap-2 border-l-[3px] border-l-transparent bg-[#FAFBFD] px-4 pt-2"
-        style={{ gridTemplateColumns: TABLE_GRID_COLS }}
-      >
-        <div
-          className={SECTION_BAND_CLASS}
-          style={{
-            gridColumn: "7 / 12",
-            backgroundColor: ALL_BAND_BG,
-            color: ALL_BAND_FG,
-            borderBottom: ALL_BAND_BORDER,
-          }}
-        >
-          All Meetings
-        </div>
-        <div
-          className={SECTION_BAND_CLASS}
-          style={{
-            gridColumn: "13 / 22",
-            backgroundColor: LIVE_BAND_BG,
-            color: LIVE_BAND_FG,
-            borderBottom: LIVE_BAND_BORDER,
-          }}
-          title="These fields apply to in-person (Live) meetings only"
-        >
-          Live Meetings Only
-        </div>
+    /* ONE grid, two rows — not two stacked grids. The five ungrouped columns
+       (Institution … Event) span BOTH rows, so they rise to the same ceiling as
+       the group bands instead of floating in the lower row with dead space above
+       them. That is only expressible as a rowspan within a single grid.
+       Everything that belongs to the lower row therefore states gridRow={2}:
+       with rows 1-2 of columns 1-5 already occupied by the spanning headers,
+       auto-placement lays those children out from column 6 rightwards. */
+    <div
+      /* pt-2.5 = 10px of clear space above the group-band labels. This is the
+         ONLY thing that sets that gap — there is no competing rule; the header
+         previously read pt-0 deliberately, when the bands were asked to sit
+         flush. Because row 2 follows row 1, restoring the space necessarily
+         moves the gradient rule and the sub-column row down with it: the header
+         grows by 10px rather than the label sliding down into the rule. */
+      className="grid gap-x-2 gap-y-1 border-b border-l-[3px] border-l-transparent bg-[#FAFBFD] px-4 pb-2 pt-2.5"
+      style={{ gridTemplateColumns: TABLE_GRID_COLS }}
+    >
+      {/* Ungrouped columns still SPAN the full header height, but sit at the
+          BOTTOM of that span, so they share one baseline with the tracking
+          block beside them instead of floating up level with the group bands.
+          The span is what keeps the column reserved top-to-bottom; self-end is
+          purely where the label sits inside it. */}
+      <div className={`self-end ${label}`} style={{ gridColumn: 1, gridRow: "1 / 3" }}>
+        Institution
+      </div>
+      <div className={`self-end ${label}`} style={{ gridColumn: 2, gridRow: "1 / 3" }}>
+        Time
+      </div>
+      <div className={`self-end text-center ${label}`} style={{ gridColumn: 3, gridRow: "1 / 3" }}>
+        Client
+      </div>
+      <div className={`self-end text-center ${label}`} style={{ gridColumn: 4, gridRow: "1 / 3" }}>
+        Type
+      </div>
+      <div className={`self-end text-center ${label}`} style={{ gridColumn: 5, gridRow: "1 / 3" }}>
+        Event
       </div>
 
-      {/* Tier 2: the column labels + ratio pills. */}
-      <div
-        className="grid items-center gap-2 border-b border-l-[3px] border-l-transparent bg-[#FAFBFD] px-4 pb-2 pt-1"
-        style={{ gridTemplateColumns: TABLE_GRID_COLS }}
-      >
-        <div className={`self-center ${label}`}>Institution</div>
-        <div className={`self-center ${label}`}>Time</div>
-        <div className={`self-center text-center ${label}`}>Client</div>
-        <div className={`self-center text-center ${label}`}>Type</div>
-        <div className={`self-center text-center ${label}`}>Event</div>
-        <ColDivider />
-        {STAGES.map((s, i) => {
-          const done = stageDone[s.key]
-          const pill = ratioPill(done, total)
-          return (
-            <React.Fragment key={s.key}>
-              {i > 0 && <ColDivider faint />}
-              <TrackingHeaderCell
-                Icon={s.Icon}
-                label={s.label}
-                pill={{
-                  ...pill,
-                  done,
-                  total,
-                  title: `${done} of ${total} meetings complete`,
-                }}
-              />
-            </React.Fragment>
-          )
-        })}
-        {/* Meeting-level logistics columns, after the stage block. */}
-        <ColDivider />
-        {LOGISTICS_COLS.map((c, i) => {
-          const done = boolDone[c.key] ?? 0
-          const pill = ratioPill(done, liveTotal)
-          return (
-            <React.Fragment key={c.key}>
-              {i > 0 && <ColDivider faint />}
-              <TrackingHeaderCell
-                Icon={c.Icon}
-                label={c.label}
-                pill={
-                  c.ratio
-                    ? {
-                        ...pill,
-                        done,
-                        total: liveTotal,
-                        title: `${done} of ${liveTotal} live meetings complete`,
-                      }
-                    : undefined
-                }
-              />
-            </React.Fragment>
-          )
-        })}
-      </div>
-    </>
+      {/* Row 1: grouping bands, each spanning only its own sub-columns (the
+          faint dividers included) so the rule sits exactly over its block.
+          Group tallies count every tracked cell in the block — ALL = the 3
+          stages across all meetings in view; LIVE = the 3 ratio-carrying
+          logistics fields across LIVE meetings only (Food and Notes are free
+          text, so they have nothing to be "done"). */}
+      <GroupBand
+        label="All Meetings"
+        done={STAGES.reduce((n, s) => n + stageDone[s.key], 0)}
+        total={STAGES.length * total}
+        rule={ALL_BAND_RULE}
+        tint={ALL_BAND_TINT}
+        gridColumn="7 / 12"
+        gridRow={1}
+      />
+      <GroupBand
+        label="Live Meetings Only"
+        done={boolDone.sent + boolDone.confirm + boolDone.driver}
+        total={RATIO_LOGISTICS_COUNT * liveTotal}
+        rule={LIVE_BAND_RULE}
+        tint={LIVE_BAND_TINT}
+        gridColumn="13 / 22"
+        gridRow={1}
+        title="These fields apply to in-person (Live) meetings only"
+      />
+
+      {/* SECTION divider: base columns | All Meetings. Spans the whole header
+          height (track 6, both rows) so the primary block is bounded top to
+          bottom, not just across the sub-column row. */}
+      <ColDivider row="1 / 3" column={6} />
+
+      {/* Row 2: the tracking columns — icon + label + ratio pill. The faint
+          intra-block dividers stay in row 2, so only the two SECTION rules
+          reach the top. */}
+      {STAGES.map((s, i) => {
+        const done = stageDone[s.key]
+        const pill = ratioPill(done, total)
+        return (
+          <React.Fragment key={s.key}>
+            {i > 0 && <ColDivider faint row={2} />}
+            <TrackingHeaderCell
+              Icon={s.Icon}
+              label={s.label}
+              row={2}
+              pill={{
+                ...pill,
+                done,
+                total,
+                title: `${done} of ${total} meetings complete`,
+              }}
+            />
+          </React.Fragment>
+        )
+      })}
+      {/* SECTION divider: All Meetings | Live Meetings Only. Full header height,
+          same as track 6 above. */}
+      <ColDivider row="1 / 3" column={12} />
+      {/* Meeting-level logistics columns, after the stage block. */}
+      {LOGISTICS_COLS.map((c, i) => {
+        const done = boolDone[c.key] ?? 0
+        const pill = ratioPill(done, liveTotal)
+        return (
+          <React.Fragment key={c.key}>
+            {i > 0 && <ColDivider faint row={2} />}
+            <TrackingHeaderCell
+              Icon={c.Icon}
+              label={c.label}
+              row={2}
+              pill={
+                c.ratio
+                  ? {
+                      ...pill,
+                      done,
+                      total: liveTotal,
+                      title: `${done} of ${liveTotal} live meetings complete`,
+                    }
+                  : undefined
+              }
+            />
+          </React.Fragment>
+        )
+      })}
+    </div>
   )
 }
 
@@ -1146,7 +1286,7 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
                   type="checkbox"
                   checked={inPersonOnly}
                   onChange={(e) => setInPersonOnly(e.target.checked)}
-                  className="size-4 rounded border-input accent-[#1C8C9C]"
+                  className="size-4 rounded border-input accent-[#0E8A7C]"
                 />
                 In-person only
               </label>
@@ -1215,7 +1355,7 @@ export function PlanningV2View({ rows }: { rows: PlanningEventRow[] }) {
                   type="checkbox"
                   checked={missing.has(s.key)}
                   onChange={() => toggleMissing(s.key)}
-                  className="size-4 rounded border-input accent-[#1C8C9C]"
+                  className="size-4 rounded border-input accent-[#0E8A7C]"
                 />
                 {MISSING_LABELS[s.key]}
               </label>
@@ -1337,15 +1477,15 @@ function EventDetail({
 function NowDivider() {
   return (
     <div className="flex items-center gap-2 px-4 py-2" aria-label="Upcoming meetings">
-      <div className="h-0 flex-1 border-t-2 border-dashed" style={{ borderColor: TEAL }} />
+      <div className="h-0 flex-1 border-t-2 border-dashed" style={{ borderColor: DEEP_TEAL }} />
       <span
         className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide"
-        style={{ color: TEAL }}
+        style={{ color: DEEP_TEAL }}
       >
         <ChevronDown className="size-3" strokeWidth={3} />
         Upcoming
       </span>
-      <div className="h-0 flex-1 border-t-2 border-dashed" style={{ borderColor: TEAL }} />
+      <div className="h-0 flex-1 border-t-2 border-dashed" style={{ borderColor: DEEP_TEAL }} />
     </div>
   )
 }
@@ -1377,7 +1517,7 @@ function MeetingRow({
       // beside the institution is the sole occurred indicator.
       style={{
         gridTemplateColumns: TABLE_GRID_COLS,
-        borderLeft: `3px solid ${ready ? DONE_GREEN : "transparent"}`,
+        borderLeft: `3px solid ${ready ? DEEP_TEAL : "transparent"}`,
       }}
     >
       {/* Institution (+ status tags) */}
@@ -1506,7 +1646,7 @@ function StageCell({
       {done ? (
         <span
           className="flex size-[16px] shrink-0 items-center justify-center rounded-full"
-          style={{ backgroundColor: DONE_GREEN }}
+          style={{ backgroundColor: DEEP_TEAL }}
         >
           <Check className="size-[10px] text-white" strokeWidth={3} />
         </span>
