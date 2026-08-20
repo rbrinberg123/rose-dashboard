@@ -4193,9 +4193,22 @@ GRANT SELECT ON public.v_scheduler_time_off TO service_role;
 -- had never actually excluded anyone. First-report-sent is the real signal that
 -- onboarding is done. Switching the gate took the page from 28 rows to 10.
 --
--- Scoped to clients whose onboarding started on/after 2026-01-01 (see the WHERE
--- cutoff at the bottom) so the page stays focused on genuinely-new clients and
--- legacy clients cannot reappear. Widen/narrow by editing that one date.
+-- SCOPE is an either-or (see the WHERE at the bottom): a client is in when its
+-- onboarding started on/after 2026-01-01, OR when it has NO live contract. The
+-- floor keeps the page focused on genuinely-new clients and stops legacy clients
+-- reappearing; the blank-contract arm catches a client that is being set up but
+-- has nothing on file yet, which the floor would otherwise hide because such a
+-- client usually has a NULL original_start_date.
+--
+-- "No live contract" is the exact negation of
+-- v_contract_management.has_active_contract -- no public.contracts row with
+-- state_code = 0 AND (contract_termination_date IS NULL OR > CURRENT_DATE) --
+-- so Onboarding and Contract Management can never disagree about whether a
+-- client has a contract. NB state_code is the Dataverse statecode on the
+-- contract, not contract_status_label, which is the workflow stage.
+--
+-- The feedback-report exit above is applied to ALL rows, so a blank-contract
+-- client that has already had its first report sent does NOT appear.
 --
 -- The 9 onboarding steps. Eight live on the account/client card in Dynamics and
 -- are synced onto public.accounts (see lib/sync/mappers.ts); the ninth is
@@ -4238,6 +4251,25 @@ GRANT SELECT ON public.v_scheduler_time_off TO service_role;
 -- the Eastern calendar day, same "today" convention as v_client_marketing_status.
 -- It CAN be large for long-tenured clients (start dates reach back years) and
 -- can be negative for a future-dated start; the UI flags 60+ days as stalled.
+--
+-- Two further informational columns (NOT steps — they do not move filled_count):
+--   * contract_start_date — the CONTRACT TERM start, from public.contracts
+--     (bcs_contractstartdate), via the contract_start CTE below. Deliberately a
+--     different field from original_start_date/onboarding_start_date above: on
+--     current data the contract term starts about a day AFTER the onboarding
+--     anchor, so the two columns are not interchangeable.
+--   * onboarding_notes — the Dynamics free-text field bcs_onboardingnotes,
+--     synced onto accounts by mapAccount (lib/sync/mappers.ts). Blank strings
+--     are normalised to NULL so the page has one muted "no note" state. The
+--     page shows a note icon that reveals the text on hover/focus.
+--   * first_event_name / _date / _state_label — the client's EARLIEST marketing
+--     event (see the first_ev CTE). Bucketed exactly as the Client Detail
+--     "Marketing Events & Dates" block and the To-Do List next_event_* columns:
+--     an event's window starts at the earliest Eastern day of its CONFIRMED
+--     meetings, falling back to its own actual window. Direction is the only
+--     difference from the To-Do List — earliest ever, not soonest upcoming, and
+--     so deliberately without a date floor. Name is exposed RAW; the page strips
+--     the leading "TICKER - " with stripTickerPrefix.
 -- -----------------------------------------------------------------------------
 DROP VIEW IF EXISTS public.v_client_onboarding CASCADE;
 CREATE VIEW public.v_client_onboarding AS
@@ -4257,6 +4289,9 @@ WITH onb AS (
     -- intraday timestamps (not UTC midnight), so this cast cannot shift the day.
     (a.onboarding_call     AT TIME ZONE 'America/New_York')::date AS onboarding_call_date,
     (a.teach_in_date       AT TIME ZONE 'America/New_York')::date AS teach_in_date,
+    -- Free-text onboarding notes. Empty and whitespace-only strings collapse to
+    -- NULL so the page has exactly one "no note" case to render muted.
+    NULLIF(btrim(a.onboarding_notes), '') AS onboarding_notes,
     (a.onboarding_call          IS NOT NULL) AS f_onboarding_call,
     (a.teach_in_date            IS NOT NULL) AS f_teach_in_date,
     (a.calendar                 IS TRUE)     AS f_calendar,
@@ -4286,6 +4321,71 @@ data_upload AS (
     AND t.state_label            = 'Completed'
     AND COALESCE(t.actual_end, t.scheduled_end, t.scheduled_start) IS NOT NULL
   GROUP BY t.bcs_account_id
+),
+-- Contract term start, one row per client. A client can hold several contract
+-- rows because every renewal is stored as its own row, so pick deliberately:
+-- an ACTIVE term wins over an expired or terminated one, and among those the
+-- latest start wins. This matches how v_client_detail_active_contract chooses,
+-- with a fallback so a client whose only contract has lapsed still shows a date
+-- rather than a blank. contract_start_date is already a plain date column in
+-- the mirror, so no timezone cast applies.
+contract_start AS (
+  SELECT DISTINCT ON (c.client_account_id)
+    c.client_account_id AS account_id,
+    c.contract_start_date
+  FROM public.contracts c
+  WHERE c.contract_start_date IS NOT NULL
+  ORDER BY
+    c.client_account_id,
+    (c.contract_status_label IN ('Initial Term', 'Renewal Term')) DESC,
+    c.contract_start_date DESC
+),
+-- Confirmed-meeting window per event (Eastern days). Same shape as the To-Do
+-- List ev_mtg CTE; only first_day is needed here.
+ev_mtg AS (
+  SELECT
+    m.event_id,
+    MIN((m.meeting_date AT TIME ZONE 'America/New_York')::date) AS first_day
+  FROM public.meetings m
+  WHERE m.event_id IS NOT NULL
+    AND m.meeting_status_label = 'Confirmed'
+    AND m.meeting_date IS NOT NULL
+  GROUP BY m.event_id
+),
+-- Every event in the calendar universe, resolved to its window START. LEAST()
+-- ignores NULL arguments in Postgres, so an event carrying only one of the two
+-- actual dates still resolves to a single-day fallback.
+ev AS (
+  SELECT
+    e.event_id,
+    e.client_account_id,
+    e.name AS event_name,
+    e.event_state_label,
+    COALESCE(
+      em.first_day,
+      LEAST(
+        (e.event_start_actual AT TIME ZONE 'America/New_York')::date,
+        (e.event_end_actual   AT TIME ZONE 'America/New_York')::date
+      )
+    ) AS start_day
+  FROM public.events e
+  LEFT JOIN ev_mtg em ON em.event_id = e.event_id
+  WHERE e.state_label = 'Active'
+    AND e.event_state_label IS NOT NULL
+    AND e.event_state_label <> 'Pause'
+    AND e.client_account_id IS NOT NULL
+),
+-- The EARLIEST dated event per client. event_name breaks ties so the pick is
+-- deterministic when two events share a start day.
+first_ev AS (
+  SELECT DISTINCT ON (client_account_id)
+    client_account_id  AS account_id,
+    event_name         AS first_event_name,
+    start_day          AS first_event_date,
+    event_state_label  AS first_event_state_label
+  FROM ev
+  WHERE start_day IS NOT NULL
+  ORDER BY client_account_id, start_day ASC, event_name
 )
 SELECT
   onb.account_id,
@@ -4297,6 +4397,9 @@ SELECT
   onb.logistics_coordinator_name,
   onb.onboarding_start_date,
   ((now() AT TIME ZONE 'America/New_York')::date - onb.onboarding_start_date) AS days_onboarding,
+  -- Contract TERM start (contracts.contract_start_date / bcs_contractstartdate).
+  -- Deliberately NOT original_start_date, which is the onboarding anchor above.
+  cs.contract_start_date,
   onb.f_onboarding_call,
   onb.f_teach_in_date,
   onb.f_calendar,
@@ -4312,6 +4415,13 @@ SELECT
   onb.onboarding_call_date,
   onb.teach_in_date,
   du.meeting_history_date,
+  -- Earliest marketing event. Name is raw; the page strips the ticker prefix.
+  fe.first_event_name,
+  fe.first_event_date,
+  fe.first_event_state_label,
+  -- Free text for the trailing Notes column. NULL when the client has no note;
+  -- the page renders a greyed icon in that case.
+  onb.onboarding_notes,
   ( onb.f_onboarding_call::int
   + onb.f_teach_in_date::int
   + onb.f_calendar::int
@@ -4324,10 +4434,14 @@ SELECT
   9 AS onboarding_field_count
 FROM onb
 LEFT JOIN data_upload du ON du.account_id = onb.account_id
-  -- Exit condition: no completed Feedback Report Sent task yet. Full rationale
-  -- in the header block above. (Keep comments inside this statement free of
-  -- apostrophes -- SQL clients that split pasted text on quote state mis-parse
-  -- them and submit a broken fragment.)
+LEFT JOIN contract_start cs ON cs.account_id = onb.account_id
+LEFT JOIN first_ev fe ON fe.account_id = onb.account_id
+  -- EXIT CONDITION, universal: no completed Feedback Report Sent task yet. This
+  -- applies to every row, including the blank-contract arm below, so the first
+  -- sent report always removes a client. Full rationale in the header block
+  -- above. (Keep comments inside this statement free of apostrophes -- SQL
+  -- clients that split pasted text on quote state mis-parse them and submit a
+  -- broken fragment.)
 WHERE NOT EXISTS (
         SELECT 1
         FROM public.tasks t
@@ -4335,11 +4449,28 @@ WHERE NOT EXISTS (
           AND t.bcs_task_subtype_label = 'Feedback Report Sent'
           AND t.state_label            = 'Completed'
       )
-  -- Scope cutoff: only clients whose onboarding started on/after this date, so
-  -- the page focuses on genuinely-new clients and days_onboarding / the 60-day
-  -- "stalled" flag stay meaningful (original_start_date otherwise reaches back
-  -- years). Adjust or remove this single line to widen/narrow the page.
-  AND onb.onboarding_start_date >= DATE '2026-01-01'
+  -- SCOPE, either-or.
+  --   1. The 2026 floor: clients whose onboarding started on/after this date, so
+  --      the page focuses on genuinely-new clients and days_onboarding / the
+  --      60-day "stalled" flag stay meaningful (original_start_date otherwise
+  --      reaches back years).
+  --   2. OR the client has NO live contract. Deliberately the exact negation of
+  --      v_contract_management.has_active_contract, so the two pages can never
+  --      disagree about whether a client has a contract. Covers both a client
+  --      with no contracts row at all and one whose rows are all deactivated or
+  --      already terminated. Such a client typically has a NULL
+  --      original_start_date, which never satisfies the floor.
+  AND (
+        onb.onboarding_start_date >= DATE '2026-01-01'
+        OR NOT EXISTS (
+             SELECT 1
+             FROM public.contracts c
+             WHERE c.client_account_id = onb.account_id
+               AND c.state_code = 0
+               AND (c.contract_termination_date IS NULL
+                    OR c.contract_termination_date > CURRENT_DATE)
+           )
+      )
 ORDER BY days_onboarding DESC NULLS LAST, onb.name;
 
 GRANT SELECT ON public.v_client_onboarding TO service_role;

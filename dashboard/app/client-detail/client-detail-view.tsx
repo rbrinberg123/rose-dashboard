@@ -46,6 +46,8 @@ import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
 import { type PillVariant } from "@/lib/gradients"
 import {
   CARD_CLASS,
+  EVENT_STAGE_PILL,
+  EVENT_STAGE_PILL_FALLBACK,
   MONEY_GREEN,
   TEXT_MUTED,
   TEXT_PRIMARY,
@@ -240,19 +242,11 @@ function formatYmdSpan(startYmd: string, endYmd: string): string {
   return `${s.mon} ${s.day}, ${s.year} – ${e.mon} ${e.day}, ${e.year}`
 }
 
-// Stage → pill color, keyed by the distinct v_marketing_calendar.event_state_label
-// values. Mapped into the task's four semantic buckets (confirmed/active → green,
-// scheduled/planned → blue, tentative/transition → amber, wrapping-up/past →
-// grey); anything unrecognized falls back to grey. Tints reuse STATUS_PILL_LIGHT.
-const EVENT_STAGE_PILL: Record<string, { bg: string; text: string }> = {
-  "Pre-Launch": { bg: "#EEF2FB", text: "#2D4A8A" }, // planned → blue
-  "Live Outreach": { bg: "#E7F5EE", text: "#0E7C56" }, // active → green
-  "Meetings Ongoing": { bg: "#E7F5EE", text: "#0E7C56" }, // active → green
-  "Schedule Closed": { bg: "#FCF4E6", text: "#92600B" }, // transition → amber
-  "Preparing Feedback": { bg: "#F1F3F7", text: "#5B6472" }, // wrapping up → grey
-  Complete: { bg: "#F1F3F7", text: "#5B6472" }, // done → grey
-}
-const EVENT_STAGE_FALLBACK = { bg: "#F1F3F7", text: "#5B6472" }
+// Stage → pill color now lives in lib/design.ts (EVENT_STAGE_PILL), shared with
+// the To-Do List's next-event column and Onboarding's First Event column so a
+// stage reads identically everywhere. Values are unchanged from the copy that
+// used to sit here.
+const EVENT_STAGE_FALLBACK = EVENT_STAGE_PILL_FALLBACK
 
 type MarketingEvent = {
   row: MarketingCalendarRow

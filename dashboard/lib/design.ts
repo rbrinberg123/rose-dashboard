@@ -33,12 +33,16 @@ export const BADGE_GRADIENT = "linear-gradient(135deg, #1E2858, #0355A7)"
 // BRAND_BLUE / TEAL constants above rather than written out as hex, so a palette
 // change flows through instead of leaving these behind.
 
-/** Vertical — the 4px spine down the left edge of a rail fly-out. */
-export const RAIL_ACCENT_STRIP = `linear-gradient(180deg, ${BRAND_BLUE}, ${TEAL})`
+/** Horizontal — the 2px rule under a rail fly-out's section title. */
+export const RAIL_ACCENT_UNDERLINE = `linear-gradient(90deg, ${BRAND_BLUE}, ${TEAL})`
 /** Diagonal — the same fade on the square active-section icon tile. */
 export const RAIL_ACCENT_FILL = `linear-gradient(135deg, ${BRAND_BLUE}, ${TEAL})`
-/** Faint teal wash behind the active sub-page row inside a fly-out. */
+/** Faint teal wash behind the ACTIVE sub-page row inside a fly-out. */
 export const RAIL_ACTIVE_TINT = `color-mix(in srgb, ${TEAL} 12%, white)`
+/** Fainter still — the same wash on HOVER, so hover reads as a step short of
+ *  active rather than a different colour. Applied via a CSS custom property,
+ *  since an inline style cannot express `:hover`. */
+export const RAIL_HOVER_TINT = `color-mix(in srgb, ${TEAL} 6%, white)`
 
 // ---- Floating surfaces ----------------------------------------------------
 // Static white card: barely-there border + soft layered shadow. NO hover lift,
@@ -84,6 +88,38 @@ export const STATUS_PILL_LIGHT: Record<
   watch: { bg: "#FCF4E6", text: "#92600B" },
   atRisk: { bg: "#FDECEC", text: "#B42318" },
   neutral: { bg: "#F1F3F7", text: "#5B6472" },
+}
+
+// ---- Marketing-event stage colors ----------------------------------------
+// THE single source of truth for event_state_label → pill colour, keyed by the
+// distinct values the events table carries. Mapped into four semantic buckets:
+// planned → blue, active → green, transition → amber, wrapping-up/done → grey.
+// Tints are STATUS_PILL_LIGHT, so a stage reads the same wherever it appears —
+// Client Detail's "Marketing Events & Dates" block, the To-Do List's next-event
+// column, and Onboarding's First Event column all render from this one map.
+export const EVENT_STAGE_PILL: Record<string, { bg: string; text: string }> = {
+  "Pre-Launch": STATUS_PILL_LIGHT.new,
+  "Live Outreach": STATUS_PILL_LIGHT.positive,
+  "Meetings Ongoing": STATUS_PILL_LIGHT.positive,
+  "Schedule Closed": STATUS_PILL_LIGHT.watch,
+  "Preparing Feedback": STATUS_PILL_LIGHT.neutral,
+  Complete: STATUS_PILL_LIGHT.neutral,
+}
+/** Fallback for an unrecognized / future stage value — grey, so a new state
+ *  surfaces as unstyled rather than vanishing. */
+export const EVENT_STAGE_PILL_FALLBACK = STATUS_PILL_LIGHT.neutral
+
+/**
+ * Compact form of a stage label for a tight column ("Meetings Ongoing" →
+ * "Mtgs Ongoing"). Unknown values pass through untouched.
+ */
+export const EVENT_STAGE_SHORT: Record<string, string> = {
+  "Pre-Launch": "Pre-Launch",
+  "Live Outreach": "Live",
+  "Meetings Ongoing": "Mtgs On",
+  "Schedule Closed": "Sched Closed",
+  "Preparing Feedback": "Prep Fdbk",
+  Complete: "Complete",
 }
 
 // ---- Profile pipeline-stage colors ---------------------------------------

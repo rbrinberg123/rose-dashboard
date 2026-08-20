@@ -24,8 +24,10 @@ import {
 } from "@/lib/sidebar"
 import {
   RAIL_ACCENT_FILL,
-  RAIL_ACCENT_STRIP,
+  RAIL_ACCENT_UNDERLINE,
   RAIL_ACTIVE_TINT,
+  RAIL_HOVER_TINT,
+  TEAL,
 } from "@/lib/design"
 import { canAccessRoute, type ViewAsRole } from "@/lib/access-control"
 import { Button } from "@/components/ui/button"
@@ -254,10 +256,8 @@ function NavContents({
  * headers (z-20), sticky first columns and hover cards (z-30), and the sidebar
  * itself (z-40). The number was never the original problem, though — see below.
  */
-// `relative` + left padding make room for the 4px gradient spine; the panel's
-// own overflow clips that spine to the rounded corners.
 const FLYOUT_PANEL =
-  "relative z-[60] min-w-[184px] overflow-y-auto rounded-md border border-[#EDEFF3] bg-white p-1.5 pl-3 shadow-lg"
+  "z-[60] min-w-[184px] overflow-y-auto rounded-md border border-[#EDEFF3] bg-white p-1.5 shadow-lg"
 
 /** Gap, in px, between the rail's right edge and the fly-out. */
 const FLYOUT_GAP = 6
@@ -432,15 +432,6 @@ function FlyoutPanel({
 }) {
   return createPortal(
     <div id={id} role={role} {...panelProps} className={cn(FLYOUT_PANEL, className)}>
-      {/* Gradient spine down the left edge — the same blue→teal fade the active
-          rail icon wears, so the icon and the panel it opens read as one piece.
-          inset-y-0 spans the full scroll height, so it stays put on a long
-          section list. */}
-      <span
-        aria-hidden="true"
-        className="absolute inset-y-0 left-0 w-1"
-        style={{ backgroundImage: RAIL_ACCENT_STRIP }}
-      />
       {children}
     </div>,
     document.body,
@@ -537,11 +528,17 @@ function RailSection({
       {open ? (
         <FlyoutPanel id={panelId} panelProps={panelProps}>
           {/* Navy, not the muted gray the in-rail category labels use — inside
-              the fly-out this is the panel's own heading, and it has to hold its
-              own against the gradient spine beside it. */}
+              the fly-out this is the panel's own heading. */}
           <div className="px-2 pb-1 pt-0.5 text-[12px] font-medium uppercase tracking-wider text-[#1E2858]">
             {label}
           </div>
+          {/* Blue→teal rule under the heading — the panel's one piece of brand
+              colour, carrying the same two stops as the active rail icon. */}
+          <div
+            aria-hidden="true"
+            className="mx-2 mb-1.5 h-0.5 rounded-full"
+            style={{ backgroundImage: RAIL_ACCENT_UNDERLINE }}
+          />
           <ul className="space-y-0.5">
             {items.map(({ href, label: itemLabel }) => {
               const itemActive = isActive(current, href)
@@ -551,19 +548,34 @@ function RailSection({
                     href={href}
                     aria-current={itemActive ? "page" : undefined}
                     className={cn(
-                      "block rounded-md px-2 py-1 text-sm transition-colors",
+                      // overflow-hidden clips the accent line to the rounded
+                      // corners AND hides it off-edge until hover; pl-3 keeps
+                      // the label clear of the 3px line.
+                      "group/nav-item relative block overflow-hidden rounded-md py-1 pl-3 pr-2 text-sm transition-colors",
                       itemActive
                         ? "font-medium text-[#1E2858]"
-                        : "text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
+                        : "text-[#5B6472] hover:bg-[var(--rail-hover)] hover:text-[#1E2858]",
                     )}
-                    // Faint teal wash so the page you are on stands out inside
-                    // the fly-out and echoes the teal end of the spine.
-                    style={
-                      itemActive
-                        ? { backgroundColor: RAIL_ACTIVE_TINT }
-                        : undefined
-                    }
+                    // The hover wash has to travel as a CSS variable — an inline
+                    // style cannot express `:hover`, and the tint is derived
+                    // from the TEAL token rather than hard-coded.
+                    style={{
+                      ...({ "--rail-hover": RAIL_HOVER_TINT } as React.CSSProperties),
+                      ...(itemActive ? { backgroundColor: RAIL_ACTIVE_TINT } : null),
+                    }}
                   >
+                    {/* Teal accent line. Parked off the left edge and slid in on
+                        hover; the active row keeps it out permanently. */}
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "absolute inset-y-0 left-0 w-[3px] transition-transform duration-150 ease-out motion-reduce:transition-none",
+                        itemActive
+                          ? "translate-x-0"
+                          : "-translate-x-full group-hover/nav-item:translate-x-0",
+                      )}
+                      style={{ backgroundColor: TEAL }}
+                    />
                     {itemLabel}
                   </Link>
                 </li>

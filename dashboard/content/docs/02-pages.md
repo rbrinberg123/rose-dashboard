@@ -57,6 +57,8 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 
 **A client appears on the Onboarding page until its first feedback report has been sent, then drops off for good.**
 
+This rule is now **stated on the page itself** — a muted helper line sits under the title, above the filters: *"Clients automatically drop off this list once their first Feedback Report has been sent."* Nothing in the grid counts down to the exit, so without that line the disappearance is only discoverable after the fact. Same muted-italic treatment as the Client Statistics footnote.
+
 Concretely, `v_client_onboarding` keeps an active client only when there is **no** `tasks` row for it with `bcs_task_subtype_label = 'Feedback Report Sent'` **and** `state_label = 'Completed'`. Zero completed report tasks → still onboarding; the first one completing → gone. The task is linked to the client by its own `bcs_account_id`, and identified by subtype label rather than subject text — the same identification and linkage `v_feedback_pipeline` and `v_client_marketing_status` use.
 
 Two details worth knowing:
@@ -64,7 +66,29 @@ Two details worth knowing:
 - **There is no `'Closed'` task state.** `state_label` is the Dataverse statecode and only ever takes `Open` / `Completed` / `Canceled`, so `'Completed'` is the whole of "completed/closed". A **Canceled** report does not count as sent — the client keeps onboarding, which is the intended reading.
 - **A client with several events** drops off on its *first* completed report, not per-event. This is a client-grained rule; the per-event report lifecycle lives on the Feedback Reports page.
 
-The **2026 floor is retained**: `onboarding_start_date >= 2026-01-01`, so legacy clients can't reappear now that the step gate is gone. Scope (which clients are eligible at all) and exit (when they leave) are separate rules.
+#### Who is in scope
+
+Membership is **Active** + **no completed Feedback Report Sent** + **(started on/after 2026-01-01 OR contract is blank)**.
+
+The feedback-report rule above is the single **exit**, and it applies to *every* row — including the blank-contract ones. A client with no contract that has already had its first report sent does **not** appear.
+
+The scope half is an either-or:
+
+- **The 2026 floor** — `onboarding_start_date >= 2026-01-01`. Keeps the page on genuinely-new clients, stops legacy clients reappearing now that the step gate is gone, and keeps `days_onboarding` / the 60-day stalled flag meaningful (`original_start_date` otherwise reaches back years).
+- **OR the contract is blank** — catches a client being set up that has nothing on file yet. Such a client usually has a **`NULL` `original_start_date`**, which never satisfies the floor, so without this arm it would be invisible.
+
+**"Blank contract" is the exact negation of `v_contract_management.has_active_contract`** — deliberately the same test, so Onboarding and Contract Management can never disagree about whether a client has a contract. A client is blank when **no** `public.contracts` row satisfies:
+
+```sql
+state_code = 0
+AND (contract_termination_date IS NULL OR contract_termination_date > CURRENT_DATE)
+```
+
+That covers both real shapes: no contract row at all, and rows that exist but are all deactivated or already terminated. Note `state_code` is the Dataverse **statecode on the contract**, not `contract_status_label` (`Initial Term` / `Renewal Term` / `Contract Expired` / `Terminated`) — that's the workflow stage, a different axis.
+
+Measured on live data (2026-08-20): 4 Active clients have no live contract; 2 of them have already reported and correctly stay out, so the page goes from **10 rows to 12**. Both additions have no contract row *and* a `NULL` start date, so their **Days** column shows a muted dash and they sort to the bottom (`NULLS LAST`).
+
+Scope (who is eligible at all) and exit (when they leave) remain separate rules.
 
 #### The 9 checklist steps — where each one comes from
 
@@ -87,6 +111,26 @@ For the six boolean steps, a **No** and an **unset** flag are treated identicall
 **Meeting History is sourced from the Data Upload task, not a flag.** It is complete when the client has a **Completed** `tasks` row with `bcs_task_type_label = 'Outreach'` and `bcs_task_subtype_label = 'Data Upload'`, linked by `bcs_account_id`; the date shown is that task's `actual_end` (latest task wins if there are several), read as an Eastern calendar day. This is the *same* CTE the To-Do List uses for its **Last Data Upload** column, so the two pages can't disagree about when a client last uploaded.
 
 It replaced `accounts.meeting_history_received` (`bcs_meetinghistoryrecd`), which is **still synced but no longer feeds this step** — that flag was `false` on every client on the page, so the step could never tick. Re-sourcing took it from 0 of 10 clients to 5 of 10. The view column was renamed `f_meeting_history_received` → **`f_meeting_history`** to match, deliberately rather than leaving a column named after a source that no longer feeds it.
+
+> **Deployment note (2026-08-20).** The step dates and the Data-Upload re-sourcing were written into `sql/03_views.sql` and the page code, but the **live view was never rebuilt from that file** — it still exposed `f_meeting_history_received` and had none of the three date columns. The page therefore read `undefined` for every date and for `f_meeting_history`, so Meeting History always rendered as missing and no dates ever printed. `sql/patches/2026-08-20_onboarding_dates_contract_notes.sql` reconciles live with the repo and adds the two reference columns below. **A SQL change only takes effect once it is run against Supabase.**
+
+#### Three reference columns (not steps)
+
+None of these count toward `filled_count` or the N/9 ring.
+
+| Column | CRM source | Display |
+|---|---|---|
+| **Contract Start** | `contracts.contract_start_date` (`bcs_contractstartdate`) | the contract **term** start, `mm/dd/yy`; `—` when the client has no contract row |
+| **First Event** | `events` + `meetings` (see below) | abbreviated event name over start date · stage pill; `—` when the client has no dated event |
+| **Notes** (last column) | `accounts.onboarding_notes` (`bcs_onboardingnotes`) | note icon; hover **or keyboard focus** reveals the free text |
+
+**Contract Start is not the onboarding start.** `onboarding_start_date` / `days_onboarding` anchor on `accounts.original_start_date` (`bcs_originalstartdate`); Contract Start is the separate contract-term field. On current data the term begins about a day *after* the onboarding anchor, so the two are not interchangeable. A client can hold several contract rows (each renewal is its own row), so the view picks deliberately: an **active** term (`Initial Term` / `Renewal Term`) wins over an expired or terminated one, and among those the **latest start** wins — the same choice `v_client_detail_active_contract` makes, with a fallback so a lapsed-only client still shows a date.
+
+**First Event is the client's earliest marketing event**, exposed by the view as `first_event_name` / `first_event_date` / `first_event_state_label`. The event's window starts at the **earliest Eastern day of its confirmed meetings**, falling back to its own `event_start_actual`/`event_end_actual` when it has none — the identical bucketing to Client Detail's "Marketing Events & Dates" block and the To-Do List's `next_event_*` columns. The only difference is direction: the To-Do List picks the *soonest upcoming* event, Onboarding picks the *earliest ever*, so there is deliberately **no date floor** — an onboarding client's first event is usually already in flight or past, and an upcoming-only filter would blank the column exactly when it matters. Event universe matches `v_marketing_calendar` (`state_label = 'Active'`, `event_state_label` present and not `Pause`) minus that view's trailing two-month cutoff. Undated events are skipped, so the column never shows an event with no date.
+
+Display is compact: the leading **`TICKER - ` is stripped** with the shared `stripTickerPrefix` helper (the ticker is already the row's identity two columns left, so the prefix is pure duplication — `"DSFIR-NL - Virtual, Live - Toronto…"` → `"Virtual, Live - Toronto…"`). CRM event names still run long because they carry the full meeting-date list, so the cell caps at 150px and truncates with `…`; the **untouched original name is on hover**. The stage renders as an abbreviated pill (`Meetings Ongoing` → `Mtgs On`, `Schedule Closed` → `Sched Closed`). Colours come from **`EVENT_STAGE_PILL` in `lib/design.ts`** — now the single source of truth, shared with Client Detail and the To-Do List (it had been duplicated in both). An unrecognised stage falls back to grey and shows its raw label, so a new CRM state surfaces rather than vanishing.
+
+**Onboarding Notes** is free text straight from Dynamics, already synced by `mapAccount`. The view normalises blank and whitespace-only values to `NULL`, so the page has one "no note" case: a **greyed, non-interactive** icon. A client with a note gets a live icon whose panel shows the full text, preserving its line breaks. The reveal is the same hover/focus pattern the To-Do List uses for touchpoint detail — with one addition: the card is `overflow-x-auto`, which forces vertical clipping too, so the **bottom two rows open the panel upward** (a downward panel on the last row was measurably clipped by 62px).
 
 **The 9 onboarding steps are now progress display only.** They still render as the grid and the "N/9" ring, and are still sortable, but they no longer decide membership. They previously did, via a `filled_count < 9` gate — that gate had become inert, because the step flags are barely maintained in Dynamics: when the rule was changed (2026-08-20) the highest `filled_count` across all 28 in-scope clients was **1 of 9**, so the gate had never actually dropped anyone. Switching to "first report sent" took the page from **28 rows to 10**. A consequence: a row can now legitimately show **9/9 and still be listed** (every step ticked, report not yet sent), so the completion ring's "complete" state is reachable for the first time.
 

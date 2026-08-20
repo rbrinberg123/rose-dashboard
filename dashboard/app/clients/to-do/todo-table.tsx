@@ -17,7 +17,12 @@ import {
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { ListTitleCard } from "@/components/page-masthead"
-import { BRAND_BLUE, CARD_CLASS, STATUS_PILL_LIGHT } from "@/lib/design"
+import {
+  BRAND_BLUE,
+  CARD_CLASS,
+  EVENT_STAGE_PILL,
+  STATUS_PILL_LIGHT,
+} from "@/lib/design"
 import { cn } from "@/lib/utils"
 import {
   baseTicker,
@@ -78,18 +83,6 @@ const EVENT_CELL_HOVER = "#EEF2FB"
 const EVENT_CELL_SELECTED = "#E3EAF8"
 // Pills inside those cells shed their vertical padding to match.
 const PILL = "inline-flex items-center rounded-full px-1.5 py-0 text-[11px] font-medium"
-
-// Event stage → pill colour. Same mapping (and the same four semantic buckets)
-// as the Client Detail "Marketing Events & Dates" block, so a stage reads the
-// same wherever it appears.
-const EVENT_STAGE_PILL: Record<string, { bg: string; text: string }> = {
-  "Pre-Launch": STATUS_PILL_LIGHT.new,
-  "Live Outreach": STATUS_PILL_LIGHT.positive,
-  "Meetings Ongoing": STATUS_PILL_LIGHT.positive,
-  "Schedule Closed": STATUS_PILL_LIGHT.watch,
-  "Preparing Feedback": STATUS_PILL_LIGHT.neutral,
-  Complete: STATUS_PILL_LIGHT.neutral,
-}
 
 type SortKey =
   | "ticker_symbol"

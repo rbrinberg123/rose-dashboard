@@ -2,7 +2,15 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, Check } from "lucide-react"
+import {
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Search,
+  Check,
+  Info,
+  StickyNote,
+} from "lucide-react"
 
 import {
   Table,
@@ -15,12 +23,24 @@ import {
 import { Input } from "@/components/ui/input"
 import { ListTitleCard } from "@/components/page-masthead"
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
-import { CARD_CLASS, DAYS_LEFT_PILL } from "@/lib/design"
+import {
+  CARD_CLASS,
+  DAYS_LEFT_PILL,
+  EVENT_STAGE_PILL,
+  EVENT_STAGE_PILL_FALLBACK,
+  EVENT_STAGE_SHORT,
+  TEXT_TERTIARY,
+} from "@/lib/design"
 import { cn } from "@/lib/utils"
-import { formatDay } from "@/lib/client-todo-format"
+import { formatDay, stripTickerPrefix } from "@/lib/client-todo-format"
 import type { ClientOnboardingRow } from "@/lib/types"
 
 const NAVY = "#1E2858"
+// The app-wide "complete / positive" green — the same value carried as GREEN or
+// DONE_GREEN in Planning, Contract Management, Client Detail and Institutions.
+// Named here so the step check, the completion ring and the legend can't drift
+// apart, and so it stays recognisably the brand green rather than a local one.
+const DONE_GREEN = "#2D7A2D"
 const ALL = "__all__"
 
 // Days at which a client counts as "stalled" — flagged with a red pill.
@@ -74,8 +94,29 @@ const STEPS: readonly Step[] = [
   { key: "f_report", short: "Report", full: "Report" },
 ]
 
-type SortKey = "name" | "days_onboarding" | "filled_count" | StepKey
+type SortKey =
+  | "name"
+  | "days_onboarding"
+  | "contract_start_date"
+  | "first_event_date"
+  | "filled_count"
+  | StepKey
 type SortDir = "asc" | "desc"
+
+/**
+ * A plain YYYY-MM-DD day as mm/dd/yy.
+ *
+ * String-sliced rather than parsed into a Date, for the same reason `formatDay`
+ * does it: the view has already resolved the calendar day, and round-tripping
+ * through `new Date(...)` would re-interpret it in the browser's zone and can
+ * shift it. The view's parts are already zero-padded, so this is mm/dd/yy.
+ */
+function formatShortDay(ymd: string | null): string {
+  if (!ymd) return "—"
+  const [y, m, d] = ymd.split("-")
+  if (!y || !m || !d) return "—"
+  return `${m}/${d}/${y.slice(2)}`
+}
 
 // Account-team roles → shared avatar cluster (same mapping + palette as Portfolio,
 // so the treatment stays identical across pages).
@@ -205,7 +246,7 @@ function CompletionRing({ filled, total }: { filled: number; total: number }) {
   const c = 2 * Math.PI * r
   const frac = total > 0 ? filled / total : 0
   const complete = filled >= total
-  const arc = complete ? "#2D7A2D" : NAVY
+  const arc = complete ? DONE_GREEN : NAVY
   return (
     <div className="inline-flex items-center gap-1.5">
       <svg width={24} height={24} viewBox="0 0 24 24" className="shrink-0 -rotate-90">
@@ -234,6 +275,11 @@ function CompletionRing({ filled, total }: { filled: number; total: number }) {
 // The three date-backed steps print their date on a small second line beneath.
 // A step with no date renders exactly as before — mark only, no date line — so
 // the six flag-only steps are untouched.
+//
+// The check is deliberately heavier than the rest of the grid (20px at stroke
+// 3.5 against 9px date text): a run of ticks is the thing you scan this table
+// for, so it has to read from a distance. The colour is unchanged — it was
+// already the brand green — the prominence comes from size and stroke weight.
 function CheckCell({
   done,
   label,
@@ -245,7 +291,7 @@ function CheckCell({
 }) {
   const mark = done ? (
     <span className="inline-flex" title={`${label}: complete`} aria-label={`${label}: complete`}>
-      <Check className="size-4" style={{ color: "#2D7A2D" }} strokeWidth={3} />
+      <Check className="size-5" style={{ color: DONE_GREEN }} strokeWidth={3.5} />
     </span>
   ) : (
     <span className="text-muted-foreground" title={`${label}: missing`} aria-label={`${label}: missing`}>
@@ -263,6 +309,116 @@ function CheckCell({
       >
         {formatDay(date)}
       </span>
+    </span>
+  )
+}
+
+// First (earliest) marketing event: abbreviated name over date · stage pill.
+//
+// The name is stripped of its leading "TICKER - " with the shared helper — the
+// ticker is already the row's identity two columns to the left, so the prefix is
+// pure duplication ("DSFIR-NL - Virtual - 8/17…" → "Virtual - 8/17…"). CRM event
+// names then still run long (they carry the full meeting-date list), so the cell
+// caps its width and truncates; the untouched original is on hover.
+function FirstEventCell({
+  name,
+  date,
+  state,
+  ticker,
+}: {
+  name: string | null
+  date: string | null
+  state: string | null
+  ticker: string | null
+}) {
+  if (!name && !date) return <span className="text-muted-foreground">—</span>
+  const label = name ? stripTickerPrefix(name, ticker).trim() : null
+  const stage = state?.trim()
+  const pill = (stage && EVENT_STAGE_PILL[stage]) || EVENT_STAGE_PILL_FALLBACK
+  return (
+    <div className="flex max-w-[150px] flex-col items-start gap-0.5">
+      <span
+        className="max-w-full truncate text-[11px] leading-tight text-foreground"
+        title={name ?? undefined}
+      >
+        {label || "—"}
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="tabular-nums text-[10px] leading-none text-muted-foreground">
+          {formatShortDay(date)}
+        </span>
+        {stage ? (
+          <span
+            className="inline-flex items-center rounded-full px-1.5 py-0 text-[10px] font-medium leading-[15px]"
+            style={{ backgroundColor: pill.bg, color: pill.text }}
+            title={stage}
+          >
+            {EVENT_STAGE_SHORT[stage] ?? stage}
+          </span>
+        ) : null}
+      </span>
+    </div>
+  )
+}
+
+// Onboarding notes (Dynamics bcs_onboardingnotes, via the view's onboarding_notes).
+// FILLED navy note = has a note, and hover/focus reveals the full text; HOLLOW
+// grey note = none. Same glyph either way at the same size, so the column keeps
+// its rhythm and the only thing that varies is weight/colour — which is what
+// makes a run of rows scannable at a glance. The reveal panel is the same one
+// the To-Do List uses for touchpoint detail.
+//
+// `flipUp` opens the panel above the icon instead of below. The card is
+// `overflow-x-auto`, which forces overflow-y to compute to auto as well, so the
+// card clips on BOTH axes — a downward panel on the last row is cut off by the
+// card's bottom edge (measured: 62px clipped). Flipping the bottom rows keeps
+// the whole note on screen without giving up the CSS-only hover pattern.
+function NotesCell({ note, flipUp }: { note: string | null; flipUp?: boolean }) {
+  const text = note?.trim()
+  if (!text) {
+    // NB `inline-flex`, not a bare inline span: Tailwind's preflight makes
+    // `svg { display: block }`, and a block box inside an inline box is NOT
+    // centred by the cell's text-align — it hugs the left. inline-flex makes
+    // this an inline-LEVEL box, so text-align centres it like the filled state.
+    return (
+      <span
+        title="No onboarding notes"
+        aria-label="No onboarding notes"
+        className="inline-flex text-muted-foreground/30"
+      >
+        <StickyNote className="size-4" aria-hidden="true" />
+      </span>
+    )
+  }
+  return (
+    <span className="group relative inline-flex">
+      {/* tabIndex makes the note reachable by keyboard; group-focus-within on the
+          panel is what actually opens it, matching the To-Do List pattern. */}
+      <span
+        tabIndex={0}
+        aria-label="Onboarding notes"
+        className="inline-flex cursor-help text-[#1E2858] outline-none transition-colors hover:text-[#0355A7] focus-visible:text-[#0355A7]"
+      >
+        {/* SOLID navy note vs the hollow grey one above — fill + stroke share
+            currentColor, so the glyph reads as one filled shape and the column
+            can be scanned at a glance for who has notes. */}
+        <StickyNote className="size-4" fill="currentColor" aria-hidden="true" />
+      </span>
+      <div
+        className={cn(
+          "pointer-events-none absolute right-0 z-30 hidden w-[300px] rounded-md border bg-white p-2.5 text-left text-[12px] shadow-md",
+          flipUp ? "bottom-full mb-1" : "top-full mt-1",
+          "group-hover:block group-focus-within:block",
+        )}
+        style={{ borderColor: "#E6E9EF" }}
+        role="tooltip"
+      >
+        <div className="mb-1 font-medium" style={{ color: NAVY }}>
+          Onboarding notes
+        </div>
+        {/* pre-line keeps the line breaks the CRM free-text field carries. */}
+        <div className="whitespace-pre-line text-muted-foreground">{text}</div>
+      </div>
     </span>
   )
 }
@@ -332,12 +488,27 @@ export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
 
   return (
     <>
-      <div className="mb-4">
+      <div className="mb-2">
         <ListTitleCard
           title="Onboarding"
           subtitle={`${rows.length.toLocaleString()} clients still onboarding · ${stalledCount.toLocaleString()} stalled (${STALLED_DAYS}+ days)`}
         />
       </div>
+
+      {/* Why a client vanishes from this page. The exit rule is invisible from
+          the grid itself — nothing here counts down to it — so it is stated
+          once, quietly, rather than left to be rediscovered. Same muted-italic
+          helper treatment as the Client Statistics footnote. */}
+      <p
+        className="mb-3 flex items-center gap-1.5 text-[11px] italic"
+        style={{ color: TEXT_TERTIARY }}
+      >
+        <Info className="size-3.5 shrink-0" aria-hidden="true" />
+        <span>
+          Clients automatically drop off this list once their first Feedback
+          Report has been sent.
+        </span>
+      </p>
 
       {/* Filter row */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -372,7 +543,7 @@ export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
       {/* Legend */}
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
         <LegendItem
-          swatch={<Check className="size-4" style={{ color: "#2D7A2D" }} strokeWidth={3} />}
+          swatch={<Check className="size-5" style={{ color: DONE_GREEN }} strokeWidth={3.5} />}
           text="complete"
         />
         <LegendItem swatch={<span className="text-muted-foreground">—</span>} text="missing" />
@@ -394,11 +565,16 @@ export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
           <TableHeader className="sticky top-0 z-20 bg-card">
             {/* Top tier: group bands. */}
             <TableRow className="bg-card">
-              <TableHead colSpan={4} className={GROUP_BAND_CLASS} style={GROUP_BAND_STYLE}>
+              <TableHead colSpan={6} className={GROUP_BAND_CLASS} style={GROUP_BAND_STYLE}>
                 Client
               </TableHead>
               <TableHead colSpan={STEPS.length} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
                 Onboarding Steps
+              </TableHead>
+              {/* Notes stands outside the steps block — it is a reference field,
+                  not a step, and does not count toward the progress ring. */}
+              <TableHead colSpan={1} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
+                Notes
               </TableHead>
             </TableRow>
 
@@ -408,6 +584,27 @@ export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
                 <SortHeader label="Client" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               </TableHead>
               <TableHead className="h-8 px-2.5 text-xs font-medium text-muted-foreground">Team</TableHead>
+              <TableHead className="h-8 px-2.5">
+                <SortHeader
+                  label="Contract Start"
+                  sortKey="contract_start_date"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={handleSort}
+                  align="center"
+                  title="Contract term start date (Dynamics Contract Start Date) — not the onboarding start"
+                />
+              </TableHead>
+              <TableHead className="h-8 px-2.5">
+                <SortHeader
+                  label="First Event"
+                  sortKey="first_event_date"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={handleSort}
+                  title="Earliest marketing event — name (ticker stripped), start date and stage"
+                />
+              </TableHead>
               <TableHead className="h-8 px-2.5">
                 <SortHeader label="Days" sortKey="days_onboarding" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="center" title="Days since onboarding started" />
               </TableHead>
@@ -431,20 +628,27 @@ export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
                   />
                 </TableHead>
               ))}
+              <TableHead
+                className="h-8 px-1.5 text-center text-xs font-medium text-muted-foreground"
+                style={GROUP_START_STYLE}
+                title="Onboarding notes from Dynamics — hover the icon to read"
+              >
+                Notes
+              </TableHead>
             </TableRow>
           </TableHeader>
 
           <TableBody>
             {sorted.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4 + STEPS.length} className="h-32 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={7 + STEPS.length} className="h-32 text-center text-sm text-muted-foreground">
                   {rows.length === 0
                     ? "No clients are currently onboarding."
                     : "No clients match the current filters."}
                 </TableCell>
               </TableRow>
             ) : (
-              sorted.map((r) => (
+              sorted.map((r, rowIdx) => (
                 <TableRow key={r.account_id}>
                   {/* Client */}
                   <TableCell className="px-2.5 py-1.5 align-middle">
@@ -468,6 +672,23 @@ export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
                   {/* Account Team */}
                   <TableCell className="px-2.5 py-1.5 align-middle">
                     <AccountTeamAvatars row={r} />
+                  </TableCell>
+
+                  {/* Contract Start — contract TERM start, mm/dd/yy */}
+                  <TableCell className="px-2.5 py-1.5 text-center align-middle">
+                    <span className="tabular-nums whitespace-nowrap text-foreground">
+                      {formatShortDay(r.contract_start_date)}
+                    </span>
+                  </TableCell>
+
+                  {/* First Event — earliest event, ticker stripped, + stage pill */}
+                  <TableCell className="px-2.5 py-1.5 align-middle">
+                    <FirstEventCell
+                      name={r.first_event_name}
+                      date={r.first_event_date}
+                      state={r.first_event_state_label}
+                      ticker={r.ticker_symbol}
+                    />
                   </TableCell>
 
                   {/* Days */}
@@ -494,6 +715,20 @@ export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
                       />
                     </TableCell>
                   ))}
+
+                  {/* Onboarding notes — icon reveals the free text on hover/focus */}
+                  <TableCell
+                    className="px-1.5 py-1.5 text-center align-middle"
+                    style={GROUP_START_STYLE}
+                  >
+                    {/* Bottom rows open the note upward so the card cannot clip
+                        it. Only when there is room above (>4 rows), otherwise a
+                        short table would just clip at the top instead. */}
+                    <NotesCell
+                      note={r.onboarding_notes}
+                      flipUp={sorted.length > 4 && rowIdx >= sorted.length - 2}
+                    />
+                  </TableCell>
                 </TableRow>
               ))
             )}

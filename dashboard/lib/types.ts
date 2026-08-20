@@ -1082,6 +1082,10 @@ export type ClientOnboardingRow = {
   logistics_coordinator_name: string | null
   onboarding_start_date: string | null
   days_onboarding: number | null
+  /** CONTRACT TERM start (contracts.contract_start_date / bcs_contractstartdate).
+   *  A different field from `onboarding_start_date` above, which is the
+   *  onboarding anchor (accounts.original_start_date). Plain YYYY-MM-DD. */
+  contract_start_date: string | null
   f_onboarding_call: boolean
   f_teach_in_date: boolean
   f_calendar: boolean
@@ -1099,6 +1103,18 @@ export type ClientOnboardingRow = {
   onboarding_call_date: string | null
   teach_in_date: string | null
   meeting_history_date: string | null
+  /** The client's EARLIEST marketing event — bucketed exactly as Client Detail's
+   *  "Marketing Events & Dates" block and the To-Do List's `next_event_*`
+   *  (window starts at the earliest confirmed-meeting day, else the event's own
+   *  actual window). Name is RAW: strip the "TICKER - " prefix for display with
+   *  `stripTickerPrefix`. All three are NULL when the client has no dated event. */
+  first_event_name: string | null
+  first_event_date: string | null
+  first_event_state_label: string | null
+  /** Free-text Dynamics onboarding notes (bcs_onboardingnotes), synced onto
+   *  accounts. The view normalises blank/whitespace-only to NULL, so NULL is the
+   *  single "no note" case the page renders muted. */
+  onboarding_notes: string | null
   filled_count: number
   onboarding_field_count: number
 }
