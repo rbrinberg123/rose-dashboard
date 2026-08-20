@@ -1086,11 +1086,19 @@ export type ClientOnboardingRow = {
   f_teach_in_date: boolean
   f_calendar: boolean
   f_calendar_confirmed: boolean
-  f_meeting_history_received: boolean
+  /** Derived from the latest COMPLETED Outreach → Data Upload task, NOT from
+   *  `accounts.meeting_history_received` (which still syncs but no longer feeds
+   *  this step). Renamed from `f_meeting_history_received` when the source moved. */
+  f_meeting_history: boolean
   f_distro: boolean
   f_bda_peers: boolean
   f_recurring_call_scheduled: boolean
   f_report: boolean
+  /** Dates printed under the checkmark for the three date-backed steps, as plain
+   *  YYYY-MM-DD Eastern days. NULL when the step has not happened. */
+  onboarding_call_date: string | null
+  teach_in_date: string | null
+  meeting_history_date: string | null
   filled_count: number
   onboarding_field_count: number
 }

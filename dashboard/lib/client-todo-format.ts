@@ -1,9 +1,14 @@
 /**
- * Pure display helpers for the Clients → To-Do List.
+ * Pure display helpers, originally for the Clients → To-Do List.
  *
  * Shared by the on-screen table (app/clients/to-do/todo-table.tsx) and the Excel
  * export (lib/client-todo-excel.ts) so an exported cell can never drift from the
  * cell it mirrors. No React, no I/O.
+ *
+ * `formatDay` is also used by the Onboarding grid (app/onboarding/
+ * onboarding-table.tsx) for the dates under the step checkmarks — it is the
+ * app's one "plain YYYY-MM-DD → Mmm d, yyyy with no timezone shifting" helper,
+ * which is exactly what a view-computed calendar day needs.
  */
 
 /**

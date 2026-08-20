@@ -4167,43 +4167,67 @@ GRANT SELECT ON public.v_scheduler_time_off TO service_role;
 
 -- -----------------------------------------------------------------------------
 -- v_client_onboarding
--- One row per ACTIVE client (accounts.state_label = 'Active') that has NOT yet
--- had its first feedback report sent. A client stays on the page until it has at
--- least one 'Feedback Report Sent' task marked Completed; the first one to
--- complete drops it off for good. Powers the Logistics -> Onboarding page.
+-- One row per ACTIVE client (state_label = Active) that has NOT yet had its
+-- first feedback report sent. A client stays on the page until it has at least
+-- one "Feedback Report Sent" task marked Completed; the first one to complete
+-- drops it off for good. Powers the Logistics -> Onboarding page.
 --
--- The 9 steps below are PROGRESS ONLY — they are displayed and counted, but they
--- do NOT decide membership. (This replaced a `filled_count < 9` gate, which had
--- become inert: the step flags are barely maintained in Dynamics, so on
--- 2026-08-20 the highest filled_count across all 28 in-scope clients was 1/9 and
--- the gate had never actually excluded anyone. "First report sent" is the real
--- signal that onboarding is done. Switching the gate took the page from 28 rows
--- to 10.)
+-- EXIT CONDITION (the WHERE NOT EXISTS at the bottom). The report task is
+-- identified exactly as v_feedback_pipeline and v_client_marketing_status
+-- identify it: public.tasks rows selected by bcs_task_subtype_label (never by
+-- subject text), linked to the client by the task bcs_account_id, and complete
+-- when state_label = Completed.
+--   * There is no Closed task state. state_label is the Dataverse statecode and
+--     takes only Open / Completed / Canceled (verified against live data on
+--     2026-08-20: 3265 Completed, 582 Open, 43 Canceled, nothing else), so
+--     Completed alone is the whole of completed/closed.
+--   * A Canceled report deliberately does NOT count as sent -- the client keeps
+--     onboarding.
+--   * This is CLIENT-grained, not per-event: a client with several events drops
+--     off on its FIRST completed report.
+--
+-- The 9 steps below are PROGRESS ONLY -- displayed and counted, but they do NOT
+-- decide membership. This replaced a filled_count < 9 gate that had become
+-- inert: the step flags are barely maintained in Dynamics, so on 2026-08-20 the
+-- highest filled_count across all 28 in-scope clients was 1 of 9 and the gate
+-- had never actually excluded anyone. First-report-sent is the real signal that
+-- onboarding is done. Switching the gate took the page from 28 rows to 10.
 --
 -- Scoped to clients whose onboarding started on/after 2026-01-01 (see the WHERE
 -- cutoff at the bottom) so the page stays focused on genuinely-new clients and
--- legacy clients can't reappear. Widen/narrow by editing that one date.
+-- legacy clients cannot reappear. Widen/narrow by editing that one date.
 --
--- The 9 onboarding steps live on the account/client card in Dynamics and are
--- already synced onto public.accounts (see lib/sync/mappers.ts). Two kinds:
---   * DATE steps  -> complete when a date is present:
---       f_onboarding_call            (bcs_onboardingcall  / onboarding_call)
---       f_teach_in_date              (bcs_teachindate     / teach_in_date)
+-- The 9 onboarding steps. Eight live on the account/client card in Dynamics and
+-- are synced onto public.accounts (see lib/sync/mappers.ts); the ninth is
+-- derived from a task. Three kinds:
+--   * DATE steps -> complete when a date is present. The date itself is also
+--     exposed, and the page prints it under the checkmark:
+--       f_onboarding_call    (bcs_onboardingcall / onboarding_call)
+--                            date -> onboarding_call_date
+--       f_teach_in_date      (bcs_teachindate    / teach_in_date)
+--                            date -> teach_in_date
+--   * TASK step -> complete when the client has a completed Outreach ->
+--     Data Upload task; the date is that task actual_end (latest wins):
+--       f_meeting_history    date -> meeting_history_date  (see data_upload CTE)
 --   * YES/NO steps -> complete only when the flag is Yes (true). A No or an
 --     unset flag both count as "missing" (muted dash in the grid):
 --       f_calendar                   (bcs_calendar)
 --       f_calendar_confirmed         (bcs_calendarconfirmed)
---       f_meeting_history_received   (bcs_meetinghistoryrecd)
 --       f_distro                     (bcs_distro)
 --       f_bda_peers                  (bcs_bdapeers)
 --       f_recurring_call_scheduled   (bcs_recurringcallscheduled)
 --       f_report                     (bcs_report)
 --
+-- NOTE on the renamed column: f_meeting_history_received became f_meeting_history
+-- when this step moved off accounts.meeting_history_received onto the Data Upload
+-- task. The old name is deliberately not kept -- it would have named a column
+-- after a source that no longer feeds it.
+--
 -- filled_count is how many of the 9 are complete (the UI's "N/9" ring) and
 -- onboarding_field_count (=9) is exposed so the UI never hard-codes the
 -- denominator. Both are purely informational now — see the exit condition above.
 -- A row CAN legitimately show 9/9 and still be on the page (steps all ticked,
--- report not yet sent), so the UI's "complete" ring state is now reachable.
+-- report not yet sent), so the "complete" ring state in the UI is now reachable.
 --
 -- Account team: the same four role columns the Portfolio page feeds into the
 -- shared AccountTeamAvatars component. sales_lead_primary_name is the primary
@@ -4227,17 +4251,41 @@ WITH onb AS (
     a.associate_name,
     a.logistics_coordinator_name,
     (a.original_start_date AT TIME ZONE 'America/New_York')::date AS onboarding_start_date,
+    -- The two date-backed steps expose their actual date as well as the flag, so
+    -- the grid can print it under the checkmark. Read as the Eastern calendar
+    -- day, same convention as onboarding_start_date above. Both are real
+    -- intraday timestamps (not UTC midnight), so this cast cannot shift the day.
+    (a.onboarding_call     AT TIME ZONE 'America/New_York')::date AS onboarding_call_date,
+    (a.teach_in_date       AT TIME ZONE 'America/New_York')::date AS teach_in_date,
     (a.onboarding_call          IS NOT NULL) AS f_onboarding_call,
     (a.teach_in_date            IS NOT NULL) AS f_teach_in_date,
     (a.calendar                 IS TRUE)     AS f_calendar,
     (a.calendar_confirmed       IS TRUE)     AS f_calendar_confirmed,
-    (a.meeting_history_received IS TRUE)     AS f_meeting_history_received,
     (a.distro                   IS TRUE)     AS f_distro,
     (a.bda_peers                IS TRUE)     AS f_bda_peers,
     (a.recurring_call_scheduled IS TRUE)     AS f_recurring_call_scheduled,
     (a.report                   IS TRUE)     AS f_report
   FROM public.accounts a
   WHERE a.state_label = 'Active'
+),
+-- Meeting History step. Sourced from the client latest COMPLETED Outreach ->
+-- Data Upload task, NOT from accounts.meeting_history_received (that flag is
+-- still synced from Dynamics, it just no longer feeds this step -- it was FALSE
+-- on every client on the page). Verbatim the same CTE the To-Do List uses for
+-- its Last Data Upload column (sql/20_client_todo.sql), so the two pages can
+-- never disagree about when a client last uploaded.
+data_upload AS (
+  SELECT
+    t.bcs_account_id AS account_id,
+    MAX((COALESCE(t.actual_end, t.scheduled_end, t.scheduled_start)
+           AT TIME ZONE 'America/New_York')::date) AS meeting_history_date
+  FROM public.tasks t
+  WHERE t.bcs_account_id IS NOT NULL
+    AND t.bcs_task_type_label    = 'Outreach'
+    AND t.bcs_task_subtype_label = 'Data Upload'
+    AND t.state_label            = 'Completed'
+    AND COALESCE(t.actual_end, t.scheduled_end, t.scheduled_start) IS NOT NULL
+  GROUP BY t.bcs_account_id
 )
 SELECT
   onb.account_id,
@@ -4253,34 +4301,33 @@ SELECT
   onb.f_teach_in_date,
   onb.f_calendar,
   onb.f_calendar_confirmed,
-  onb.f_meeting_history_received,
+  (du.meeting_history_date IS NOT NULL)      AS f_meeting_history,
   onb.f_distro,
   onb.f_bda_peers,
   onb.f_recurring_call_scheduled,
   onb.f_report,
+  -- Dates printed under the checkmark for the three date-backed steps. NULL for
+  -- a step that has not happened, in which case the grid shows the muted dash
+  -- and no date line.
+  onb.onboarding_call_date,
+  onb.teach_in_date,
+  du.meeting_history_date,
   ( onb.f_onboarding_call::int
   + onb.f_teach_in_date::int
   + onb.f_calendar::int
   + onb.f_calendar_confirmed::int
-  + onb.f_meeting_history_received::int
+  + (du.meeting_history_date IS NOT NULL)::int
   + onb.f_distro::int
   + onb.f_bda_peers::int
   + onb.f_recurring_call_scheduled::int
   + onb.f_report::int ) AS filled_count,
   9 AS onboarding_field_count
 FROM onb
--- EXIT CONDITION: a client stays on the page until its FIRST 'Feedback Report
--- Sent' task completes. Zero completed ones -> still onboarding; the moment one
--- completes, the client drops off for good. Identified exactly as
--- v_feedback_pipeline / v_client_marketing_status identify it: public.tasks rows
--- by bcs_task_subtype_label (never by subject text), linked to the client by the
--- task's own bcs_account_id, and complete when state_label = 'Completed'.
---
--- On 'Closed': there is no such task state. state_label is the Dataverse
--- statecode and takes only 'Open' / 'Completed' / 'Canceled' (verified against
--- live data 2026-08-20: 3265 Completed, 582 Open, 43 Canceled, zero anything
--- else), so 'Completed' alone is the whole of "completed/closed". A Canceled
--- report deliberately does NOT count as sent — the client keeps onboarding.
+LEFT JOIN data_upload du ON du.account_id = onb.account_id
+  -- Exit condition: no completed Feedback Report Sent task yet. Full rationale
+  -- in the header block above. (Keep comments inside this statement free of
+  -- apostrophes -- SQL clients that split pasted text on quote state mis-parse
+  -- them and submit a broken fragment.)
 WHERE NOT EXISTS (
         SELECT 1
         FROM public.tasks t

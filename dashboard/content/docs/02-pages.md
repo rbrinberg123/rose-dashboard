@@ -66,6 +66,28 @@ Two details worth knowing:
 
 The **2026 floor is retained**: `onboarding_start_date >= 2026-01-01`, so legacy clients can't reappear now that the step gate is gone. Scope (which clients are eligible at all) and exit (when they leave) are separate rules.
 
+#### The 9 checklist steps — where each one comes from
+
+Eight steps come straight off the client card in Dynamics (synced onto `public.accounts`); the ninth is derived from a task. **Three of them show a date on a small second line under the checkmark** — no date means an unfilled step and no date line.
+
+| # | Column label | Full name | CRM source | Complete when | Date shown |
+|---|---|---|---|---|---|
+| 1 | Onb. Call | Onboarding Call | `accounts.onboarding_call` (`bcs_onboardingcall`) — date | a date is present | ✅ that date |
+| 2 | Teach-in | Teach-in Date | `accounts.teach_in_date` (`bcs_teachindate`) — date | a date is present | ✅ that date |
+| 3 | Calendar | Calendar | `accounts.calendar` (`bcs_calendar`) — boolean | flag is TRUE | — |
+| 4 | Cal. Conf. | Calendar Confirmed | `accounts.calendar_confirmed` (`bcs_calendarconfirmed`) — boolean | flag is TRUE | — |
+| 5 | Mtg Hist. | Meeting History | **Outreach → Data Upload task** (see below) | a completed Data Upload task exists | ✅ that task's date |
+| 6 | Distro | Distro | `accounts.distro` (`bcs_distro`) — boolean | flag is TRUE | — |
+| 7 | BDA Peers | BDA Peers | `accounts.bda_peers` (`bcs_bdapeers`) — boolean | flag is TRUE | — |
+| 8 | Rec. Call | Recurring Call Scheduled | `accounts.recurring_call_scheduled` (`bcs_recurringcallscheduled`) — boolean | flag is TRUE | — |
+| 9 | Report | Report | `accounts.report` (`bcs_report`) — boolean | flag is TRUE | — |
+
+For the six boolean steps, a **No** and an **unset** flag are treated identically — both read as "missing" (muted dash). Only TRUE ticks the box.
+
+**Meeting History is sourced from the Data Upload task, not a flag.** It is complete when the client has a **Completed** `tasks` row with `bcs_task_type_label = 'Outreach'` and `bcs_task_subtype_label = 'Data Upload'`, linked by `bcs_account_id`; the date shown is that task's `actual_end` (latest task wins if there are several), read as an Eastern calendar day. This is the *same* CTE the To-Do List uses for its **Last Data Upload** column, so the two pages can't disagree about when a client last uploaded.
+
+It replaced `accounts.meeting_history_received` (`bcs_meetinghistoryrecd`), which is **still synced but no longer feeds this step** — that flag was `false` on every client on the page, so the step could never tick. Re-sourcing took it from 0 of 10 clients to 5 of 10. The view column was renamed `f_meeting_history_received` → **`f_meeting_history`** to match, deliberately rather than leaving a column named after a source that no longer feeds it.
+
 **The 9 onboarding steps are now progress display only.** They still render as the grid and the "N/9" ring, and are still sortable, but they no longer decide membership. They previously did, via a `filled_count < 9` gate — that gate had become inert, because the step flags are barely maintained in Dynamics: when the rule was changed (2026-08-20) the highest `filled_count` across all 28 in-scope clients was **1 of 9**, so the gate had never actually dropped anyone. Switching to "first report sent" took the page from **28 rows to 10**. A consequence: a row can now legitimately show **9/9 and still be listed** (every step ticked, report not yet sent), so the completion ring's "complete" state is reachable for the first time.
 
 ### Contracts (super-user only)

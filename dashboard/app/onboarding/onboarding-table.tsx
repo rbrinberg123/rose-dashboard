@@ -17,6 +17,7 @@ import { ListTitleCard } from "@/components/page-masthead"
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { CARD_CLASS, DAYS_LEFT_PILL } from "@/lib/design"
 import { cn } from "@/lib/utils"
+import { formatDay } from "@/lib/client-todo-format"
 import type { ClientOnboardingRow } from "@/lib/types"
 
 const NAVY = "#1E2858"
@@ -25,21 +26,54 @@ const ALL = "__all__"
 // Days at which a client counts as "stalled" — flagged with a red pill.
 const STALLED_DAYS = 60
 
+type StepKey =
+  | "f_onboarding_call"
+  | "f_teach_in_date"
+  | "f_calendar"
+  | "f_calendar_confirmed"
+  | "f_meeting_history"
+  | "f_distro"
+  | "f_bda_peers"
+  | "f_recurring_call_scheduled"
+  | "f_report"
+
+/** The three steps that carry a date; the grid prints it under the checkmark. */
+type StepDateKey = "onboarding_call_date" | "teach_in_date" | "meeting_history_date"
+
+type Step = { key: StepKey; short: string; full: string; dateKey?: StepDateKey }
+
 // The nine onboarding steps, in grid order. `key` is the view's boolean column;
 // `short` is the compact column label; `full` is the tooltip / full name.
-const STEPS = [
-  { key: "f_onboarding_call", short: "Onb. Call", full: "Onboarding Call" },
-  { key: "f_teach_in_date", short: "Teach-in", full: "Teach-in Date" },
+// `dateKey` is set only on the three date-backed steps — the two Dynamics date
+// fields, plus Meeting History, which is derived from the client's latest
+// completed Outreach → Data Upload task rather than a flag on the account.
+const STEPS: readonly Step[] = [
+  {
+    key: "f_onboarding_call",
+    short: "Onb. Call",
+    full: "Onboarding Call",
+    dateKey: "onboarding_call_date",
+  },
+  {
+    key: "f_teach_in_date",
+    short: "Teach-in",
+    full: "Teach-in Date",
+    dateKey: "teach_in_date",
+  },
   { key: "f_calendar", short: "Calendar", full: "Calendar" },
   { key: "f_calendar_confirmed", short: "Cal. Conf.", full: "Calendar Confirmed" },
-  { key: "f_meeting_history_received", short: "Mtg Hist.", full: "Meeting History Received" },
+  {
+    key: "f_meeting_history",
+    short: "Mtg Hist.",
+    full: "Meeting History — latest completed Data Upload task",
+    dateKey: "meeting_history_date",
+  },
   { key: "f_distro", short: "Distro", full: "Distro" },
   { key: "f_bda_peers", short: "BDA Peers", full: "BDA Peers" },
   { key: "f_recurring_call_scheduled", short: "Rec. Call", full: "Recurring Call Scheduled" },
   { key: "f_report", short: "Report", full: "Report" },
-] as const
+]
 
-type StepKey = (typeof STEPS)[number]["key"]
 type SortKey = "name" | "days_onboarding" | "filled_count" | StepKey
 type SortDir = "asc" | "desc"
 
@@ -197,14 +231,38 @@ function CompletionRing({ filled, total }: { filled: number; total: number }) {
 }
 
 // One grid cell: green check when the step is complete, muted dash when missing.
-function CheckCell({ done, label }: { done: boolean; label: string }) {
-  return done ? (
+// The three date-backed steps print their date on a small second line beneath.
+// A step with no date renders exactly as before — mark only, no date line — so
+// the six flag-only steps are untouched.
+function CheckCell({
+  done,
+  label,
+  date,
+}: {
+  done: boolean
+  label: string
+  date?: string | null
+}) {
+  const mark = done ? (
     <span className="inline-flex" title={`${label}: complete`} aria-label={`${label}: complete`}>
       <Check className="size-4" style={{ color: "#2D7A2D" }} strokeWidth={3} />
     </span>
   ) : (
     <span className="text-muted-foreground" title={`${label}: missing`} aria-label={`${label}: missing`}>
       —
+    </span>
+  )
+  if (!date) return mark
+  return (
+    <span className="inline-flex flex-col items-center leading-none">
+      {mark}
+      <span
+        className="tabular-nums whitespace-nowrap text-muted-foreground"
+        style={{ fontSize: 9, marginTop: 3 }}
+        title={`${label}: ${formatDay(date)}`}
+      >
+        {formatDay(date)}
+      </span>
     </span>
   )
 }
@@ -429,7 +487,11 @@ export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
                       className="px-1.5 py-1.5 text-center align-middle"
                       style={i === 0 ? GROUP_START_STYLE : undefined}
                     >
-                      <CheckCell done={r[step.key]} label={step.full} />
+                      <CheckCell
+                        done={r[step.key]}
+                        label={step.full}
+                        date={step.dateKey ? r[step.dateKey] : null}
+                      />
                     </TableCell>
                   ))}
                 </TableRow>
