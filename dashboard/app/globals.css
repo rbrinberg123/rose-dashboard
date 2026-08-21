@@ -223,6 +223,56 @@
     padding: 2px 4px !important;
   }
 
+  /* --- Client Portfolio specifics --------------------------------------- */
+  /* Measured against a landscape Letter sheet (11in - 2 x 0.4in margins =
+     979px of printable width), the 16-column table came out at 1134px — 155px
+     over, with the last three columns falling off the right edge. The three
+     rules below are what close that gap; each was measured individually.
+
+     1. The card clips to its rounded corners on screen (overflow:hidden, which
+     is what keeps rows inside the curve while scrolling). On paper that clip is
+     a guillotine — it crops the overflow instead of reflowing it, and would
+     also cut the table at the first page break rather than paginating. */
+  .portfolio-print-root .overflow-hidden {
+    overflow: visible !important;
+  }
+  /* 2. Client / Status / Team are frozen columns on screen, sized by hard
+     inline width + min-width + max-width (frozenStyle) so they cannot collapse
+     under the sticky layout. Those inline widths survived into print and locked
+     376px of the 979px sheet — the single biggest cause of the overflow
+     (releasing them alone recovered 69px). Nothing is frozen on paper, so let
+     all 16 columns size to their content.
+
+     3. Every cell is nowrap on screen (a dense grid you scroll sideways). On
+     paper there is no sideways: those nowrap runs become the table's minimum
+     width and push it off the sheet. Letting them wrap recovered a further
+     52px.
+
+     4. overflow-wrap is the actual fit-to-width GUARANTEE. Without it a single
+     long unbroken value — a client name with no spaces — sets a min-content
+     width the table cannot shrink below, and the right-hand columns drop off
+     again on some other filter. Allowing a break anywhere lets auto-layout
+     always resolve to the sheet width, so columns get narrower and taller
+     instead of disappearing. Verified: with 69-character unbroken names forced
+     into 25 rows the table still measured 977px, unchanged. */
+  .portfolio-print-root thead th,
+  .portfolio-print-root tbody td {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+  }
+  /* The client name truncates to the frozen column width on screen with the
+     full name on hover. Paper has no hover — print it in full and let it wrap.
+     This was worth the last 36px. */
+  .portfolio-print-root .truncate {
+    max-width: none !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+  }
+
   /* --- To-Do List specifics --------------------------------------------- */
   /* The table sits inside a card that is itself an overflow-x-auto scroller;
      `overflow-x: auto` computes overflow-y to auto too, which would clip the

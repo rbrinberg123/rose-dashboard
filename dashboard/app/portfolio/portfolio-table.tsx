@@ -17,7 +17,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { ListTitleCard } from "@/components/page-masthead"
 import {
+  BRAND_BLUE,
+  BRAND_NAVY,
   CARD_CLASS,
+  DEEP_TEAL,
+  GROUP_RULE_HEIGHT,
   NOTE_STATUS_PILL as NOTE_STATUS_STYLES,
   NOTE_STATUS_PILL_FALLBACK as NOTE_STATUS_FALLBACK,
 } from "@/lib/design"
@@ -40,42 +44,148 @@ const NAVY = "#1E2858"
 const GREEN = "#2D7A2D"
 const RED = "#C53030"
 
-// Two-tier header: the top row shows section bands spanning their columns. The
-// bands read as distinct labeled blocks — centered, uppercase, semibold dark
-// text on a medium-gray fill with rounded top caps, each separated from the
-// next by a thin card-colored gap so the caps read as their own blocks.
+// Two-tier header, matching the Planning V2 header so the two big tables read as
+// one system: the top row carries UNFILLED section bands — navy small-caps over
+// the white card — told apart by a thin gradient rule underneath rather than by
+// a background colour. The bands used to be filled medium-grey caps; the fill
+// made the group heading the heaviest thing in the header, which is not where
+// the eye should go.
 //
-// Corner blend: the band row itself is painted bg-card (white, see the
-// <TableRow> below), so each band's rounded top corners reveal that white — the
-// real background behind the header on the white card — and no mismatched sliver
-// peeks around the caps.
-const BAND_BG = "#DDE1E8"
-// Faint, soft vertical rule marking group boundaries in the column-label row and
-// the body rows below the bands. (The dark bands themselves are separated by a
-// card-colored gap instead — see GROUP_BAND_SEP_STYLE.)
+// The light rule colour — THE one value for every rule on this table: the
+// vertical section dividers in the data rows, the hairline under each group
+// label, and the header's vertical section dividers (see SectionDivider).
 const GROUP_DIVIDER = "#EEF0F4"
-const GROUP_BAND_CLASS =
-  "rounded-t-md h-8 px-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-[#1A2233]"
-const GROUP_BAND_STYLE: React.CSSProperties = {
-  backgroundColor: BAND_BG,
-}
-const GROUP_BAND_SEP_STYLE: React.CSSProperties = {
-  ...GROUP_BAND_STYLE,
-  // 3px card-colored gap between adjacent dark caps so each reads as its own
-  // block. Card-white is the true background behind the header, so the gap (and
-  // the rounded corners beside it) blend cleanly with no leftover tint.
-  borderLeft: "3px solid var(--card)",
-}
-// Left border for the first column-label cell of each group, aligning with the
-// band separator above it to continue the divider down through the second tier.
-const GROUP_START_STYLE: React.CSSProperties = {
+/** Vertical section divider for the DATA rows. */
+const BODY_SECTION_START_STYLE: React.CSSProperties = {
   borderLeft: `1px solid ${GROUP_DIVIDER}`,
 }
-// Subtle gray for the second header tier (the column-labels row) so it reads as a
-// distinct header strip between the navy bands above and the white data rows
-// below. Also applied to that row's sticky Client/Status/Team cells (overriding
-// their white frozen background) so they don't flash a white seam when scrolling.
-const SUBHEADER_BG = "#F7F8FA"
+/**
+ * Vertical divider between primary sections in the HEADER — the line running
+ * down each white gutter, from the top of the group-label row to the gradient
+ * bar that closes the header.
+ *
+ * Rendered as its own absolutely-positioned element, NOT as the cell's
+ * border-left, because a cell-edge border DOES NOT PAINT up here. The table is
+ * `border-collapse: collapse` (Tailwind Preflight sets it), which makes cell
+ * borders part of the TABLE's border grid rather than of the cell itself — and
+ * the header is a `sticky` <thead> carrying an opaque `bg-card` fill, so it
+ * paints in its own layer on top of that grid and covers the line. The border
+ * computed perfectly (1px solid, correct colour, correct x); it was just
+ * buried. The BODY dividers are cell borders and are fine, because those cells
+ * sit inside no sticky, opaque-filled ancestor.
+ *
+ * One segment per header ROW rather than one tall element: an absolutely
+ * positioned child takes BOTH axes from the same containing block, and the <th>
+ * is static — so anchoring vertically to the sticky <thead> (the nearest
+ * positioned ancestor, and the only box that knows the full header height)
+ * would drag the horizontal anchor there too and lose the cell's x. Per-row
+ * segments stack seamlessly and need no hard-coded header height.
+ *
+ * `left: -0.5px` + `1px` wide straddles the cell boundary, which is the exact
+ * midpoint of the white gutter: the gutter is the inset (SECTION_GUTTER_CLASS +
+ * the cell's own px) taken off BOTH sides of that shared boundary.
+ *
+ * Drawn in GROUP_DIVIDER itself, not a darker relative of it, so every rule on
+ * the table — these, the data-row column dividers, the hairline under the group
+ * labels — is literally the same value and cannot drift.
+ */
+function SectionDivider() {
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-y-0 w-px"
+      style={{ left: "-0.5px", backgroundColor: GROUP_DIVIDER }}
+    />
+  )
+}
+/** Thickness of the gradient bars closing the header. Heavier than the hairline
+ *  under the group labels — this is the header/body boundary, so it reads as a
+ *  deliberate bar rather than a rule — but only just.
+ *
+ *  NOT a local number: it is the shared GROUP_RULE_HEIGHT, the same value
+ *  Planning V2's group-band rule renders at, so the two grouped table headers
+ *  carry identical weight. Retune it in lib/design.ts, which moves both. */
+const SWEEP_HEIGHT = GROUP_RULE_HEIGHT
+// h-8 (32px) is the band's height, and the label is centred inside it by the
+// inner div (see GROUP_LABEL_CLASS) rather than by the cell. The cell keeps
+// align-bottom only so that inner div — which carries the hairline as its
+// bottom border — stays pinned to the bottom of the band.
+const GROUP_BAND_CLASS =
+  "h-8 px-1.5 align-bottom text-center text-[11px] font-semibold uppercase tracking-wider"
+/**
+ * The group label's own box: full band height, text centred in it, hairline on
+ * its bottom edge.
+ *
+ * `align-bottom` on the cell alone left ALL the slack above the text and none
+ * below, so the label sat right on top of the hairline. Stretching this div to
+ * the band's full height and centring with flex splits that slack evenly, which
+ * is what puts the label in the middle of its band. It also self-adjusts: change
+ * h-8 and the label re-centres instead of needing a hand-tuned padding.
+ */
+const GROUP_LABEL_CLASS = "flex h-full items-center justify-center"
+const GROUP_BAND_STYLE: React.CSSProperties = {
+  color: BRAND_NAVY,
+}
+/**
+ * The white gutter between sections in the HEADER. `mx-1` on top of the cell's
+ * own `px-1.5` gives ~10px of air each side of a boundary, i.e. a ~20px white
+ * gap between one section's gradient segment and the next.
+ *
+ * This is now the ONLY thing dividing the header's sections — there is no
+ * vertical rule and no hairline under the labels. The gradient bar carries the
+ * same inset, so the gutters in the bar are what you actually read the section
+ * boundaries from.
+ */
+const SECTION_GUTTER_CLASS = "mx-1"
+
+/**
+ * Thin rule under each group label, separating it from the sub-column headers.
+ *
+ * Carried by an INSET inner element rather than the cell's own border-bottom,
+ * so it stops short of the cell edges and the white gutters break it into one
+ * short line per section instead of one rule running the table's width. It uses
+ * the same SECTION_GUTTER_CLASS inset as the gradient bar below, so the two
+ * rows' segments start and end on exactly the same x positions.
+ */
+const GROUP_LABEL_UNDERLINE_STYLE: React.CSSProperties = {
+  borderBottom: `1px solid ${GROUP_DIVIDER}`,
+}
+
+/**
+ * The header/body boundary rule: one continuous navy → blue → teal sweep read
+ * left to right across the full table width, drawn as one segment per group so
+ * each segment sits exactly over its own columns.
+ *
+ * The first band always carries navy → blue; the remaining bands share blue →
+ * teal evenly, so the sweep always starts on navy and lands exactly on teal at
+ * the right edge no matter how many sections are toggled on. Because adjacent
+ * segments share a stop — segment i ends on sweepStop(i+1) and segment i+1
+ * begins there — the handoffs are invisible and the whole thing reads as one
+ * bar. That is also why the segments are NOT rounded and carry no left divider:
+ * either would notch the sweep at every group boundary.
+ *
+ * Composed from the brand tokens (not written as hex) and ending on the same
+ * DEEP_TEAL the Planning header ends on, so the two tables stay in step.
+ */
+function sweepStop(i: number, total: number): string {
+  if (total <= 1) return DEEP_TEAL
+  if (i <= 0) return BRAND_NAVY
+  if (i === 1) return BRAND_BLUE
+  const pct = Math.round(((i - 1) / (total - 1)) * 100)
+  return `color-mix(in srgb, ${DEEP_TEAL} ${pct}%, ${BRAND_BLUE})`
+}
+
+function bandRule(i: number, total: number): string {
+  return `linear-gradient(90deg, ${sweepStop(i, total)}, ${sweepStop(i + 1, total)})`
+}
+// The second header tier (the column-labels row) is plain card white, same as the
+// band row above it — the header reads as one unshaded block, with the gradient
+// sweep at the bottom doing the separating from the data instead of a tint.
+//
+// It still needs an EXPLICIT background rather than transparent: this row's
+// Client/Status/Team cells are frozen, so without an opaque fill the body columns
+// would scroll visibly underneath them.
+const SUBHEADER_BG = "var(--card)"
 
 // Toggleable column sections, in table order. Core (Client + Account Team) is
 // always shown and not in this list — it's the locked identity group. `cols` is
@@ -484,6 +594,22 @@ export function PortfolioTable({
     (show.meetings ? SECTION_MIN_W.meetings : 0) +
     (show.activity ? SECTION_MIN_W.activity : 0)
 
+  // The group bands actually on screen, left to right. Drives both the header
+  // cells and their position in the gradient sweep, so the ramp stays continuous
+  // whichever sections are toggled on. colSpan must equal each band's visible
+  // column count or the band stops sitting over its own columns.
+  const visibleBands: { key: string; label: string; colSpan: number }[] = [
+    { key: "core", label: "Client", colSpan: 3 },
+    ...(show.classification
+      ? [{ key: "classification", label: "Classification", colSpan: 3 }]
+      : []),
+    ...(show.contract
+      ? [{ key: "contract", label: "Contract", colSpan: showFinancials ? 6 : 4 }]
+      : []),
+    ...(show.meetings ? [{ key: "meetings", label: "Meetings", colSpan: 5 }] : []),
+    ...(show.activity ? [{ key: "activity", label: "Activity", colSpan: 2 }] : []),
+  ]
+
   const visibleColCount =
     3 +
     TOGGLE_SECTIONS.reduce(
@@ -870,20 +996,27 @@ export function PortfolioTable({
 
         {/* Export the current filtered/sorted view to PDF via the browser's
             print dialog. data-print="hide" keeps the button itself out of the
-            printed output; the @media print rules reshape the page for paper. */}
+            printed output; the @media print rules reshape the page for paper.
+
+            Icon-only, square to the 36px control height the toolbar's other
+            controls share. The label survives in BOTH `title` (the hover
+            tooltip) and `aria-label` (the accessible name) — `title` alone is
+            not an accessible-name substitute for screen-reader and voice-control
+            users, and with no text node left in the button there is nothing else
+            to name it. */}
         <button
           type="button"
           onClick={() => window.print()}
           data-print="hide"
-          className="h-9 inline-flex items-center gap-1.5 cursor-pointer text-muted-foreground"
+          title="Export PDF"
+          aria-label="Export PDF"
+          className="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center text-muted-foreground"
           style={{
-            padding: "6px 14px",
             border: "0.5px solid #ccc",
             backgroundColor: "white",
           }}
         >
-          <Printer className="size-3.5" aria-hidden="true" />
-          Export PDF
+          <Printer className="size-4" aria-hidden="true" />
         </button>
 
         <div className="relative ml-auto w-64">
@@ -1011,8 +1144,19 @@ export function PortfolioTable({
           Bounding the height is what makes the sticky header actually work; the
           rows then scroll inside the card and the header + frozen Client column
           hold on both axes at once. */}
+      {/* overflow-hidden is what actually keeps the card's corners: it clips the
+          scrolling table to the card's 14px radius, so rows pass BEHIND the
+          curve instead of over it.
+
+          It replaces four rounded-*-[14px] rules that used to round individual
+          CELLS — the first/last header cell and the first/last cell of the LAST
+          body row. That only ever looked right when the table was scrolled to
+          the very bottom: the rounded row is the last row in the DOM, not the
+          row that happens to be at the bottom of the viewport, so mid-scroll the
+          real bottom row had square corners poking past the curve. Clipping the
+          container is indifferent to which row is showing. */}
       <div
-        className={`${CARD_CLASS} [&_[data-slot=table-container]]:max-h-[calc(100vh-15rem)] [&_[data-slot=table-container]]:overflow-y-auto [&_thead_tr:first-child_th:first-child]:rounded-tl-[14px] [&_thead_tr:first-child_th:last-child]:rounded-tr-[14px] [&_tbody_tr:last-child_td:first-child]:rounded-bl-[14px] [&_tbody_tr:last-child_td:last-child]:rounded-br-[14px]`}
+        className={`${CARD_CLASS} overflow-hidden [&_[data-slot=table-container]]:max-h-[calc(100vh-15rem)] [&_[data-slot=table-container]]:overflow-y-auto`}
       >
         {/* width:100% so the table always fills the card — no right-hand white
             gap — with min-width as the floor: below it the wrapper scrolls
@@ -1022,44 +1166,60 @@ export function PortfolioTable({
             PROPORTIONALLY across all of them rather than dumped between two, so
             the row stays balanced at any width. */}
         <Table className="w-full" style={{ minWidth: tableMinWidth }}>
-          <TableHeader className="sticky top-0 z-20 bg-card">
+          {/* [&_tr]:border-b-0 cancels the rule TableHeader applies to every row
+              inside it. That rule is a DESCENDANT selector, so it outranks a
+              plain border-b-0 on the rows themselves — it has to be overridden
+              here, on the same element, to win.
+              The header draws no FULL-WIDTH horizontal rules: the only two lines
+              it carries are per-section and inset (the label underline and the
+              gradient bar), both broken by the white gutters. The body keeps its
+              own row separators, which come from TableRow and are untouched. */}
+          {/* [&_th]:bg-card makes the header opaque AT CELL LEVEL, which is what
+              stops rows showing through it. A background on the <thead> or on
+              the <tr> is not enough on its own: the two STICKY cells (the Client
+              band label and the first gradient segment, both position:sticky
+              left:0) are lifted into their own paint layer, so on horizontal
+              scroll the other columns slid underneath them with nothing opaque
+              in between. The sub-header's frozen cells already set this inline
+              via frozenStyle; this covers every remaining header cell — the band
+              row, the gradient row, and the unfrozen sub-column cells — in one
+              place. Inline backgrounds still win where they are set, and they
+              set the same var(--card). */}
+          <TableHeader className="sticky top-0 z-20 bg-card [&_tr]:border-b-0 [&_th]:bg-card">
             {/* Top tier: section bands. Only active sections render; each band's
                 colSpan equals its visible column count so it sits exactly over its
-                columns. Core (Client, 2 cols) is always shown and frozen left. */}
-            <TableRow className="bg-card">
-              <TableHead
-                colSpan={3}
-                className={GROUP_BAND_CLASS}
-                style={{ ...GROUP_BAND_STYLE, position: "sticky", left: 0, zIndex: 30 }}
-              >
-                Client
-              </TableHead>
-              {show.classification && (
-                <TableHead colSpan={3} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
-                  Classification
-                </TableHead>
-              )}
-              {show.contract && (
+                columns. Core (Client) is always shown and frozen left.
+                Built from a list rather than inline JSX so the gradient sweep can
+                be indexed against the VISIBLE bands — toggling Classification off
+                must not leave a gap in the ramp. */}
+            {/* border-b-0 on all three header rows: TableRow applies `border-b`
+                by default, which is right for data rows (they need separating)
+                but drew a full-width rule under the group labels AND under the
+                sub-column labels. The label underline below replaces the first
+                of those with a per-section, inset version. */}
+            <TableRow className="bg-card border-b-0">
+              {visibleBands.map((band) => (
                 <TableHead
-                  colSpan={showFinancials ? 6 : 4}
-                  className={GROUP_BAND_CLASS}
-                  style={GROUP_BAND_SEP_STYLE}
+                  key={band.key}
+                  colSpan={band.colSpan}
+                  className={cn(GROUP_BAND_CLASS, "relative")}
+                  style={
+                    band.key === "core"
+                      ? { ...GROUP_BAND_STYLE, position: "sticky", left: 0, zIndex: 30 }
+                      : GROUP_BAND_STYLE
+                  }
                 >
-                  Contract
+                  {band.key !== "core" && <SectionDivider />}
+                  <div
+                    className={cn(SECTION_GUTTER_CLASS, GROUP_LABEL_CLASS)}
+                    style={GROUP_LABEL_UNDERLINE_STYLE}
+                  >
+                    {band.label}
+                  </div>
                 </TableHead>
-              )}
-              {show.meetings && (
-                <TableHead colSpan={5} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
-                  Meetings
-                </TableHead>
-              )}
-              {show.activity && (
-                <TableHead colSpan={2} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
-                  Activity
-                </TableHead>
-              )}
+              ))}
             </TableRow>
-            <TableRow style={{ backgroundColor: SUBHEADER_BG }}>
+            <TableRow className="border-b-0" style={{ backgroundColor: SUBHEADER_BG }}>
               {/* Core — frozen left */}
               <TableHead
                 className="h-8 px-1.5"
@@ -1078,7 +1238,10 @@ export function PortfolioTable({
               </TableHead>
               {show.classification && (
                 <>
-                  <TableHead className="h-8 px-1.5" style={GROUP_START_STYLE}>
+                  {/* Section start — carries the gutter divider's middle
+                      segment. See SectionDivider. */}
+                  <TableHead className="relative h-8 px-1.5">
+                    <SectionDivider />
                     <SortHeader label="Mkt Cap" sortKey="market_cap_label" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </TableHead>
                   <TableHead className="h-8 px-1.5">
@@ -1091,7 +1254,9 @@ export function PortfolioTable({
               )}
               {show.contract && (
                 <>
-                  <TableHead className="h-8 px-1.5" style={GROUP_START_STYLE}>
+                  {/* Section start — see SectionDivider. */}
+                  <TableHead className="relative h-8 px-1.5">
+                    <SectionDivider />
                     <SortHeader label="Term End" sortKey="initial_term_end" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </TableHead>
                   <TableHead className="h-8 px-1.5">
@@ -1138,7 +1303,9 @@ export function PortfolioTable({
               )}
               {show.meetings && (
                 <>
-                  <TableHead className="h-8 px-2.5" style={GROUP_START_STYLE}>
+                  {/* Section start — see SectionDivider. */}
+                  <TableHead className="relative h-8 px-2.5">
+                    <SectionDivider />
                     <SortHeader
                       label="L12M"
                       sortKey="meetings_last_365d"
@@ -1191,7 +1358,9 @@ export function PortfolioTable({
               )}
               {show.activity && (
                 <>
-                  <TableHead className="h-8 px-2.5" style={GROUP_START_STYLE}>
+                  {/* Section start — see SectionDivider. */}
+                  <TableHead className="relative h-8 px-2.5">
+                    <SectionDivider />
                     <SortHeader
                       label="Event"
                       sortKey="last_event_date"
@@ -1211,6 +1380,59 @@ export function PortfolioTable({
                   </TableHead>
                 </>
               )}
+            </TableRow>
+
+            {/* Header/body boundary: the blue→teal ramp, broken into one bar per
+                group. The gradient still runs continuously ACROSS the segments —
+                each picks up the ramp where the last left off — so the row reads
+                as one sweep with the sections called out, rather than four
+                unrelated bars.
+
+                The bar sits on an inset inner div using the SAME px-1.5 (cell) +
+                mx-1 (inner) inset as the group-label underline above it, so the
+                white gutters land in exactly the same places and the top labels
+                and bottom bars share one section rhythm.
+
+                h-auto + an explicit height collapses this row onto the bar.
+                TableHead ships `h-10` and `align-middle`, which was centring a
+                4.5px bar in a 40px row and leaving ~18px of dead space above it
+                (and below). lineHeight 0 stops the cell's inline box re-inflating
+                the row.
+
+                No border of any kind on these cells, transparent or otherwise.
+                The section dividers above are out-of-flow elements, not cell
+                borders, so no cell in the header has a border box to match — put
+                one here and this row's content would start 1px right of the
+                labels' and the two rows' segments would stop lining up. The
+                Client segment is sticky-left like the cells above it, so it
+                holds position when the frozen columns slide over the rest on
+                horizontal scroll. */}
+            <TableRow className="border-b-0">
+              {visibleBands.map((band, i) => (
+                <TableHead
+                  key={`sweep-${band.key}`}
+                  colSpan={band.colSpan}
+                  aria-hidden="true"
+                  className="h-auto px-1.5 align-top"
+                  style={{
+                    height: SWEEP_HEIGHT,
+                    lineHeight: 0,
+                    paddingTop: 0,
+                    paddingBottom: 0,
+                    ...(band.key === "core"
+                      ? { position: "sticky", left: 0, zIndex: 30 }
+                      : null),
+                  }}
+                >
+                  <div
+                    className={cn(SECTION_GUTTER_CLASS, "rounded-full")}
+                    style={{
+                      height: SWEEP_HEIGHT,
+                      backgroundImage: bandRule(i, visibleBands.length),
+                    }}
+                  />
+                </TableHead>
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1272,7 +1494,7 @@ export function PortfolioTable({
                     {show.classification && (
                       <>
                         {/* Mkt Cap */}
-                        <TableCell className="px-1.5 py-1 align-top" style={GROUP_START_STYLE}>{r.market_cap_label ?? "—"}</TableCell>
+                        <TableCell className="px-1.5 py-1 align-top" style={BODY_SECTION_START_STYLE}>{r.market_cap_label ?? "—"}</TableCell>
 
                         {/* Region */}
                         <TableCell className="px-1.5 py-1 align-top" style={{ maxWidth: 132 }}>
@@ -1301,7 +1523,10 @@ export function PortfolioTable({
                     {show.contract && (
                       <>
                         {/* Term End */}
-                        <TableCell className="px-1.5 py-1 align-top whitespace-nowrap" style={GROUP_START_STYLE}>
+                        <TableCell
+                          className="px-1.5 py-1 align-top whitespace-nowrap"
+                          style={BODY_SECTION_START_STYLE}
+                        >
                           {inactive ? <ContractDash /> : formatShortDate(r.initial_term_end)}
                         </TableCell>
 
@@ -1360,7 +1585,7 @@ export function PortfolioTable({
                     {show.meetings && (
                       <>
                         {/* Mtgs L12M */}
-                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums" style={GROUP_START_STYLE}>{meetings365}</TableCell>
+                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums" style={BODY_SECTION_START_STYLE}>{meetings365}</TableCell>
 
                         {/* Inst L12M */}
                         <TableCell className="px-2.5 py-1 align-top text-right tabular-nums text-muted-foreground">
@@ -1390,7 +1615,7 @@ export function PortfolioTable({
                     {show.activity && (
                       <>
                         {/* Last Event */}
-                        <TableCell className="px-2.5 py-1 align-top" style={GROUP_START_STYLE}>
+                        <TableCell className="px-2.5 py-1 align-top" style={BODY_SECTION_START_STYLE}>
                           <DateCell value={r.last_event_date} />
                         </TableCell>
 

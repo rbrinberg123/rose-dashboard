@@ -10,6 +10,8 @@ import {
   BRAND_NAVY,
   CARD_CLASS,
   DAYS_LEFT_PILL,
+  DEEP_TEAL,
+  GROUP_RULE_HEIGHT,
   TEXT_SECONDARY,
 } from "@/lib/design"
 import type { PlanningEventRow } from "@/lib/types"
@@ -23,10 +25,10 @@ const NAVY_DEEP = "#1E2858"
 /**
  * THE teal for this page. Every teal-family accent derives from this one
  * constant so they cannot drift apart — a deep blue-teal, darker than both the
- * old #159E77 done-green and the shared TEAL / TEAL_LIGHT tokens, which is why
- * it is defined here rather than imported: TEAL_LIGHT (#4FC6BC) is the Logistics
- * account-team avatar fill and is used by Portfolio, Onboarding and Client
- * Detail, so darkening it centrally would repaint those pages too.
+ * shared TEAL and TEAL_LIGHT tokens (TEAL_LIGHT is the Logistics account-team
+ * avatar fill, so it could not simply be darkened in place). It now lives in
+ * lib/design.ts as DEEP_TEAL, shared with the Portfolio group-header sweep so
+ * the two big tables end on the identical teal.
  *
  * Drives, in this file:
  *   - the completed-step check circles (StageCell + BoolCell)
@@ -38,7 +40,6 @@ const NAVY_DEEP = "#1E2858"
  *
  * Still deliberately NOT MONEY_GREEN (#0E7C56), which is reserved for money.
  */
-const DEEP_TEAL = "#0E8A7C"
 const EMPTY_RING = "#D1D6DE"
 
 // Hairline divider between the meeting-info columns and the four tracking columns.
@@ -720,10 +721,12 @@ function GroupBand({
           {done}/{total}
         </span>
       </div>
+      {/* Height comes from the shared GROUP_RULE_HEIGHT, not a local h-[2.5px],
+          so this rule and the Portfolio header's sweep stay the same weight. */}
       <div
         aria-hidden="true"
-        className="h-[2.5px] w-full rounded-full"
-        style={{ backgroundImage: rule }}
+        className="w-full rounded-full"
+        style={{ height: GROUP_RULE_HEIGHT, backgroundImage: rule }}
       />
     </div>
   )

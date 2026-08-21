@@ -26,8 +26,28 @@ export const TEAL = "#1C8C9C"
  * value from TEAL above, not a substitute for it.
  */
 export const TEAL_LIGHT = "#4FC6BC"
+/**
+ * The DEEP, blue-leaning end of the teal ramp. Started life inside Planning V2
+ * as its single "complete" colour; promoted here so the Portfolio group-header
+ * sweep can end on the exact same teal Planning's does and the two big tables
+ * cannot drift. Deeper than TEAL and deliberately NOT MONEY_GREEN (#0E7C56),
+ * which is reserved for money.
+ */
+export const DEEP_TEAL = "#0E8A7C"
 /** The one green, reserved for money. */
 export const MONEY_GREEN = "#0E7C56"
+
+/**
+ * Thickness, in px, of the gradient rule that closes a grouped table header:
+ * Planning V2's per-group band rule and the Portfolio header's segmented sweep.
+ *
+ * A shared token rather than a value written into each page, for the same reason
+ * DEEP_TEAL was promoted here — the two big tables' headers are meant to read as
+ * one system, and these had already drifted (Portfolio spent time at 4.5px and
+ * 3px while Planning sat at 2.5). Both now render from this one number, so a
+ * change to either is a change to both.
+ */
+export const GROUP_RULE_HEIGHT = 2.5
 
 /** 4px gradient accent strip down the left edge of header cards. */
 export const ACCENT_STRIP = "linear-gradient(180deg, #1E2858, #0355A7, #1C8C9C)"
