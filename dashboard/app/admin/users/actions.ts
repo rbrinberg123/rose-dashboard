@@ -15,9 +15,17 @@ const PATH = "/admin/users"
  * the person can access on their next page load.
  *
  * NB the user_role_grants CHECK constraint must permit each of these values;
- * "client_manager" was added alongside a constraint update (see docs).
+ * "client_manager" and later "associate" were each added alongside a constraint
+ * update (see docs 01-access-and-users.md). Until the constraint is widened,
+ * saving that role fails at the DB rather than silently granting it.
  */
-const STAGED_ROLES = ["user", "client_manager", "logistics", "super_user"] as const
+const STAGED_ROLES = [
+  "user",
+  "associate",
+  "client_manager",
+  "logistics",
+  "super_user",
+] as const
 export type StagedRole = (typeof STAGED_ROLES)[number]
 
 /** "None" is represented by the ABSENCE of a row — passed from the client as null. */

@@ -11,7 +11,13 @@ import { setUserRole, setUserDataScopes, type DataScopes } from "./actions"
 import { setViewAsUserAction } from "@/app/view-as-actions"
 
 /** null === "None" (no staged grant). */
-export type RoleValue = "user" | "client_manager" | "logistics" | "super_user" | null
+export type RoleValue =
+  | "user"
+  | "associate"
+  | "client_manager"
+  | "logistics"
+  | "super_user"
+  | null
 
 /**
  * Identity-mapping result for the "Resolves?" indicator — whether a login email
@@ -66,6 +72,7 @@ const SCOPE_FIELDS: { key: keyof Omit<DataScopes, "all">; label: string; title: 
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "None" },
   { value: "user", label: "User" },
+  { value: "associate", label: "Associate" },
   { value: "client_manager", label: "Client Manager" },
   { value: "logistics", label: "Logistics" },
   { value: "super_user", label: "Super User" },
@@ -82,12 +89,15 @@ const ROLE_META: Record<
   super_user: { label: "Super User", rank: 0, bg: "#E6E9F5", text: "#1E2858" },
   logistics: { label: "Logistics", rank: 1, bg: "#E7F1FB", text: "#0355A7" },
   client_manager: { label: "Client Manager", rank: 2, bg: "#F3ECFB", text: "#6B3FA0" },
-  user: { label: "User", rank: 3, bg: "#EAF3EE", text: "#0E7C56" },
+  // Teal tint — the one site colour not already spoken for by another pill.
+  associate: { label: "Associate", rank: 3, bg: "#E3F2F3", text: "#0E8A7C" },
+  user: { label: "User", rank: 4, bg: "#EAF3EE", text: "#0E7C56" },
 }
 
-/** Sort key: granted roles first (Super User → Logistics → Client Manager → User), then None. */
+/** Sort key: granted roles first (Super User → Logistics → Client Manager →
+ *  Associate → User), then None. */
 function rank(role: RoleValue): number {
-  return role === null ? 4 : ROLE_META[role].rank
+  return role === null ? 5 : ROLE_META[role].rank
 }
 
 // Identity-mapping badge colors (reuse the site status palette).

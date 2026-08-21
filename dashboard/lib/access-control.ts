@@ -23,11 +23,26 @@
  */
 
 /**
- * The role vocabulary. Now that the live source is `user_role_grants` (which
- * carries all four), the live roles and the impersonatable roles are the same
- * set — `ViewAsRole` is kept as an alias for the many call sites that use it.
+ * The role vocabulary. The live source is `user_role_grants`, which carries
+ * every value below, so the live roles and the impersonatable roles are the
+ * same set — `ViewAsRole` is kept as an alias for the many call sites that use
+ * it.
+ *
+ * ADDING A ROLE: this union, VIEW_AS_ROLE_OPTIONS and isViewAsRole below,
+ * AssignableRole/ASSIGNABLE_ROLES/seedDefaultAllowed in lib/page-registry.ts,
+ * EDITABLE_ROLES in app/admin/roles/actions.ts, STAGED_ROLES in
+ * app/admin/users/actions.ts, RoleValue/ROLE_OPTIONS/ROLE_META in
+ * app/admin/users/users-view.tsx — and the user_role_grants CHECK constraint in
+ * Supabase. Nothing in canAccessRoute, getAllowedRoutes or proxy.ts enumerates
+ * roles, so gating picks a new role up for free: it is denied everywhere until
+ * the Roles matrix grants it a page.
  */
-export type Role = "super_user" | "user" | "client_manager" | "logistics"
+export type Role =
+  | "super_user"
+  | "user"
+  | "associate"
+  | "client_manager"
+  | "logistics"
 export type ViewAsRole = Role
 
 /** Name of the httpOnly cookie that carries the impersonated ROLE. */
@@ -46,6 +61,7 @@ export const VIEW_AS_ROLE_OPTIONS: readonly { value: ViewAsRole; label: string }
   { value: "super_user", label: "Super User" },
   { value: "client_manager", label: "Client Manager" },
   { value: "logistics", label: "Logistics" },
+  { value: "associate", label: "Associate" },
   { value: "user", label: "User" },
 ] as const
 
@@ -54,6 +70,7 @@ export function isViewAsRole(value: string | null | undefined): value is ViewAsR
   return (
     value === "super_user" ||
     value === "user" ||
+    value === "associate" ||
     value === "client_manager" ||
     value === "logistics"
   )

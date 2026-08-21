@@ -11,7 +11,7 @@ Either way there are **no passwords stored in this app**, and either way your id
 
 Once signed in, access is controlled entirely from **two Admin screens** — no code change needed:
 
-- **Admin → Users** gives each person a **role**: Super User, Client Manager, Logistics, User, or **None**.
+- **Admin → Users** gives each person a **role**: Super User, Client Manager, Logistics, **Associate**, User, or **None**.
 - **Admin → Roles** is a grid that says, for each role, **which pages that role can see**.
 
 So a person's access = *their role* (from the Users page) → *the pages that role is allowed* (from the Roles grid). Put together:
@@ -44,7 +44,7 @@ The **AI client summary** is a separate matter: there is only **one** summary pe
 
 Super-users have two related testing tools, both super-user-only and both invisible to everyone else:
 
-- **View as role** — on the **Admin** page, a small dropdown (Super User / Client Manager / Logistics / User) + **Apply**. Previews an *abstract* role.
+- **View as role** — on the **Admin** page, a small dropdown (Super User / Client Manager / Logistics / Associate / User) + **Apply**. Previews an *abstract* role.
 - **View as person** — on **Admin → Users**, each row has a small **"View as"** button. Previews the app as *that specific person*, using **their** real role. Most people have no role yet, so viewing as them correctly shows the "no access" experience — which is a valid, useful test.
 
 Either way, the whole app — the sidebar and every page — instantly behaves as if you *were* that role/person: pages they can't see disappear and become blocked. A thin **amber banner is pinned across the top of every page** while active — e.g. "👁 Viewing as Jane Smith — Logistics — Exit view", or "👁 Viewing as User (role) — Exit view". The **Exit view** button always returns you to your normal super-user view — even when viewing as someone who can't reach Admin — so you can never get stuck. The two modes are mutually exclusive; starting one clears the other, and Exit clears both.
@@ -61,7 +61,9 @@ To keep a page Super-User-only, leave every other role's box unchecked — that'
 
 ### The roles (now driven by the Admin UI tables)
 
-`Role = "super_user" | "user" | "client_manager" | "logistics"` (`dashboard/lib/access-control.ts`). A person's role is read at request time from **`public.user_role_grants`** by `getRealRole()` (`dashboard/lib/user-role.ts`), keyed by lower-cased email. No grant row → `null` → no access beyond the always-allowed infra routes.
+`Role = "super_user" | "user" | "associate" | "client_manager" | "logistics"` (`dashboard/lib/access-control.ts`). A person's role is read at request time from **`public.user_role_grants`** by `getRealRole()` (`dashboard/lib/user-role.ts`), keyed by lower-cased email. No grant row → `null` → no access beyond the always-allowed infra routes.
+
+**Associate** is a first-class role with **no built-in access of its own**. It is denied everywhere until a super-user ticks boxes for it in the **Admin → Roles** matrix — exactly like User, Client Manager and Logistics, and unlike Super User, which is a hard backstop in code. Nothing in `canAccessRoute`, `getAllowedRoutes` or `proxy.ts` enumerates roles, so Associate is enforced by the same matrix lookup as every other non-super role; `dashboard/lib/access-control.test.ts` pins that down (denied everywhere with no grants, reachable only where the matrix grants it, `/no-access` always reachable, Super still bypassing).
 
 > The old `user_roles` table is left in place as a **backup** but is no longer read. Copy its rows into `user_role_grants` before relying on this (see **Go-live migration** below) — otherwise nobody, not even a super-user, has a role.
 
@@ -155,9 +157,9 @@ The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx
 
 ### Users (Admin → **live**)
 
-`/admin/users` (`dashboard/app/admin/users/`) lists every **active `@roseandco.com`** person from the `users` mirror table (Dynamics system users — filtered `is_active = true` and email ending `@roseandco.com`) and lets a super-user set a role for each: **None** (no grant), **User**, **Client Manager**, **Logistics**, or **Super User**. Each row shows the name (bold) and email on one line; changing a selector saves immediately (with a small updating/saved state).
+`/admin/users` (`dashboard/app/admin/users/`) lists every **active `@roseandco.com`** person from the `users` mirror table (Dynamics system users — filtered `is_active = true` and email ending `@roseandco.com`) and lets a super-user set a role for each: **None** (no grant), **User**, **Associate**, **Client Manager**, **Logistics**, or **Super User**. Each row shows the name (bold) and email on one line; changing a selector saves immediately (with a small updating/saved state).
 
-Granted users **float to the top**, ordered Super User → Logistics → Client Manager → User (each carrying a small colored role pill), with the **None** rows muted below, alphabetical by name. A summary line up top reads e.g. "N users · N granted · N none", and a **"Show granted only"** checkbox hides the None rows so you can review just who's assigned.
+Granted users **float to the top**, ordered Super User → Logistics → Client Manager → Associate → User (each carrying a small colored role pill; Associate's is teal), with the **None** rows muted below, alphabetical by name. A summary line up top reads e.g. "N users · N granted · N none", and a **"Show granted only"** checkbox hides the None rows so you can review just who's assigned.
 
 #### Identity resolution — `public.users.email` only
 
@@ -188,19 +190,19 @@ The table must be created once in the Supabase SQL editor:
 ```sql
 CREATE TABLE IF NOT EXISTS public.user_role_grants (
   email       text PRIMARY KEY,
-  role        text NOT NULL CHECK (role IN ('user','client_manager','logistics','super_user')),
+  role        text NOT NULL CHECK (role IN ('user','associate','client_manager','logistics','super_user')),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text
 );
 ALTER TABLE public.user_role_grants ENABLE ROW LEVEL SECURITY;
 ```
 
-If the table already exists from before **Client Manager** was added, widen its CHECK constraint (run once in the Supabase SQL editor):
+If the table already exists from before **Client Manager** or **Associate** was added, widen its CHECK constraint — this is `sql/22_associate_role.sql`, or run it inline (once, in the Supabase SQL editor). **Associate cannot be saved in Admin → Users until this runs** — the write fails at the database rather than silently granting the role:
 
 ```sql
 ALTER TABLE public.user_role_grants DROP CONSTRAINT IF EXISTS user_role_grants_role_check;
 ALTER TABLE public.user_role_grants ADD CONSTRAINT user_role_grants_role_check
-  CHECK (role IN ('user','client_manager','logistics','super_user'));
+  CHECK (role IN ('user','associate','client_manager','logistics','super_user'));
 ```
 
 Until the table exists, the page renders the full roster with everyone at **None** and shows a notice that saves will fail (the loader treats "table not found" as an empty, non-fatal state).
@@ -351,12 +353,12 @@ Wired into: **Profiles** (`/profiles`, `v_profiles_upcoming` — filtered; a sco
 
 - **Rows** come from a central **page registry** — `PAGE_REGISTRY` in `dashboard/lib/page-registry.ts`, one `{ route, label, section }` entry per navigable page, grouped by nav section. It also feeds `getAllowedRoutes` (route ordering for landing).
 - A final **Data permissions** section adds rows that are **not pages** — today just **Financials** (`DATA_PERMISSIONS` in the same registry). These gate which **fields** a role receives, not which routes it may open; see _The Financials permission_ above. They share `role_page_access` under a `data:`-prefixed key and are written by a separate action.
-- **Columns** are the assignable roles (`ASSIGNABLE_ROLES`): **User**, **Client Manager**, **Logistics**, **Super User**. Each cell is a checkbox — "this role can access this page." The **Super User** column is all-checked and **disabled** (a hard backstop) and is never written.
+- **Columns** are the assignable roles (`ASSIGNABLE_ROLES`): **User**, **Associate**, **Client Manager**, **Logistics**, **Super User**. Each cell is a checkbox — "this role can access this page." The **Super User** column is all-checked and **disabled** (a hard backstop) and is never written.
 - Toggling a cell saves immediately through a super-user-gated server action (`setRolePageAccess`), writing a `public.role_page_access` row.
 
 > **Live — WYSIWYG.** The grid now shows the **true enforced state**: a cell is checked only when a saved `allowed = true` row exists. There are **no pre-checked "seed defaults"** — an unset cell is not granted (default deny), so the grid can never imply access that isn't actually enforced. Changes take effect on the user's **next page load**.
 >
-> `seedDefaultAllowed()` in the registry still documents the *recommended* starting grants (Client Manager → Clients + Institutions; Logistics → Logistics; User → nothing; Super User → everything, backstopped) — it's the reference for the **optional seed** in _Go-live migration_ below, not something the grid shows.
+> `seedDefaultAllowed()` in the registry still documents the *recommended* starting grants (Client Manager → Clients + Institutions; Logistics → Logistics; **Associate → nothing**; User → nothing; Super User → everything, backstopped) — it's the reference for the **optional seed** in _Go-live migration_ below, not something the grid shows.
 
 The table must be created once in the Supabase SQL editor:
 

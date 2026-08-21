@@ -1243,6 +1243,14 @@ export type MarketingEventMeeting = {
 export type ClientTodoTableRow = ClientTodoRow & {
   /** accounts.sales_lead_primary_name — the client's account/Client Manager. */
   client_manager_name: string | null
+  /**
+   * Client status flag + its date, from the SAME source Portfolio's "Status
+   * (latest note)" column reads: v_client_portfolio.note_status /
+   * .note_status_date. Not on v_client_todo, so it is merged in page-side by
+   * account_id, the same pattern client_manager_name uses.
+   */
+  note_status: string | null
+  note_status_date: string | null
 }
 
 /** One open Feedback Reports item, for the To-Do List's Feedback tooltip. */

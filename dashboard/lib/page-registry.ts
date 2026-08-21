@@ -113,7 +113,12 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
  * has access to everything, so its column is all-checked and non-editable and
  * is never written to role_page_access.
  */
-export type AssignableRole = "user" | "client_manager" | "logistics" | "super_user"
+export type AssignableRole =
+  | "user"
+  | "associate"
+  | "client_manager"
+  | "logistics"
+  | "super_user"
 
 export const ASSIGNABLE_ROLES: readonly {
   value: AssignableRole
@@ -121,6 +126,7 @@ export const ASSIGNABLE_ROLES: readonly {
   locked?: boolean
 }[] = [
   { value: "user", label: "User" },
+  { value: "associate", label: "Associate" },
   { value: "client_manager", label: "Client Manager" },
   { value: "logistics", label: "Logistics" },
   { value: "super_user", label: "Super User", locked: true },
@@ -179,6 +185,7 @@ export function isDataPermissionKey(key: string): boolean {
  *   - super_user  → everything (a hard backstop; never written to the table).
  *   - client_manager → all Clients + Institutions pages.
  *   - logistics   → all Logistics pages.
+ *   - associate   → nothing (deny-by-default; set in the Roles matrix).
  *   - user        → nothing (left for an admin to configure).
  */
 export function seedDefaultAllowed(role: AssignableRole, entry: PageEntry): boolean {
@@ -189,6 +196,10 @@ export function seedDefaultAllowed(role: AssignableRole, entry: PageEntry): bool
       return entry.section === "Clients" || entry.section === "Institutions"
     case "logistics":
       return entry.section === "Logistics"
+    // Associate ships with NO default access on purpose: a new role must not
+    // grant anything until a super-user ticks boxes for it in the Roles matrix.
+    case "associate":
+      return false
     case "user":
       return false
   }

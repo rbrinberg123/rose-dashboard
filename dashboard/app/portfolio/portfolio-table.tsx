@@ -16,11 +16,16 @@ import {
 } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { ListTitleCard } from "@/components/page-masthead"
+import { CARD_CLASS } from "@/lib/design"
+// The client-status pill, its severity order and its colour key moved out to a
+// shared module so the To-Do List shows the identical pill. Defined here first;
+// the definitions moved unchanged.
 import {
-  CARD_CLASS,
-  NOTE_STATUS_PILL as NOTE_STATUS_STYLES,
-  NOTE_STATUS_PILL_FALLBACK as NOTE_STATUS_FALLBACK,
-} from "@/lib/design"
+  NOTE_STATUS_ORDER,
+  NOTE_STATUS_RANK,
+  NoteStatusLegend,
+  NoteStatusPill,
+} from "@/components/note-status"
 import { cn } from "@/lib/utils"
 // The grouped-header treatment now lives in one shared module so Portfolio and
 // the To-Do List cannot drift apart. These were all defined locally here first;
@@ -170,41 +175,11 @@ function AccountTeamAvatars({ row }: { row: ClientPortfolioRow }) {
   return <TeamAvatars members={members} />
 }
 
-// Note-status flag colors now live in lib/design.ts (NOTE_STATUS_PILL), imported
-// above as NOTE_STATUS_STYLES so the Portfolio pills and the Client Statistics
-// "Clients by Status" donut share one palette. At Risk = urgent red, Lost = muted
-// gray, Stable/Strong = healthy green, New Client = navy tint; unknown values fall
-// back to gray so a new status surfaces rather than vanishing.
-
-// Sort + filter order, most-urgent first. Drives both the severity sort and the
-// filter dropdown so "At Risk" always surfaces at the top / front.
-const NOTE_STATUS_ORDER = ["At Risk", "Lost", "New Client", "Stable", "Strong"] as const
-const NOTE_STATUS_RANK: Record<string, number> = Object.fromEntries(
-  NOTE_STATUS_ORDER.map((s, i) => [s, i]),
-)
 // Filter sentinel for "client has no note on record".
 const NONE = "__none__"
 
-function NoteStatusPill({
-  status,
-  date,
-}: {
-  status: string | null | undefined
-  date: string | null | undefined
-}) {
-  if (!status) return <span className="text-muted-foreground">—</span>
-  const style = NOTE_STATUS_STYLES[status] ?? NOTE_STATUS_FALLBACK
-  const title = date ? `${status} — as of ${formatShortDate(date)}` : status
-  return (
-    <span
-      title={title}
-      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-      style={{ backgroundColor: style.bg, color: style.fg }}
-    >
-      {status}
-    </span>
-  )
-}
+// NOTE_STATUS_ORDER / NOTE_STATUS_RANK / NoteStatusPill / NoteStatusLegend all
+// live in components/note-status.tsx now — see the import above.
 
 type SortKey =
   | "name"
@@ -748,27 +723,7 @@ export function PortfolioTable({
         <span aria-hidden="true" className="h-5 w-px shrink-0" style={{ backgroundColor: "#D1D7E0" }} />
 
         {/* Note-status color key — mirrors the Status pills (latest client note) */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold text-foreground">Status (latest note):</span>
-          {NOTE_STATUS_ORDER.map((s) => {
-            const style = NOTE_STATUS_STYLES[s]
-            return (
-              <span
-                key={s}
-                style={{
-                  backgroundColor: style.bg,
-                  color: style.fg,
-                  padding: "1px 6px",
-                  borderRadius: "10px",
-                  fontSize: "9px",
-                  fontWeight: 500,
-                }}
-              >
-                {s}
-              </span>
-            )
-          })}
-        </div>
+        <NoteStatusLegend />
       </div>
 
       {/* Filter row */}

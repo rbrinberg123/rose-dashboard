@@ -26,6 +26,13 @@ import {
 import { cn } from "@/lib/utils"
 // Same shared grouped-header the Client Portfolio table renders, so the two
 // read as one system. Nothing about the header is styled locally any more.
+// The client-status pill, its severity order and its colour key — the exact
+// same component Client Portfolio's "Status (latest note)" column renders.
+import {
+  NOTE_STATUS_RANK,
+  NoteStatusLegend,
+  NoteStatusPill,
+} from "@/components/note-status"
 import {
   BODY_SECTION_START_STYLE,
   GradientSweepRow,
@@ -71,11 +78,11 @@ const UPLOAD_AMBER_DAYS = 120
 const UPLOAD_RED_DAYS = 180
 
 // The primary sections, left to right. colSpan must equal each section's column
-// count (1 + 2 + 2 + 5 + 1 + 1 = 12) or the band stops sitting over its own
+// count (2 + 2 + 2 + 5 + 1 + 1 = 13) or the band stops sitting over its own
 // columns and the gradient segment under it lands in the wrong place. No table
 // on this page has frozen columns, so no band is sticky.
 const BANDS: GroupBand[] = [
-  { key: "client", label: "Client", colSpan: 1 },
+  { key: "client", label: "Client", colSpan: 2 },
   { key: "meetings", label: "Meetings", colSpan: 2 },
   { key: "touchpoints", label: "Touchpoints", colSpan: 2 },
   { key: "event", label: "Current & Upcoming Event", colSpan: 5 },
@@ -105,6 +112,7 @@ const PILL = "inline-flex items-center rounded-full px-1.5 py-0 text-[12px] font
 
 type SortKey =
   | "ticker_symbol"
+  | "note_status"
   | "client_name"
   | "meetings_ytd"
   | "meetings_l12m"
@@ -143,6 +151,12 @@ function compareValues(
 /** The value a row sorts by for a given column. */
 function sortValue(r: ClientTodoTableRow, key: SortKey): string | number | null {
   if (key === "open_items") return r.open_reports + r.open_collections
+  // Status sorts by SEVERITY, not alphabetically — the same rank Portfolio's
+  // Status column sorts by, so "At Risk" surfaces first on both pages. A client
+  // with no note returns null and sorts last (compareValues puts nulls last).
+  if (key === "note_status") {
+    return r.note_status ? (NOTE_STATUS_RANK[r.note_status] ?? 99) : null
+  }
   return r[key]
 }
 
@@ -671,6 +685,16 @@ export function TodoTable({
         />
       </div>
 
+      {/* Client-status colour key — the shared legend, styled exactly as
+          Portfolio's. Screen-only, like Portfolio's: it explains the pills, and
+          the printed sheet has no room to spare. */}
+      <div
+        className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-muted-foreground no-print"
+        style={{ fontSize: "11px" }}
+      >
+        <NoteStatusLegend />
+      </div>
+
       {/* Screen-only: the filter/search/export controls are chrome, not report
           content. On paper the print header above states the same filters. */}
       <div className="mb-3 flex flex-wrap items-center gap-2 no-print">
@@ -749,7 +773,7 @@ export function TodoTable({
       <div
         className={`${CARD_CLASS} overflow-hidden [&_[data-slot=table-container]]:max-h-[calc(100vh-15rem)] [&_[data-slot=table-container]]:overflow-y-auto`}
       >
-        <Table className="min-w-[1180px]">
+        <Table className="min-w-[1280px]">
           {/* [&_tr]:border-b-0 cancels the rule TableHeader applies to every row
               inside it — a descendant selector, so it has to be overridden here
               to win. The header draws no full-width horizontal rules: its only
@@ -768,6 +792,14 @@ export function TodoTable({
                   label="Ticker"
                   sortKey="ticker_symbol"
                   title="Client ticker — links to Client Detail; hover for the full client name"
+                  {...headerProps}
+                />
+              </TableHead>
+              <TableHead className="h-7 px-2">
+                <SortHeader
+                  label="Status"
+                  sortKey="note_status"
+                  title="Client status from the latest client note — same field and colours as Client Portfolio"
                   {...headerProps}
                 />
               </TableHead>
@@ -873,7 +905,7 @@ export function TodoTable({
           <TableBody>
             {sorted.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={12} className="h-32 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={13} className="h-32 text-center text-sm text-muted-foreground">
                   {rows.length === 0
                     ? "No active clients."
                     : "No clients match the current search."}
@@ -928,6 +960,12 @@ export function TodoTable({
                       >
                         {r.ticker_symbol ? baseTicker(r.ticker_symbol) : r.client_name}
                       </Link>
+                    </TableCell>
+                    {/* Client status — part of the row's identity, so it sits
+                        inside the Client section next to the ticker. Same pill,
+                        same values, same colours as Portfolio. */}
+                    <TableCell className={CELL}>
+                      <NoteStatusPill status={r.note_status} date={r.note_status_date} />
                     </TableCell>
 
                     {/* Meetings */}

@@ -22,6 +22,10 @@ The page is **client-scoped**. You see a row for every active client **you're on
 
 Access to the page itself is separate from that: it's an independently-grantable row in **Admin → Roles**, so a role can be given the To-Do List without being given Portfolio or Client Detail.
 
+### The status key
+
+A compact **colour key** sits directly above the toolbar, listing the five status pills with their labels so a viewer can read the Status column without guessing. It is the shared `NoteStatusLegend` — the same component and the same 9px pill styling Portfolio's legend row uses. Screen-only (`no-print`), like Portfolio's.
+
 ### The toolbar
 
 - **Client Manager** — narrows the table to one manager's clients. Defaults to **all**. The dropdown lists only managers of clients **you can already see**, so it never reveals who runs an account outside your scope. "Client Manager" here means the client's **account manager** (`accounts.sales_lead_primary_name`), which is owned in the CRM and read-only in the dashboard — this is a filter, not an assignment control.
@@ -41,6 +45,7 @@ Which to use: **Excel** when you want to sort, pivot or re-cut the numbers; **PD
 | **Meetings L12M** | Confirmed meetings held in the **trailing 12 months**, up to today. |
 | **Last Touch** | The date of the client's most recent **CRM touchpoint**. Amber at 60+ days, red at 90+, red "Never" if there has never been one. **Hover or click the date** to see the touchpoint behind it — its type, subject, exact date and time, and owner. |
 | **Last Upload** | The date of the client's most recent completed **Outreach → Data Upload** task. Amber at 120+ days, red at 180+, red "Never" if there has never been one. |
+| **Status** | The client's status flag from their **latest client note** — At Risk · Lost · New Client · Stable · Strong — as a colour pill. It sits in the **Client** section beside the ticker, because it reads as client identity rather than as an activity metric. This is the **same pill, the same five values and the same colours as Client Portfolio's "Status (latest note)"** column: both render `NoteStatusPill` from `dashboard/components/note-status.tsx`, over the palette in `lib/design.ts` (`NOTE_STATUS_PILL`) that the Client Statistics "Clients by Status" donut also reads — so pill, key and chart cannot drift. Hover a pill for the date the status was set. A client with no note on record shows an em dash. Clicking the header sorts by **severity** (At Risk first), not alphabetically — again matching Portfolio. |
 | **Current & Upcoming Event** | The name of the **soonest current-or-upcoming** marketing event, in a deliberately narrow column — long names truncate with an ellipsis and the full name is on hover. The leading ticker is **stripped** from the name ("4DX-AU - Virtual - September, October (TBC)" shows as "Virtual - September, October (TBC)") because the Ticker column already says whose event it is. "None" if there isn't one. |
 | **Status** | That event's stage, as a coloured pill (Pre-Launch, Live Outreach, Meetings Ongoing, Schedule Closed, Preparing Feedback, Complete). |
 | **Date** | That event's meeting window — a single day, or a start–end span. |
@@ -105,7 +110,7 @@ Three cells carry a hover panel (the same group-hover treatment the Capacity cha
 
 **Scoping:** the export is generated client-side from `sorted` — the rows already rendered — and fetches nothing. Those rows came through `resolveClientScope` and `visibleTodoRows` in the loader, so the file can only ever contain clients the viewer is authorised to see.
 
-Thirteen columns, flattened from the interactive cells: Ticker (base form), Meetings YTD, Meetings L12M, Last Touch (CRM), Last Data Upload, Current & Upcoming Event (ticker prefix stripped, as displayed), Event Status, Event Date, Event Meetings, Open Slots, Open Reports, Open Collections, Notes. The header row is bold and frozen, and an autofilter spans it.
+Thirteen columns, flattened from the interactive cells — **note that the Excel export does not carry the Status column**; it is a parallel column list, so the sheet still has the thirteen below rather than the fourteen now on screen: Ticker (base form), Meetings YTD, Meetings L12M, Last Touch (CRM), Last Data Upload, Current & Upcoming Event (ticker prefix stripped, as displayed), Event Status, Event Date, Event Meetings, Open Slots, Open Reports, Open Collections, Notes. The header row is bold and frozen, and an autofilter spans it.
 
 Types are real wherever a real type exists — counts as numbers, the two touchpoint dates as Dates with a `mmm d, yyyy` format — so the sheet sorts and filters natively. Two deliberate choices:
 

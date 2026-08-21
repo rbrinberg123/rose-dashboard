@@ -89,6 +89,18 @@ export default async function ClientToDoPage() {
   let managerQuery = sb.from("accounts").select("account_id, sales_lead_primary_name")
   if (load.mode === "filter") managerQuery = managerQuery.in("account_id", accountIds)
 
+  // Client status flag for the Status pill. Same field and same view Portfolio's
+  // "Status (latest note)" column reads, so the two pages can never disagree
+  // about a client's status. v_client_todo doesn't carry it, so it is one bulk
+  // read merged by account_id — the manager pattern directly above, and the same
+  // scoping: restricted to the accounts this viewer is already entitled to see,
+  // then re-checked against `allowed` on merge. Fail-soft, like the others: a
+  // failed read just leaves every pill as an em dash.
+  let statusQuery = sb
+    .from("v_client_portfolio")
+    .select("account_id, note_status, note_status_date")
+  if (load.mode === "filter") statusQuery = statusQuery.in("account_id", accountIds)
+
   let touchQuery = sb
     .from("touchpoints")
     .select(
@@ -102,12 +114,14 @@ export default async function ClientToDoPage() {
     .limit(5000)
   if (load.mode === "filter") touchQuery = touchQuery.in("client_account_id", accountIds)
 
-  const [reportsRes, collectionsRes, touchRes, managerRes] = await Promise.all([
-    reportsQuery,
-    collectionsQuery,
-    touchQuery,
-    managerQuery,
-  ])
+  const [reportsRes, collectionsRes, touchRes, managerRes, statusRes] =
+    await Promise.all([
+      reportsQuery,
+      collectionsQuery,
+      touchQuery,
+      managerQuery,
+      statusQuery,
+    ])
 
   const allowed = new Set(accountIds)
   const reportsByClient: Record<string, ClientTodoReportDetail[]> = {}
@@ -147,9 +161,20 @@ export default async function ClientToDoPage() {
       sales_lead_primary_name: string | null
     }[]).map((a) => [a.account_id, a.sales_lead_primary_name]),
   )
+  const statusByAccount = new Map(
+    ((statusRes.data ?? []) as {
+      account_id: string
+      note_status: string | null
+      note_status_date: string | null
+    }[])
+      .filter((a) => allowed.has(a.account_id))
+      .map((a) => [a.account_id, a]),
+  )
   const tableRows: ClientTodoTableRow[] = rows.map((r) => ({
     ...r,
     client_manager_name: managerByAccount.get(r.account_id) ?? null,
+    note_status: statusByAccount.get(r.account_id)?.note_status ?? null,
+    note_status_date: statusByAccount.get(r.account_id)?.note_status_date ?? null,
   }))
 
   // Confirmed meetings for the events on screen, so clicking a row's event

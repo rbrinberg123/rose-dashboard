@@ -22,7 +22,12 @@ const PATH = "/admin/roles"
  * proxy, nav, and API guards. A toggle here changes what the role can access on
  * the next page load (see docs 01-access-and-users.md).
  */
-const EDITABLE_ROLES: AssignableRole[] = ["user", "client_manager", "logistics"]
+const EDITABLE_ROLES: AssignableRole[] = [
+  "user",
+  "associate",
+  "client_manager",
+  "logistics",
+]
 
 /**
  * Stage whether `role` may access `route` in public.role_page_access.

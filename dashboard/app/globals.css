@@ -302,6 +302,16 @@
   .todo-print-root tbody td * {
     font-size: 11px !important;
   }
+  /* The client-status pill adds a 13th column to a sheet whose fit was already
+     tight (the doc records ~929px used of a ~979px printable area at twelve).
+     Letting the pill wrap and dropping its horizontal padding on paper costs
+     the column roughly half the width it takes on screen. The pill keeps its
+     fill, so the colour still reads. */
+  .todo-print-root [data-status-pill] {
+    padding-left: 2px !important;
+    padding-right: 2px !important;
+    white-space: normal !important;
+  }
   .todo-print-root .todo-print-note-cell,
   .todo-print-root .todo-print-note {
     white-space: pre-wrap !important;
