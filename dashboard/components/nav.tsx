@@ -48,12 +48,17 @@ type NavSection = {
   // link (`href`, no items) — the category row navigates directly.
   items?: NavItem[]
   href?: string
+  // COLLAPSED RAIL ONLY: the sub-page this section's rail icon links to when
+  // clicked. Must be one of `items`; if the user can't reach it the rail falls
+  // back to the first sub-page they can. The expanded sidebar ignores it.
+  defaultHref?: string
 }
 
 const sections: NavSection[] = [
   {
     label: "Clients",
     icon: Building2,
+    defaultHref: "/portfolio",
     items: [
       { href: "/client-statistics", label: "Statistics" },
       { href: "/portfolio", label: "Portfolio" },
@@ -74,6 +79,7 @@ const sections: NavSection[] = [
   {
     label: "Productivity",
     icon: Users,
+    defaultHref: "/people-statistics",
     items: [
       { href: "/people-statistics", label: "Statistics" },
       { href: "/productivity", label: "Summary" },
@@ -84,6 +90,7 @@ const sections: NavSection[] = [
   {
     label: "Logistics",
     icon: CalendarDays,
+    defaultHref: "/planning-v2",
     items: [
       // The original /planning page is hidden from the nav (route kept, unlinked);
       // "Planning" now points at the former Planning Lab (app/planning-v2).
@@ -499,8 +506,11 @@ function RailIconLink({
   )
 }
 
-/** A rail row for a section with children: icon + a fly-out listing the
- *  section label and every sub-page, so nothing is more than one hover away. */
+/** A rail row for a section with children: the icon is BOTH a link to the
+ *  section's default sub-page AND the trigger for a fly-out listing the section
+ *  label and every sub-page, so nothing is more than one hover away.
+ *  `items` arrives already filtered to routes the user may reach, so the
+ *  default target is picked from that list and can never point at a gated page. */
 function RailSection({
   section,
   current,
@@ -508,23 +518,27 @@ function RailSection({
   section: NavSection & { items: NavItem[] }
   current: string
 }) {
-  const { label, icon: Icon, items } = section
+  const { label, icon: Icon, items, defaultHref } = section
   const active = items.some((item) => isActive(current, item.href))
+  const target =
+    items.find((item) => item.href === defaultHref)?.href ?? items[0].href
   const { open, setOpen, triggerProps, panelProps } = useFlyout()
   const panelId = React.useId()
 
   return (
     <div className="flex justify-center py-[3px]" {...triggerProps}>
-      <button
-        type="button"
+      <Link
+        href={target}
         aria-label={label}
+        aria-current={active ? "page" : undefined}
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
-        onClick={() => setOpen((v) => !v)}
+        // Navigating dismisses the fly-out; hover/focus re-opens it.
+        onClick={() => setOpen(false)}
         {...railIconProps(active)}
       >
         <Icon className="size-[18px]" />
-      </button>
+      </Link>
       {open ? (
         <FlyoutPanel id={panelId} panelProps={panelProps}>
           {/* Navy, not the muted gray the in-rail category labels use — inside
