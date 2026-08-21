@@ -89,13 +89,19 @@ const GROUP_START_STYLE = BODY_SECTION_START_STYLE
 // Every body cell. This table is a dense worklist — a whole client book is meant
 // to be scannable without scrolling — so padding and line-height are squeezed to
 // the point where the pills still read cleanly. Change it here, not per cell.
-const CELL = "px-2 py-0.5 align-middle text-[11px] leading-[1.4]"
+// 12px, one step up from the 11px this shipped at — enough to read
+// comfortably without turning a dense worklist into a sparse one. Deliberately
+// NOT paired with a sub-header bump: 7 of the 12 columns are sized by their
+// HEADER text, not their cell text, so raising the sub-headers costs twice the
+// width for no gain in row legibility (measured +39px vs +19px). py-0.5 is
+// unchanged; the taller line box already rebalances the row on its own.
+const CELL = "px-2 py-0.5 align-middle text-[12px] leading-[1.4]"
 // The five Next-Event cells act as ONE click target that opens the meetings
 // pane, so they highlight together — on hover and while their pane is open.
 const EVENT_CELL_HOVER = "#EEF2FB"
 const EVENT_CELL_SELECTED = "#E3EAF8"
 // Pills inside those cells shed their vertical padding to match.
-const PILL = "inline-flex items-center rounded-full px-1.5 py-0 text-[11px] font-medium"
+const PILL = "inline-flex items-center rounded-full px-1.5 py-0 text-[12px] font-medium"
 
 type SortKey =
   | "ticker_symbol"
@@ -220,7 +226,7 @@ function AgingDateCell({
   const hint = `${label}: ${text} · ${age.toLocaleString()} days ago`
   if (!tone) {
     return (
-      <span className="text-[11px] tabular-nums text-foreground" title={hint}>
+      <span className="text-[12px] tabular-nums text-foreground" title={hint}>
         {text}
       </span>
     )
@@ -306,7 +312,7 @@ function OpenSlotsCell({ open, total }: { open: number | null; total: number | n
   const hint = `${open} of ${total ?? "?"} slots open`
   if (open === 0) {
     return (
-      <span className="text-[11px] tabular-nums text-muted-foreground" title={hint}>
+      <span className="text-[12px] tabular-nums text-muted-foreground" title={hint}>
         0
       </span>
     )
@@ -345,7 +351,7 @@ function FeedbackCell({
 }) {
   if (reports === 0 && collections === 0) {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+      <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground">
         <Check className="size-3.5" style={{ color: "#2D7A2D" }} strokeWidth={3} />
         Clear
       </span>
@@ -477,7 +483,7 @@ function NoteCell({ row }: { row: ClientTodoTableRow }) {
           // Single dense line at rest; it grows on focus so a longer note stays
           // comfortable to type without costing every other row height.
           "w-full min-w-[200px] resize-y rounded border border-transparent bg-transparent px-1.5 py-0.5",
-          "text-[11px] leading-[1.35] focus:h-16",
+          "text-[12px] leading-[1.35] focus:h-16",
           "hover:border-input focus:border-input focus:bg-white focus:outline-none focus:ring-1 focus:ring-ring",
           saving && "opacity-60",
         )}
@@ -972,13 +978,13 @@ export function TodoTable({
                     >
                       {r.next_event_name ? (
                         <div
-                          className="max-w-[150px] truncate text-[11px]"
+                          className="max-w-[150px] truncate text-[12px]"
                           title={r.next_event_name}
                         >
                           {stripTickerPrefix(r.next_event_name, r.ticker_symbol)}
                         </div>
                       ) : (
-                        <span className="text-[11px] text-muted-foreground">None</span>
+                        <span className="text-[12px] text-muted-foreground">None</span>
                       )}
                     </TableCell>
                     <TableCell className={eventCell()} style={eventCellStyle()} {...eventCellProps}>
@@ -994,7 +1000,7 @@ export function TodoTable({
                       )}
                     </TableCell>
                     <TableCell
-                      className={eventCell("whitespace-nowrap text-[11px] tabular-nums")}
+                      className={eventCell("whitespace-nowrap text-[12px] tabular-nums")}
                       style={eventCellStyle()}
                       {...eventCellProps}
                     >

@@ -292,6 +292,16 @@
   .todo-print-root tbody td {
     white-space: normal !important;
   }
+  /* Screen cell type stepped 11px -> 12px for legibility. PAPER STAYS AT 11px.
+     The landscape fit is measured and tight — the 12 columns wrap down to
+     ~929px of a ~979px printable area — so a 9% type bump would eat most of
+     that headroom and push columns off the sheet. The descendant selector is
+     needed because the pills and date spans set their own font-size on
+     themselves, which beats anything inherited from the cell. */
+  .todo-print-root tbody td,
+  .todo-print-root tbody td * {
+    font-size: 11px !important;
+  }
   .todo-print-root .todo-print-note-cell,
   .todo-print-root .todo-print-note {
     white-space: pre-wrap !important;
