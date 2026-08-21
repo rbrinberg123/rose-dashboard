@@ -119,6 +119,17 @@ The desktop sidebar **starts collapsed** as a **58px icon rail**. The `«` / `»
 
 Below `md` the sidebar is replaced by the existing hamburger sheet, which always shows the full nav — the collapse toggle is desktop-only.
 
+### Sectional nav strip — `dashboard/components/section-nav.tsx`
+
+A slim orientation band sits at the **top of every page, above the hero ribbon**: a blue letter-spaced **eyebrow** naming the current section, and under it one **tab per sibling page** in that section. The active page is marked with the brand **blue→teal gradient underline** (`RAIL_ACCENT_UNDERLINE` — the same token behind the rail fly-out's rule and the masthead accent strip); inactive tabs are muted and darken on hover.
+
+It is **one shared component with a single mount point** — `<SectionNav />` in `dashboard/app/layout.tsx`, rendered inside `<main>` just above `{children}`. No page opts in, and no page carries section-nav logic of its own. To remove the feature: delete `section-nav.tsx` and drop that one line plus its import.
+
+- **Data-driven, never hardcoded.** The strip derives its list from the *same* `sections` array and the *same* `canAccessRoute` filter the sidebar renders from, re-exported as `visibleNavSections` / `isNavRouteActive`. Add a page to the nav and its tab appears everywhere in that section with no further edit.
+- **Access-gated identically to the sidebar.** Tabs come from the already-filtered item list, so the strip can never offer a page the proxy would block — a user granted 2 of Logistics' 9 pages sees exactly those 2 tabs.
+- **Hidden when it would be noise.** No strip on a section with fewer than **2** reachable pages (no lone tab), and none on a page that isn't a nav section's child — so `/admin`, `/login`, `/no-access`, the drill-in detail pages (`/institution-detail`, `/institution-style`), the unlinked `/planning`, and the unlinked finance routes all render without one. The two direct-link sections (Institutions, Contracts) carry no child items and so never show a strip either.
+- **Active match** uses the sidebar's own ancestor rule, keeping the **longest** match so `/clients/to-do` marks *To-Do List* rather than a shorter sibling prefix.
+
 ### View as (super-user testing mode)
 
 A super-user can preview the app as an abstract **role** or as a specific **person**. It is built on a clean split between the caller's **real** identity/role and the **effective** identity/role:

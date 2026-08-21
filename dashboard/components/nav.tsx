@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils"
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_EXPANDED_WIDTH,
+  TOP_BAR_HEIGHT,
   persistSidebarCollapsed,
 } from "@/lib/sidebar"
 import {
@@ -116,15 +117,22 @@ const sections: NavSection[] = [
   },
 ]
 
-/** A route is "current" when it matches exactly or is an ancestor of the path. */
+/** A route is "current" when it matches exactly or is an ancestor of the path.
+ *  Exported as `isNavRouteActive` for `components/section-nav.tsx`, so the
+ *  top-of-page strip marks the active tab by exactly the rule the sidebar uses. */
 function isActive(current: string, href: string) {
   return current === href || current.startsWith(href + "/")
 }
+export { isActive as isNavRouteActive }
 
 /**
  * Drive visibility off the SAME allowed-routes set the proxy enforces with, so
  * the nav and the security gate can never disagree. Filter items the user can't
  * access, then drop any section left with no items (no empty headers).
+ *
+ * Exported as `visibleNavSections` for `components/section-nav.tsx` — the
+ * top-of-page strip lists a section's siblings from this same filtered result,
+ * so it can never show a tab the sidebar would hide.
  */
 function visibleSections(
   role: ViewAsRole | null,
@@ -145,6 +153,8 @@ function visibleSections(
         : section.items.length > 0,
     )
 }
+
+export { visibleSections as visibleNavSections }
 
 function Section({
   section,
@@ -883,11 +893,19 @@ export function Sidebar({
       >
         {/* Logo header, faint bottom divider — the full lockup shrinks to the
             square IQ mark on the rail. Nothing sits above it: the collapse
-            toggle lives down in the footer so the top stays clean. */}
+            toggle lives down in the footer so the top stays clean.
+
+            COLLAPSED takes its height from TOP_BAR_HEIGHT rather than padding,
+            so the rail's logo box and the page's sectional-nav strip are the
+            same height by construction. `items-center` keeps the 40px IQ mark
+            centred in whatever that height is. EXPANDED keeps its padding-driven
+            height: the full lockup is 160x98, far taller than the band, so
+            forcing it into TOP_BAR_HEIGHT would shrink the wordmark. */}
         <div
+          style={collapsed ? { height: TOP_BAR_HEIGHT } : undefined}
           className={cn(
             "flex items-center justify-center border-b border-[#EDEFF3] bg-white",
-            collapsed ? "px-2 py-3" : "px-4 pb-4 pt-5",
+            collapsed ? "px-2" : "px-4 pb-4 pt-5",
           )}
         >
           {collapsed ? <BrandMark /> : <Brand />}

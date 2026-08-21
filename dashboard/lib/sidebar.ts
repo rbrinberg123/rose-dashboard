@@ -11,6 +11,18 @@ export const SIDEBAR_COLLAPSED_COOKIE = "sidebar_collapsed"
 
 /** Icon-rail width, in px — fits a 40px icon button plus 9px of gutter. */
 export const SIDEBAR_COLLAPSED_WIDTH = 58
+/**
+ * Height, in px, of the top band — shared by the rail's IQ logo box and the
+ * page's sectional-nav strip so the two line up across the top of the app.
+ *
+ * Deliberately DERIVED from the rail width rather than given its own number:
+ * that makes the logo box a true square (rail width x rail width) at the
+ * top-left corner, and keeps the band and the rail in sync if the rail is ever
+ * resized. Both surfaces are border-box and carry the same 1px bottom rule, so
+ * their rules land on the same line.
+ */
+export const TOP_BAR_HEIGHT = SIDEBAR_COLLAPSED_WIDTH
+
 /** Full width, in px — matches the original `w-64`. */
 export const SIDEBAR_EXPANDED_WIDTH = 256
 

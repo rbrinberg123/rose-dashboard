@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { cookies } from "next/headers"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Sidebar } from "@/components/nav"
+import { SectionNav } from "@/components/section-nav"
 import { ViewAsBanner } from "@/components/view-as-banner"
 import { TeamInitialsProvider } from "@/components/team-initials-context"
 import { Toaster } from "@/components/ui/sonner"
@@ -105,7 +106,14 @@ export default async function RootLayout({
               allowedRoutes={allowedRoutes}
               defaultCollapsed={sidebarCollapsed}
             />
-            <main className="flex-1 overflow-x-hidden">{children}</main>
+            <main className="flex-1 overflow-x-hidden">
+              {/* Sectional nav strip — the ONE mount point. It renders itself
+                  to null on any page that isn't a multi-page nav section, so
+                  no page has to opt in or out. Remove this line + the import
+                  to drop the feature entirely. */}
+              <SectionNav role={role} allowedRoutes={allowedRoutes} />
+              {children}
+            </main>
           </div>
         </TeamInitialsProvider>
         <Toaster richColors position="top-right" />
