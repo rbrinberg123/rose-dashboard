@@ -233,7 +233,8 @@
      is what keeps rows inside the curve while scrolling). On paper that clip is
      a guillotine — it crops the overflow instead of reflowing it, and would
      also cut the table at the first page break rather than paginating. */
-  .portfolio-print-root .overflow-hidden {
+  .portfolio-print-root .overflow-hidden,
+  .todo-print-root .overflow-hidden {
     overflow: visible !important;
   }
   /* 2. Client / Status / Team are frozen columns on screen, sized by hard
@@ -274,9 +275,9 @@
   }
 
   /* --- To-Do List specifics --------------------------------------------- */
-  /* The table sits inside a card that is itself an overflow-x-auto scroller;
-     `overflow-x: auto` computes overflow-y to auto too, which would clip the
-     rows to one screenful instead of paginating. */
+  /* Any remaining sideways scroller inside the To-Do card. The card ITSELF now
+     clips with overflow-hidden (Portfolio's rounded-corner scroll fix) and is
+     released by the shared rule above; this covers anything nested. */
   .todo-print-root .overflow-x-auto {
     overflow: visible !important;
   }

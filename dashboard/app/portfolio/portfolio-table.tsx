@@ -17,15 +17,22 @@ import {
 import { Input } from "@/components/ui/input"
 import { ListTitleCard } from "@/components/page-masthead"
 import {
-  BRAND_BLUE,
-  BRAND_NAVY,
   CARD_CLASS,
-  DEEP_TEAL,
-  GROUP_RULE_HEIGHT,
   NOTE_STATUS_PILL as NOTE_STATUS_STYLES,
   NOTE_STATUS_PILL_FALLBACK as NOTE_STATUS_FALLBACK,
 } from "@/lib/design"
 import { cn } from "@/lib/utils"
+// The grouped-header treatment now lives in one shared module so Portfolio and
+// the To-Do List cannot drift apart. These were all defined locally here first;
+// the definitions moved out unchanged.
+import {
+  BODY_SECTION_START_STYLE,
+  GradientSweepRow,
+  GroupBandRow,
+  SUBHEADER_BG,
+  SectionDivider,
+  type GroupBand,
+} from "@/components/table-group-header"
 import { DaysLeftPill, AutoRenewFlag, ContractDash } from "@/components/contract-fields"
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { EXPIRY_BUCKETS, EXPIRY_BUCKET_BY_KEY } from "@/lib/contract-expiry"
@@ -51,142 +58,6 @@ const RED = "#C53030"
 // made the group heading the heaviest thing in the header, which is not where
 // the eye should go.
 //
-// The light rule colour — THE one value for every rule on this table: the
-// vertical section dividers in the data rows, the hairline under each group
-// label, and the header's vertical section dividers (see SectionDivider).
-const GROUP_DIVIDER = "#EEF0F4"
-/** Vertical section divider for the DATA rows. */
-const BODY_SECTION_START_STYLE: React.CSSProperties = {
-  borderLeft: `1px solid ${GROUP_DIVIDER}`,
-}
-/**
- * Vertical divider between primary sections in the HEADER — the line running
- * down each white gutter, from the top of the group-label row to the gradient
- * bar that closes the header.
- *
- * Rendered as its own absolutely-positioned element, NOT as the cell's
- * border-left, because a cell-edge border DOES NOT PAINT up here. The table is
- * `border-collapse: collapse` (Tailwind Preflight sets it), which makes cell
- * borders part of the TABLE's border grid rather than of the cell itself — and
- * the header is a `sticky` <thead> carrying an opaque `bg-card` fill, so it
- * paints in its own layer on top of that grid and covers the line. The border
- * computed perfectly (1px solid, correct colour, correct x); it was just
- * buried. The BODY dividers are cell borders and are fine, because those cells
- * sit inside no sticky, opaque-filled ancestor.
- *
- * One segment per header ROW rather than one tall element: an absolutely
- * positioned child takes BOTH axes from the same containing block, and the <th>
- * is static — so anchoring vertically to the sticky <thead> (the nearest
- * positioned ancestor, and the only box that knows the full header height)
- * would drag the horizontal anchor there too and lose the cell's x. Per-row
- * segments stack seamlessly and need no hard-coded header height.
- *
- * `left: -0.5px` + `1px` wide straddles the cell boundary, which is the exact
- * midpoint of the white gutter: the gutter is the inset (SECTION_GUTTER_CLASS +
- * the cell's own px) taken off BOTH sides of that shared boundary.
- *
- * Drawn in GROUP_DIVIDER itself, not a darker relative of it, so every rule on
- * the table — these, the data-row column dividers, the hairline under the group
- * labels — is literally the same value and cannot drift.
- */
-function SectionDivider() {
-  return (
-    <span
-      aria-hidden="true"
-      className="pointer-events-none absolute inset-y-0 w-px"
-      style={{ left: "-0.5px", backgroundColor: GROUP_DIVIDER }}
-    />
-  )
-}
-/** Thickness of the gradient bars closing the header. Heavier than the hairline
- *  under the group labels — this is the header/body boundary, so it reads as a
- *  deliberate bar rather than a rule — but only just.
- *
- *  NOT a local number: it is the shared GROUP_RULE_HEIGHT, the same value
- *  Planning V2's group-band rule renders at, so the two grouped table headers
- *  carry identical weight. Retune it in lib/design.ts, which moves both. */
-const SWEEP_HEIGHT = GROUP_RULE_HEIGHT
-// h-8 (32px) is the band's height, and the label is centred inside it by the
-// inner div (see GROUP_LABEL_CLASS) rather than by the cell. The cell keeps
-// align-bottom only so that inner div — which carries the hairline as its
-// bottom border — stays pinned to the bottom of the band.
-const GROUP_BAND_CLASS =
-  "h-8 px-1.5 align-bottom text-center text-[11px] font-semibold uppercase tracking-wider"
-/**
- * The group label's own box: full band height, text centred in it, hairline on
- * its bottom edge.
- *
- * `align-bottom` on the cell alone left ALL the slack above the text and none
- * below, so the label sat right on top of the hairline. Stretching this div to
- * the band's full height and centring with flex splits that slack evenly, which
- * is what puts the label in the middle of its band. It also self-adjusts: change
- * h-8 and the label re-centres instead of needing a hand-tuned padding.
- */
-const GROUP_LABEL_CLASS = "flex h-full items-center justify-center"
-const GROUP_BAND_STYLE: React.CSSProperties = {
-  color: BRAND_NAVY,
-}
-/**
- * The white gutter between sections in the HEADER. `mx-1` on top of the cell's
- * own `px-1.5` gives ~10px of air each side of a boundary, i.e. a ~20px white
- * gap between one section's gradient segment and the next.
- *
- * This is now the ONLY thing dividing the header's sections — there is no
- * vertical rule and no hairline under the labels. The gradient bar carries the
- * same inset, so the gutters in the bar are what you actually read the section
- * boundaries from.
- */
-const SECTION_GUTTER_CLASS = "mx-1"
-
-/**
- * Thin rule under each group label, separating it from the sub-column headers.
- *
- * Carried by an INSET inner element rather than the cell's own border-bottom,
- * so it stops short of the cell edges and the white gutters break it into one
- * short line per section instead of one rule running the table's width. It uses
- * the same SECTION_GUTTER_CLASS inset as the gradient bar below, so the two
- * rows' segments start and end on exactly the same x positions.
- */
-const GROUP_LABEL_UNDERLINE_STYLE: React.CSSProperties = {
-  borderBottom: `1px solid ${GROUP_DIVIDER}`,
-}
-
-/**
- * The header/body boundary rule: one continuous navy → blue → teal sweep read
- * left to right across the full table width, drawn as one segment per group so
- * each segment sits exactly over its own columns.
- *
- * The first band always carries navy → blue; the remaining bands share blue →
- * teal evenly, so the sweep always starts on navy and lands exactly on teal at
- * the right edge no matter how many sections are toggled on. Because adjacent
- * segments share a stop — segment i ends on sweepStop(i+1) and segment i+1
- * begins there — the handoffs are invisible and the whole thing reads as one
- * bar. That is also why the segments are NOT rounded and carry no left divider:
- * either would notch the sweep at every group boundary.
- *
- * Composed from the brand tokens (not written as hex) and ending on the same
- * DEEP_TEAL the Planning header ends on, so the two tables stay in step.
- */
-function sweepStop(i: number, total: number): string {
-  if (total <= 1) return DEEP_TEAL
-  if (i <= 0) return BRAND_NAVY
-  if (i === 1) return BRAND_BLUE
-  const pct = Math.round(((i - 1) / (total - 1)) * 100)
-  return `color-mix(in srgb, ${DEEP_TEAL} ${pct}%, ${BRAND_BLUE})`
-}
-
-function bandRule(i: number, total: number): string {
-  return `linear-gradient(90deg, ${sweepStop(i, total)}, ${sweepStop(i + 1, total)})`
-}
-// The second header tier (the column-labels row) is plain card white, same as the
-// band row above it — the header reads as one unshaded block, with the gradient
-// sweep at the bottom doing the separating from the data instead of a tint.
-//
-// It still needs an EXPLICIT background rather than transparent: this row's
-// Client/Status/Team cells are frozen, so without an opaque fill the body columns
-// would scroll visibly underneath them.
-const SUBHEADER_BG = "var(--card)"
-
 // Toggleable column sections, in table order. Core (Client + Account Team) is
 // always shown and not in this list — it's the locked identity group. `cols` is
 // the column count, used for the band colSpan and the empty-state colSpan.
@@ -598,8 +469,8 @@ export function PortfolioTable({
   // cells and their position in the gradient sweep, so the ramp stays continuous
   // whichever sections are toggled on. colSpan must equal each band's visible
   // column count or the band stops sitting over its own columns.
-  const visibleBands: { key: string; label: string; colSpan: number }[] = [
-    { key: "core", label: "Client", colSpan: 3 },
+  const visibleBands: GroupBand[] = [
+    { key: "core", label: "Client", colSpan: 3, sticky: true },
     ...(show.classification
       ? [{ key: "classification", label: "Classification", colSpan: 3 }]
       : []),
@@ -1197,28 +1068,7 @@ export function PortfolioTable({
                 but drew a full-width rule under the group labels AND under the
                 sub-column labels. The label underline below replaces the first
                 of those with a per-section, inset version. */}
-            <TableRow className="bg-card border-b-0">
-              {visibleBands.map((band) => (
-                <TableHead
-                  key={band.key}
-                  colSpan={band.colSpan}
-                  className={cn(GROUP_BAND_CLASS, "relative")}
-                  style={
-                    band.key === "core"
-                      ? { ...GROUP_BAND_STYLE, position: "sticky", left: 0, zIndex: 30 }
-                      : GROUP_BAND_STYLE
-                  }
-                >
-                  {band.key !== "core" && <SectionDivider />}
-                  <div
-                    className={cn(SECTION_GUTTER_CLASS, GROUP_LABEL_CLASS)}
-                    style={GROUP_LABEL_UNDERLINE_STYLE}
-                  >
-                    {band.label}
-                  </div>
-                </TableHead>
-              ))}
-            </TableRow>
+            <GroupBandRow bands={visibleBands} />
             <TableRow className="border-b-0" style={{ backgroundColor: SUBHEADER_BG }}>
               {/* Core — frozen left */}
               <TableHead
@@ -1407,33 +1257,7 @@ export function PortfolioTable({
                 Client segment is sticky-left like the cells above it, so it
                 holds position when the frozen columns slide over the rest on
                 horizontal scroll. */}
-            <TableRow className="border-b-0">
-              {visibleBands.map((band, i) => (
-                <TableHead
-                  key={`sweep-${band.key}`}
-                  colSpan={band.colSpan}
-                  aria-hidden="true"
-                  className="h-auto px-1.5 align-top"
-                  style={{
-                    height: SWEEP_HEIGHT,
-                    lineHeight: 0,
-                    paddingTop: 0,
-                    paddingBottom: 0,
-                    ...(band.key === "core"
-                      ? { position: "sticky", left: 0, zIndex: 30 }
-                      : null),
-                  }}
-                >
-                  <div
-                    className={cn(SECTION_GUTTER_CLASS, "rounded-full")}
-                    style={{
-                      height: SWEEP_HEIGHT,
-                      backgroundImage: bandRule(i, visibleBands.length),
-                    }}
-                  />
-                </TableHead>
-              ))}
-            </TableRow>
+            <GradientSweepRow bands={visibleBands} />
           </TableHeader>
           <TableBody>
             {sortedRows.length === 0 ? (

@@ -24,6 +24,16 @@ import {
   STATUS_PILL_LIGHT,
 } from "@/lib/design"
 import { cn } from "@/lib/utils"
+// Same shared grouped-header the Client Portfolio table renders, so the two
+// read as one system. Nothing about the header is styled locally any more.
+import {
+  BODY_SECTION_START_STYLE,
+  GradientSweepRow,
+  GroupBandRow,
+  SUBHEADER_BG,
+  SectionDivider,
+  type GroupBand,
+} from "@/components/table-group-header"
 import {
   baseTicker,
   formatDay,
@@ -60,18 +70,21 @@ const TOUCH_RED_DAYS = 90
 const UPLOAD_AMBER_DAYS = 120
 const UPLOAD_RED_DAYS = 180
 
-// Two-tier header bands — same treatment as Portfolio / Onboarding.
-const BAND_BG = "#DDE1E8"
-const GROUP_BAND_CLASS =
-  "rounded-t-md h-8 px-3 text-center text-[11px] font-semibold uppercase tracking-wider text-[#1A2233]"
-const GROUP_BAND_STYLE: React.CSSProperties = { backgroundColor: BAND_BG }
-const GROUP_BAND_SEP_STYLE: React.CSSProperties = {
-  ...GROUP_BAND_STYLE,
-  borderLeft: "3px solid var(--card)",
-}
-const GROUP_DIVIDER = "#EEF0F4"
-const GROUP_START_STYLE: React.CSSProperties = { borderLeft: `1px solid ${GROUP_DIVIDER}` }
-const SUBHEADER_BG = "#F7F8FA"
+// The primary sections, left to right. colSpan must equal each section's column
+// count (1 + 2 + 2 + 5 + 1 + 1 = 12) or the band stops sitting over its own
+// columns and the gradient segment under it lands in the wrong place. No table
+// on this page has frozen columns, so no band is sticky.
+const BANDS: GroupBand[] = [
+  { key: "client", label: "Client", colSpan: 1 },
+  { key: "meetings", label: "Meetings", colSpan: 2 },
+  { key: "touchpoints", label: "Touchpoints", colSpan: 2 },
+  { key: "event", label: "Current & Upcoming Event", colSpan: 5 },
+  { key: "feedback", label: "Feedback", colSpan: 1 },
+  { key: "notes", label: "Notes", colSpan: 1 },
+]
+// Vertical section divider for the DATA rows — unchanged, and now the same
+// shared value the header rules use.
+const GROUP_START_STYLE = BODY_SECTION_START_STYLE
 
 // Every body cell. This table is a dense worklist — a whole client book is meant
 // to be scannable without scrolling — so padding and line-height are squeezed to
@@ -715,35 +728,35 @@ export function TodoTable({
         </div>
       </div>
 
+      {/* Portfolio's scroll fix, verbatim. The shared <Table> renders its own
+          [data-slot=table-container] wrapper with overflow-x:auto, which forces
+          overflow-y to compute to auto too — so `sticky top-0` on the thead
+          sticks to THAT wrapper, and with an unbounded wrapper height it never
+          engages at all. Bounding the height is what makes the sticky header
+          actually work.
+
+          overflow-hidden is what keeps the card's corners: it clips the
+          scrolling table to the 14px radius so rows pass BEHIND the curve. It
+          replaces the two rounded-*-[14px] rules that used to round the first
+          and last HEADER CELLS — those only looked right at the top of the
+          scroll, and did nothing for the bottom corners at all. */}
       <div
-        className={`overflow-x-auto ${CARD_CLASS} [&_thead_tr:first-child_th:first-child]:rounded-tl-[14px] [&_thead_tr:first-child_th:last-child]:rounded-tr-[14px]`}
+        className={`${CARD_CLASS} overflow-hidden [&_[data-slot=table-container]]:max-h-[calc(100vh-15rem)] [&_[data-slot=table-container]]:overflow-y-auto`}
       >
         <Table className="min-w-[1180px]">
-          <TableHeader className="sticky top-0 z-20 bg-card">
-            {/* Top tier: group bands. */}
-            <TableRow className="bg-card">
-              <TableHead colSpan={1} className={GROUP_BAND_CLASS} style={GROUP_BAND_STYLE}>
-                Client
-              </TableHead>
-              <TableHead colSpan={2} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
-                Meetings
-              </TableHead>
-              <TableHead colSpan={2} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
-                Touchpoints
-              </TableHead>
-              <TableHead colSpan={5} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
-                Current & Upcoming Event
-              </TableHead>
-              <TableHead colSpan={1} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
-                Feedback
-              </TableHead>
-              <TableHead colSpan={1} className={GROUP_BAND_CLASS} style={GROUP_BAND_SEP_STYLE}>
-                Notes
-              </TableHead>
-            </TableRow>
+          {/* [&_tr]:border-b-0 cancels the rule TableHeader applies to every row
+              inside it — a descendant selector, so it has to be overridden here
+              to win. The header draws no full-width horizontal rules: its only
+              two lines are per-section and inset (the label underline and the
+              gradient bar), both broken by the white gutters.
+              [&_th]:bg-card makes the header opaque AT CELL LEVEL, which is what
+              stops rows showing through it on vertical scroll. */}
+          <TableHeader className="sticky top-0 z-20 bg-card [&_tr]:border-b-0 [&_th]:bg-card">
+            {/* Tier 1: unfilled navy section bands (shared with Portfolio). */}
+            <GroupBandRow bands={BANDS} />
 
-            {/* Second tier: sortable column labels. */}
-            <TableRow style={{ backgroundColor: SUBHEADER_BG }}>
+            {/* Tier 2: sortable column labels on plain card white. */}
+            <TableRow className="border-b-0" style={{ backgroundColor: SUBHEADER_BG }}>
               <TableHead className="h-7 px-2">
                 <SortHeader
                   label="Ticker"
@@ -753,7 +766,8 @@ export function TodoTable({
                 />
               </TableHead>
 
-              <TableHead className="h-7 px-2" style={GROUP_START_STYLE}>
+              <TableHead className="relative h-7 px-2">
+                <SectionDivider />
                 <SortHeader
                   label="YTD"
                   sortKey="meetings_ytd"
@@ -772,7 +786,8 @@ export function TodoTable({
                 />
               </TableHead>
 
-              <TableHead className="h-7 px-2" style={GROUP_START_STYLE}>
+              <TableHead className="relative h-7 px-2">
+                <SectionDivider />
                 <SortHeader
                   label="Last Touch"
                   sortKey="last_touch_date"
@@ -789,7 +804,8 @@ export function TodoTable({
                 />
               </TableHead>
 
-              <TableHead className="h-7 px-2" style={GROUP_START_STYLE}>
+              <TableHead className="relative h-7 px-2">
+                <SectionDivider />
                 <SortHeader
                   label="Current & Upcoming Event"
                   sortKey="next_event_name"
@@ -826,7 +842,8 @@ export function TodoTable({
                 />
               </TableHead>
 
-              <TableHead className="h-7 px-2" style={GROUP_START_STYLE}>
+              <TableHead className="relative h-7 px-2">
+                <SectionDivider />
                 <SortHeader
                   label="Open Items"
                   sortKey="open_items"
@@ -836,10 +853,15 @@ export function TodoTable({
                 />
               </TableHead>
 
-              <TableHead className="h-7 px-2" style={GROUP_START_STYLE}>
+              <TableHead className="relative h-7 px-2">
+                <SectionDivider />
                 <SortHeader label="Notes" sortKey="note" {...headerProps} />
               </TableHead>
             </TableRow>
+
+            {/* Tier 3: the segmented blue→teal sweep at the header/body
+                boundary (shared with Portfolio). */}
+            <GradientSweepRow bands={BANDS} />
           </TableHeader>
 
           <TableBody>

@@ -12,6 +12,8 @@ It is a **worklist**, not a report. The colours are the point:
 
 Sort by any column (click the header), filter to one **Client Manager**, search by client, ticker, or event name, and scroll sideways for the later columns. The default order is **client name A–Z** — note that this is the client's full *name*, not its ticker, so the tickers won't read alphabetically on first load (Aker BP's `AKRBP-NO` sorts before Alamos Gold's `AGI-CA`). Click **Ticker** to sort by ticker instead.
 
+**The column header now matches Client Portfolio**, from the shared `dashboard/components/table-group-header.tsx`: white bands with navy small-caps section labels (Client · Meetings · Touchpoints · Current & Upcoming Event · Feedback · Notes) — no grey fills — separated by white gutters, a plain white sub-column row, and one continuous navy→blue→teal sweep at the header/body boundary broken into a segment per section. The header is sticky and opaque, and the card clips to its rounded corners so rows scroll behind the curve.
+
 Rows are deliberately dense — this is meant to be a whole client book you can scan without scrolling. The note box sits on one line at rest and grows when you click into it.
 
 ### Who sees what
@@ -129,7 +131,7 @@ Because it prints the **rendered** table, the export inherits everything for fre
 What the print rules have to undo, and why:
 
 - **Landscape** (`@page { size: landscape }`) and `print-color-adjust: exact`, or browsers strip the pill fills.
-- `thead { display: table-header-group; position: static }` — repeats the two-tier header on **every page** and drops the sticky positioning that would otherwise pin it.
+- `thead { display: table-header-group; position: static }` — repeats the three-tier header on **every page** and drops the sticky positioning that would otherwise pin it.
 - `min-width: 0` and `font-size: 8px` on the table, plus the card's `overflow-x-auto` forced to `visible` — on screen the table has a 1180px no-squish floor inside a sideways scroller; on paper there is no sideways, so that floor would run off the sheet and the scroller would clip the rows to one screenful instead of paginating.
 - **`white-space: normal` on every `th` and `td`.** This is the rule that actually fits the table to the page. Every cell is `nowrap` on screen, and those runs become the table's minimum width — with them the 12 columns need ~1045px, which overflows a landscape Letter sheet's ~979px printable area. Letting the long ones ("Current & Upcoming Event", an event date span) take two lines brings it to ~929px, inside both Letter and A4. The event name also drops its 150px ellipsis truncation, since hover doesn't exist on paper.
 - **Notes gets `width: 20%`.** It's the only free-text column, so once every other column is sized to its content it would otherwise collapse to a ~57px sliver.
