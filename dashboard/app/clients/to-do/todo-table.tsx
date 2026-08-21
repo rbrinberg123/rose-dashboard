@@ -685,16 +685,6 @@ export function TodoTable({
         />
       </div>
 
-      {/* Client-status colour key — the shared legend, styled exactly as
-          Portfolio's. Screen-only, like Portfolio's: it explains the pills, and
-          the printed sheet has no room to spare. */}
-      <div
-        className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-muted-foreground no-print"
-        style={{ fontSize: "11px" }}
-      >
-        <NoteStatusLegend />
-      </div>
-
       {/* Screen-only: the filter/search/export controls are chrome, not report
           content. On paper the print header above states the same filters. */}
       <div className="mb-3 flex flex-wrap items-center gap-2 no-print">
@@ -711,6 +701,21 @@ export function TodoTable({
             </option>
           ))}
         </select>
+
+        {/* Client-status colour key — inline in the toolbar, immediately right
+            of the Client Manager filter. It is ONE flex child of a flex-wrap
+            row, so when the row runs out of width it drops whole onto the next
+            line instead of overflowing; `min-w-0` is what lets it shrink far
+            enough to do that rather than forcing the row wider, and its own
+            flex-wrap reflows the pills within whatever line it lands on. The
+            toolbar's `no-print` covers it, so it stays screen-only as before.
+            Same shared legend Portfolio renders. */}
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground"
+          style={{ fontSize: "11px" }}
+        >
+          <NoteStatusLegend />
+        </div>
 
         {/* Right-hand cluster — kept in its own flex box so the count, search
             and Export stay together and Export is always the last (top-right)
