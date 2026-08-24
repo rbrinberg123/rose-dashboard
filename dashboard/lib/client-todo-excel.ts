@@ -63,10 +63,19 @@ export async function buildClientTodoWorkbook(rows: ClientTodoTableRow[]) {
   const ws = wb.addWorksheet("To-Do List")
 
   const DATE_FMT = "mmm d, yyyy"
+  // Left to right in the SAME order as the on-screen table, so someone reading
+  // the sheet beside the page never has to re-map columns. Headers are spelled
+  // out rather than copying the table's abbreviations: the screen shortens them
+  // to keep 15 columns inside one viewport, a constraint a spreadsheet with
+  // explicit widths and a filter row does not have. "Client Status" rather than
+  // the table's bare "Status" because "Event Status" is also in this list, and
+  // in a flat sheet there is no section band left to tell the two apart.
   ws.columns = [
     { header: "Ticker", key: "ticker", width: 12 },
+    { header: "Client Status", key: "clientStatus", width: 14 },
     { header: "Meetings YTD", key: "ytd", width: 14 },
     { header: "Meetings L12M", key: "l12m", width: 15 },
+    { header: "Meetings Upcoming", key: "upcoming", width: 18 },
     { header: "Last Touch (CRM)", key: "lastTouch", width: 18, style: { numFmt: DATE_FMT } },
     { header: "Last Data Upload", key: "lastUpload", width: 18, style: { numFmt: DATE_FMT } },
     { header: "Current & Upcoming Event", key: "eventName", width: 42 },
@@ -83,8 +92,13 @@ export async function buildClientTodoWorkbook(rows: ClientTodoTableRow[]) {
     const hasEvent = Boolean(r.next_event_id)
     ws.addRow({
       ticker: r.ticker_symbol ? baseTicker(r.ticker_symbol) : "",
+      // The pill's label as plain text — NoteStatusPill renders note_status
+      // verbatim, so the two can't disagree. No note on record is the screen's
+      // em dash, which is blank here, like every other unknown in this sheet.
+      clientStatus: r.note_status ?? "",
       ytd: r.meetings_ytd,
       l12m: r.meetings_l12m,
+      upcoming: r.meetings_upcoming,
       // null (never touched / never uploaded) leaves the cell empty.
       lastTouch: dayToDate(r.last_touch_date),
       lastUpload: dayToDate(r.last_data_upload_date),

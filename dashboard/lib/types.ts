@@ -1191,10 +1191,23 @@ export type ClientTodoRow = {
   account_id: string
   ticker_symbol: string | null
   client_name: string
-  /** Confirmed meetings from Jan 1 of the current year through today. */
+  /**
+   * Confirmed meetings this calendar year that have ALREADY OCCURRED — Eastern
+   * day on/after Jan 1, and `meeting_date < now()`. Paired with
+   * meetings_upcoming as an exact partition at now(): never both, never
+   * neither (for meetings from Jan 1 on).
+   */
   meetings_ytd: number
   /** Confirmed meetings over the trailing 12 months through today. */
   meetings_l12m: number
+  /**
+   * Confirmed meetings NOT YET STARTED — `meeting_date >= now()`, with no upper
+   * bound, so it covers the whole booked future rather than just this year. The
+   * exact complement of meetings_ytd at now(), so today's meetings split by
+   * time of day and nothing is counted twice. The test reads the meeting's
+   * START, so one in progress right now counts as occurred, not upcoming.
+   */
+  meetings_upcoming: number
   /** Latest touchpoint (public.touchpoints) day; null = never. */
   last_touch_date: string | null
   last_touch_days: number | null

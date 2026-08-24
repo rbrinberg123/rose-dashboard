@@ -78,12 +78,12 @@ const UPLOAD_AMBER_DAYS = 120
 const UPLOAD_RED_DAYS = 180
 
 // The primary sections, left to right. colSpan must equal each section's column
-// count (2 + 2 + 2 + 5 + 1 + 1 = 13) or the band stops sitting over its own
+// count (2 + 3 + 2 + 5 + 1 + 1 = 14) or the band stops sitting over its own
 // columns and the gradient segment under it lands in the wrong place. No table
 // on this page has frozen columns, so no band is sticky.
 const BANDS: GroupBand[] = [
   { key: "client", label: "Client", colSpan: 2 },
-  { key: "meetings", label: "Meetings", colSpan: 2 },
+  { key: "meetings", label: "Meetings", colSpan: 3 },
   { key: "touchpoints", label: "Touchpoints", colSpan: 2 },
   { key: "event", label: "Current & Upcoming Event", colSpan: 5 },
   { key: "feedback", label: "Feedback", colSpan: 1 },
@@ -116,6 +116,7 @@ type SortKey =
   | "client_name"
   | "meetings_ytd"
   | "meetings_l12m"
+  | "meetings_upcoming"
   | "last_touch_date"
   | "last_data_upload_date"
   | "next_event_name"
@@ -815,7 +816,7 @@ export function TodoTable({
                   label="YTD"
                   sortKey="meetings_ytd"
                   align="center"
-                  title="Confirmed meetings since Jan 1 of this year"
+                  title="Confirmed meetings this year that have already occurred"
                   {...headerProps}
                 />
               </TableHead>
@@ -825,6 +826,19 @@ export function TodoTable({
                   sortKey="meetings_l12m"
                   align="center"
                   title="Confirmed meetings in the trailing 12 months"
+                  {...headerProps}
+                />
+              </TableHead>
+              {/* Abbreviated to three characters so the Meetings section can take
+                  a third column without stealing width from the event cluster —
+                  the full label lives in the tooltip, as it does for every other
+                  shortened header here. */}
+              <TableHead className="h-7 px-2">
+                <SortHeader
+                  label="UPC"
+                  sortKey="meetings_upcoming"
+                  align="center"
+                  title="Upcoming (confirmed, not yet occurred)"
                   {...headerProps}
                 />
               </TableHead>
@@ -910,7 +924,7 @@ export function TodoTable({
           <TableBody>
             {sorted.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13} className="h-32 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={14} className="h-32 text-center text-sm text-muted-foreground">
                   {rows.length === 0
                     ? "No active clients."
                     : "No clients match the current search."}
@@ -982,6 +996,9 @@ export function TodoTable({
                     </TableCell>
                     <TableCell className={cn(CELL, "text-center tabular-nums")}>
                       {r.meetings_l12m}
+                    </TableCell>
+                    <TableCell className={cn(CELL, "text-center tabular-nums")}>
+                      {r.meetings_upcoming}
                     </TableCell>
 
                     {/* Touchpoints */}

@@ -41,8 +41,9 @@ Which to use: **Excel** when you want to sort, pivot or re-cut the numbers; **PD
 | Column | What it means |
 |--------|---------------|
 | **Ticker** | The client's stock ticker, **base form only** — the exchange suffix is dropped, so `TNL-US` shows as `TNL` and `4DX-AU` as `4DX`. **This is the row's identity**: click it to open that client's Client Detail page, hover it to read the full client name. (There is no separate Client-name column: the ticker carries both jobs, which keeps the table narrow.) |
-| **Meetings YTD** | Confirmed meetings held since **January 1 of the current year**, up to today. |
+| **Meetings YTD** | Confirmed meetings this calendar year that have **already occurred** — from January 1 up to *this moment*, not up to end of today. |
 | **Meetings L12M** | Confirmed meetings held in the **trailing 12 months**, up to today. |
+| **UPC** | **Upcoming (confirmed, not yet occurred)** — confirmed meetings that have **not started yet**, with **no far end**, so it counts the whole booked future rather than stopping at December 31. Header is abbreviated to three characters to keep the table narrow; the full label is on hover. YTD and UPC are a **clean split**: every confirmed meeting is in one or the other, never both, because they cut on the meeting's own timestamp against *now*. So **today's meetings divide by time of day** — the 9am has happened and sits in YTD, the 4pm has not and sits in UPC, and the 4pm moves to YTD once it starts. Confirmed only — Cancelled, TBR and Pending are excluded, exactly as for YTD and L12M. |
 | **Last Touch** | The date of the client's most recent **CRM touchpoint**. Amber at 60+ days, red at 90+, red "Never" if there has never been one. **Hover or click the date** to see the touchpoint behind it — its type, subject, exact date and time, and owner. |
 | **Last Upload** | The date of the client's most recent completed **Outreach → Data Upload** task. Amber at 120+ days, red at 180+, red "Never" if there has never been one. |
 | **Status** | The client's status flag from their **latest client note** — At Risk · Lost · New Client · Stable · Strong — as a colour pill. It sits in the **Client** section beside the ticker, because it reads as client identity rather than as an activity metric. This is the **same pill, the same five values and the same colours as Client Portfolio's "Status (latest note)"** column: both render `NoteStatusPill` from `dashboard/components/note-status.tsx`, over the palette in `lib/design.ts` (`NOTE_STATUS_PILL`) that the Client Statistics "Clients by Status" donut also reads — so pill, key and chart cannot drift. Hover a pill for the date the status was set. A client with no note on record shows an em dash. Clicking the header sorts by **severity** (At Risk first), not alphabetically — again matching Portfolio. |
@@ -85,6 +86,7 @@ Type in the box and click (or tab) away — that's the save. There is no Save bu
 | `dashboard/components/event-meetings-pane.tsx` | **Shared** right-side confirmed-meetings drawer. Also used by Client Detail. |
 | `dashboard/lib/event-meetings.ts` | **Shared** event → confirmed-meetings read. Also used by Client Detail. |
 | `sql/20_client_todo.sql` | `public.client_todo_notes` + `public.v_client_todo`. **Must be run in the Supabase SQL editor** before the page will load. |
+| `sql/patches/2026-08-24_client_todo_upcoming.sql` | Adds `meetings_upcoming` (the **UPC** column) to `v_client_todo`. **Run it in the Supabase SQL editor**; until it has run, UPC renders blank for every row. Plain `CREATE OR REPLACE` — no drop, no downtime. |
 
 ### Client scoping
 
@@ -110,11 +112,15 @@ Three cells carry a hover panel (the same group-hover treatment the Capacity cha
 
 **Scoping:** the export is generated client-side from `sorted` — the rows already rendered — and fetches nothing. Those rows came through `resolveClientScope` and `visibleTodoRows` in the loader, so the file can only ever contain clients the viewer is authorised to see.
 
-Thirteen columns, flattened from the interactive cells — **note that the Excel export does not carry the Status column**; it is a parallel column list, so the sheet still has the thirteen below rather than the fourteen now on screen: Ticker (base form), Meetings YTD, Meetings L12M, Last Touch (CRM), Last Data Upload, Current & Upcoming Event (ticker prefix stripped, as displayed), Event Status, Event Date, Event Meetings, Open Slots, Open Reports, Open Collections, Notes. The header row is bold and frozen, and an autofilter spans it.
+Fifteen columns, flattened from the interactive cells and **left to right in the same order as the table**, so the sheet and the page can be read side by side without re-mapping: Ticker (base form), Client Status, Meetings YTD, Meetings L12M, Meetings Upcoming, Last Touch (CRM), Last Data Upload, Current & Upcoming Event (ticker prefix stripped, as displayed), Event Status, Event Date, Event Meetings, Open Slots, Open Reports, Open Collections, Notes. The header row is bold and frozen, and an autofilter spans it (derived from `ws.columns.length`, so adding a column can't leave the filter short).
+
+Two of those headers are spelled out rather than copying the table's abbreviation. **UPC** becomes **Meetings Upcoming**, matching its two neighbours: the screen shortens it only to keep fifteen columns inside one viewport, which a sheet with explicit widths does not have to do. The client's **Status** becomes **Client Status**, because **Event Status** is in the same flat list and the section bands that tell the two apart on screen don't survive the flattening.
+
+The column list is maintained **by hand** — it is parallel to the table's own JSX, not generated from it — so a new on-screen column does not appear here until it is added in `lib/client-todo-excel.ts` as well.
 
 Types are real wherever a real type exists — counts as numbers, the two touchpoint dates as Dates with a `mmm d, yyyy` format — so the sheet sorts and filters natively. Two deliberate choices:
 
-- **Missing values are blank, never `0` or "None".** An event with no slot capacity, a client never touched, a row with no upcoming event — all leave the cell empty, so "unknown" can't be mistaken for "zero" in a pivot or a sum.
+- **Missing values are blank, never `0` or "None".** An event with no slot capacity, a client never touched, a row with no upcoming event, a client with no status note — all leave the cell empty, so "unknown" can't be mistaken for "zero" in a pivot or a sum. (Client Status is the screen's em dash rendered as an empty cell; the three meeting counts are genuinely `0` when a client has none, which is a real answer, not a missing one.)
 - **Event Date stays text.** It is a *window* (`Sep 21 – Oct 16, 2026`), and no single date cell would be correct for a multi-day event. Splitting it into real Event Start / Event End columns is the alternative if sorting on it ever matters.
 
 Dates are built at UTC midnight (`dayToDate` in `lib/client-todo-format.ts`) because ExcelJS converts a `Date` via its UTC epoch with no timezone shift — so the day in the cell is exactly the Eastern day the view computed, regardless of the exporter's browser zone.
@@ -180,7 +186,28 @@ Styling **inherits the table's own font family and size** — no monospace face 
 
 **Active client** — `accounts.state_label = 'Active'`, the same definition `v_client_portfolio` uses. Currently 108 clients.
 
-**Meetings YTD / L12M** — `public.meetings` with `meeting_status_label = 'Confirmed'`, bucketed on the **Eastern** meeting day. YTD runs from `date_trunc('year', today)`; L12M from `today - 12 months`. Both are capped at today, so a confirmed meeting already on the calendar for next month is not counted as one that has happened.
+**Meetings YTD / L12M / UPC** — all three come from one `mtg` CTE over `public.meetings` with `meeting_status_label = 'Confirmed'`, so the three columns can never disagree about what counts as a meeting.
+
+**YTD and UPC are a partition, split on `now()`:**
+
+| | Predicate |
+|---|---|
+| `meetings_ytd` | Eastern day `>= date_trunc('year', today)` **and** `meeting_date < now()` |
+| `meetings_upcoming` | `meeting_date >= now()` |
+
+The two upper/lower bounds meet exactly at `now()`, so a confirmed meeting scores in **exactly one** of them — never both. Meetings before January 1 are in neither, which is what YTD means.
+
+Note the **two different kinds of bound in YTD**, which is deliberate. *Which calendar year a meeting belongs to* is a calendar question, so the lower bound stays on the **Eastern day**. *Whether it has already happened* is an instant question, so the upper bound is a bare `meeting_date < now()` — no `AT TIME ZONE` on either side. `meeting_date` and `now()` are both `timestamptz`, so that comparison is between two instants and carries no timezone ambiguity; it is the same reasoning `sql/patches/2026-06-17_ltm_upper_bound.sql` used when it bounded every trailing window.
+
+The practical effect is that **today's meetings divide by time of day** rather than landing wholesale in one column. This replaced a date-only cap (`<= today` / `>= today`) under which every meeting dated today was counted **twice**, once in each column — 8 meetings firm-wide on the day it was fixed.
+
+> **The occurred test reads the meeting's START.** `meetings.meeting_date` is the start timestamp and the Dynamics mirror carries no end time, so a meeting **in progress right now** counts as occurred and sits in YTD. There is no third "happening now" state.
+
+Because the split is against `now()` rather than a date, both counts move **continuously through the day**, not once at midnight. That costs nothing here: the page is `export const dynamic = "force-dynamic"`, so every load recomputes the view anyway.
+
+**L12M is deliberately unchanged** — still `> today - 12 months` and `<= today` on the Eastern day. It is a rolling-volume figure rather than half of a partition, so it has no complement to line up with, and re-cutting it would silently change a number people track. One consequence worth knowing: a meeting later today is still inside L12M while scoring UPC rather than YTD. The three counts are **not** meant to sum to anything.
+
+> `meetings_upcoming` is the **last** column in the view's select list even though it renders third on screen. `CREATE OR REPLACE VIEW` can only *append* columns — inserting one mid-list fails with "cannot change name of view column …" — so appending is what lets the view be replaced in place, with no `DROP` and therefore no lost `GRANT` and no window where the page 500s. The loader does `select("*")` and the table reads by name, so the view's column order has no bearing on the rendered order.
 
 **Last Touch (CRM)** — the latest row in `public.touchpoints` for the client, dated on `scheduled_start` (Eastern day) and capped at today. The `touchpoints` table is the mirror of the Dynamics activity Rose relabelled **"Touchpoint"** (the standard `phonecall` entity — see `sql/01_mirror_tables.sql`). **The whole entity is the touchpoint**, so there is no type filter: `touchpoint_type_label` records only the *modality* (Virtual, Email, In-Person, Social, Onboarding Call), not whether a row counts. Every touchpoint counts.
 

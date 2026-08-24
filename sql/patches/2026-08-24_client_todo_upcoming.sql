@@ -1,139 +1,49 @@
 -- =============================================================================
--- 20_client_todo.sql
+-- Patch: add meetings_upcoming to public.v_client_todo, and split the confirmed
+--        meeting counts so YTD and UPC never count the same meeting twice
+-- Date: 2026-08-24
 --
--- Clients → To-Do List (/clients/to-do).
+-- Adds the To-Do List's third Meetings column ("UPC"): confirmed meetings that
+-- have NOT yet occurred. In the same pass it re-cuts meetings_ytd, because the
+-- two columns are meant to be a partition, not two overlapping windows.
 --
--- Two objects:
---   1. public.client_todo_notes — Rose-owned free-text note per client. NEVER
---      written back to Dynamics; the sync job never touches it.
---   2. public.v_client_todo     — one row per ACTIVE client assembling every
---      column the page shows, including the note.
+--   BEFORE  ytd = Eastern day between Jan 1 and today (inclusive)
+--   AFTER   ytd = Eastern day >= Jan 1 this year AND meeting_date <  now()
+--           upc =                                    meeting_date >= now()
 --
--- Run in the Supabase SQL editor. Idempotent (CREATE TABLE IF NOT EXISTS +
--- CREATE OR REPLACE VIEW); safe to re-run.
+-- The old date-only cap put every meeting DATED TODAY in both columns at once
+-- (8 firm-wide at the time of writing). Comparing the meeting's own timestamp
+-- to now() makes the two predicates exact complements, so a confirmed meeting
+-- scores in exactly one: today's 9am has happened and lands in YTD, today's 4pm
+-- has not and lands in UPC. Meetings before Jan 1 of this year are in neither,
+-- which is what YTD means.
+--
+-- meeting_date and now() are both timestamptz, so this is an instant-vs-instant
+-- comparison with no timezone ambiguity -- the same reasoning the 2026-06-17
+-- trailing-window patch used. Eastern is still what decides which CALENDAR YEAR
+-- a meeting belongs to; it is simply no longer what decides whether it has
+-- happened. The occurred test reads the meeting's START (meeting_date is the
+-- start timestamp -- the Dynamics mirror carries no end), so a meeting in
+-- progress right now counts as occurred.
+--
+-- UPC has no far end: it counts the whole booked future, not the rest of the
+-- calendar year. L12M is deliberately UNCHANGED -- it is a rolling-volume
+-- figure, not half of a partition, so it keeps its day-based window.
+--
+-- meetings_upcoming is APPENDED as the last column of the select list. CREATE
+-- OR REPLACE VIEW can only add columns at the end -- inserting one mid-list
+-- fails with "cannot change name of view column ..." -- so this runs as a plain
+-- replace: no DROP, no lost GRANT, no window where the page 500s. The UI reads
+-- by name (the loader does select("*")), so the column's position in the view
+-- has no bearing on where it renders.
+--
+-- Safe to run whether or not an earlier draft of this patch was already applied:
+-- the column list and its order are unchanged, only the FILTER predicates move.
+--
+-- Paste the whole file into the Supabase SQL Editor and run.
+-- Source of truth: sql/20_client_todo.sql
 -- =============================================================================
 
-
--- -----------------------------------------------------------------------------
--- client_todo_notes
--- One free-form note per client, edited inline on the To-Do List and saved on
--- blur. Last write wins (the row is upserted on the PK), so the latest note
--- persists. No attribution is stored — deliberately, for now.
---
--- Follows the Rose-owned-table convention in 02_rose_owned_tables.sql: FK to
--- public.accounts, `updated_at` maintained by the shared touch_updated_at()
--- trigger.
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.client_todo_notes (
-  client_account_id uuid PRIMARY KEY REFERENCES public.accounts(account_id),
-  note              text,
-  updated_at        timestamptz NOT NULL DEFAULT now()
-);
-
--- touch_updated_at() is defined in 02_rose_owned_tables.sql. Repeated here so
--- this file can be run standalone against a database that already has it.
-CREATE OR REPLACE FUNCTION public.touch_updated_at()
-RETURNS trigger AS $fn$
-BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
-END;
-$fn$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS client_todo_notes_touch_updated_at ON public.client_todo_notes;
-CREATE TRIGGER client_todo_notes_touch_updated_at
-  BEFORE UPDATE ON public.client_todo_notes
-  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
-
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.client_todo_notes TO service_role;
-
-
--- -----------------------------------------------------------------------------
--- v_client_todo
--- One row per ACTIVE client (accounts.state_label = 'Active' — the SAME
--- active-client definition v_client_portfolio uses).
---
--- Column notes (each is documented in content/docs/10-to-do-list.md):
---
---   meetings_ytd / meetings_upcoming
---     public.meetings with meeting_status_label = 'Confirmed', split into
---     HAS-OCCURRED and HAS-NOT by the meeting's own timestamp against now():
---
---       meetings_ytd      Eastern day >= Jan 1 this year  AND  meeting_date <  now()
---       meetings_upcoming                                      meeting_date >= now()
---
---     The two predicates are exact complements at now(), so a confirmed
---     meeting lands in EXACTLY ONE of them -- never both, which is what the
---     older date-only cap (<= today / >= today) did to every meeting dated
---     today. Today's meetings now split by time of day: the 9am already
---     happened and scores YTD, the 4pm has not and scores UPC.
---
---     meeting_date and now() are both timestamptz, so the comparison is
---     between two instants and carries no timezone ambiguity -- the same
---     reasoning as sql/patches/2026-06-17_ltm_upper_bound.sql. Eastern only
---     decides which CALENDAR YEAR a meeting belongs to, which is a calendar
---     question; whether it has happened is an instant question.
---
---     The occurred test uses the meeting's START (meeting_date is the start
---     timestamp; the mirror carries no end), so a meeting in progress right
---     now counts as occurred.
---
---     meetings_upcoming has NO far end: it counts the whole booked future,
---     not just the rest of this calendar year. Meetings before Jan 1 of this
---     year are in neither column -- that is the point of YTD, not a gap.
---
---   meetings_l12m
---     Deliberately left on the DAY-based window it has always used: Eastern
---     day > today - 12 months and <= today. It is a rolling-volume figure
---     rather than half of a partition, so it has no complement to line up
---     with. One consequence to know about: a meeting later today is still
---     inside L12M while now scoring UPC rather than YTD.
---
---   last_touch_date
---     Latest public.touchpoints row for the client. `touchpoints` is the mirror
---     of the Dynamics activity Rose relabelled "Touchpoint" (the phonecall
---     entity) — the WHOLE entity is the touchpoint, so no type filter applies;
---     touchpoint_type_label is only the modality (Virtual / Email / In-Person /
---     Social / Onboarding Call). Dated on scheduled_start (Eastern day) and
---     capped at today so a future-scheduled touchpoint is not reported as a
---     touch that already happened.
---
---   last_data_upload_date
---     Latest COMPLETED Outreach task of subtype 'Data Upload'
---     (tasks.bcs_task_type_label = 'Outreach' AND
---      tasks.bcs_task_subtype_label = 'Data Upload' AND state_label =
---      'Completed'), linked to the client via tasks.bcs_account_id. Dated on
---     actual_end (when the upload was completed), falling back to
---     scheduled_end / scheduled_start. Open (not-yet-done) upload tasks are
---     excluded — they are not an upload that happened.
---
---   next_event_* / open slots
---     The SOONEST current-or-upcoming marketing event, bucketed EXACTLY as the
---     Client Detail "Marketing Events & Dates" block does: an event's window is
---     the min..max EASTERN day of its CONFIRMED meetings, falling back to its
---     own event_start_actual..event_end_actual when it has no confirmed
---     meetings. The event is current/upcoming while that window's END is
---     today-or-later — i.e. it is not complete until its last meeting ends.
---     Undated events (no meetings and no actual window) are dropped. Ordering
---     is by the soonest not-yet-occurred day, then the window start.
---     Same event universe as v_marketing_calendar (state_label = 'Active',
---     event_state_label present and not 'Pause') MINUS that view's trailing
---     two-month cutoff, which is irrelevant here (we only want windows that end
---     today-or-later) and would otherwise hide a long-dormant event that still
---     has a meeting ahead of it.
---
---     next_event_total_slots is events.of_slots (Dynamics bcs_ofslots) — the
---     event's slot capacity. open_slots = of_slots - confirmed meetings,
---     floored at 0, and NULL (unknown, not zero) when the event has no
---     of_slots. Confirmed meetings are counted from public.meetings, NOT from
---     the events.confirmed_meetings Dynamics rollup, which lags (it was stale
---     on 8 of 200 sampled active events).
---
---   open_reports / open_collections
---     open_reports     = this client's rows in v_feedback_pipeline (both
---                        categories: in_progress + pending_review).
---     open_collections = this client's rows in v_feedback_outstanding.
--- -----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW public.v_client_todo AS
 WITH today AS (
   SELECT (now() AT TIME ZONE 'America/New_York')::date AS d
