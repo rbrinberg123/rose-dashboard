@@ -21,6 +21,7 @@ These files live in `dashboard/content/docs/` and are also browsable in-app at *
 | [08 — Runbook](08-runbook.md) | Step-by-step: run a sync, apply SQL, handle a deletion, fix common problems. |
 | [09 — Configuration](09-configuration.md) | Every environment variable and the external project references. |
 | [10 — To-Do List](10-to-do-list.md) | The Clients → To-Do List worklist: every column's definition, the aging thresholds, notes storage, and its client scoping. |
+| [11 — OOO Summary](11-ooo-summary.md) | The per-person/per-year/per-type time-off tally behind `/ooo-summary`: the four categories, NYSE business-day counting, and the comment-driven half-day rule. |
 
 ## Orientation in one paragraph
 

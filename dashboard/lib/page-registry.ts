@@ -83,6 +83,7 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   { route: "/time-off", label: "Time Off", section: "Logistics" },
   { route: "/pipeline", label: "Upcoming Meetings (hidden)", section: "Logistics" },
   { route: "/conference-rooms", label: "Conference Rooms (hidden)", section: "Logistics" },
+  { route: "/ooo-summary", label: "OOO Summary (hidden)", section: "Logistics" },
 
   // ---- Contracts (incl. the parked financial / cost-modeling pages) ----
   { route: "/contract-management", label: "Contract Management", section: "Contracts" },

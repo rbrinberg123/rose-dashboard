@@ -203,6 +203,7 @@ Parked pages — pulled off the main nav but kept reachable from the **Hidden Pa
 | `/pipeline` | Upcoming Meetings | `v_pipeline_30d`, `v_scheduler_meetings`, `v_scheduler_time_off` | Next-30-days meetings. |
 | `/relationships` | Relationships | `v_relationships` | Who at Rose owns each institution relationship. |
 | `/conference-rooms` | Conference Rooms | `/api/conference-rooms` (Graph, client-side) | Single-day room availability across the four rooms. |
+| `/ooo-summary` | OOO Summary | `new_vacationrequest` (the mirror table, **not** `v_time_off`) | Business days taken per person, per year, per category. See [11 — OOO Summary](11-ooo-summary.md). |
 
 ### Unlinked / hidden routes (super-user only — not in the nav)
 
