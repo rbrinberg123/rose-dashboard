@@ -593,6 +593,16 @@ export type ClientDetailRecentNoteRow = {
   action_deadline: string | null
   /** action_deadline − current_date; negative when past. */
   days_to_deadline: number | null
+  /**
+   * status_text and primary_risk_driver are CARRIED FORWARD: each is the last
+   * non-blank value across the client's notes, resolved independently, so a
+   * newer note that leaves the field blank does not clear it. These two columns
+   * say which note each value came from — equal to note_date when the latest
+   * note set the field itself, earlier when it was carried forward. The action
+   * fields above are NOT carried forward; they are the latest note's.
+   */
+  status_note_date: string | null
+  risk_note_date: string | null
 }
 
 export type ClientDetailTouchpointRow = {

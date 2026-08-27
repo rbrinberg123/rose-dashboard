@@ -531,14 +531,61 @@ For each account:
   last_touchpoint_date: from accounts (already pre-computed in Dynamics)
   next_event_date: from accounts
 
-  last_note_date: max(note_date) from client_notes
-  last_note_status: status_text of most recent note
-  last_note_risk: primary_risk_driver of most recent note
+  last_note_date: accounts.last_touchpoint_date
+  note_status: canonical health flag from client_notes — LAST NON-BLANK wins
+               (see "Note carry-forward" below); a newer note that leaves the
+               status blank does not clear it
+  note_status_date: note_date of the note that set note_status
+                    (no primary_risk_driver column is exposed here)
 
   current_quarter_revenue: from v_client_quarterly_pnl (current Q)
   current_quarter_margin: from v_client_quarterly_pnl (current Q)
   current_quarter_margin_pct: from v_client_quarterly_pnl (current Q)
 ```
+
+### `v_client_detail_recent_note`
+
+One row per client (or none). Powers the "Most Recent Client Note" card on the
+Client Detail page.
+
+```
+For each client:
+  latest note (note_date DESC, then modified_on DESC, then created_on DESC):
+    note_id, note_date, notes_text
+    action_step, action_owner, action_deadline, days_to_deadline
+
+  carried forward, per field, independently:
+    status_text          last non-blank status across ALL the client's notes
+    primary_risk_driver  last non-blank risk driver across ALL the client's notes
+    status_note_date     note_date the carried status came from
+    risk_note_date       note_date the carried risk driver came from
+```
+
+#### Note carry-forward
+
+Client **status** and **primary risk driver** are standing facts about the
+client, not per-note entries. A note that leaves one of them blank is *silent*
+about it — it does not clear it. Each field is therefore resolved on its own as
+**the last non-blank value**: the newest note that actually set that field wins,
+and a newer blank note is ignored. Only a newer note with a real value overwrites
+it. So a client whose latest note fills in neither still shows the status and
+risk from whichever earlier notes last set them (e.g. 4D Medical's Aug 6 note
+sets neither; the card shows `Stable` from the Jul 8 note).
+
+`status_note_date` / `risk_note_date` say which note each value came from — equal
+to `note_date` when the latest note set the field itself, earlier when the value
+was carried forward.
+
+The **action fields** (`action_step`, `action_owner`, `action_deadline`) are
+deliberately NOT carried forward. They are current to-dos: a newer note that has
+moved on from them must not have the old ones reappear underneath it. Same for
+`notes_text`, which is the latest note's body.
+
+`v_client_portfolio`'s `recent_note` CTE applies the same last-non-blank rule to
+the portfolio's status flag. Blank/`'none'` risk drivers normalise to NULL, and
+the blank test trims the same character set as the value it returns (space, tab,
+CR, LF) — two notes in the source hold a lone newline, which must not carry
+forward as an empty pill.
 
 ### `v_analyst_activity`
 

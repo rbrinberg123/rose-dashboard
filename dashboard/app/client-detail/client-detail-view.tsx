@@ -81,6 +81,7 @@ const GRAY_BG = "#F2F4F8"
 const TICK_FILL = "#64748B"
 const GRID_STROKE = "#E5E7EB"
 
+
 const BUCKET_FILLS: Record<number, string> = {
   1: TEAL_LIGHTEST,
   2: TEAL_LIGHT,
@@ -722,6 +723,22 @@ export function ClientDetailView({
   const noteStatusText = recentNote?.status_text?.trim() ?? ""
   const noteRiskDriver = recentNote?.primary_risk_driver?.trim() ?? ""
 
+  // `notes_text` arrives HARD-WRAPPED at ~80 columns from the source system
+  // (measured: 89 of 96 notes contain newlines, longest line 80 chars, none
+  // with a blank line or a list). Rendered under `whitespace-pre-line` those
+  // breaks were preserved verbatim, so the paragraph read as a ~76-character
+  // column with the rest of the card empty to its right. Unwrap the single
+  // newlines back into spaces so the text reflows to the card, while KEEPING
+  // blank-line paragraph breaks (and `whitespace-pre-line`) intact for notes
+  // that ever do carry real structure.
+  const noteBody = React.useMemo(() => {
+    const raw = (recentNote?.notes_text ?? "").replace(/\r\n/g, "\n")
+    return raw
+      .replace(/([^\n])\n(?!\n)/g, "$1 ")
+      .replace(/[ \t]{2,}/g, " ")
+      .trim()
+  }, [recentNote?.notes_text])
+
   // ---------- Account team strip ----------
   // Only render roles with an assigned (non-blank) name. Colors are drawn from
   // the shared navy→teal palette. The whole strip hides when nobody is assigned.
@@ -999,34 +1016,32 @@ export function ClientDetailView({
         {/* Most Recent Client Note — only when a note exists */}
         {recentNote && (
           <div className={`min-w-0 p-5 ${CARD_CLASS}`}>
-            <div className="mb-3 flex items-baseline justify-between">
-              <CardTitle icon={NotebookText} color="#0355A7">
-                Most Recent Client Note
-              </CardTitle>
-            <div className="text-xs text-muted-foreground">
-              {formatLongDate(recentNote.note_date)}
+            <div className="mb-3 flex items-baseline justify-between gap-x-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <CardTitle icon={NotebookText} color="#0355A7">
+                  Most Recent Client Note
+                </CardTitle>
+                {noteStatusText && (
+                  <span
+                    className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={{ backgroundColor: "#EEF2FB", color: "#2D4A8A" }}
+                  >
+                    {noteStatusText}
+                  </span>
+                )}
+                {noteRiskDriver && (
+                  <span
+                    className="max-w-full truncate rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={{ backgroundColor: "#FAEEDA", color: "#854F0B" }}
+                  >
+                    Primary risk: {noteRiskDriver}
+                  </span>
+                )}
+              </div>
+              <div className="shrink-0 text-xs text-muted-foreground">
+                {formatLongDate(recentNote.note_date)}
+              </div>
             </div>
-          </div>
-          {(noteStatusText || noteRiskDriver) && (
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              {noteStatusText && (
-                <span
-                  className="rounded-full px-2.5 py-1 text-xs font-medium"
-                  style={{ backgroundColor: "#EEF2FB", color: "#2D4A8A" }}
-                >
-                  {noteStatusText}
-                </span>
-              )}
-              {noteRiskDriver && (
-                <span
-                  className="rounded-full px-2.5 py-1 text-xs font-medium"
-                  style={{ backgroundColor: "#FAEEDA", color: "#854F0B" }}
-                >
-                  Primary risk: {noteRiskDriver}
-                </span>
-              )}
-            </div>
-          )}
           {actionSteps.length > 0 && (
             <div
               className="mb-3 rounded-[10px] px-3 py-2.5"
@@ -1038,7 +1053,7 @@ export function ClientDetailView({
               >
                 Action Steps
               </div>
-              <ul className="space-y-1.5">
+              <ul className="space-y-0.5">
                 {actionSteps.map((step, i) => (
                   <li key={`${i}-${step}`} className="flex items-start gap-2">
                     <span
@@ -1093,12 +1108,12 @@ export function ClientDetailView({
               </span>
             </div>
           )}
-          {recentNote.notes_text && (
+          {noteBody && (
             <p
-              className="whitespace-pre-line text-sm"
+              className="whitespace-pre-line break-words text-sm leading-relaxed"
               style={{ color: TEXT_PRIMARY }}
             >
-              {recentNote.notes_text}
+              {noteBody}
             </p>
           )}
         </div>

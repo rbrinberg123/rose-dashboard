@@ -1883,45 +1883,105 @@ FROM with_term wt;
 -- status) so it is intentionally not surfaced. status_text / primary_risk_driver
 -- carry trailing newlines from the source, which are trimmed; a risk driver of
 -- 'None' (or blank) is normalised to NULL so the UI can omit the pill.
+--
+-- CARRY-FORWARD (status_text, primary_risk_driver)
+-- These two are standing facts about the client, not per-note entries: a note
+-- that leaves them blank is silent about them, it does not clear them. So each
+-- is resolved INDEPENDENTLY as "the last non-blank value" — the newest note
+-- that actually set that field wins, and a newer blank note is ignored. This is
+-- the same rule v_client_portfolio's recent_note CTE already applies to status;
+-- primary_risk_driver now gets it too, and both now apply on this view (the
+-- source the Client Detail note card reads), where previously a blank latest
+-- note rendered an empty card.
+--
+-- Everything else stays tied to the LATEST note: notes_text is that note's body,
+-- and action_step / action_owner / action_deadline are current to-dos, which
+-- must NOT survive a newer note that has moved on from them.
+--
+-- status_note_date / risk_note_date expose which note each carried-forward value
+-- came from — they equal note_date when the latest note set the field itself,
+-- and an earlier date when the value is carried forward.
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW public.v_client_detail_recent_note AS
-WITH ranked AS (
+WITH cleaned AS (
   SELECT
     n.client_account_id AS account_id,
     n.note_id,
     n.note_date,
+    n.modified_on,
+    n.created_on,
     btrim(n.notes_text) AS notes_text,
-    NULLIF(btrim(n.status_text), '') AS status_text,
+    NULLIF(btrim(n.status_text, E' \t\n\r'), '') AS status_text,
+    -- NB: the blank/'none' guard trims the SAME character set as the value it
+    -- returns (space, tab, CR, LF). One-argument btrim() strips spaces only, so
+    -- a risk driver of E'\n' slipped past the guard and came back as an empty
+    -- string — harmless while it died with the latest note, but it would now be
+    -- carried forward into a blank "Primary risk:" pill. 2 notes in the source
+    -- hold exactly that value.
     CASE
-      WHEN lower(btrim(COALESCE(n.primary_risk_driver, ''))) IN ('', 'none') THEN NULL
-      ELSE btrim(n.primary_risk_driver)
+      WHEN lower(btrim(COALESCE(n.primary_risk_driver, ''), E' \t\n\r')) IN ('', 'none') THEN NULL
+      ELSE btrim(n.primary_risk_driver, E' \t\n\r')
     END AS primary_risk_driver,
     NULLIF(btrim(n.action_step), '') AS action_step,
     NULLIF(btrim(n.action_owner), '') AS action_owner,
-    n.action_deadline,
-    ROW_NUMBER() OVER (
-      PARTITION BY n.client_account_id
-      ORDER BY n.note_date DESC, n.modified_on DESC NULLS LAST, n.created_on DESC NULLS LAST
-    ) AS rn
+    n.action_deadline
   FROM public.client_notes n
   WHERE n.client_account_id IS NOT NULL
+),
+-- The latest note itself — body + action fields come from here.
+latest AS (
+  SELECT *
+  FROM (
+    SELECT
+      c.*,
+      ROW_NUMBER() OVER (
+        PARTITION BY c.account_id
+        ORDER BY c.note_date DESC, c.modified_on DESC NULLS LAST, c.created_on DESC NULLS LAST
+      ) AS rn
+    FROM cleaned c
+  ) r
+  WHERE r.rn = 1
+),
+-- Newest note that actually SET a status (blank notes filtered out first, so
+-- they cannot overwrite a prior value). Same ranking as `latest`.
+last_status AS (
+  SELECT DISTINCT ON (account_id)
+    account_id,
+    status_text,
+    note_date AS status_note_date
+  FROM cleaned
+  WHERE status_text IS NOT NULL
+  ORDER BY account_id, note_date DESC, modified_on DESC NULLS LAST, created_on DESC NULLS LAST
+),
+-- Same, independently, for the primary risk driver.
+last_risk AS (
+  SELECT DISTINCT ON (account_id)
+    account_id,
+    primary_risk_driver,
+    note_date AS risk_note_date
+  FROM cleaned
+  WHERE primary_risk_driver IS NOT NULL
+  ORDER BY account_id, note_date DESC, modified_on DESC NULLS LAST, created_on DESC NULLS LAST
 )
 SELECT
-  account_id,
-  note_id,
-  note_date,
-  notes_text,
-  status_text,
-  primary_risk_driver,
-  action_step,
-  action_owner,
-  action_deadline,
+  l.account_id,
+  l.note_id,
+  l.note_date,
+  l.notes_text,
+  ls.status_text,
+  lr.primary_risk_driver,
+  l.action_step,
+  l.action_owner,
+  l.action_deadline,
   CASE
-    WHEN action_deadline IS NULL THEN NULL
-    ELSE (action_deadline - CURRENT_DATE)::int
-  END AS days_to_deadline
-FROM ranked
-WHERE rn = 1;
+    WHEN l.action_deadline IS NULL THEN NULL
+    ELSE (l.action_deadline - CURRENT_DATE)::int
+  END AS days_to_deadline,
+  ls.status_note_date,
+  lr.risk_note_date
+FROM latest l
+LEFT JOIN last_status ls ON ls.account_id = l.account_id
+LEFT JOIN last_risk   lr ON lr.account_id = l.account_id;
 
 
 -- -----------------------------------------------------------------------------
