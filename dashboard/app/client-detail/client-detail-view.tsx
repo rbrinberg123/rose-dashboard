@@ -45,12 +45,14 @@ import { EventMeetingsPane } from "@/components/event-meetings-pane"
 import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
 import { type PillVariant } from "@/lib/gradients"
 import {
+  BADGE_GRADIENT,
   CARD_CLASS,
   EVENT_STAGE_PILL,
   EVENT_STAGE_PILL_FALLBACK,
   MONEY_GREEN,
   TEXT_MUTED,
   TEXT_PRIMARY,
+  TEXT_TERTIARY,
 } from "@/lib/design"
 import type {
   ClientDetailInstitutionRow,
@@ -701,6 +703,25 @@ export function ClientDetailView({
   const deadlineUrgent =
     recentNote?.days_to_deadline != null && recentNote.days_to_deadline <= 7
 
+  // ---------- Note: action steps + meta ----------
+  // `action_step` arrives as ONE semicolon-separated string, so split it into
+  // the individual steps and render them as a checklist. A single step (no
+  // semicolon) simply yields a one-item list.
+  const actionSteps = React.useMemo(
+    () =>
+      (recentNote?.action_step ?? "")
+        .split(";")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    [recentNote?.action_step]
+  )
+  // Trimmed, so a whitespace-only field reads as absent instead of rendering an
+  // empty chip / blank line.
+  const actionOwner = recentNote?.action_owner?.trim() ?? ""
+  const actionDeadline = recentNote?.action_deadline?.trim() ?? ""
+  const noteStatusText = recentNote?.status_text?.trim() ?? ""
+  const noteRiskDriver = recentNote?.primary_risk_driver?.trim() ?? ""
+
   // ---------- Account team strip ----------
   // Only render roles with an assigned (non-blank) name. Colors are drawn from
   // the shared navy→teal palette. The whole strip hides when nobody is assigned.
@@ -986,56 +1007,97 @@ export function ClientDetailView({
               {formatLongDate(recentNote.note_date)}
             </div>
           </div>
-          {(recentNote.status_text ||
-            recentNote.primary_risk_driver ||
-            recentNote.action_step) && (
+          {(noteStatusText || noteRiskDriver) && (
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              {recentNote.status_text && (
+              {noteStatusText && (
                 <span
                   className="rounded-full px-2.5 py-1 text-xs font-medium"
                   style={{ backgroundColor: "#EEF2FB", color: "#2D4A8A" }}
                 >
-                  {recentNote.status_text}
+                  {noteStatusText}
                 </span>
               )}
-              {recentNote.primary_risk_driver && (
+              {noteRiskDriver && (
                 <span
                   className="rounded-full px-2.5 py-1 text-xs font-medium"
                   style={{ backgroundColor: "#FAEEDA", color: "#854F0B" }}
                 >
-                  Primary risk: {recentNote.primary_risk_driver}
+                  Primary risk: {noteRiskDriver}
                 </span>
-              )}
-              {recentNote.action_step && (
-                <>
-                  <span className="h-4 w-px bg-border" aria-hidden="true" />
-                  <span className="whitespace-nowrap text-xs">
-                    <span className="text-muted-foreground">Action </span>
-                    <span style={{ color: NAVY_DEEP }}>
-                      {recentNote.action_step}
-                    </span>
-                  </span>
-                  <span className="whitespace-nowrap text-xs">
-                    <span className="text-muted-foreground">Owner </span>
-                    <span style={{ color: NAVY_DEEP }}>
-                      {recentNote.action_owner ?? "—"}
-                    </span>
-                  </span>
-                  <span className="whitespace-nowrap text-xs">
-                    <span className="text-muted-foreground">Due </span>
-                    <span
-                      className={deadlineUrgent ? "font-medium" : ""}
-                      style={{ color: deadlineUrgent ? RED : NAVY_DEEP }}
-                    >
-                      {formatShortDate(recentNote.action_deadline)}
-                    </span>
-                  </span>
-                </>
               )}
             </div>
           )}
+          {actionSteps.length > 0 && (
+            <div
+              className="mb-3 rounded-[10px] px-3 py-2.5"
+              style={{ backgroundColor: "#F5F8FD" }}
+            >
+              <div
+                className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide"
+                style={{ color: TEXT_MUTED }}
+              >
+                Action Steps
+              </div>
+              <ul className="space-y-1.5">
+                {actionSteps.map((step, i) => (
+                  <li key={`${i}-${step}`} className="flex items-start gap-2">
+                    <span
+                      className="mt-[6px] size-1.5 shrink-0 rounded-full"
+                      style={{ background: BADGE_GRADIENT }}
+                      aria-hidden="true"
+                    />
+                    <span
+                      className="min-w-0 break-words text-xs leading-relaxed"
+                      style={{ color: NAVY_DEEP }}
+                    >
+                      {step}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(actionOwner || actionDeadline) && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="inline-flex max-w-full items-baseline gap-1 rounded-full bg-muted px-2.5 py-1 text-xs">
+                <span className="text-muted-foreground">Owner:</span>
+                {actionOwner ? (
+                  <span className="truncate" style={{ color: NAVY_DEEP }}>
+                    {actionOwner}
+                  </span>
+                ) : (
+                  <span style={{ color: TEXT_TERTIARY }}>Not set</span>
+                )}
+              </span>
+              <span
+                className={`inline-flex items-baseline gap-1 rounded-full px-2.5 py-1 text-xs ${
+                  actionDeadline ? "" : "bg-muted"
+                }`}
+                style={
+                  actionDeadline ? { backgroundColor: "#FDF4E3" } : undefined
+                }
+              >
+                <span style={{ color: actionDeadline ? "#A2762B" : TEXT_MUTED }}>
+                  Due:
+                </span>
+                {actionDeadline ? (
+                  <span
+                    className={deadlineUrgent ? "font-medium" : undefined}
+                    style={{ color: deadlineUrgent ? RED : "#854F0B" }}
+                  >
+                    {formatLongDate(actionDeadline)}
+                  </span>
+                ) : (
+                  <span style={{ color: TEXT_TERTIARY }}>—</span>
+                )}
+              </span>
+            </div>
+          )}
           {recentNote.notes_text && (
-            <p className="whitespace-pre-line text-sm text-foreground">
+            <p
+              className="whitespace-pre-line text-sm"
+              style={{ color: TEXT_PRIMARY }}
+            >
               {recentNote.notes_text}
             </p>
           )}
