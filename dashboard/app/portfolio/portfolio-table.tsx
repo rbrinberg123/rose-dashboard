@@ -4,7 +4,17 @@ import * as React from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { format, parseISO } from "date-fns"
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, Lock, FileText, Printer } from "lucide-react"
+import {
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Search,
+  Lock,
+  FileText,
+  Printer,
+  NotebookPen,
+  Sparkles,
+} from "lucide-react"
 
 import {
   Table,
@@ -38,10 +48,15 @@ import {
   SectionDivider,
   type GroupBand,
 } from "@/components/table-group-header"
+import { CellHoverCard } from "@/components/cell-hover-card"
+import {
+  ClientInstitutionsPane,
+  type ClientInstitutionsPaneClient,
+} from "@/components/client-institutions-pane"
 import { DaysLeftPill, AutoRenewFlag, ContractDash } from "@/components/contract-fields"
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { EXPIRY_BUCKETS, EXPIRY_BUCKET_BY_KEY } from "@/lib/contract-expiry"
-import type { ClientPortfolioRow } from "@/lib/types"
+import type { ClientInstitutionRow, ClientPortfolioRow } from "@/lib/types"
 
 const ALL = "__all__"
 
@@ -55,6 +70,9 @@ const COLD_FG = "#C53030"
 const NAVY = "#1E2858"
 const GREEN = "#2D7A2D"
 const RED = "#C53030"
+// The AI teal, taken from the Client Detail "AI Summary" CardTitle so the
+// sparkle means the same thing on both pages.
+const AI_TEAL = "#1C8C9C"
 
 // Two-tier header, matching the Planning V2 header so the two big tables read as
 // one system: the top row carries UNFILLED section bands — navy small-caps over
@@ -69,14 +87,15 @@ const RED = "#C53030"
 const TOGGLE_SECTIONS = [
   { id: "classification", label: "Classification", cols: 3 },
   { id: "contract", label: "Contract", cols: 6 },
-  { id: "meetings", label: "Meetings", cols: 5 },
-  { id: "activity", label: "Activity", cols: 2 },
+  { id: "meetings", label: "Meetings", cols: 9 },
 ] as const
 
 type SectionId = (typeof TOGGLE_SECTIONS)[number]["id"]
 const VALID_SECTION_IDS = new Set<string>(TOGGLE_SECTIONS.map((s) => s.id))
-// Default view: Contract + Meetings + Activity on; Classification off.
-const DEFAULT_SECTIONS: SectionId[] = ["contract", "meetings", "activity"]
+// Default view: Contract + Meetings on; Classification off. An old bookmarked
+// ?sections=...,activity simply drops the unknown id (VALID_SECTION_IDS filters
+// it), so a stale link still resolves to the remaining sections.
+const DEFAULT_SECTIONS: SectionId[] = ["contract", "meetings"]
 
 // Frozen Core columns: when the table overflows horizontally, Client, Status and
 // Account Team stay pinned on the left. Header cells sit above body cells; the
@@ -94,6 +113,15 @@ const DEFAULT_SECTIONS: SectionId[] = ["contract", "meetings", "activity"]
 // browsers IGNORE max-width on table cells, so the ceiling must be a real width.
 const CLIENT_COL_W = 200
 const STATUS_COL_W = 92
+// Two 14px hover icons (latest note, AI summary) side by side with a small gap,
+// plus the cell's 6px padding. Deliberately the narrowest column on the table —
+// it holds no data of its own, only the two handles that reveal it.
+const INFO_COL_W = 46
+// Market cap in $B, promoted out of Classification into the frozen Client group
+// so it stays on screen next to the client's name however far the table is
+// scrolled — it is identity, not classification. Sized for "203.2" under the
+// "Cap $B" header plus its sort chevron.
+const MKT_CAP_COL_W = 68
 const TEAM_COL_W = 84
 
 /**
@@ -110,20 +138,20 @@ const TEAM_COL_W = 84
  * cell padding, rounded up a couple of px.
  */
 const SECTION_MIN_W = {
-  // Client + Status + Team, all fixed above.
-  core: CLIENT_COL_W + STATUS_COL_W + TEAM_COL_W,
-  // Mkt Cap, Region, Sector
+  // Client + Status + Info + Cap $B + Team, all fixed above.
+  core: CLIENT_COL_W + STATUS_COL_W + INFO_COL_W + MKT_CAP_COL_W + TEAM_COL_W,
+  // Mkt Cap (bucket), Region, Sector — the $B figure moved to Core.
   classification: 64 + 90 + 80,
   // Term End, Days, Renew, Term
   contract: 68 + 45 + 48 + 46,
   // Retainer, Doc — only rendered with the Financials grant
   contractFinancials: 57 + 33,
-  // L12M, Inst, L3M, Next 3M, Last — these two groups carry 10px cell padding
-  // instead of the 6px base (they read as cramped at 6px), so each column here
-  // is its measured tight width + 8.
-  meetings: 50 + 43 + 44 + 67 + 76,
-  // Event, Note — same 10px padding as Meetings.
-  activity: 76 + 76,
+  // L12M, Inst, L3M, Next 3M, Open, Last, Next, # Intro, # F/U — this group
+  // carries 10px cell padding instead of the 6px base (it reads as cramped at
+  // 6px), so each column here is its measured tight width + 8. The two adjacent
+  // date columns are both 76: Last and Next hold the same MM/DD/YY, and the
+  // short "Next" header leaves the width to the data.
+  meetings: 50 + 43 + 44 + 67 + 55 + 76 + 76 + 48 + 45,
 } as const
 
 /**
@@ -186,6 +214,7 @@ type SortKey =
   | "note_status"
   | "ticker_symbol"
   | "market_cap_label"
+  | "market_cap_b"
   | "region_label"
   | "sector_label"
   | "initial_term_end"
@@ -197,9 +226,11 @@ type SortKey =
   | "unique_institutions_last_365d"
   | "meetings_last_90d"
   | "meetings_next_3m"
+  | "open_slots"
+  | "intro_meetings"
+  | "followup_meetings"
   | "last_meeting_date"
-  | "last_event_date"
-  | "last_note_date"
+  | "next_meeting_date"
 
 type SortDir = "asc" | "desc"
 
@@ -221,6 +252,24 @@ function formatCompactDollars(value: number | null | undefined): string {
   if (abs >= 1_000_000) return `$${Math.round(value / 1_000_000)}M`
   if (abs >= 1_000) return `$${Math.round(value / 1_000)}K`
   return `$${Math.round(value).toLocaleString()}`
+}
+
+/**
+ * Market cap for the "Mkt Cap ($B)" column.
+ *
+ * NO unit conversion happens here, deliberately: accounts.market_cap_b is
+ * ALREADY in billions of dollars at the source (Dynamics bcs_marketcapb, loaded
+ * verbatim by loader/load.py). The whole app treats it that way — the Mega /
+ * Large / Mid / Small / Micro buckets right next to this column cut it at 200 /
+ * 10 / 2 / 0.3, and the observed range across the 202 clients that carry a value
+ * is 0 → 203.22. Multiplying or dividing by anything here would be the bug.
+ *
+ * Precision scales with size so the column stays narrow and every row still
+ * carries three significant figures: 203.2, 23.7, 1.38, 0.16.
+ */
+function formatMarketCapB(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—"
+  return value >= 10 ? value.toFixed(1) : value.toFixed(2)
 }
 
 // Display-only shortening for the Contract "Term" column. The underlying
@@ -316,6 +365,42 @@ function SortHeader({
   )
 }
 
+/**
+ * A # Intro / # F/U count, rendered as a drill-in trigger.
+ *
+ * Both cells open the SAME panel — the client's per-institution breakdown —
+ * because both numbers are cuts of that one list. Styled as a bare number that
+ * only reveals itself as interactive on hover/focus, so the dense numeric grid
+ * still reads as a grid rather than a wall of links. It inherits the cell's
+ * colour and tabular-nums, which is what keeps # F/U muted and # Intro not.
+ *
+ * `data-print="hide"` is NOT used here: on paper the button collapses to its
+ * text, which is the number the column is supposed to show.
+ */
+function InstitutionCount({
+  value,
+  row,
+  hasBreakdown,
+  onOpen,
+}: {
+  value: number
+  row: ClientPortfolioRow
+  hasBreakdown: boolean
+  onOpen: (client: ClientInstitutionsPaneClient) => void
+}) {
+  if (!hasBreakdown) return <>{value}</>
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen({ accountId: row.account_id, clientName: row.name })}
+      title={`${row.name} — institutions met`}
+      className="cursor-pointer tabular-nums underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+    >
+      {value}
+    </button>
+  )
+}
+
 function compareValues(
   a: string | number | null | undefined,
   b: string | number | null | undefined,
@@ -339,6 +424,7 @@ function compareValues(
 export function PortfolioTable({
   rows,
   showFinancials,
+  institutionsByClient,
 }: {
   rows: ClientPortfolioRow[]
   /**
@@ -349,6 +435,14 @@ export function PortfolioTable({
    * The flag alone is never the protection; the omitted payload is.
    */
   showFinancials: boolean
+  /**
+   * Per-institution breakdown behind the # Intro / # F/U cells, keyed by
+   * account_id and already A→Z. Preloaded server-side by
+   * loadInstitutionBreakdownByClient over the SAME predicate as the two columns,
+   * so a client's row count is its # Intro and the meeting_count sum is
+   * # Intro + # F/U.
+   */
+  institutionsByClient: Record<string, ClientInstitutionRow[]>
 }) {
   const searchParams = useSearchParams()
   // URL params are read once on mount only; filter changes are local-only and
@@ -374,16 +468,18 @@ export function PortfolioTable({
   const [expiry, setExpiry] = React.useState<string>(
     () => searchParams.get("expiry") ?? ALL,
   )
+  // Meeting-recency filter for the Meetings "Last" column. These three came
+  // back after the Activity cleanup: that pass dropped all nine activity pills,
+  // but the Last-meeting COLUMN survived it (only Last Event and Last Note
+  // went), so its filter belongs here. The events/notes pills stay gone — the
+  // columns they filtered no longer exist.
+  // The client whose institution breakdown is open in the drill-in drawer, or
+  // null when it's closed. Same shape as the To-Do List's `openEvent`.
+  const [openClient, setOpenClient] =
+    React.useState<ClientInstitutionsPaneClient | null>(null)
   const [staleMeetings, setStaleMeetings] = React.useState(false)
   const [coldMeetings, setColdMeetings] = React.useState(false)
   const [blankMeetings, setBlankMeetings] = React.useState(false)
-  const [staleEvents, setStaleEvents] = React.useState(false)
-  const [coldEvents, setColdEvents] = React.useState(false)
-  const [blankEvents, setBlankEvents] = React.useState(false)
-  const [staleNotes, setStaleNotes] = React.useState(false)
-  const [coldNotes, setColdNotes] = React.useState(false)
-  const [blankNotes, setBlankNotes] = React.useState(false)
-
   // Visible column sections. Read once from ?sections= on mount; an explicit but
   // empty value (?sections=) means "only Core". Absent means default view.
   const [activeSections, setActiveSections] = React.useState<Set<SectionId>>(() => {
@@ -421,12 +517,13 @@ export function PortfolioTable({
     classification: activeSections.has("classification"),
     contract: activeSections.has("contract"),
     meetings: activeSections.has("meetings"),
-    activity: activeSections.has("activity"),
   }
   // Cumulative sticky LEFT offsets for the frozen columns. Client and Status are
   // both fixed width, so these are plain constants (no runtime measurement).
   const statusLeft = CLIENT_COL_W
-  const teamLeft = CLIENT_COL_W + STATUS_COL_W
+  const infoLeft = CLIENT_COL_W + STATUS_COL_W
+  const mktCapLeft = infoLeft + INFO_COL_W
+  const teamLeft = mktCapLeft + MKT_CAP_COL_W
 
   // The table's floor: the sum of every visible column's comfortable minimum.
   // Wider than this and the table stretches to fill (no right-hand gap);
@@ -437,27 +534,25 @@ export function PortfolioTable({
     (show.contract
       ? SECTION_MIN_W.contract + (showFinancials ? SECTION_MIN_W.contractFinancials : 0)
       : 0) +
-    (show.meetings ? SECTION_MIN_W.meetings : 0) +
-    (show.activity ? SECTION_MIN_W.activity : 0)
+    (show.meetings ? SECTION_MIN_W.meetings : 0)
 
   // The group bands actually on screen, left to right. Drives both the header
   // cells and their position in the gradient sweep, so the ramp stays continuous
   // whichever sections are toggled on. colSpan must equal each band's visible
   // column count or the band stops sitting over its own columns.
   const visibleBands: GroupBand[] = [
-    { key: "core", label: "Client", colSpan: 3, sticky: true },
+    { key: "core", label: "Client", colSpan: 5, sticky: true },
     ...(show.classification
       ? [{ key: "classification", label: "Classification", colSpan: 3 }]
       : []),
     ...(show.contract
       ? [{ key: "contract", label: "Contract", colSpan: showFinancials ? 6 : 4 }]
       : []),
-    ...(show.meetings ? [{ key: "meetings", label: "Meetings", colSpan: 5 }] : []),
-    ...(show.activity ? [{ key: "activity", label: "Activity", colSpan: 2 }] : []),
+    ...(show.meetings ? [{ key: "meetings", label: "Meetings", colSpan: 9 }] : []),
   ]
 
   const visibleColCount =
-    3 +
+    5 +
     TOGGLE_SECTIONS.reduce(
       (n, s) => n + (activeSections.has(s.id) ? s.cols : 0),
       0,
@@ -479,17 +574,15 @@ export function PortfolioTable({
 
   const filteredRows = React.useMemo(() => {
     const q = search.trim().toLowerCase()
-    const matchCategory = (
-      value: string | null | undefined,
-      stale: boolean,
-      cold: boolean,
-      blank: boolean,
-    ): boolean => {
-      if (!stale && !cold && !blank) return true
+    // Meeting-recency filter for the Last column. The three pills OR together
+    // (Stale = 30–90 days, Cold = 90+, Blank = never), matching the Stale/Cold
+    // thresholds DateCell pills the column with; none pressed = no filter.
+    const matchMeetingRecency = (value: string | null | undefined): boolean => {
+      if (!staleMeetings && !coldMeetings && !blankMeetings) return true
       const v = daysSince(value)
-      if (stale && v != null && v >= 30 && v < 90) return true
-      if (cold && v != null && v >= 90) return true
-      if (blank && value == null) return true
+      if (staleMeetings && v != null && v >= 30 && v < 90) return true
+      if (coldMeetings && v != null && v >= 90) return true
+      if (blankMeetings && value == null) return true
       return false
     }
     return rows.filter((r) => {
@@ -506,9 +599,7 @@ export function PortfolioTable({
         const bucket = EXPIRY_BUCKET_BY_KEY[expiry]
         if (bucket && !bucket.match(r.days_to_expiry ?? null)) return false
       }
-      if (!matchCategory(r.last_meeting_date, staleMeetings, coldMeetings, blankMeetings)) return false
-      if (!matchCategory(r.last_event_date, staleEvents, coldEvents, blankEvents)) return false
-      if (!matchCategory(r.last_note_date, staleNotes, coldNotes, blankNotes)) return false
+      if (!matchMeetingRecency(r.last_meeting_date)) return false
       if (q) {
         const name = (r.name ?? "").toLowerCase()
         const ticker = (r.ticker_symbol ?? "").toLowerCase()
@@ -528,12 +619,6 @@ export function PortfolioTable({
     staleMeetings,
     coldMeetings,
     blankMeetings,
-    staleEvents,
-    coldEvents,
-    blankEvents,
-    staleNotes,
-    coldNotes,
-    blankNotes,
   ])
 
   const sortedRows = React.useMemo(() => {
@@ -577,12 +662,6 @@ export function PortfolioTable({
     setStaleMeetings(false)
     setColdMeetings(false)
     setBlankMeetings(false)
-    setStaleEvents(false)
-    setColdEvents(false)
-    setBlankEvents(false)
-    setStaleNotes(false)
-    setColdNotes(false)
-    setBlankNotes(false)
   }
 
   // Print-only report metadata. Built from the *current* filter/sort state so the
@@ -603,12 +682,6 @@ export function PortfolioTable({
     [staleMeetings, "Stale meetings"],
     [coldMeetings, "Cold meetings"],
     [blankMeetings, "Blank meetings"],
-    [staleEvents, "Stale events"],
-    [coldEvents, "Cold events"],
-    [blankEvents, "Blank events"],
-    [staleNotes, "Stale notes"],
-    [coldNotes, "Cold notes"],
-    [blankNotes, "Blank notes"],
   ] as const) {
     if (on) activeFilterParts.push(label)
   }
@@ -656,7 +729,7 @@ export function PortfolioTable({
         />
       </div>
       <div className="space-y-3">
-      {/* Combined legend strip: Activity flags · Account Team · Status laid out
+      {/* Combined legend strip: Last-meeting flags · Account Team · Status laid out
           on one horizontal row (was three stacked rows) to reclaim vertical
           space, with faint vertical hairlines separating the three labeled
           groups. flex-wrap lets whole groups drop to a second line on narrow
@@ -665,9 +738,13 @@ export function PortfolioTable({
         className="flex flex-wrap items-center gap-x-3 gap-y-2 text-muted-foreground no-print"
         style={{ fontSize: "11px" }}
       >
-        {/* Activity flags */}
+        {/* Stale / Cold date flags. KEPT after the Activity section was removed
+            because they still apply: the Meetings "Last" column renders through
+            DateCell, which pills any date 30+ days old. Only the heading
+            changed — it used to say "Activity flags", naming a section that no
+            longer exists; the one column it now describes is Last meeting. */}
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold text-foreground">Activity flags:</span>
+          <span className="font-semibold text-foreground">Last meeting:</span>
           <span
             style={{
               backgroundColor: STALE_BG,
@@ -856,75 +933,59 @@ export function PortfolioTable({
         </div>
       </div>
 
-      {/* Sections toggle (left) + activity-flag pills (right) share one row,
-          pinned to opposite edges via justify-between. order-* drives the visual
-          order so Sections sits left even though the pills come first in markup. */}
-      <div className="flex flex-wrap items-center justify-between gap-2 no-print">
-      {/* Activity flag toggles — pinned right */}
-      <div className="order-2 flex flex-wrap items-center gap-2">
-        <span className="text-muted-foreground" style={{ fontSize: "11px" }}>
-          Activity flags:
-        </span>
-        {(
-          [
-            [
-              { label: "Stale meetings", active: staleMeetings, toggle: () => setStaleMeetings((v) => !v) },
-              { label: "Cold meetings", active: coldMeetings, toggle: () => setColdMeetings((v) => !v) },
-              { label: "Blank meetings", active: blankMeetings, toggle: () => setBlankMeetings((v) => !v) },
-            ],
-            [
-              { label: "Stale events", active: staleEvents, toggle: () => setStaleEvents((v) => !v) },
-              { label: "Cold events", active: coldEvents, toggle: () => setColdEvents((v) => !v) },
-              { label: "Blank events", active: blankEvents, toggle: () => setBlankEvents((v) => !v) },
-            ],
-            [
-              { label: "Stale notes", active: staleNotes, toggle: () => setStaleNotes((v) => !v) },
-              { label: "Cold notes", active: coldNotes, toggle: () => setColdNotes((v) => !v) },
-              { label: "Blank notes", active: blankNotes, toggle: () => setBlankNotes((v) => !v) },
-            ],
-          ] as const
-        ).map((group, gi) => (
-          <React.Fragment key={gi}>
-            {gi > 0 && (
-              <span
-                className="border-l h-5 mx-1"
-                style={{ borderColor: "var(--color-border-tertiary)" }}
-              />
-            )}
-            {group.map(({ label, active, toggle }) => (
-              <button
-                key={label}
-                type="button"
-                onClick={toggle}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: "14px",
-                  fontSize: "11px",
-                  cursor: "pointer",
-                  fontWeight: active ? 500 : undefined,
-                  ...(active
-                    ? { border: "0.5px solid #C53030", backgroundColor: "#FED7D7", color: "#C53030" }
-                    : {
-                        borderWidth: "0.5px",
-                        borderStyle: "solid",
-                        borderColor: "var(--color-border-secondary)",
-                        backgroundColor: "white",
-                        color: "var(--color-text-primary)",
-                      }),
-                }}
-              >
-                {active ? `✓ ${label}` : label}
-              </button>
-            ))}
-          </React.Fragment>
-        ))}
-      </div>
-
       {/* Section visibility toggles — segmented control matching the app's
           SegmentedFilter look (light tray, navy-filled active pills), but
           multi-select: any number of sections can be active at once, each pill
           toggling independently. Core is a locked, always-on pill. Persists to
-          ?sections= in the URL. Pinned left within the shared row. */}
+          ?sections= in the URL.
+
+          Shares a justify-between row with the Last-meeting recency pills,
+          pinned to the opposite edge. order-* drives the visual order so
+          Sections sits left even though the pills come first in markup. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 no-print">
+      {/* Last-meeting recency filter — pinned right. Only the three MEETINGS
+          pills: the events/notes pills that used to sit beside them filtered
+          the Last Event / Last Note columns, which are gone. Thresholds match
+          the Stale/Cold pills DateCell draws in the Last column, so pressing
+          "Cold meetings" selects exactly the rows showing a Cold pill. */}
+      <div className="order-2 flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground" style={{ fontSize: "11px" }}>
+          Last meeting:
+        </span>
+        {(
+          [
+            { label: "Stale meetings", active: staleMeetings, toggle: () => setStaleMeetings((v) => !v) },
+            { label: "Cold meetings", active: coldMeetings, toggle: () => setColdMeetings((v) => !v) },
+            { label: "Blank meetings", active: blankMeetings, toggle: () => setBlankMeetings((v) => !v) },
+          ] as const
+        ).map(({ label, active, toggle }) => (
+          <button
+            key={label}
+            type="button"
+            onClick={toggle}
+            aria-pressed={active}
+            style={{
+              padding: "4px 10px",
+              borderRadius: "14px",
+              fontSize: "11px",
+              cursor: "pointer",
+              fontWeight: active ? 500 : undefined,
+              ...(active
+                ? { border: "0.5px solid #C53030", backgroundColor: "#FED7D7", color: "#C53030" }
+                : {
+                    borderWidth: "0.5px",
+                    borderStyle: "solid",
+                    borderColor: "var(--color-border-secondary)",
+                    backgroundColor: "white",
+                    color: "var(--color-text-primary)",
+                  }),
+            }}
+          >
+            {active ? `✓ ${label}` : label}
+          </button>
+        ))}
+      </div>
+
       <div className="order-1 flex items-center gap-2">
         <span className="text-sm text-muted-foreground">Sections</span>
         <div
@@ -1034,6 +1095,46 @@ export function PortfolioTable({
               </TableHead>
               <TableHead className="h-8 px-1.5" style={{ ...frozenStyle(statusLeft, 30, STATUS_COL_W), backgroundColor: SUBHEADER_BG }}>
                 <SortHeader label="Status" sortKey="note_status" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              </TableHead>
+              {/* Latest note + AI summary hover icons — frozen left. Not
+                  sortable: the column holds no orderable value, only two
+                  handles onto text.
+
+                  data-print="hide-col" drops the column from the Export PDF.
+                  Its content is reachable ONLY by hover/focus, and paper has
+                  neither — printed, it is two inert glyphs occupying a column.
+                  The header and every body cell carry the attribute so the
+                  column is removed as a unit and the rest re-flow into the
+                  freed width (the print stylesheet already releases the frozen
+                  inline widths and lets the remaining columns size to content).
+                  Screen and the Excel export are untouched — this attribute
+                  only does anything inside @media print. */}
+              <TableHead
+                data-print="hide-col"
+                className="h-8 px-1.5"
+                title="Latest client note · AI summary — hover or focus an icon to read it"
+                style={{ ...frozenStyle(infoLeft, 30, INFO_COL_W), backgroundColor: SUBHEADER_BG }}
+              >
+                <span className="text-xs font-medium text-muted-foreground">Info</span>
+              </TableHead>
+              {/* Cap $B — frozen left. Labelled "Cap $B" rather than "Mkt Cap"
+                  so it cannot be confused with Classification's Mkt Cap column,
+                  which holds the BUCKET (Mega/Large/Mid/Small/Micro) for the
+                  same underlying figure. The unit is in the label; the tooltip
+                  spells it out. Sorts on the number, not the bucket name. */}
+              <TableHead
+                className="h-8 px-1.5"
+                title="Market capitalization, in billions of US dollars"
+                style={{ ...frozenStyle(mktCapLeft, 30, MKT_CAP_COL_W), backgroundColor: SUBHEADER_BG }}
+              >
+                <SortHeader
+                  label="Cap $B"
+                  sortKey="market_cap_b"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={handleSort}
+                  align="right"
+                />
               </TableHead>
               <TableHead
                 className="h-8 px-1.5"
@@ -1150,6 +1251,23 @@ export function PortfolioTable({
                       align="right"
                     />
                   </TableHead>
+                  {/* Open pipeline capacity: slots still unfilled across the
+                      client's Pre-Launch / Live Outreach / Meetings Ongoing
+                      events. Sits straight after Next 3M — booked-ahead beside
+                      still-to-book. */}
+                  <TableHead
+                    className="h-8 px-2.5"
+                    title="Open slots remaining across this client's Pre-Launch, Live Outreach and Meetings Ongoing marketing events (total slots − confirmed meetings)"
+                  >
+                    <SortHeader
+                      label="Open"
+                      sortKey="open_slots"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      align="right"
+                    />
+                  </TableHead>
                   <TableHead className="h-8 px-2.5">
                     <SortHeader
                       label="Last"
@@ -1159,28 +1277,49 @@ export function PortfolioTable({
                       onSort={handleSort}
                     />
                   </TableHead>
-                </>
-              )}
-              {show.activity && (
-                <>
-                  {/* Section start — see SectionDivider. */}
-                  <TableHead className="relative h-8 px-2.5">
-                    <SectionDivider />
+                  {/* Next — sits DIRECTLY after Last so the group's two date
+                      columns read as a pair: where the client last was, and
+                      where it is next. A MEETING metric; headed "Next" rather
+                      than "Next Event" because there is no marketing event
+                      involved, with the full label in the tooltip. */}
+                  <TableHead
+                    className="h-8 px-2.5"
+                    title="Next confirmed meeting — the client's soonest upcoming confirmed meeting (today or later)"
+                  >
                     <SortHeader
-                      label="Event"
-                      sortKey="last_event_date"
+                      label="Next"
+                      sortKey="next_meeting_date"
                       currentKey={sortKey}
                       currentDir={sortDir}
                       onSort={handleSort}
                     />
                   </TableHead>
-                  <TableHead className="h-8 px-2.5">
+                  {/* All-time relationship split, closing the group. Compact
+                      labels; the full definition is in each header's tooltip. */}
+                  <TableHead
+                    className="h-8 px-2.5"
+                    title="Intro meetings — first meeting with each institution, all-time (confirmed)"
+                  >
                     <SortHeader
-                      label="Note"
-                      sortKey="last_note_date"
+                      label="# Intro"
+                      sortKey="intro_meetings"
                       currentKey={sortKey}
                       currentDir={sortDir}
                       onSort={handleSort}
+                      align="right"
+                    />
+                  </TableHead>
+                  <TableHead
+                    className="h-8 px-2.5"
+                    title="Follow-up meetings — every repeat meeting with an institution already met, all-time (confirmed)"
+                  >
+                    <SortHeader
+                      label="# F/U"
+                      sortKey="followup_meetings"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      align="right"
                     />
                   </TableHead>
                 </>
@@ -1225,6 +1364,12 @@ export function PortfolioTable({
               sortedRows.map((r) => {
                 const meetings365 = r.meetings_last_365d ?? 0
                 const meetings90 = r.meetings_last_90d ?? 0
+                // Is there anything to drill into? A client with no confirmed
+                // meetings has no institutions, so its # Intro / # F/U render as
+                // plain, non-interactive zeros rather than buttons that open an
+                // empty drawer.
+                const hasBreakdown =
+                  (institutionsByClient[r.account_id]?.length ?? 0) > 0
                 // Mirrors the Contract tab: a client with no active contract shows
                 // dashes for Term End / Auto-Renew / Status, and the gray badge for
                 // Days Left.
@@ -1263,6 +1408,46 @@ export function PortfolioTable({
                     {/* Status — frozen left */}
                     <TableCell className="px-1.5 py-1 align-top" style={frozenStyle(statusLeft, 10, STATUS_COL_W)}>
                       <NoteStatusPill status={r.note_status} date={r.note_status_date} />
+                    </TableCell>
+
+                    {/* Latest note + AI summary — frozen left. Each icon opens a
+                        portalled hover panel; a client missing either one keeps
+                        a muted glyph in its slot so the pair never reflows.
+                        data-print="hide-col" — hover-only content, so the column is
+                        dropped from the Export PDF; see the header cell. */}
+                    <TableCell
+                      data-print="hide-col"
+                      className="px-1.5 py-1 align-top"
+                      style={frozenStyle(infoLeft, 10, INFO_COL_W)}
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        <CellHoverCard
+                          icon={NotebookPen}
+                          color={NAVY}
+                          label="Latest client note"
+                          meta={
+                            r.recent_note_date ? formatShortDate(r.recent_note_date) : null
+                          }
+                          text={r.recent_note_text}
+                          emptyLabel="No client note on record"
+                        />
+                        <CellHoverCard
+                          icon={Sparkles}
+                          color={AI_TEAL}
+                          label="AI Summary"
+                          text={r.ai_summary}
+                          emptyLabel="No AI summary yet"
+                        />
+                      </span>
+                    </TableCell>
+
+                    {/* Cap $B — frozen left. Already in billions at the source;
+                        see formatMarketCapB. */}
+                    <TableCell
+                      className="px-1.5 py-1 align-top text-right tabular-nums"
+                      style={frozenStyle(mktCapLeft, 10, MKT_CAP_COL_W)}
+                    >
+                      {formatMarketCapB(r.market_cap_b)}
                     </TableCell>
 
                     {/* Account Team — frozen left */}
@@ -1384,26 +1569,54 @@ export function PortfolioTable({
                           {r.meetings_next_3m ?? 0}
                         </TableCell>
 
+                        {/* Open Slots — unfilled capacity across the client's
+                            open-stage marketing events */}
+                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums">
+                          {r.open_slots ?? 0}
+                        </TableCell>
+
                         {/* Last Meeting */}
                         <TableCell className="px-2.5 py-1 align-top">
                           <DateCell value={r.last_meeting_date} />
                         </TableCell>
+
+                        {/* Next — plain date, NOT a DateCell: the Stale/Cold
+                            pills measure how long ago something was and mean
+                            nothing on a future date. Muted em-dash when nothing
+                            is booked ahead. */}
+                        <TableCell className="px-2.5 py-1 align-top whitespace-nowrap">
+                          {r.next_meeting_date ? (
+                            formatShortDate(r.next_meeting_date)
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+
+                        {/* Intro / Follow-Up — all-time confirmed split. Both
+                            numbers DRILL IN to the same per-institution
+                            breakdown for this client, because both are cuts of
+                            one list: the row count is # Intro (one intro per
+                            institution) and the meeting-count sum is
+                            # Intro + # F/U. */}
+                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums">
+                          <InstitutionCount
+                            value={r.intro_meetings ?? 0}
+                            row={r}
+                            hasBreakdown={hasBreakdown}
+                            onOpen={setOpenClient}
+                          />
+                        </TableCell>
+                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums text-muted-foreground">
+                          <InstitutionCount
+                            value={r.followup_meetings ?? 0}
+                            row={r}
+                            hasBreakdown={hasBreakdown}
+                            onOpen={setOpenClient}
+                          />
+                        </TableCell>
                       </>
                     )}
 
-                    {show.activity && (
-                      <>
-                        {/* Last Event */}
-                        <TableCell className="px-2.5 py-1 align-top" style={BODY_SECTION_START_STYLE}>
-                          <DateCell value={r.last_event_date} />
-                        </TableCell>
-
-                        {/* Last Note */}
-                        <TableCell className="px-2.5 py-1 align-top">
-                          <DateCell value={r.last_note_date} />
-                        </TableCell>
-                      </>
-                    )}
                   </TableRow>
                 )
               })
@@ -1412,6 +1625,16 @@ export function PortfolioTable({
         </Table>
       </div>
       </div>
+
+      {/* Drill-in drawer for the # Intro / # F/U cells. One instance for the
+          whole table (not one per row) — it renders into a portal from
+          `Sheet` and is driven entirely by `openClient`. Rows come from the
+          preloaded map, so opening is instant with no fetch. */}
+      <ClientInstitutionsPane
+        client={openClient}
+        institutions={openClient ? institutionsByClient[openClient.accountId] ?? [] : []}
+        onClose={() => setOpenClient(null)}
+      />
     </div>
   )
 }

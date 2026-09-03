@@ -264,6 +264,38 @@
     white-space: normal !important;
     overflow-wrap: anywhere !important;
   }
+  /* 5. Drop the Info column (the latest-note + AI-summary hover icons) from the
+     PDF entirely. Its content is reachable ONLY by hover or focus, and paper has
+     neither — printed, it is two inert glyphs holding a column open for nothing.
+
+     COLLAPSED TO ZERO WIDTH, NOT `display: none`. The group bands above the
+     columns carry a colSpan, which is an HTML attribute CSS cannot rewrite. Take
+     the cells out of the table with display:none and the Client band still
+     claims 5 columns while only 4 remain under it, so it over-runs into
+     Classification and every band to its right shifts — measured: the Client
+     band ran to 521px while its columns ended at 407px. Keeping the cells in the
+     grid at zero width leaves the colSpans honest, and the shared `width: auto`
+     rule above hands the freed 46px back to the other columns, so there is no
+     gap where Info used to be. Verified: all four bands align to their columns,
+     header matches body, and the table lays out at 889px inside the ~979px
+     printable width.
+
+     The child rule blanks the icons themselves — a zero-width cell still paints
+     an overflowing child in some engines. NB this is `hide-col`, a DIFFERENT
+     value from the `[data-print="hide"]` display:none rule at the top of this
+     block (which is right for a button, wrong for a table column). */
+  .portfolio-print-root [data-print="hide-col"] {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    font-size: 0 !important;
+    overflow: hidden !important;
+  }
+  .portfolio-print-root [data-print="hide-col"] * {
+    display: none !important;
+  }
   /* The client name truncates to the frozen column width on screen with the
      full name on hover. Paper has no hover — print it in full and let it wrap.
      This was worth the last 36px. */

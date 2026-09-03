@@ -376,7 +376,24 @@ export type ClientPortfolioRow = {
   // counterpart to the trailing meetings_last_* counts above.
   meetings_next_3m: number | null
   unique_institutions_last_365d: number | null
+  // Open marketing-event slots remaining, summed across the client's events in
+  // the OPEN pipeline stages (Pre-Launch / Live Outreach / Meetings Ongoing).
+  // Schedule Closed / Preparing Feedback / Complete are excluded. Per event it
+  // is of_slots − confirmed meetings, floored at 0 — the same slot definition
+  // the To-Do List uses. 0, never null.
+  open_slots: number | null
+  // All-time Intro / Follow-Up split of the client's CONFIRMED meetings. An
+  // intro is the first meeting with a given institution, so intro_meetings is
+  // the count of distinct institutions ever met and followup_meetings is every
+  // later meeting with one of them (total − intro).
+  intro_meetings: number | null
+  followup_meetings: number | null
   last_meeting_date: string | null
+  // The client's NEXT confirmed meeting — soonest whose Eastern day is
+  // today-or-later. null when nothing is booked ahead, which the Portfolio's
+  // "Next" column renders as a muted em-dash. Not the same
+  // question as meetings_next_3m, which is strictly forward of now().
+  next_meeting_date: string | null
   last_event_date: string | null
   last_note_date: string | null
   // Latest client-note status flag (At Risk / Stable / Lost / New Client /
@@ -397,6 +414,20 @@ export type ClientPortfolioRow = {
   contract_status_label: string | null
   has_active_contract: boolean | null
   total_contract_count: number | null
+  // Hover-popover content for the two icons in the Client group. Neither is on
+  // v_client_portfolio: ai_summary is merged page-side from the accounts table
+  // (the same retainer-free summary the Client Detail card shows, not
+  // financials-gated), and recent_note_text / recent_note_date come from
+  // v_client_detail_recent_note — the same view the Client Detail note card
+  // reads, so there is no second definition of "most recent note".
+  //
+  // NB recent_note_date is the note's own date and is a DIFFERENT thing from
+  // note_status_date above (the date the health STATUS was last set, which
+  // carries forward from an older note) and from last_note_date (the last
+  // touchpoint). All three can disagree.
+  ai_summary: string | null
+  recent_note_text: string | null
+  recent_note_date: string | null
   // SharePoint contract file link. Not on either view; looked up page-side from
   // the contracts table by contract_id, same as the Contract Management page.
   // FINANCIALS-GATED (the contract document carries the fee schedule).
@@ -1255,6 +1286,22 @@ export type MarketingEventMeeting = {
   meeting_date: string | null
   institution_name: string | null
   investor_text: string | null
+}
+
+/**
+ * One institution in a client's # Intro / # F/U breakdown (Portfolio's drill-in
+ * panel). Built by loadInstitutionBreakdownByClient (lib/client-institutions.ts)
+ * over the SAME predicate as the two columns — Confirmed, all-time, no date
+ * bound — so a client's row count equals its # Intro and the meeting_count sum
+ * equals # Intro + # F/U.
+ *
+ * last_meeting_date can be a FUTURE date: the window includes not-yet-occurred
+ * confirmed meetings, exactly as the counts do.
+ */
+export type ClientInstitutionRow = {
+  institution_name: string
+  last_meeting_date: string | null
+  meeting_count: number
 }
 
 /**

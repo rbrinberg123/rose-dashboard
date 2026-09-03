@@ -8,6 +8,7 @@ import {
   applyFinancialsGate,
   PORTFOLIO_FINANCIAL_FIELDS,
 } from "@/lib/access/financials-policy"
+import { loadInstitutionBreakdownByClient } from "@/lib/client-institutions"
 import { NoClientsAssigned } from "@/components/scoped-empty"
 import type { ClientPortfolioRow } from "@/lib/types"
 import { PortfolioTable } from "./portfolio-table"
@@ -55,17 +56,46 @@ export default async function ClientPortfolioPage() {
     )
   }
 
+  // Every id actually on screen, post-scoping. The reads below are narrowed to
+  // it so free-text client notes and AI summaries for clients this viewer
+  // cannot see are never fetched at all, not merely dropped after the fact.
+  const accountIds = ((data ?? []) as ClientPortfolioRow[]).map((r) => r.account_id)
+
   // v_client_portfolio only exposes the account manager (sales_lead_primary_name).
   // The other three account-team roles live on the accounts table, so pull them
   // in one bulk read and merge by account_id. Mirrors what Client Detail does.
+  // ai_summary rides along from the same table — it is the retainer-free summary
+  // the Client Detail card shows, and is NOT financials-gated (there is one
+  // summary per client, shown to everyone).
   const { data: teamData } = await sb
     .from("accounts")
     .select(
-      "account_id, secondary_manager_name, associate_name, logistics_coordinator_name",
+      "account_id, secondary_manager_name, associate_name, logistics_coordinator_name, ai_summary",
     )
+    .in("account_id", accountIds)
   const teamById = new Map(
     (teamData ?? []).map((t) => [t.account_id as string, t]),
   )
+
+  // Latest client note per client, from the SAME view the Client Detail note
+  // card reads — so the text in Portfolio's hover popover is the text on the
+  // detail page, with no second definition of "most recent note" to drift.
+  // notes_text is the latest note's body (carry-forward applies to status and
+  // risk driver, not to the body).
+  const { data: noteData } = await sb
+    .from("v_client_detail_recent_note")
+    .select("account_id, note_date, notes_text")
+    .in("account_id", accountIds)
+  const noteById = new Map(
+    (noteData ?? []).map((n) => [n.account_id as string, n]),
+  )
+
+  // Per-institution breakdown behind the # Intro / # F/U cells. Preloaded for
+  // the scoped clients and handed to the table as a prop — the same shape the
+  // To-Do List uses for its event drill-in, so the drawer opens instantly with
+  // no client-side fetch and no loading state. ~645KB raw but 71KB gzipped /
+  // 42KB brotli (institution names repeat heavily across clients).
+  const institutionsByClient = await loadInstitutionBreakdownByClient(accountIds)
 
   // Contract fields aren't on v_client_portfolio either. Pull them from
   // v_contract_management (the same view the Contract tab uses) in one bulk read
@@ -108,9 +138,13 @@ export default async function ClientPortfolioPage() {
   const merged = ((data ?? []) as ClientPortfolioRow[]).map((r) => {
     const t = teamById.get(r.account_id)
     const c = contractById.get(r.account_id)
+    const n = noteById.get(r.account_id)
     const contractId = (c?.contract_id ?? null) as string | null
     return {
       ...r,
+      ai_summary: (t?.ai_summary ?? null) as string | null,
+      recent_note_text: (n?.notes_text ?? null) as string | null,
+      recent_note_date: (n?.note_date ?? null) as string | null,
       secondary_manager_name: (t?.secondary_manager_name ?? null) as string | null,
       associate_name: (t?.associate_name ?? null) as string | null,
       logistics_coordinator_name:
@@ -143,7 +177,11 @@ export default async function ClientPortfolioPage() {
       hideHeader
       canvas
     >
-      <PortfolioTable rows={rows} showFinancials={showFinancials} />
+      <PortfolioTable
+        rows={rows}
+        showFinancials={showFinancials}
+        institutionsByClient={institutionsByClient}
+      />
     </PageShell>
   )
 }

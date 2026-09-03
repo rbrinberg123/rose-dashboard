@@ -405,10 +405,102 @@ WITH meeting_agg AS (
         AND meeting_date <= CURRENT_DATE
         AND institution_name IS NOT NULL
     ) AS unique_institutions_last_365d,
-    MAX(meeting_date) FILTER (WHERE meeting_date <= CURRENT_DATE) AS last_meeting_date
+    MAX(meeting_date) FILTER (WHERE meeting_date <= CURRENT_DATE) AS last_meeting_date,
+    -- The client's NEXT confirmed meeting — the soonest whose EASTERN calendar
+    -- day is today-or-later. Powers Portfolio's "Next" column;
+    -- NULL when nothing is booked ahead.
+    --
+    -- Today-or-later, and therefore a DAY comparison rather than an instant
+    -- one: the column answers "what day is this client next in front of
+    -- investors", and a meeting at 9am today is still today's answer at 4pm.
+    -- Eastern is the firm's operating day, the convention v_client_todo and
+    -- v_marketing_calendar settled on.
+    --
+    -- DELIBERATELY different from meetings_next_3m above, which is bounded by
+    -- `meeting_date > now()` because "how much is booked AHEAD of me" excludes
+    -- a meeting that already started. Same data, two questions: a client whose
+    -- only meeting today is at 9am shows that date under both Last and Next,
+    -- and 0 under Next 3M. All three are right.
+    MIN(meeting_date) FILTER (
+      WHERE (meeting_date AT TIME ZONE 'America/New_York')::date
+              >= (now() AT TIME ZONE 'America/New_York')::date
+    ) AS next_meeting_date
   FROM public.meetings
   WHERE meeting_status_label = 'Confirmed'
   GROUP BY client_account_id
+),
+-- Intro / Follow-Up split of all-time CONFIRMED meetings (Portfolio's "Intro"
+-- and "F/U" columns).
+--
+-- An INTRO is the FIRST (earliest) meeting Rose organized between this client
+-- and a given institution; every later meeting between that same pair is a
+-- FOLLOW-UP. Exactly one meeting per (client, institution) pair can be the
+-- earliest, so the per-client counts reduce to
+--     intro    = COUNT(DISTINCT institution)
+--     followup = total confirmed meetings - intro
+-- which is what these two CTEs compute -- no window function, and no tie-break
+-- needed (two meetings at the same instant would make "the earliest" ambiguous,
+-- but "one intro per institution" is not).
+--
+-- All-time on purpose: these are lifetime relationship counts, unlike the
+-- trailing L12M / L3M columns above. Institution identity is institution_name,
+-- the same key unique_institutions_last_365d uses; institution_name and
+-- institution_id are strictly 1:1 in the data, so the key choice changes no
+-- number. Meetings with no institution are dropped -- a NULL is not an
+-- institution and must not become a pair.
+client_institution AS (
+  SELECT
+    client_account_id,
+    institution_name,
+    COUNT(*)::int AS pair_meetings
+  FROM public.meetings
+  WHERE meeting_status_label = 'Confirmed'
+    AND client_account_id IS NOT NULL
+    AND institution_name IS NOT NULL
+  GROUP BY client_account_id, institution_name
+),
+intro_agg AS (
+  SELECT
+    client_account_id,
+    COUNT(*)::int                          AS intro_meetings,
+    (SUM(pair_meetings) - COUNT(*))::int   AS followup_meetings
+  FROM client_institution
+  GROUP BY client_account_id
+),
+-- Confirmed meetings booked against each event — the "filled slots" side of the
+-- open-slot arithmetic below. Read from meetings rather than the
+-- events.confirmed_meetings Dynamics rollup, which lags.
+event_confirmed AS (
+  SELECT event_id, COUNT(*)::int AS confirmed_meetings
+  FROM public.meetings
+  WHERE meeting_status_label = 'Confirmed'
+    AND event_id IS NOT NULL
+  GROUP BY event_id
+),
+-- Open marketing-event slots, summed across the client's events that are still
+-- in the OPEN part of the pipeline (Portfolio's "Open Slots" column).
+--
+-- Included stages: Pre-Launch / Live Outreach / Meetings Ongoing.
+-- EXCLUDED: Schedule Closed, Preparing Feedback, Complete -- by then the
+-- schedule is shut and a remaining slot is not something anyone can still fill
+-- -- plus Pause, excluded everywhere else for the same reason.
+--
+-- Per event: GREATEST(of_slots - confirmed_meetings, 0), the identical slot
+-- definition v_client_todo.open_slots uses. The floor matters in the SUM: an
+-- overbooked event goes negative in Dynamics, and a negative would silently
+-- cancel out another event's genuinely open slots. An event with a NULL
+-- of_slots contributes nothing (capacity unknown, not zero).
+open_slot_agg AS (
+  SELECT
+    e.client_account_id,
+    SUM(GREATEST(e.of_slots - COALESCE(ec.confirmed_meetings, 0), 0))::int AS open_slots
+  FROM public.events e
+  LEFT JOIN event_confirmed ec ON ec.event_id = e.event_id
+  WHERE e.state_label = 'Active'
+    AND e.event_state_label IN ('Pre-Launch', 'Live Outreach', 'Meetings Ongoing')
+    AND e.client_account_id IS NOT NULL
+    AND e.of_slots IS NOT NULL
+  GROUP BY e.client_account_id
 ),
 recent_contract AS (
   SELECT DISTINCT ON (client_account_id)
@@ -523,12 +615,28 @@ SELECT
   -- Forward-looking upcoming-meeting count (confirmed, next 3 months). Appended
   -- at the very end of the column list so CREATE OR REPLACE VIEW can add it
   -- without a DROP (Postgres forbids inserting a column mid-list on REPLACE).
-  COALESCE(ma.meetings_next_3m, 0)::int AS meetings_next_3m
+  COALESCE(ma.meetings_next_3m, 0)::int AS meetings_next_3m,
+
+  -- Appended 2026-09-03, for the same CREATE OR REPLACE reason as the two
+  -- blocks above: open pipeline capacity and the Intro / Follow-Up split of the
+  -- client's all-time confirmed meetings. Definitions are in the CTE comments.
+  -- Zero (not NULL) when the client has no qualifying event / no meetings —
+  -- "nothing open" and "none yet" are the true answers, and all three are
+  -- right-aligned counts in the UI.
+  COALESCE(os.open_slots, 0)::int        AS open_slots,
+  COALESCE(ia.intro_meetings, 0)::int    AS intro_meetings,
+  COALESCE(ia.followup_meetings, 0)::int AS followup_meetings,
+
+  -- Appended 2026-09-03b. NOT coalesced: NULL means "nothing booked ahead",
+  -- which the UI renders as a muted em-dash. An absence, not a count.
+  ma.next_meeting_date::date AS next_meeting_date
 
 FROM public.accounts a
 LEFT JOIN meeting_agg ma ON ma.client_account_id = a.account_id
 LEFT JOIN recent_contract rc ON rc.client_account_id = a.account_id
 LEFT JOIN recent_note rn ON rn.client_account_id = a.account_id
+LEFT JOIN intro_agg ia ON ia.client_account_id = a.account_id
+LEFT JOIN open_slot_agg os ON os.client_account_id = a.account_id
 WHERE a.state_label = 'Active';
 
 

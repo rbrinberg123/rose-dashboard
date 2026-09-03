@@ -15,10 +15,243 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 | Route | Label | Reads | Purpose |
 |-------|-------|-------|---------|
 | `/client-statistics` | Statistics | `v_client_statistics` + `v_client_stats_by_*` | Portfolio-wide stats by market cap, region, sector, manager, status, days-left. |
-| `/portfolio` | Portfolio | `v_client_portfolio` (+ `v_contract_management`, + `contracts` for the doc link) | Active-client roster with health status and contract linkage. **Row-scoped** by `resolveClientScope`. **Financials-gated:** without the [Financials permission](01-access-and-users.md), the Contract band's **Retainer** column and **Doc** (contract-document) column are **not rendered at all** — the band shows 4 columns instead of 6 — and `annualized_retainer` / `quarterly_retainer` / `contract_url` are **deleted server-side** before the payload is sent, so an ungranted user never receives them (the `contracts.contract_url` lookup is skipped entirely). **Export PDF** button prints the current filtered/sorted view (branded header + filter summary) via the browser's Save-as-PDF; print styling lives in `app/globals.css` under `@media print` — it prints the rendered table, so a gated view exports without the money columns too. |
+| `/portfolio` | Portfolio | `v_client_portfolio` (+ `v_contract_management`, + `contracts` for the doc link, + `accounts` for the account team and `ai_summary`, + `v_client_detail_recent_note` for the note popover, + `meetings` for the # Intro / # F/U drill-in) | Active-client roster with health status and contract linkage. **Row-scoped** by `resolveClientScope`. **Financials-gated:** without the [Financials permission](01-access-and-users.md), the Contract band's **Retainer** column and **Doc** (contract-document) column are **not rendered at all** — the band shows 4 columns instead of 6 — and `annualized_retainer` / `quarterly_retainer` / `contract_url` are **deleted server-side** before the payload is sent, so an ungranted user never receives them (the `contracts.contract_url` lookup is skipped entirely). **Export PDF** button prints the current filtered/sorted view (branded header + filter summary) via the browser's Save-as-PDF; print styling lives in `app/globals.css` under `@media print` — it prints the rendered table, so a gated view exports without the money columns too. **The Info column is excluded from the PDF** (hover-only content; see [Portfolio columns](#portfolio-columns)). Column groups and their definitions: [Portfolio columns](#portfolio-columns) below. |
 | `/client-detail` | Detail | `v_client_detail_summary` + many `v_client_detail_*` (+ base `touchpoints`, + `v_marketing_calendar`) | Deep-dive on one client: quarterly, institutions, hosts, recent meetings/notes. **Row-scoped** by `resolveClientScope` (a direct URL to an out-of-scope client is blocked). **Financials-gated:** the KPI strip is **6 tiles** — Meetings (LTM/All-time) · Institutions (LTM) · Feedback Rec'd (LTM) · **Annualized Retainer** · **$ per Meeting** · Contract Renewal — but without the [Financials permission](01-access-and-users.md) the two money tiles are **not built** and `annualized_retainer` / `dollars_per_meeting_ltm` are **deleted server-side** from the selected client *and* the whole client-switcher list. The row then renders **4 tiles that stretch evenly to fill it** (the grid's column count follows the tile count) — no blanks, no dashes, no placeholders. `dollars_per_meeting_ltm` is derived from the retainer, so it is always gated with it. The **AI Summary** is not gated: there is one summary per client shown to everyone, and it no longer states retainer / fee amounts **for anyone** (renewal dates are still included). The Account Team / AI Summary card also carries a **Marketing Events & Dates** spotlight (from `v_marketing_calendar` filtered to the client), split by the event's **confirmed-meeting dates** (`public.meetings.meeting_date` / Dynamics `bcs_date`; a meeting is a single point in time, so it is both start and end — resolved to the Eastern day). An event with no confirmed meetings falls back to its own `event_start_actual`..`event_end_actual` window. **Current & Upcoming** (left) = every event whose latest meeting day is today-or-later (**no cap**, sorted by the soonest not-yet-occurred meeting day, nearest first); **Previous** (right) = events where all meetings have ended, showing **only the single most-recently-completed** one. Each row shows a date tile (event start = earliest meeting day), the event's start–end span, a **confirmed-meeting count chip** (navy tint; labelled "confirmed" on both columns — confirmed meetings only, excluding tentative/cancelled/any non-confirmed status), and a stage pill colored from `event_state_label` (Live Outreach / Meetings Ongoing → green, Pre-Launch → blue, Schedule Closed → amber, Preparing Feedback / Complete → grey, unknown → grey). The count is `COUNT(public.meetings WHERE event_id = <event> AND meeting_status_label = 'Confirmed')` — the same meetings→event link (`meetings.event_id`, from Dynamics `_bcs_event_value`) and status the Planning views use; queried per selected client's event ids, fail-soft to `0`. Each event row is **clickable** (hover + selected state): it opens that event's confirmed meetings in the **shared right-side detail pane** — `components/event-meetings-pane.tsx` (`EventMeetingsPane`), extracted from here and now shared with the To-Do List, built on the same `Sheet` drawer the Investor Reach Depth section uses (same width / slide-in / header / close). Its rows come from the shared `loadConfirmedMeetingsByEvent` read in `lib/event-meetings.ts`, which also backs the count chip and the Current/Previous bucketing dates — one query for all three. The pane header is the event name + its date span; the body lists confirmed meetings only, sorted by date, each showing date (`meeting_date`), institution (`institution_name`), and investor (`investor_text` / Dynamics `bcs_investor`), with a small empty note if an event has none. The block degrades to empty column placeholders ("No current or upcoming events" / "No previous events") and never blanks the page if the view is missing. |
 
 | `/clients/to-do` | To-Do List | `v_client_todo` (+ `v_feedback_pipeline` / `v_feedback_outstanding` / `touchpoints` for the hover detail, + `accounts` for the Client Manager filter) | One row per **active** client, filterable by **Client Manager** (options built from the viewer's own scoped rows): meetings YTD/L12M/UPC (YTD and UPC are a clean split of confirmed meetings on `now()` — occurred-this-year vs not-yet-started, no far end, nothing counted twice), last CRM touchpoint, last Outreach → Data Upload, the soonest current/upcoming marketing event (name / stage pill / date window / confirmed meetings / open slots — the whole cluster is **clickable**, opening that event's confirmed meetings in the shared `EventMeetingsPane`, the same drawer Client Detail's Marketing Events block uses, fed by the same `loadConfirmedMeetingsByEvent` read), open feedback reports + collections, and an **inline note** saved on blur to `client_todo_notes` (last write wins, never written back to Dynamics). **Row-scoped** by `resolveClientScope` (account-management team), with a "No clients assigned to you" empty state, and enforced again on the note write. Its own independent role grant. Aging colours: touch 60/90 days, upload 120/180 days. **Export to Excel** downloads the current filtered+sorted view as `.xlsx` (ExcelJS, client-side from the already-scoped rows). **Export PDF** exports that same view as a landscape PDF that mirrors the on-screen table (pills, aging colours, branded header + filter summary) via the browser's Save-as-PDF — the same `window.print()` mechanism as Portfolio, with the shared print styling in `app/globals.css` under `@media print`; because it prints the rendered table it inherits the row scoping, and the inline note textareas are swapped for static text on paper. Requires `sql/20_client_todo.sql`. Full detail in [10 — To-Do List](10-to-do-list.md). |
+
+#### Portfolio columns
+
+The table has one always-on **Client** group (Client / Status / Team, frozen to
+the left edge) plus three toggleable sections, controlled by the **Sections**
+segmented control and persisted to `?sections=` in the URL. Default view is
+**Contract + Meetings** on, Classification off.
+
+| Section | Columns |
+|---------|---------|
+| Client *(locked)* | Client · Status · **Info** (note + AI hover icons) · **Cap $B** · Team |
+| Classification | Mkt Cap · Region · Sector |
+| Contract | Term End · Days · Renew · Term (· Retainer · Doc — Financials-gated) |
+| Meetings | L12M · Inst · L3M · Next 3M · **Open** · Last · **Next** · **# Intro** · **# F/U** |
+
+**Removed (2026-09-03) — the Activity section.** The **Last Event** date
+(`accounts.last_event_date`) and **Last Note** date
+(`accounts.last_touchpoint_date`) columns are gone, and with them the whole
+Activity group and its **Activity** Sections pill. The fields are still on
+`v_client_portfolio`; nothing on Portfolio renders them.
+
+**Last-meeting recency filter.** Three pills — **Stale meetings** (30–90 days) ·
+**Cold meetings** (90+) · **Blank meetings** (never) — sit opposite the Sections
+control, filtering on the Meetings **Last** column. They OR together; none
+pressed means no filter, **Reset** clears them, and any pressed pill is named in
+the Export PDF header's filter summary. Their thresholds are the same ones
+`DateCell` uses to pill the Last column, so pressing *Cold meetings* selects
+exactly the rows showing a Cold pill.
+
+> These are the survivors of the nine activity pills. The 2026-09-03 cleanup
+> removed all nine along with the Activity section, but the **Last** column
+> itself stayed (only Last Event and Last Note went), so its three pills were
+> restored. The events and notes pills stay gone — the columns they filtered no
+> longer exist. The **Stale / Cold** legend at the top of the page was likewise
+> kept, and both it and the pill row are now headed "Last meeting:" rather than
+> "Activity flags:", which named a section that no longer exists.
+
+**Info** — two small hover icons in the Client group, immediately after
+**Status**, each revealing a paragraph of text without leaving the table.
+
+| Icon | Reveals | Source |
+|------|---------|--------|
+| 📝 note, navy | The client's **most recent note** — heading carries the note's own date | `v_client_detail_recent_note` (`notes_text` / `note_date`) — the same view the Client Detail note card reads, so there is no second definition of "most recent note" |
+| ✨ sparkle, teal `#1C8C9C` | The client's **AI summary** | `accounts.ai_summary` — the retainer-free summary the Client Detail card shows, **not** Financials-gated (one summary per client, shown to everyone) |
+
+- Both are read **server-side** in `app/portfolio/page.tsx` and merged by
+  `account_id`, and both reads are narrowed with `.in("account_id", …)` to the
+  ids that survived `resolveClientScope` — free-text notes and summaries for
+  clients the viewer cannot see are never fetched, not merely dropped after the
+  fact. Full payload across all 109 active clients is ~105 KB.
+- A client missing either one keeps a **muted grey glyph** in its slot (with a
+  "No client note on record" / "No AI summary yet" tooltip) rather than an empty
+  gap, so the pair never reflows row to row. Today that is 11 clients without a
+  note and none without a summary.
+- The sparkle and its teal are lifted from the Client Detail **AI Summary**
+  `CardTitle`, so the glyph means the same thing on both pages.
+- Implementation is the shared `components/cell-hover-card.tsx`. **The panel is
+  portalled to `<body>`** — the same fix the collapsed nav rail's fly-out uses
+  (`useFlyout` in `components/nav.tsx`) — because two things clip a panel
+  rendered inline in a table cell and a z-index beats neither: the table wrapper
+  is `overflow-x: auto`, which forces `overflow-y` to auto too and clips on both
+  axes; and the sticky `<thead>` (z-20) and sticky frozen columns (z-10/z-30)
+  each establish their own stacking context, so a neighbouring sticky cell paints
+  over an inline panel however high its z-index goes. Portalled, `position:
+  fixed`, `z-[60]`, anchored off the trigger's measured rect.
+- 340px wide, flips above the icon when there is not enough room below, and
+  scrolls internally when the text is long. **Source line breaks are reflowed**:
+  client notes arrive hard-wrapped at ~78 columns (median line 76, max 80 across
+  all 103 non-blank notes), which reads as ragged half-lines in a narrow panel,
+  so a *single* newline is collapsed to a space. A *blank* line is kept as a real
+  paragraph break — no note uses one today, but AI summaries and future notes
+  may, and losing real structure is the worse failure.
+- **Excluded from the Export PDF.** The content is reachable only by hover or
+  focus, and paper has neither — printed, the column is two inert glyphs holding
+  space open for nothing. The cells carry `data-print="hide-col"`, which
+  **collapses the column to zero width** under `@media print` rather than
+  `display: none`-ing it. That distinction matters: the group bands above the
+  columns carry a `colSpan`, an HTML attribute CSS cannot rewrite, so removing
+  the cells from the table would leave the Client band claiming 5 columns over
+  the 4 that remain — measured, it over-ran to 521px while its columns ended at
+  407px, shifting every band to its right. Zero-width keeps the colSpans honest,
+  and the existing `width: auto` print rule hands the freed 46px back to the
+  other columns, so there is no gap. Verified against the real print stylesheet:
+  all four bands align to their columns, header matches body, table lays out at
+  889px inside the ~979px printable width. On screen the column is unaffected.
+  (Portfolio has no Excel export — Export PDF is its only export.)
+- **Keyboard and touch:** the trigger is a real `<button>` — focus opens the
+  panel, `aria-describedby` links it, Escape closes and returns focus, Tab moves
+  into the panel so a long note can be scrolled, and Enter/Space reopens. On
+  touch, tap toggles. The panel closes on scroll (capture phase, so the table's
+  own inner scroll container counts) rather than chasing a rect it was anchored
+  to once.
+
+**Cap $B** — a **Client-group column**, frozen to the left edge between the Info
+icons and **Team**, so a client's size stays on screen beside its name however
+far the table is scrolled. It is `accounts.market_cap_b`, exposed on
+`v_client_portfolio` and loaded from Dynamics **`bcs_marketcapb`**
+(`loader/load.py`). **The source is already in billions of US dollars — no unit
+conversion is applied.** Displayed to 1 decimal at ≥10 and 2 decimals below
+(203.2 · 23.7 · 1.38 · 0.16), right-aligned, `—` when the client has no value.
+
+> It lived in Classification as "Mkt Cap ($B)" for one revision before moving
+> here. The header is **"Cap $B"**, not "Mkt Cap": Classification keeps a **Mkt
+> Cap** column holding the *bucket* (Mega / Large / Mid / Small / Micro) cut
+> from this same figure at ≥200 / ≥10 / ≥2 / ≥0.3, and two columns called "Mkt
+> Cap" showing different things would be unreadable. The unit is in the label
+> and spelled out in the header's hover tooltip. Sorting is on the number, so it
+> orders by actual size rather than alphabetically by bucket name — the observed
+> range across the 202 clients carrying a value is 0 → 203.22.
+
+**Next** (`next_meeting_date`) — sits **immediately after Last**, so the group's
+two date columns read as a pair: where the client last was, and where it is
+next. The forward counterpart to **Last**.
+
+> Headed **"Next"**, not "Next Event". It is a **meeting** metric — the client's
+> next confirmed meeting date — with no marketing event involved, so naming it
+> after one was misleading. The full label lives in the header's hover tooltip
+> ("Next confirmed meeting"). Shortening the header also handed the column's
+> width back to its data, which is the same MM/DD/YY date **Last** holds.
+
+- The client's **soonest upcoming confirmed meeting**: `MIN(meeting_date)` over
+  `public.meetings` where `meeting_status_label = 'Confirmed'` and the meeting's
+  **Eastern calendar day is today-or-later**.
+- **Today-or-later, so a day comparison rather than an instant one** — the column
+  answers "what day is this client next in front of investors", and a meeting at
+  9am today is still today's answer at 4pm. Eastern is the firm's operating day,
+  the convention `v_client_todo` and `v_marketing_calendar` settled on.
+- This deliberately differs from **Next 3M** earlier in the group, which is a
+  strictly-forward count bounded by `meeting_date > now()` — "how much is booked
+  *ahead of me*" excludes a meeting that already started. A client whose only
+  meeting today is at 9am therefore shows that date under **both** Last and Next
+  Event, and **0** under Next 3M. All three are correct answers to three
+  different questions.
+- Rendered as a plain date, **not** through `DateCell`: the Stale/Cold pills
+  measure how long ago something was and mean nothing on a future date. A muted
+  **—** shows when nothing is booked ahead (the view returns NULL, not a zero or
+  a sentinel date).
+
+**Open** (`open_slots`) — open marketing-event capacity for the client.
+
+- **Event universe:** `public.events` with `state_label = 'Active'` and
+  `event_state_label` (Dynamics **`bcs_eventstate`**) in
+  **`Pre-Launch` · `Live Outreach` · `Meetings Ongoing`**.
+- **Excluded stages:** `Schedule Closed`, `Preparing Feedback`, `Complete` — by
+  then the schedule is shut and a remaining slot is not something anyone can
+  still fill — plus `Pause`, excluded everywhere else for the same reason.
+- **Formula:** `SUM( GREATEST(of_slots − confirmed_meetings, 0) )` across those
+  events. `of_slots` is `events.of_slots` (Dynamics **`bcs_ofslots`**);
+  `confirmed_meetings` is counted from `public.meetings` on `event_id` where
+  `meeting_status_label = 'Confirmed'`, **not** from the lagging
+  `events.confirmed_meetings` Dynamics rollup. Identical slot definition to the
+  To-Do List's open-slots figure.
+- The floor at 0 is per event, before the sum: an overbooked event goes negative
+  in Dynamics, and a negative would silently cancel out another event's genuinely
+  open slots. Events with a NULL `of_slots` contribute nothing (capacity unknown,
+  not zero) — 2 of the 116 currently-qualifying events. A client with no
+  qualifying event shows **0**, not a dash.
+
+**# Intro** (`intro_meetings`) and **# F/U** (`followup_meetings`) — the
+relationship split of the client's meetings. They **close the Meetings group**,
+after the Last / Next date pair. Compact headers; the full labels are in each
+header's tooltip.
+
+- An **intro** is the **first (earliest) meeting** between this client and a
+  given institution — the first time Rose organized a meeting for that client
+  with that institution. Every later meeting between that same pair is a
+  **follow-up**.
+- Per client: `# Intro` = **count of distinct institutions ever met**, since
+  exactly one meeting per (client, institution) pair can be the earliest.
+  `# Follow-Up` = **total meetings − # Intro**.
+- **Confirmed only** (`meeting_status_label = 'Confirmed'`) and **all-time** — no
+  trailing window, unlike the L12M / L3M / Next 3M columns beside them. These are
+  lifetime relationship counts.
+- Institution identity is `meetings.institution_name`, the same key the **Inst**
+  column's `unique_institutions_last_365d` uses. `institution_name` and
+  `institution_id` are strictly 1:1 in the data (1,557 distinct of each across
+  12,595 confirmed meetings; no name with two ids, no id with two names), so the
+  key choice changes no number.
+- *Worked example — Loomis AB:* 15 confirmed meetings all-time with 12 distinct
+  institutions, so **Intro 12 / F/U 3**. The three follow-ups are the second
+  VELA Investment Management meeting (2021-12-20), the third VELA meeting
+  (2022-02-23) and the second Redwood Investments meeting (2022-02-23); their
+  first meetings (2021-12-09 and 2021-12-02) are the intros.
+
+**Click-to-expand — the per-institution breakdown.** Both count cells are
+clickable and open the **same** drill-in drawer for that row's client: an
+alphabetical (A→Z) list of every institution the client has met, one row each
+showing **Institution · Last meeting date · Meeting count**. Both numbers open
+one panel because both are cuts of that single list.
+
+- Same drawer as the To-Do List's event drill-in —
+  `components/client-institutions-pane.tsx` is modelled on
+  `components/event-meetings-pane.tsx`: same `Sheet`, same `sm:max-w-md` width
+  and slide-in, same teal-eyebrow / navy-title / muted-description header, same
+  scrolling list. It is a sibling rather than a call into that pane because the
+  row shape differs — that one lists individual meetings (institution + investor
+  + one date), this one lists institutions with a **count**, which
+  `MarketingEventMeeting` has no field for.
+- **It reconciles with the cell, by construction.** The rows come from
+  `loadInstitutionBreakdownByClient` (`lib/client-institutions.ts`), whose
+  predicate is character-for-character the view's `client_institution` CTE:
+  `meeting_status_label = 'Confirmed'`, non-null client and institution, and
+  **no date filter**. So for every client:
+
+  | | |
+  |---|---|
+  | rows in the panel | = **# Intro** (one intro per institution) |
+  | Σ meeting counts | = **# Intro + # F/U** |
+
+  Verified against the live view for all 109 active clients, and re-checked in
+  the rendered page (e.g. Aker BP ASA: 145 rows, counts summing to 299, against
+  a cell reading 145 / 154).
+- **The window includes future-dated meetings**, because the columns do — 293 of
+  the 12,599 confirmed meetings are in the future today. Adding an intuitive
+  "only meetings that have happened" bound would make the panel disagree with
+  the number just clicked. One consequence: **Last meeting date is `MAX` over
+  that same unbounded set, so it can be a future date** for a client with
+  something already booked. That is the honest answer for this window.
+- Preloaded server-side and passed to the table as a prop (the same shape the
+  To-Do List uses for its event drill-in), so the drawer opens instantly with no
+  client fetch and no loading state. 6,173 (client, institution) pairs — ~645 KB
+  raw but **71 KB gzip / 42 KB brotli**, since institution names repeat heavily.
+- A client with no confirmed meetings has nothing to expand, so its `0 / 0`
+  render as **plain text, not buttons**. The trigger is a real `<button>`
+  (keyboard-reachable, Escape closes the drawer) styled as a bare number that
+  underlines only on hover/focus, so the numeric grid still reads as a grid.
+  Unchanged on paper: the button collapses to its number in the PDF export.
+
+Open / Intro / F/U live on `v_client_portfolio` and require
+`sql/patches/2026-09-03_portfolio_open_slots_intro_followup.sql`; **Next**
+requires `sql/patches/2026-09-03b_portfolio_next_meeting_date.sql` on top of it.
+Both are folded into `sql/03_views.sql` for a rebuild. Until a patch is run its
+columns read as `0` (or `—` for Next) rather than erroring.
 
 ### Institutions (super-user only)
 
