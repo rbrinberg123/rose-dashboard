@@ -251,6 +251,14 @@ function formatYmdSpan(startYmd: string, endYmd: string): string {
 // used to sit here.
 const EVENT_STAGE_FALLBACK = EVENT_STAGE_PILL_FALLBACK
 
+// Stages in which the team is still actively booking meetings. An event in one
+// of these counts as Current & Upcoming even when every meeting booked so far
+// has already happened — the work is live, so it does not belong under
+// "Previous". Exact `events.event_state_label` literals (verified against the
+// data); the same two strings gate the To-Do List's next_event_* in
+// sql/20_client_todo.sql, so the two surfaces qualify events identically.
+const ACTIVE_BOOKING_STATES = new Set(["Live Outreach", "Meetings Ongoing"])
+
 type MarketingEvent = {
   row: MarketingCalendarRow
   // Earliest / latest confirmed-meeting day (Eastern), falling back to the
@@ -260,6 +268,9 @@ type MarketingEvent = {
   // Soonest meeting day that is today-or-later (Eastern), for the left-column
   // sort. Null when every meeting has already occurred.
   soonestUpcomingYmd: string | null
+  // True when the event's stage is an active-booking one — the second,
+  // date-independent way to qualify as Current & Upcoming.
+  activeBooking: boolean
 }
 
 /** One compact event row: date tile · name + meta+count · stage pill. `muted`
@@ -758,9 +769,15 @@ export function ClientDetailView({
   // a meeting is "not yet occurred" when its day is today-or-later. An event with
   // no confirmed meetings yet falls back to its own actual window. Undated events
   // (neither meetings nor an actual window) are dropped.
-  //   Current & Upcoming (left): latest meeting day today-or-later — ALL of them,
-  //     sorted by the soonest not-yet-occurred meeting day (nearest first).
-  //   Previous (right): all meetings ended — only the single most-recently ended.
+  //   Current & Upcoming (left): latest meeting day today-or-later OR the stage
+  //     is an active-booking one (ACTIVE_BOOKING_STATES) — ALL of them. Sorted
+  //     in two tiers: events with a not-yet-occurred day first (nearest first),
+  //     then the state-only-qualified ones (most-recently-active first).
+  //   Previous (right): the exact complement — all meetings ended AND not still
+  //     being booked — showing only the single most-recently ended.
+  // The two buckets are built from one predicate, so an event can never land in
+  // both columns. This is the same rule v_client_todo applies for the To-Do
+  // List's next_event_* columns.
   const { currentEvents, previousEvents } = React.useMemo(() => {
     const today = todayEasternYmd()
     const built: MarketingEvent[] = []
@@ -779,17 +796,25 @@ export function ClientDetailView({
       const startYmd = ymds[0]
       const endYmd = ymds[ymds.length - 1]
       const soonestUpcomingYmd = ymds.find((d) => d >= today) ?? null
-      built.push({ row, startYmd, endYmd, soonestUpcomingYmd })
-    }
-    const current = built
-      .filter((e) => e.endYmd >= today)
-      .sort((a, b) =>
-        (a.soonestUpcomingYmd ?? a.startYmd).localeCompare(
-          b.soonestUpcomingYmd ?? b.startYmd,
-        ),
+      const activeBooking = ACTIVE_BOOKING_STATES.has(
+        (row.event_state_label ?? "").trim(),
       )
+      built.push({ row, startYmd, endYmd, soonestUpcomingYmd, activeBooking })
+    }
+    // ONE predicate drives both columns, so they stay exact complements.
+    const isCurrent = (e: MarketingEvent) => e.endYmd >= today || e.activeBooking
+    const current = built.filter(isCurrent).sort((a, b) => {
+      // Tier 1 — a real not-yet-occurred day — always outranks a state-only
+      // qualifier, whose days are all in the past. Within tier 1, soonest
+      // first; within tier 2, most-recently-active first.
+      if (a.soonestUpcomingYmd && b.soonestUpcomingYmd)
+        return a.soonestUpcomingYmd.localeCompare(b.soonestUpcomingYmd)
+      if (a.soonestUpcomingYmd) return -1
+      if (b.soonestUpcomingYmd) return 1
+      return b.endYmd.localeCompare(a.endYmd)
+    })
     const previous = built
-      .filter((e) => e.endYmd < today)
+      .filter((e) => !isCurrent(e))
       .sort((a, b) => b.endYmd.localeCompare(a.endYmd))
       .slice(0, 1)
     return { currentEvents: current, previousEvents: previous }

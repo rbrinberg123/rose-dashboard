@@ -47,7 +47,7 @@ Which to use: **Excel** when you want to sort, pivot or re-cut the numbers; **PD
 | **Last Touch** | The date of the client's most recent **CRM touchpoint**. Amber at 60+ days, red at 90+, red "Never" if there has never been one. **Hover or click the date** to see the touchpoint behind it — its type, subject, exact date and time, and owner. |
 | **Last Upload** | The date of the client's most recent completed **Outreach → Data Upload** task. Amber at 120+ days, red at 180+, red "Never" if there has never been one. |
 | **Status** | The client's status flag from their **latest client note** — At Risk · Lost · New Client · Stable · Strong — as a colour pill. It sits in the **Client** section beside the ticker, because it reads as client identity rather than as an activity metric. This is the **same pill, the same five values and the same colours as Client Portfolio's "Status (latest note)"** column: both render `NoteStatusPill` from `dashboard/components/note-status.tsx`, over the palette in `lib/design.ts` (`NOTE_STATUS_PILL`) that the Client Statistics "Clients by Status" donut also reads — so pill, key and chart cannot drift. Hover a pill for the date the status was set. A client with no note on record shows an em dash. Clicking the header sorts by **severity** (At Risk first), not alphabetically — again matching Portfolio. |
-| **Current & Upcoming Event** | The name of the **soonest current-or-upcoming** marketing event, in a deliberately narrow column — long names truncate with an ellipsis and the full name is on hover. The leading ticker is **stripped** from the name ("4DX-AU - Virtual - September, October (TBC)" shows as "Virtual - September, October (TBC)") because the Ticker column already says whose event it is. "None" if there isn't one. |
+| **Current & Upcoming Event** | The name of the **soonest current-or-upcoming** marketing event — one whose last confirmed meeting is **today-or-later**, *or* whose stage is **Live Outreach / Meetings Ongoing** (the team is still actively booking it, so it stays here even once every booked meeting has passed). Shown in a deliberately narrow column — long names truncate with an ellipsis and the full name is on hover. The leading ticker is **stripped** from the name ("4DX-AU - Virtual - September, October (TBC)" shows as "Virtual - September, October (TBC)") because the Ticker column already says whose event it is. An event with a real upcoming meeting always wins over one that qualifies only on its stage. "None" if there isn't one. |
 | **Status** | That event's stage, as a coloured pill (Pre-Launch, Live Outreach, Meetings Ongoing, Schedule Closed, Preparing Feedback, Complete). |
 | **Date** | That event's meeting window — a single day, or a start–end span. |
 | **Mtgs** | How many **confirmed** meetings that event has. |
@@ -217,15 +217,25 @@ Because the split is against `now()` rather than a date, both counts move **cont
 
 > There is also an `events.last_data_upload` field (Dynamics `bcs_lastdataupload`), but it's per-*event*, not per-client, so the task subtype is the right source for a client-level column.
 
-**Soonest current/upcoming event** — bucketed **exactly** as the Client Detail "Marketing Events & Dates" block does (`app/client-detail/client-detail-view.tsx`):
+**Soonest current/upcoming event** — bucketed by the same rule as the Client Detail "Marketing Events & Dates" block (`app/client-detail/client-detail-view.tsx`):
 
 - An event's window is the **min..max Eastern day of its confirmed meetings**.
 - An event with no confirmed meetings falls back to its own `event_start_actual`..`event_end_actual`.
-- An event is **current/upcoming while that window's end is today-or-later** — it isn't complete until its last meeting ends.
-- Undated events (no meetings, no actual window) are dropped.
-- Of those, the one with the soonest **not-yet-occurred** day wins (ties break on window start, then event id).
+- An event is **current/upcoming when EITHER** of these holds:
+  - that window's **end is today-or-later** (inclusive — an event whose last meeting is *today* is still current, and only flips tomorrow); **or**
+  - its stage is an **active-booking** one — `event_state_label IN ('Live Outreach', 'Meetings Ongoing')` — because **the team is still booking meetings for it**, so it is live work even when every meeting booked *so far* has already happened.
+- Undated events (no meetings, no actual window) are still dropped — the column renders a date span, so there is nothing to show for one.
+- Of those, the winner is picked in **two tiers**: events with a genuinely **not-yet-occurred** day come first (soonest first), and only when a client has none of those does a **state-only-qualified** event (all meetings past, still actively booking) get shown — those order most-recently-active first. Ties break on window start, then event id.
 
-The event universe matches `v_marketing_calendar` (`state_label = 'Active'`, `event_state_label` present and not `'Pause'`) **minus** that view's trailing two-month cutoff — irrelevant here, since we only keep windows ending today-or-later, and keeping it would hide a long-dormant event that still has a meeting ahead of it.
+> **Why two tiers.** A state-qualified event has no not-yet-occurred day and a *past* window start. The old single sort key, `COALESCE(soonest_upcoming_day, start_day) ASC`, would therefore have ranked it **ahead** of a genuinely-upcoming event — and since this column shows exactly one event per client, it would have displaced it. Splitting the key keeps real upcoming meetings on top. Ordering among events that already qualified is unchanged: under the old rule `soonest_upcoming_day` could never be null, so the `COALESCE` never actually fired.
+
+The event universe matches `v_marketing_calendar` exactly: `state_label = 'Active'`, `event_state_label` present and not `'Pause'`. **The two pages now draw from the same pool** — see the note on the removed two-month cutoff below.
+
+#### The removed two-month cutoff
+
+`v_marketing_calendar` used to carry a trailing window, `COALESCE(event_end_actual, event_start_actual) >= (CURRENT_DATE - INTERVAL '2 months')`. It was **removed on 2026-09-08**.
+
+Earlier revisions of this page called that cutoff harmless and said the two surfaces bucketed "exactly" alike. **Both claims were wrong.** The rule was shared, but the *pool* was not, and the cutoff was not harmless: it tested the event's **official dates and never its meetings**, so an event whose official window closed months ago — but which still had a confirmed meeting ahead of it, or was still in an active-booking stage — was dropped from `v_marketing_calendar` **before Client Detail could classify it**, while the To-Do List (which never had the cutoff) still showed it. The same client could show an event here and not there. Removing it makes the two pools identical. It was also the only day boundary in this path evaluated in **UTC** (`CURRENT_DATE`) rather than Eastern; that inconsistency is gone with it.
 
 **Event Mtgs** — `COUNT(public.meetings WHERE event_id = <event> AND meeting_status_label = 'Confirmed')`, the same meetings→event link (`meetings.event_id`, from Dynamics `_bcs_event_value`) the Planning and Client Detail pages use.
 

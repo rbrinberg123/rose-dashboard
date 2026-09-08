@@ -4657,9 +4657,15 @@ GRANT SELECT ON public.v_client_onboarding TO service_role;
 --   - state_label = 'Active' excludes DEACTIVATED events (the Dataverse statecode,
 --     distinct from the workflow event_state_label). Kept on purpose so the
 --     calendar shows only live events; drop this line to include deactivated ones.
---   - A trailing window: only events whose latest actual date (end, else start) is
---     within the last 2 months or in the future, so the lanes stay forward-looking
---     without a hard "future only" cut (recently-finished events still show).
+--   - NO date cutoff. There was a trailing two-month window on
+--     COALESCE(event_end_actual, event_start_actual); it was REMOVED 2026-09-08.
+--     It tested the event's OFFICIAL dates and never its meetings, so an event
+--     whose official window closed months ago but which still had a confirmed
+--     meeting ahead of it — or was still in an active-booking stage — was
+--     dropped here before Client Detail could classify it, while the To-Do List
+--     (v_client_todo, which never had the cutoff) still showed it. The two
+--     surfaces now share one pool. It was also the only day boundary in this
+--     path using UTC CURRENT_DATE rather than Eastern; that is gone with it.
 --
 -- Field notes:
 --   - client_account_name / ticker COALESCE the event's own copy with the joined
@@ -4686,7 +4692,6 @@ LEFT JOIN public.accounts a ON a.account_id = e.client_account_id
 WHERE e.state_label = 'Active'
   AND e.event_state_label IS NOT NULL
   AND e.event_state_label <> 'Pause'
-  AND COALESCE(e.event_end_actual, e.event_start_actual) >= (CURRENT_DATE - INTERVAL '2 months')
 ORDER BY ticker NULLS LAST, e.event_start_actual;
 
 GRANT SELECT ON public.v_marketing_calendar TO service_role;
