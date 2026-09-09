@@ -1,3 +1,11 @@
+-- #############################################################################
+-- ## SUPERSEDED 2026-09-09 -- DO NOT RUN.                                    ##
+-- ## Creation-RANK pairing (1st<->1st, 2nd<->2nd). A stray unpaired task     ##
+-- ## shifts every later rank, so this yields NO rows on the QBE event where  ##
+-- ## one Pending Review row is correct. Replaced by mutual-nearest pairing:  ##
+-- ## run sql/patches/2026-09-09_feedback_nearest_pairs.sql instead.          ##
+-- ## This file was never applied to the database.                            ##
+-- #############################################################################
 -- =============================================================================
 -- Patch: Feedback Reports -- support MULTIPLE Feedback / Feedback Report Sent
 --        task pairs per event in public.v_feedback_pipeline

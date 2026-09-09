@@ -70,7 +70,7 @@ Two different concepts on two different grains — a frequent point of confusion
 | **Grain** | One row per **meeting** | One row per **Feedback task** (an event may have several — see pairs below) |
 | **Means** | "We still owe feedback **collection** on this meeting" | "The feedback **report** for this event is being written / reviewed" |
 | **Included** | Concluded, Confirmed meetings **with a host OR a named feedback assignee** whose feedback is incomplete (`feedback_status_label IS NULL` OR "Awaiting Additional"). Host-less meetings that have a feedback assignee now qualify (previously host-only); on the page such rows show the assignee as **Owner** (host_name → feedback_name). | Feedback tasks in an active state, split into **In Progress** vs **Pending Review** |
-| **Key join** | Responsible person from `_raw->>'_bcs_feedback_value'` → host | `(event_key, pair_index)` pairs a Feedback task to its "Feedback Report Sent" task, where `event_key = COALESCE(regarding_id, bcs_event_id)` |
+| **Key join** | Responsible person from `_raw->>'_bcs_feedback_value'` → host | Mutual-nearest `created_on` pairing of a Feedback task to its "Feedback Report Sent" task, within `event_key = COALESCE(regarding_id, bcs_event_id)` |
 | **Page** | `/feedback-collection` (`/feedback` redirects) | `/feedback-manager` |
 
 `v_feedback_manager` is the older per-event concept, **superseded** by `v_feedback_pipeline`.
@@ -79,15 +79,24 @@ Two different concepts on two different grains — a frequent point of confusion
 
 **An event can carry more than one Feedback / Feedback Report Sent task pair, and each pair moves through the lifecycle on its own.**
 
-About **5% of events** get a second (or further) pair created manually when more reports are needed. The event alone therefore does not identify a report. `v_feedback_pipeline` ranks both task types oldest-first **within their event** by `created_on` (the synced Dynamics `createdon`, `NULLS LAST`, `task_id` as the tiebreak) and matches them by that rank: the **Nth-created Feedback task pairs with the Nth-created Feedback Report Sent task** of the same event. The pair key is `(event_key, pair_index)`.
+About **5% of events** get a second (or further) pair created manually when more reports are needed, and events can also carry **stray unpaired tasks**. The event alone therefore does not identify a report.
 
-Matching is by creation **rank**, not by nearest timestamp — the two tasks of a pair are created seconds-to-minutes apart, so rank is the stable signal. (Before 2026-09-09 the view used `DISTINCT ON (event_key)`, which kept only one Report Sent task per event and so mis-gated or dropped a second Completed Feedback task.)
+`v_feedback_pipeline` pairs the two task types by **mutual nearest `created_on`**, within the event. It builds every Feedback × Report Sent combination in the event, ranks each combination from *both* directions by the absolute gap between the two creation times, and accepts a pair only when the two tasks are **each other's closest**. That makes the matching one-to-one by construction — each task wins at most one mutual match — with no recursion.
+
+The rules this enforces:
+
+- **Each Feedback and each Report Sent is used in at most one pair.**
+- **No distance cap.** A pair may be seconds or months apart; nearest wins regardless. In the real data the two tasks of a pair are usually created seconds apart, but not always.
+- **A task with no mutual-nearest partner is an orphan** and is simply left unpaired. It never reaches a bucket through the pairing.
+- **Ties break on `task_id`** for determinism, and a NULL `created_on` yields a NULL distance, which sorts last.
+
+Two earlier approaches were tried and replaced. The original `DISTINCT ON (event_key)` kept only one Report Sent task per event, so a second Completed Feedback was mis-gated or dropped. A creation-**rank** pairing (1st↔1st, 2nd↔2nd) then failed too: a stray unpaired task shifts every later rank out of alignment. On the real QBE event — five tasks, one of them a stray May report — rank pairing produces **no rows** where one Pending Review row is correct; mutual-nearest gets it right.
 
 Consequences worth knowing:
 
-- **Pairs are independent.** Pair 1 can sit in **Pending Review** while pair 2 is still **Open**, and both show at the same time. A later pair is never hidden behind or sequenced after an earlier one.
-- **Ranking spans every state.** Report Sent tasks are ranked whether Open, Completed or Canceled; the "still Open" test is applied when the pair is joined. Ranking only the Open ones would let pair 2's report become rank 1 once pair 1's report completed, and wrongly pair it with Feedback #1.
-- **Unequal counts are tolerated.** A Completed Feedback task whose `pair_index` has no Report Sent partner does not reach Pending Review (the join is an inner join); a Report Sent task with no Feedback partner contributes no row at all.
+- **Pairs are independent.** One pair can sit in **Pending Review** while another on the same event is still **Open**, and both show at the same time. A later pair is never hidden behind or sequenced after an earlier one.
+- **The Open bucket ignores pairing entirely.** It is evaluated per Feedback task — Open and `bcs_feedback_received` — so a Feedback task with no partner still appears there. (One that is Open with Received unchecked appears in neither bucket, unchanged.)
+- **Orphans and completed partners drop out.** A Completed Feedback with no paired Open Report Sent — orphaned, or its partner already Completed — produces no row, which is also how "done" is expressed.
 - **Both surfaces are task-grained already**, so two pairs from one event render as two rows: the Feedback Reports table keys on `task_id`, and the To-Do hover panel lists every pipeline row without per-event dedupe.
 
 ---

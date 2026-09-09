@@ -3815,7 +3815,7 @@ WHERE COALESCE(r.report_completed, false) = false          -- drop Done (report 
 --                        between feedback-closed and report-sent.
 --   Done (excluded)  — the paired "Feedback Report Sent" task is Completed.
 --
--- LINKAGE — MATCHED PAIRS WITHIN AN EVENT (2026-09-09):
+-- LINKAGE — NEAREST-CREATED-ON PAIRS WITHIN AN EVENT (2026-09-09):
 --   A Feedback task and its Feedback Report Sent task are tied to the SAME event by
 --   event_key = COALESCE(regarding_id, bcs_event_id) — the event GUID, stored in
 --   regarding_id on some tasks and bcs_event_id on others.
@@ -3824,29 +3824,40 @@ WHERE COALESCE(r.report_completed, false) = false          -- drop Done (report 
 --   closed Feedback from a DIFFERENT event of the same client. Dropped.)
 --
 --   ~5% of events get a SECOND (or further) Feedback + Feedback Report Sent pair
---   created manually when more reports are needed. The event alone is therefore NOT
---   a unique key. Both task types are ranked oldest-first within their event by
---   created_on (Dynamics createdon, NULLS LAST, task_id as the tiebreak), and the
---   PAIR KEY is (event_key, pair_index): 1st-created Feedback ↔ 1st-created Report
---   Sent, 2nd ↔ 2nd, and so on. Ranking, not nearest-timestamp matching — the two
---   tasks in a pair are created seconds-to-minutes apart, so rank is the stable
---   signal. This REPLACES the old DISTINCT ON (event_key) pick, which kept only one
---   Report Sent per event and so mis-gated or dropped a second Completed Feedback.
+--   created manually when more reports are needed, and events can also carry STRAY
+--   unpaired tasks. The event alone is therefore NOT a unique key.
+--
+--   Pairing is MUTUAL NEAREST NEIGHBOUR on created_on, within the event: build every
+--   Feedback x Report Sent combination (cand), rank each combination from both sides
+--   by the absolute gap between the two creation times (cand_ranked), and accept a
+--   pair only when the two tasks are EACH OTHER'S closest — rn_from_fb = 1 AND
+--   rn_from_rs = 1. That is one-to-one by construction (each task can win at most one
+--   mutual match) and needs no recursion.
+--     * No distance cap: a pair may be seconds or months apart. In practice the two
+--       tasks of a pair are created seconds apart, but nearest wins regardless.
+--     * A task with no mutual-nearest partner is an ORPHAN and is simply not paired;
+--       it never reaches a bucket via the pairing (an Open+Received Feedback still
+--       reaches In Progress on its own — that bucket ignores pairing entirely).
+--     * Ties break on task_id for determinism; a NULL created_on yields a NULL dist,
+--       which sorts LAST.
+--
+--   This REPLACES two earlier approaches, both wrong: the original
+--   DISTINCT ON (event_key) pick (kept only ONE Report Sent per event, so a second
+--   Completed Feedback was mis-gated or dropped), and a creation-RANK pairing
+--   (1st↔ 1st, 2nd↔ 2nd), which a stray unpaired task shifts out of alignment. On the
+--   real QBE event 0fff8e98-cb26-f111-8341-0022483460ce — 5 tasks, one of them a
+--   stray May report — rank pairing yields NO rows; mutual-nearest correctly yields
+--   the one Pending Review row.
 --
 --   Pairs are INDEPENDENT: two pairs on one event flow through the lifecycle
---   separately and may appear at the same time (pair 1 in Pending Review while
---   pair 2 is still in Open). A later pair is never hidden behind an earlier one.
+--   separately and may appear at the same time (one in Pending Review while the
+--   other is still in Open). A later pair is never hidden behind an earlier one.
 --
---   Unequal counts are tolerated by the inner join: a Completed Feedback whose
---   pair_index has no Report Sent partner simply does not reach Pending Review
---   (same as the previous behaviour), and a Report Sent task with no Feedback
---   partner never contributes a row.
---
--- GRAIN: one row per Feedback task. pair_index is unique within (event_key, task
---   type), so the pair join matches at most ONE Report Sent row and never fans
---   out. due_date on a Pending Review row is the PAIRED Report Sent task's
---   scheduled_end (when the report is due); on an In Progress row it is the
---   Feedback task's own scheduled_end.
+-- GRAIN: one row per Feedback task. The mutual-nearest rule makes `pairs` unique on
+--   both fb_id and rs_id, so the Pending Review join matches at most ONE Report Sent
+--   row and never fans out. due_date on a Pending Review row is the PAIRED Report
+--   Sent task's scheduled_end (when the report is due); on an In Progress row it is
+--   the Feedback task's own scheduled_end.
 --
 -- Meeting Start / End / count are DERIVED from the event's Confirmed meetings,
 -- joined on event_key (= meetings.event_id). Rows whose event has no Confirmed
@@ -3869,34 +3880,37 @@ WITH tk AS (
   FROM public.tasks t
   WHERE t.bcs_task_subtype_label IN ('Feedback', 'Feedback Report Sent')
 ),
-fb_ranked AS (
-  -- Feedback tasks ranked oldest-first WITHIN their event: pair_index is "this
-  -- is the Nth Feedback task created for this event". created_on is the synced
-  -- Dynamics createdon; NULLS LAST keeps undated tasks at the end of the
-  -- ranking rather than letting one seize pair 1.
+fb AS (SELECT * FROM tk WHERE bcs_task_subtype_label = 'Feedback'),
+rs AS (SELECT * FROM tk WHERE bcs_task_subtype_label = 'Feedback Report Sent'),
+cand AS (
+  -- Every Feedback x Report Sent combination WITHIN an event, with the absolute
+  -- gap between their creation times. The join on event_key also drops tasks
+  -- with a NULL key (NULL = NULL is not true), so those are never candidates.
   SELECT
-    tk.*,
-    ROW_NUMBER() OVER (
-      PARTITION BY tk.event_key
-      ORDER BY tk.created_on ASC NULLS LAST, tk.task_id
-    ) AS pair_index
-  FROM tk
-  WHERE tk.bcs_task_subtype_label = 'Feedback'
+    f.task_id                                                   AS fb_id,
+    r.task_id                                                   AS rs_id,
+    f.event_key,
+    ABS(EXTRACT(EPOCH FROM (f.created_on - r.created_on)))       AS dist
+  FROM fb f
+  JOIN rs r ON r.event_key = f.event_key
 ),
-rs_ranked AS (
-  -- Report Sent tasks ranked the same way. The Nth Report Sent task of an event
-  -- is the partner of the Nth Feedback task of that event.
-  -- event_key IS NOT NULL because a NULL key can never satisfy the pair JOIN
-  -- below (NULL = NULL is not true) -- the same exclusion the old CTE made.
+cand_ranked AS (
+  -- Rank each candidate from BOTH directions: how close is this report to that
+  -- feedback, and how close is that feedback to this report.
   SELECT
-    tk.*,
-    ROW_NUMBER() OVER (
-      PARTITION BY tk.event_key
-      ORDER BY tk.created_on ASC NULLS LAST, tk.task_id
-    ) AS pair_index
-  FROM tk
-  WHERE tk.bcs_task_subtype_label = 'Feedback Report Sent'
-    AND tk.event_key IS NOT NULL
+    cand.*,
+    ROW_NUMBER() OVER (PARTITION BY fb_id ORDER BY dist ASC NULLS LAST, rs_id) AS rn_from_fb,
+    ROW_NUMBER() OVER (PARTITION BY rs_id ORDER BY dist ASC NULLS LAST, fb_id) AS rn_from_rs
+  FROM cand
+),
+pairs AS (
+  -- MUTUAL nearest neighbour: keep a combination only when the two tasks are
+  -- each other's closest. That makes the matching one-to-one (each task appears
+  -- in at most one pair) without recursion, and leaves any task without a mutual
+  -- partner unpaired -- an orphan, which simply never reaches a bucket.
+  SELECT fb_id, rs_id, event_key, dist
+  FROM cand_ranked
+  WHERE rn_from_fb = 1 AND rn_from_rs = 1
 ),
 mtg AS (
   SELECT
@@ -3924,9 +3938,10 @@ in_progress AS (
     f.bcs_claimed_by_id                         AS claimed_by_id,
     f.bcs_claimed_by_name                       AS claimed_by_name,
     (CURRENT_DATE - (f.crdfa_feedback_received_date AT TIME ZONE 'UTC')::date) AS days_in_stage
-  FROM fb_ranked f
-  WHERE f.bcs_task_subtype_label = 'Feedback'
-    AND f.state_label = 'Open'
+  -- Independent of pairing: every qualifying Feedback task stands on its own,
+  -- whether or not it has a Report Sent partner.
+  FROM fb f
+  WHERE f.state_label = 'Open'
     AND COALESCE(f.bcs_feedback_received, false) = true
 ),
 pending_review AS (
@@ -3944,18 +3959,12 @@ pending_review AS (
     f.bcs_claimed_by_id                         AS claimed_by_id,
     f.bcs_claimed_by_name                       AS claimed_by_name,
     (CURRENT_DATE - (f.actual_end AT TIME ZONE 'UTC')::date) AS days_in_stage
-  FROM fb_ranked f
-  -- Matched PAIR, not an event-wide pick: the Nth Feedback task joins the Nth
-  -- Report Sent task of the SAME event. Inner join, so a Completed Feedback
-  -- task whose pair_index has no Report Sent partner -- or whose partner is
-  -- already Completed/Canceled -- produces no row.
-  JOIN rs_ranked r
-    ON  r.event_key   = f.event_key
-    AND r.pair_index  = f.pair_index
-    AND r.state_label = 'Open'
-  WHERE f.bcs_task_subtype_label = 'Feedback'
-    AND f.state_label = 'Completed'
-    AND f.event_key IS NOT NULL
+  -- Walks the mutual-nearest pairing: a Completed Feedback whose PAIRED report
+  -- is still Open. Both joins are inner, so an orphan Feedback, or one whose
+  -- partner is already Completed/Canceled (= done), produces no row.
+  FROM pairs p
+  JOIN fb f ON f.task_id = p.fb_id AND f.state_label = 'Completed'
+  JOIN rs r ON r.task_id = p.rs_id AND r.state_label = 'Open'
 ),
 combined AS (
   SELECT * FROM in_progress
