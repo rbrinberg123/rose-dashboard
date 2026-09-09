@@ -293,59 +293,58 @@ export function FeedbackPipelineView({
         }
       />
 
-      {/* Workload strip — who's writing how many In Progress reports (Claimed By). */}
-      {(workload.people.length > 0 || workload.unassigned > 0) && (
+      {/* PENDING REVIEW section */}
+      {/* Workload strip — whose desk each pending review sits on (Account Mgr). */}
+      {(pendingWorkload.people.length > 0 || pendingWorkload.noAm > 0) && (
         <WorkloadStrip
-          label="Open Workload — by report writer"
-          people={workload.people}
-          trailing={{
-            label: "Unassigned",
-            count: workload.unassigned,
-            onClick: () => setInProgClaim("unclaimed"),
-          }}
+          label="Pending Review Workload — by account manager"
+          people={pendingWorkload.people}
+          trailing={{ label: "No AM", count: pendingWorkload.noAm }}
         />
       )}
-
-      {/* IN PROGRESS section */}
       <Section
-        title="Open"
-        caption="Waiting = days since all meeting level feedback has been received and report draft has started. Sorted by longest waiting first."
-        count={inProgressRows.length}
-        headerRight={
-          <SubToggle value={inProgClaim} onChange={setInProgClaim} />
-        }
+        title="Pending Review"
+        caption="Reports written and awaiting account-manager review. Waiting = days since the matched Feedback task closed. Sorted by longest waiting first."
+        count={pendingRows.length}
       >
         <PipelineTable
-          rows={inProgressRows}
+          rows={pendingRows}
           today={today}
-          sort={ipSort}
-          onSort={toggleIpSort}
-          dateHeader="FB Received"
-          emphasizeUnclaimed
+          sort={prSort}
+          onSort={togglePrSort}
+          dateHeader="Fb Closed"
         />
       </Section>
 
-      {/* PENDING REVIEW section */}
+      {/* IN PROGRESS section */}
       <div className="mt-6">
-        {/* Workload strip — whose desk each pending review sits on (Account Mgr). */}
-        {(pendingWorkload.people.length > 0 || pendingWorkload.noAm > 0) && (
+        {/* Workload strip — who's writing how many In Progress reports (Claimed By). */}
+        {(workload.people.length > 0 || workload.unassigned > 0) && (
           <WorkloadStrip
-            label="Pending Review Workload — by account manager"
-            people={pendingWorkload.people}
-            trailing={{ label: "No AM", count: pendingWorkload.noAm }}
+            label="Open Workload — by report writer"
+            people={workload.people}
+            trailing={{
+              label: "Unassigned",
+              count: workload.unassigned,
+              onClick: () => setInProgClaim("unclaimed"),
+            }}
           />
         )}
         <Section
-          title="Pending Review"
-          caption="Reports written and awaiting account-manager review. Waiting = days since the matched Feedback task closed. Sorted by longest waiting first."
-          count={pendingRows.length}
+          title="Open"
+          caption="Waiting = days since all meeting level feedback has been received and report draft has started. Sorted by longest waiting first."
+          count={inProgressRows.length}
+          headerRight={
+            <SubToggle value={inProgClaim} onChange={setInProgClaim} />
+          }
         >
           <PipelineTable
-            rows={pendingRows}
+            rows={inProgressRows}
             today={today}
-            sort={prSort}
-            onSort={togglePrSort}
-            dateHeader="Fb Closed"
+            sort={ipSort}
+            onSort={toggleIpSort}
+            dateHeader="FB Received"
+            emphasizeUnclaimed
           />
         </Section>
       </div>
