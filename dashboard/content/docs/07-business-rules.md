@@ -67,13 +67,28 @@ Two different concepts on two different grains — a frequent point of confusion
 
 | | `v_feedback_outstanding` | `v_feedback_pipeline` |
 |--|--------------------------|------------------------|
-| **Grain** | One row per **meeting** | One row per **Feedback task** |
+| **Grain** | One row per **meeting** | One row per **Feedback task** (an event may have several — see pairs below) |
 | **Means** | "We still owe feedback **collection** on this meeting" | "The feedback **report** for this event is being written / reviewed" |
 | **Included** | Concluded, Confirmed meetings **with a host OR a named feedback assignee** whose feedback is incomplete (`feedback_status_label IS NULL` OR "Awaiting Additional"). Host-less meetings that have a feedback assignee now qualify (previously host-only); on the page such rows show the assignee as **Owner** (host_name → feedback_name). | Feedback tasks in an active state, split into **In Progress** vs **Pending Review** |
-| **Key join** | Responsible person from `_raw->>'_bcs_feedback_value'` → host | `event_key = COALESCE(regarding_id, bcs_event_id)` pairs a Feedback task to its "Feedback Report Sent" task |
-| **Page** | `/feedback` | `/feedback-manager` |
+| **Key join** | Responsible person from `_raw->>'_bcs_feedback_value'` → host | `(event_key, pair_index)` pairs a Feedback task to its "Feedback Report Sent" task, where `event_key = COALESCE(regarding_id, bcs_event_id)` |
+| **Page** | `/feedback-collection` (`/feedback` redirects) | `/feedback-manager` |
 
 `v_feedback_manager` is the older per-event concept, **superseded** by `v_feedback_pipeline`.
+
+### Feedback report PAIRS (why an event is not a unique key)
+
+**An event can carry more than one Feedback / Feedback Report Sent task pair, and each pair moves through the lifecycle on its own.**
+
+About **5% of events** get a second (or further) pair created manually when more reports are needed. The event alone therefore does not identify a report. `v_feedback_pipeline` ranks both task types oldest-first **within their event** by `created_on` (the synced Dynamics `createdon`, `NULLS LAST`, `task_id` as the tiebreak) and matches them by that rank: the **Nth-created Feedback task pairs with the Nth-created Feedback Report Sent task** of the same event. The pair key is `(event_key, pair_index)`.
+
+Matching is by creation **rank**, not by nearest timestamp — the two tasks of a pair are created seconds-to-minutes apart, so rank is the stable signal. (Before 2026-09-09 the view used `DISTINCT ON (event_key)`, which kept only one Report Sent task per event and so mis-gated or dropped a second Completed Feedback task.)
+
+Consequences worth knowing:
+
+- **Pairs are independent.** Pair 1 can sit in **Pending Review** while pair 2 is still **Open**, and both show at the same time. A later pair is never hidden behind or sequenced after an earlier one.
+- **Ranking spans every state.** Report Sent tasks are ranked whether Open, Completed or Canceled; the "still Open" test is applied when the pair is joined. Ranking only the Open ones would let pair 2's report become rank 1 once pair 1's report completed, and wrongly pair it with Feedback #1.
+- **Unequal counts are tolerated.** A Completed Feedback task whose `pair_index` has no Report Sent partner does not reach Pending Review (the join is an inner join); a Report Sent task with no Feedback partner contributes no row at all.
+- **Both surfaces are task-grained already**, so two pairs from one event render as two rows: the Feedback Reports table keys on `task_id`, and the To-Do hover panel lists every pipeline row without per-event dedupe.
 
 ---
 

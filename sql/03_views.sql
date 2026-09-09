@@ -3810,27 +3810,41 @@ WHERE COALESCE(r.report_completed, false) = false          -- drop Done (report 
 --                        Feedback task Open AND bcs_feedback_received (Received
 --                        date marked). Split in the UI by whether it is claimed.
 --   'pending_review' — feedback closed, handed to the AM, report not yet sent:
---                        Feedback task Completed AND its SAME-EVENT "Feedback
---                        Report Sent" task is still Open. A deliberately NARROW
---                        window (≈2 rows) between feedback-closed and report-sent.
---   Done (excluded)  — the "Feedback Report Sent" task is Completed.
+--                        Feedback task Completed AND its PAIRED "Feedback Report
+--                        Sent" task is still Open. A deliberately NARROW window
+--                        between feedback-closed and report-sent.
+--   Done (excluded)  — the paired "Feedback Report Sent" task is Completed.
 --
--- LINKAGE (validated against live data, 2026-07-15):
+-- LINKAGE — MATCHED PAIRS WITHIN AN EVENT (2026-09-09):
 --   A Feedback task and its Feedback Report Sent task are tied to the SAME event by
 --   event_key = COALESCE(regarding_id, bcs_event_id) — the event GUID, stored in
---   regarding_id on some tasks and bcs_event_id on others. Matched task-to-task,
---   this pairs 146/149 open Report Sent tasks to their own same-event Feedback.
+--   regarding_id on some tasks and bcs_event_id on others.
 --   (An earlier build matched by a ticker "event code" parsed from the event name;
 --   that was WRONG — the ticker is client-grained, so it paired a report with a
 --   closed Feedback from a DIFFERENT event of the same client. Dropped.)
 --
---   On the state pairing: when a report is Open/pending, its same-event Feedback is
---   usually still Open too (144/149) and Completed in only 2 — so Pending Review is
---   small BY DESIGN. Do NOT widen it by matching across events.
+--   ~5% of events get a SECOND (or further) Feedback + Feedback Report Sent pair
+--   created manually when more reports are needed. The event alone is therefore NOT
+--   a unique key. Both task types are ranked oldest-first within their event by
+--   created_on (Dynamics createdon, NULLS LAST, task_id as the tiebreak), and the
+--   PAIR KEY is (event_key, pair_index): 1st-created Feedback ↔ 1st-created Report
+--   Sent, 2nd ↔ 2nd, and so on. Ranking, not nearest-timestamp matching — the two
+--   tasks in a pair are created seconds-to-minutes apart, so rank is the stable
+--   signal. This REPLACES the old DISTINCT ON (event_key) pick, which kept only one
+--   Report Sent per event and so mis-gated or dropped a second Completed Feedback.
 --
--- GRAIN: one row per Feedback task. Pending Review joins each Completed Feedback to
---   at most ONE open Report Sent per event_key (DISTINCT ON), so the join never
---   fans out. due_date on a Pending Review row is the matched Report Sent task's
+--   Pairs are INDEPENDENT: two pairs on one event flow through the lifecycle
+--   separately and may appear at the same time (pair 1 in Pending Review while
+--   pair 2 is still in Open). A later pair is never hidden behind an earlier one.
+--
+--   Unequal counts are tolerated by the inner join: a Completed Feedback whose
+--   pair_index has no Report Sent partner simply does not reach Pending Review
+--   (same as the previous behaviour), and a Report Sent task with no Feedback
+--   partner never contributes a row.
+--
+-- GRAIN: one row per Feedback task. pair_index is unique within (event_key, task
+--   type), so the pair join matches at most ONE Report Sent row and never fans
+--   out. due_date on a Pending Review row is the PAIRED Report Sent task's
 --   scheduled_end (when the report is due); on an In Progress row it is the
 --   Feedback task's own scheduled_end.
 --
@@ -3855,18 +3869,34 @@ WITH tk AS (
   FROM public.tasks t
   WHERE t.bcs_task_subtype_label IN ('Feedback', 'Feedback Report Sent')
 ),
-report_sent_open AS (
-  -- Open Report Sent tasks, one per event_key (soonest-due), for the Pending
-  -- Review linkage + the report's due date.
-  SELECT DISTINCT ON (event_key)
-    event_key,
-    task_id                 AS report_task_id,
-    scheduled_end            AS report_due
+fb_ranked AS (
+  -- Feedback tasks ranked oldest-first WITHIN their event: pair_index is "this
+  -- is the Nth Feedback task created for this event". created_on is the synced
+  -- Dynamics createdon; NULLS LAST keeps undated tasks at the end of the
+  -- ranking rather than letting one seize pair 1.
+  SELECT
+    tk.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY tk.event_key
+      ORDER BY tk.created_on ASC NULLS LAST, tk.task_id
+    ) AS pair_index
   FROM tk
-  WHERE bcs_task_subtype_label = 'Feedback Report Sent'
-    AND state_label = 'Open'
-    AND event_key IS NOT NULL
-  ORDER BY event_key, scheduled_end NULLS LAST, task_id
+  WHERE tk.bcs_task_subtype_label = 'Feedback'
+),
+rs_ranked AS (
+  -- Report Sent tasks ranked the same way. The Nth Report Sent task of an event
+  -- is the partner of the Nth Feedback task of that event.
+  -- event_key IS NOT NULL because a NULL key can never satisfy the pair JOIN
+  -- below (NULL = NULL is not true) -- the same exclusion the old CTE made.
+  SELECT
+    tk.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY tk.event_key
+      ORDER BY tk.created_on ASC NULLS LAST, tk.task_id
+    ) AS pair_index
+  FROM tk
+  WHERE tk.bcs_task_subtype_label = 'Feedback Report Sent'
+    AND tk.event_key IS NOT NULL
 ),
 mtg AS (
   SELECT
@@ -3894,7 +3924,7 @@ in_progress AS (
     f.bcs_claimed_by_id                         AS claimed_by_id,
     f.bcs_claimed_by_name                       AS claimed_by_name,
     (CURRENT_DATE - (f.crdfa_feedback_received_date AT TIME ZONE 'UTC')::date) AS days_in_stage
-  FROM tk f
+  FROM fb_ranked f
   WHERE f.bcs_task_subtype_label = 'Feedback'
     AND f.state_label = 'Open'
     AND COALESCE(f.bcs_feedback_received, false) = true
@@ -3908,14 +3938,21 @@ pending_review AS (
     f.bcs_account_id                            AS client_account_id,
     f.bcs_account_name                          AS client_account_name,
     NULL::timestamptz                           AS received_date,
-    rso.report_due                              AS due_date,
+    r.scheduled_end                             AS due_date,
     f.actual_end                                AS fb_closed_date,
     (f.bcs_claimed_by_id IS NOT NULL)           AS claimed,
     f.bcs_claimed_by_id                         AS claimed_by_id,
     f.bcs_claimed_by_name                       AS claimed_by_name,
     (CURRENT_DATE - (f.actual_end AT TIME ZONE 'UTC')::date) AS days_in_stage
-  FROM tk f
-  JOIN report_sent_open rso ON rso.event_key = f.event_key
+  FROM fb_ranked f
+  -- Matched PAIR, not an event-wide pick: the Nth Feedback task joins the Nth
+  -- Report Sent task of the SAME event. Inner join, so a Completed Feedback
+  -- task whose pair_index has no Report Sent partner -- or whose partner is
+  -- already Completed/Canceled -- produces no row.
+  JOIN rs_ranked r
+    ON  r.event_key   = f.event_key
+    AND r.pair_index  = f.pair_index
+    AND r.state_label = 'Open'
   WHERE f.bcs_task_subtype_label = 'Feedback'
     AND f.state_label = 'Completed'
     AND f.event_key IS NOT NULL
@@ -3932,6 +3969,14 @@ SELECT
   c.event_name,
   c.client_account_id,
   c.client_account_name,
+  -- Client stock ticker (accounts.ticker_symbol). Its position here — 7th, ahead
+  -- of account_manager_name — is NOT cosmetic: it is where the LIVE view carries
+  -- it, and CREATE OR REPLACE VIEW matches columns POSITIONALLY, so a patch that
+  -- moved it is rejected outright ("cannot change name of view column"). Verified
+  -- against information_schema on 2026-09-09; an earlier revision of this file had
+  -- it last, which did not match the deployed view. The accounts join below feeds
+  -- both this and account_manager_name.
+  a.ticker_symbol                               AS client_ticker,
   a.sales_lead_primary_name                     AS account_manager_name,
   mt.meeting_start,
   mt.meeting_end,
@@ -3942,11 +3987,7 @@ SELECT
   c.claimed,
   c.claimed_by_id,
   c.claimed_by_name,
-  c.days_in_stage,
-  -- Client stock ticker (accounts.ticker_symbol), appended last so the column
-  -- list only grows a trailing column — same pattern as v_feedback_outstanding.
-  -- The accounts join already exists below (it also feeds account_manager_name).
-  a.ticker_symbol AS client_ticker
+  c.days_in_stage
 FROM combined c
 LEFT JOIN public.accounts a ON a.account_id = c.client_account_id
 LEFT JOIN mtg mt            ON mt.event_id    = c.event_id
