@@ -153,7 +153,15 @@ A super-user can preview the app as an abstract **role** or as a specific **pers
 
 `/admin` and everything under `/admin/*` have no `role_page_access` grants for any non-super role, so they're Super-User-only by the deny-by-default rule. Don't tick them on for another role unless you truly mean to.
 
-The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx`, the `HIDDEN_PAGES` array) that links to routes parked off the main nav — currently `/pipeline`, `/relationships`, and `/conference-rooms`. Those pages are super-user-only purely because Admin is; the pages themselves keep their own routes. To park another page later, add one `{ href, label }` line to `HIDDEN_PAGES`.
+The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx`, the `HIDDEN_PAGES` array) that links to routes parked off the main nav — currently `/pipeline`, `/relationships`, `/conference-rooms`, `/ooo-summary` and `/meetings`. Those pages are super-user-only purely because Admin is; the pages themselves keep their own routes. To park another page later, add one `{ href, label }` line to `HIDDEN_PAGES`.
+
+#### Super-user-only routes that the Roles matrix cannot open
+
+`ADMIN_ONLY_ROUTES` in `lib/access-control.ts` is a short list of routes that stay super-user-only **no matter what the Roles matrix says**. `canAccessRoute` checks it after the `super_user` backstop and before the grant lookup, so a `role_page_access` row granting one of them — added by accident or otherwise — has no effect.
+
+It currently holds one route, **`/meetings`**. That page reads `v_admin_meetings_all` with the service-role key (RLS bypassed) and deliberately does **not** apply `resolveMeetingScope`, so a successful load returns every client's meetings. Being merely "linked from Admin" is not a strong enough gate for that, which is why it gets its own. The page also re-checks the effective role server-side before it fetches anything.
+
+Add a route here only when the page exposes data that the scoping layer would otherwise restrict.
 
 ### Users (Admin → **live**)
 

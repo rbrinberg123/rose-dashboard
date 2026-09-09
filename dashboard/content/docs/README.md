@@ -22,6 +22,7 @@ These files live in `dashboard/content/docs/` and are also browsable in-app at *
 | [09 — Configuration](09-configuration.md) | Every environment variable and the external project references. |
 | [10 — To-Do List](10-to-do-list.md) | The Clients → To-Do List worklist: every column's definition, the aging thresholds, notes storage, and its client scoping. |
 | [11 — OOO Summary](11-ooo-summary.md) | The per-person/per-year/per-type time-off tally behind `/ooo-summary`: the four categories, NYSE business-day counting, and the comment-driven half-day rule. |
+| [12 — Meetings (all CRM)](12-meetings-all.md) | The super-user-only `/meetings` page: every CRM meeting with no scoping or filtering, its 14 columns and where each comes from, and why the route is gated the way it is. |
 
 ## Orientation in one paragraph
 

@@ -2,7 +2,14 @@ import { type NextRequest, NextResponse } from "next/server"
 import { runSync } from "@/lib/sync/run"
 
 /**
- * Nightly Dynamics → Supabase sync.
+ * Dynamics → Supabase sync.
+ *
+ * Runs at a TEN-MINUTE interval on weekdays, not nightly — 11:00-22:59 UTC,
+ * Mon-Fri (roughly the Eastern working day). The exact cron expression is in
+ * vercel.json and repeated in the line comment below; it cannot be written in a
+ * block comment because it contains the comment-terminating sequence. Each run
+ * is incremental (only records whose `modifiedon` is after the entity
+ * watermark), which is what makes that cadence cheap.
  *
  * Invoked two ways, both gated by the same bearer token:
  *   - Vercel Cron (GET) on the schedule in vercel.json. Vercel automatically
@@ -14,6 +21,7 @@ import { runSync } from "@/lib/sync/run"
  * proxy (see proxy.ts matcher). Without a valid CRON_SECRET it returns 401.
  */
 
+// vercel.json cron: */10 11-22 * * 1-5
 export const dynamic = "force-dynamic"
 // Allow a long-running full pull. Vercel caps this per plan; cron jobs get the
 // extended limit. 300s is plenty for the current data volumes.

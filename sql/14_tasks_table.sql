@@ -132,3 +132,9 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status             ON public.tasks (status_
 
 -- Sync writes via service_role (same grant pattern as every mirror table)
 GRANT INSERT, UPDATE, SELECT ON public.tasks TO service_role;
+
+-- Stamp _synced_at on every sync (see public.touch_synced_at in 01_mirror_tables.sql).
+DROP TRIGGER IF EXISTS tasks_touch_synced_at ON public.tasks;
+CREATE TRIGGER tasks_touch_synced_at
+  BEFORE INSERT OR UPDATE ON public.tasks
+  FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();

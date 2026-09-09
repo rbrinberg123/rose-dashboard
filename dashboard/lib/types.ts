@@ -945,7 +945,9 @@ export type FeedbackManagerRow = {
  *   'in_progress'    — Feedback task Open AND feedback received.
  *   'pending_review' — Feedback task Completed AND its SAME-EVENT "Feedback Report
  *                      Sent" task is still Open (matched task-to-task by
- *                      event_key = COALESCE(regarding_id, bcs_event_id)). A narrow
+ *                      event_key = COALESCE(bcs_event_id, regarding_id) — the
+ *                      EXPLICIT event field first; regarding_id is polymorphic
+ *                      and points at the account on some tasks). A narrow
  *                      window — small by design.
  * `days_in_stage` = days since received (in_progress) or days since the Feedback
  * task closed (pending_review); may be null when the driving date is missing.
@@ -1349,4 +1351,41 @@ export type ClientTodoTouchDetail = {
   subject: string | null
   touchpoint_type_label: string | null
   owner_name: string | null
+}
+
+/**
+ * One row of v_admin_meetings_all — EVERY meeting in the CRM mirror, unfiltered.
+ * Powers the super-user-only Admin → Hidden Pages → Meetings page (app/meetings),
+ * which reproduces the Dynamics "Investor Meetings (All)" view.
+ *
+ * SECURITY: these rows are UNSCOPED — every client's meetings, with no
+ * resolveMeetingScope applied. Only ever render them behind the /meetings route
+ * gate (ADMIN_ONLY_ROUTES in lib/access-control.ts plus the page's own
+ * server-side role check).
+ *
+ * `host_names` may list more than one host, comma-separated. `on_behalf_of` and
+ * `fb_received` are read out of the meeting's _raw jsonb and are null when the
+ * underlying Dynamics field is absent or empty. `fb_received` is text because
+ * Dynamics may model it as either a Yes/No flag or a date — the view passes the
+ * formatted value straight through.
+ */
+export type AdminMeetingRow = {
+  meeting_id: string
+  meeting_type_label: string | null
+  meeting_status_label: string | null
+  meeting_date: string | null
+  client_account_name: string | null
+  event_name: string | null
+  institution_name: string | null
+  investor_name: string | null
+  host_names: string | null
+  feedback_name: string | null
+  booker_name: string | null
+  on_behalf_of: string | null
+  calendar_label: string | null
+  feedback_bda_label: string | null
+  fb_received: string | null
+  state_label: string | null
+  client_account_id: string | null
+  event_id: string | null
 }

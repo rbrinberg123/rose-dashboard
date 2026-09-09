@@ -98,6 +98,26 @@ export function viewAsLabel(role: ViewAsRole): string {
  */
 export const ALWAYS_ALLOWED_ROUTES = ["/no-access"] as const
 
+/**
+ * Routes ONLY a super_user may reach, NO MATTER WHAT THE ROLES MATRIX SAYS.
+ *
+ * Everything else in this app is matrix-driven: tick a box in Admin -> Roles and
+ * the page opens to that role. These routes are deliberately NOT delegable that
+ * way, because they expose data the row-scoping layer would otherwise restrict:
+ *
+ *   /meetings  Admin -> Hidden Pages -> "Meetings". Every meeting in the CRM,
+ *              read with the service-role key (RLS bypassed) and WITHOUT
+ *              resolveMeetingScope, so it returns every client's meetings to
+ *              whoever loads it. The page re-checks the effective role
+ *              server-side before it fetches anything; this entry is the outer
+ *              gate that stops the request reaching the page at all.
+ *
+ * Checked AFTER the super_user backstop, so a super_user still passes, and
+ * BEFORE the matrix lookup, so an accidental (or malicious) role_page_access row
+ * granting one of these to another role has no effect.
+ */
+export const ADMIN_ONLY_ROUTES = ["/meetings"] as const
+
 /** True when `pathname` is `route` or a sub-path of it (segment-aware). */
 function matchesRoute(pathname: string, route: string): boolean {
   return pathname === route || pathname.startsWith(route + "/")
@@ -112,8 +132,9 @@ function matchesRoute(pathname: string, route: string): boolean {
  * Order of checks (backstops first):
  *   1. Always-allowed infra routes → yes, for anyone signed in.
  *   2. super_user → yes, everything (never gated by the matrix).
- *   3. No role → no.
- *   4. Otherwise → yes iff the matrix grants a matching route (segment-aware,
+ *   3. ADMIN_ONLY_ROUTES → no, for everyone who got past step 2.
+ *   4. No role → no.
+ *   5. Otherwise → yes iff the matrix grants a matching route (segment-aware,
  *      so a granted "/client-detail" also allows "/client-detail/123").
  */
 export function canAccessRoute(
@@ -123,6 +144,10 @@ export function canAccessRoute(
 ): boolean {
   if (ALWAYS_ALLOWED_ROUTES.some((r) => matchesRoute(pathname, r))) return true
   if (role === "super_user") return true
+  // Super-user-only routes are never delegable through the matrix (see
+  // ADMIN_ONLY_ROUTES). Deny before the grant lookup, so a stray role_page_access
+  // row cannot open one.
+  if (ADMIN_ONLY_ROUTES.some((r) => matchesRoute(pathname, r))) return false
   if (!role) return false
   return allowedRoutes.some((r) => matchesRoute(pathname, r))
 }

@@ -70,7 +70,7 @@ Two different concepts on two different grains — a frequent point of confusion
 | **Grain** | One row per **meeting** | One row per **Feedback task** (an event may have several — see pairs below) |
 | **Means** | "We still owe feedback **collection** on this meeting" | "The feedback **report** for this event is being written / reviewed" |
 | **Included** | Concluded, Confirmed meetings **with a host OR a named feedback assignee** whose feedback is incomplete (`feedback_status_label IS NULL` OR "Awaiting Additional"). Host-less meetings that have a feedback assignee now qualify (previously host-only); on the page such rows show the assignee as **Owner** (host_name → feedback_name). | Feedback tasks in an active state, split into **In Progress** vs **Pending Review** |
-| **Key join** | Responsible person from `_raw->>'_bcs_feedback_value'` → host | Mutual-nearest `created_on` pairing of a Feedback task to its "Feedback Report Sent" task, within `event_key = COALESCE(regarding_id, bcs_event_id)` |
+| **Key join** | Responsible person from `_raw->>'_bcs_feedback_value'` → host | Mutual-nearest `created_on` pairing of a Feedback task to its "Feedback Report Sent" task, within `event_key = COALESCE(bcs_event_id, regarding_id)` |
 | **Page** | `/feedback-collection` (`/feedback` redirects) | `/feedback-manager` |
 
 `v_feedback_manager` is the older per-event concept, **superseded** by `v_feedback_pipeline`.
@@ -80,6 +80,16 @@ Two different concepts on two different grains — a frequent point of confusion
 **An event can carry more than one Feedback / Feedback Report Sent task pair, and each pair moves through the lifecycle on its own.**
 
 About **5% of events** get a second (or further) pair created manually when more reports are needed, and events can also carry **stray unpaired tasks**. The event alone therefore does not identify a report.
+
+#### How a task is tied to its event
+
+`event_key = COALESCE(bcs_event_id, regarding_id)` — **the explicit event field first**, falling back to the polymorphic `regarding_id` only when `bcs_event_id` is absent.
+
+The order matters and was **corrected on 2026-09-09**. It used to be `regarding_id`-first, which was wrong: `regarding_id` is Dataverse's polymorphic "regarding" lookup and on some feedback tasks points at the **account**, not the event, while the real event sits in `bcs_event_id`. Those tasks grouped under an account id, were split from their own event, and corrupted the pairing. Real example: task `930c699d`, "Feedback for DSFIR - Part 2 September" — `bcs_event_id` is the DSFIR-NL event, `regarding_id` is the account. `bcs_event_id` is the field Dynamics fills to mean "this task belongs to this event", so it is the one to trust.
+
+The flip is a **no-op** for any task where `bcs_event_id` is null or already equals `regarding_id`; only tasks carrying two different non-null values change key (reported as 23 system-wide), and each re-homes to its correct event.
+
+**Where this key is built:** only `v_feedback_pipeline`. `v_client_todo` inherits the fix by reading that view (its own tasks CTE groups by `bcs_account_id`); `v_client_onboarding` groups tasks by `bcs_account_id`; `v_feedback_outstanding` is meetings-based and reads no tasks; `v_feedback_manager` and `v_client_marketing_status` already key on `t.bcs_event_id` directly.
 
 `v_feedback_pipeline` pairs the two task types by **mutual nearest `created_on`**, within the event. It builds every Feedback × Report Sent combination in the event, ranks each combination from *both* directions by the absolute gap between the two creation times, and accepts a pair only when the two tasks are **each other's closest**. That makes the matching one-to-one by construction — each task wins at most one mutual match — with no recursion.
 
@@ -95,7 +105,13 @@ Two earlier approaches were tried and replaced. The original `DISTINCT ON (event
 Consequences worth knowing:
 
 - **Pairs are independent.** One pair can sit in **Pending Review** while another on the same event is still **Open**, and both show at the same time. A later pair is never hidden behind or sequenced after an earlier one.
-- **The Open bucket ignores pairing entirely.** It is evaluated per Feedback task — Open and `bcs_feedback_received` — so a Feedback task with no partner still appears there. (One that is Open with Received unchecked appears in neither bucket, unchanged.)
+- **The Open bucket ignores pairing entirely.** It is evaluated per Feedback task — `state_label = 'Open'` **and `crdfa_feedback_received_date IS NOT NULL`** — so a Feedback task with no partner still appears there. (One that is Open with no received date appears in neither bucket.)
+
+  **The received signal is `crdfa_feedback_received_date`, not the legacy `bcs_feedback_received` boolean** (changed 2026-09-09). That boolean is stale in Dynamics: it reads `true` on tasks whose CRM "Feedback Received" toggle is actually No — real case, task `930c699d`, DSFIR "Part 2 September". The `crdfa_*` date is what the CRM form now reflects.
+
+  The change also makes membership agree with what a row **displays**: `received_date` and `days_in_stage` were already computed from `crdfa_feedback_received_date`, so a boolean-only row used to appear in Open with a blank "FB Received" cell and a null "Waiting" figure. One field drives both now, so that cannot recur.
+
+  **`pending_review` is unaffected** — it keys off task completion plus a paired open report, and never reads the received signal at all.
 - **Orphans and completed partners drop out.** A Completed Feedback with no paired Open Report Sent — orphaned, or its partner already Completed — produces no row, which is also how "done" is expressed.
 - **Both surfaces are task-grained already**, so two pairs from one event render as two rows: the Feedback Reports table keys on `task_id`, and the To-Do hover panel lists every pipeline row without per-event dedupe.
 

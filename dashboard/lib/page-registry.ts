@@ -105,6 +105,10 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   { route: "/admin/users", label: "Users & Roles", section: "Admin" },
   { route: "/admin/roles", label: "Roles Matrix", section: "Admin" },
   { route: "/admin/docs", label: "Documentation", section: "Admin" },
+  // Super-user-only and NOT grantable through this matrix — see
+  // ADMIN_ONLY_ROUTES in lib/access-control.ts. Listed here so the page still
+  // appears in the Roles matrix as a known route (its checkboxes have no effect).
+  { route: "/meetings", label: "Meetings — all CRM (hidden, super-user only)", section: "Admin" },
 ] as const
 
 // ---- assignable roles (matrix columns) ------------------------------------

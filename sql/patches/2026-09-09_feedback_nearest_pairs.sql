@@ -37,7 +37,7 @@
 --     * Ties break on task_id; a NULL created_on gives a NULL dist, sorted LAST.
 --
 --   Bucket MEANINGS are unchanged, now evaluated per pair:
---     in_progress    -- Feedback task Open AND bcs_feedback_received. Sourced
+--     in_progress    -- Feedback task Open AND crdfa_feedback_received_date. Sourced
 --                       straight from fb, INDEPENDENT of pairing: every qualifying
 --                       Feedback task appears on its own, partner or not.
 --     pending_review -- Feedback Completed AND its mutually-PAIRED Report Sent
@@ -81,7 +81,7 @@ WITH tk AS (
   -- (the event GUID, wherever it is stored on the task).
   SELECT
     t.*,
-    COALESCE(t.regarding_id, t.bcs_event_id) AS event_key
+    COALESCE(t.bcs_event_id, t.regarding_id) AS event_key
   FROM public.tasks t
   WHERE t.bcs_task_subtype_label IN ('Feedback', 'Feedback Report Sent')
 ),
@@ -147,7 +147,10 @@ in_progress AS (
   -- whether or not it has a Report Sent partner.
   FROM fb f
   WHERE f.state_label = 'Open'
-    AND COALESCE(f.bcs_feedback_received, false) = true
+    -- crdfa_* date, NOT the legacy bcs_feedback_received boolean: that boolean
+    -- reads true on tasks whose CRM "Feedback Received" toggle is No (task
+    -- 930c699d). Changed 2026-09-09; see sql/03_views.sql for the full note.
+    AND f.crdfa_feedback_received_date IS NOT NULL
 ),
 pending_review AS (
   SELECT

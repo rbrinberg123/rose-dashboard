@@ -437,6 +437,7 @@ Parked pages — pulled off the main nav but kept reachable from the **Hidden Pa
 | `/relationships` | Relationships | `v_relationships` | Who at Rose owns each institution relationship. |
 | `/conference-rooms` | Conference Rooms | `/api/conference-rooms` (Graph, client-side) | Single-day room availability across the four rooms. |
 | `/ooo-summary` | OOO Summary | `new_vacationrequest` (the mirror table, **not** `v_time_off`) | Business days taken per person, per year, per category. See [11 — OOO Summary](11-ooo-summary.md). |
+| `/meetings` | Meetings (all CRM) | `v_admin_meetings_all` | Every meeting in the CRM, unfiltered — all statuses, all dates, active **and** deactivated, **no row scoping**. Reproduces the Dynamics "Investor Meetings (All)" view. Gated harder than the rest of this table: it is in `ADMIN_ONLY_ROUTES` and cannot be opened to another role from the Roles matrix. See [12 — Meetings (all CRM)](12-meetings-all.md). |
 
 ### Unlinked / hidden routes (super-user only — not in the nav)
 

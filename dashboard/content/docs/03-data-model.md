@@ -32,8 +32,65 @@ Defined by the `ENTITIES` array in `dashboard/lib/sync/entities.ts`. Each mirror
 
 Notes:
 - `touchpoints` and `tasks` share the Dynamics PK field `activityid` because both are Dataverse **activity** entities.
-- The **time-off** mirror table is named `new_vacationrequest` (this is what the sync writes and what `v_time_off` reads). An older `sql/15_ooo_table.sql` created a table named `ooo`; the live/used table is `new_vacationrequest`. Treat `new_vacationrequest` as authoritative.
-- The DDL for these tables lives at repo root: `sql/01_mirror_tables.sql` (accounts, meetings, touchpoints, client_notes, contracts, users), `sql/14_tasks_table.sql` (tasks), `sql/16_events_table.sql` (events).
+- The **time-off** mirror table is named `new_vacationrequest` (this is what the sync writes and what `v_time_off` reads). `sql/15_ooo_table.sql` used to create a table named `ooo` instead; **as of 2026-09-09 that file creates `new_vacationrequest`**, so a database rebuilt from `sql/` now gets the table the app actually reads. The `idx_ooo_*` index names are unchanged.
+- The DDL for these tables lives at repo root: `sql/01_mirror_tables.sql` (accounts, meetings, touchpoints, client_notes, contracts, users), `sql/14_tasks_table.sql` (tasks), `sql/15_ooo_table.sql` (new_vacationrequest), `sql/16_events_table.sql` (events).
+
+#### DDL ↔ mapper reconciliation (2026-09-09)
+
+The mirror DDL had drifted **behind** the sync mappers: `lib/sync/run.ts` upserts each mapped object straight into its table with no key filtering, so any column a mapper writes must exist live or that entity's rows would all fail. Because the sync runs clean, the live tables were right and only the repo DDL was stale. A sweep of all nine mappers against their `CREATE TABLE` statements found **26 columns** declared nowhere:
+
+| Table | Columns added | What they are |
+|-------|---------------|---------------|
+| `accounts` | 24 | 10 workflow booleans (`bda_peers`, `calendar`, `calendar_confirmed`, `distro`, `meeting_history_received`, `mgmt_review`, `recurring_call_scheduled`, `report`, `rep_short_interest`, `sh_report`); 6 milestone dates (`last_data_upload`, `onboarding_call`, `original_start_date`, `shareholder_report_received_date`, `teach_in`, `teach_in_date`); 2 lookups as id+name (`current_event_*`, `current_project_*`); 4 free-text (`dietary_restrictions`, `ipreo_ticker`, `onboarding_notes`, `peers`) |
+| `meetings` | 2 | `feedback_id` / `feedback_name` — the `bcs_feedback` assignee. This is why `v_feedback_outstanding` and `v_admin_meetings_all` read that person out of `_raw`: the column was not in the DDL when they were written |
+
+The other seven mirror tables (`users`, `touchpoints`, `client_notes`, `contracts`, `tasks`, `new_vacationrequest`, `events`) were already in agreement.
+
+Columns that are declared but **not** written by a mapper are correct and were left alone: `accounts.ai_summary` / `ai_summary_generated_at` are Rose-owned, and `users.first_seen_at` plus every `_synced_at` are DEFAULT-populated (`_synced_at` now also has a trigger — see [`_synced_at`](#_synced_at--last-synced) below). `events.sharepoint_url` looked like one of these but is not — see below.
+
+`sql/patches/2026-09-09_ddl_reconcile.sql` carries the same 26 columns as `ADD COLUMN IF NOT EXISTS` statements. It is a **no-op against production** — those columns already exist there — and is meant for any other environment or a rebuild-from-repo.
+
+**Reverse direction, fully verified (2026-09-09).** All nine mirror tables were fingerprinted against live (`md5(string_agg(column_name, ',' ORDER BY column_name))`, Query 4 in the patch). **Eight matched exactly** — including `accounts`, separately confirmed column-by-column at 85 live vs 85 declared with no orphans either way, the 24 added columns sitting at live positions 62–85 in the order the patch adds them.
+
+**No orphan columns exist** — nothing is live that the repo does not know about.
+
+One table differed, and in the *opposite* direction:
+
+| | repo DDL | live |
+|---|---|---|
+| `events` | 138 cols · `0e873e73…` | 137 cols · `7422f6e3…` |
+
+The single difference is **`events.sharepoint_url`: the repo declares it, the live database does not have it.** It is not a sync column, so the daily sync never had cause to fail over it.
+
+**What that means today: the Profiles page's SharePoint document link has never been able to work.** `v_profiles_upcoming` selects `e.sharepoint_url AS event_sharepoint_url`, so the live view must still be an older revision — a view cannot be created against a missing column. `app/profiles/page.tsx` reads it with `.select("*")`, so the field returns undefined rather than erroring, and `profiles-view.tsx` renders `row.event_sharepoint_url?.trim()` as a muted placeholder. Nothing is broken; the feature is simply inert.
+
+**Section B** of `sql/patches/2026-09-09_ddl_reconcile.sql` holds the fix — one `ALTER TABLE` plus a re-run of `v_profiles_upcoming` — kept separate from Section A because, unlike the rest of the patch, it **does** change the live database. It is opt-in: the alternative is to drop the column and the view's select, so the repo stops describing a feature that is switched off.
+
+One cosmetic difference the fingerprint deliberately ignores: live `accounts` orders `_synced_at` before `ai_summary`, while the DDL declares it last. Column order is irrelevant for a table (unlike `CREATE OR REPLACE VIEW`), so it was left alone.
+
+### `_synced_at` — last synced
+
+**`_synced_at` is the last time the sync wrote the row.** It is safe to use for freshness: `modified_on > _synced_at` means the record has been edited in Dynamics since the mirror last pulled it.
+
+**That was not true before 2026-09-09.** The column is `DEFAULT now()`, and a DEFAULT fires only on INSERT. No mapper writes `_synced_at`, and the sync upserts only the mapped columns, so `ON CONFLICT DO UPDATE` never touched it — making it an *insert* timestamp. Every row ever edited after its first insert showed `modified_on > _synced_at` **forever**, even when the sync had re-pulled it correctly every ten minutes since. The obvious staleness test flagged every ever-edited row, which is what a reading of "425 stale tasks" actually measured.
+
+A `BEFORE INSERT OR UPDATE` trigger on each of the nine mirror tables now stamps it:
+
+```sql
+CREATE OR REPLACE FUNCTION public.touch_synced_at()
+RETURNS trigger AS $
+BEGIN
+  NEW._synced_at = now();
+  RETURN NEW;
+END;
+$ LANGUAGE plpgsql;
+```
+
+A trigger rather than nine mapper edits: uniform, automatic, and it cannot be forgotten when a tenth entity is added. `BEFORE INSERT` as well as UPDATE so the column has exactly one writer; on insert it sets the same value the DEFAULT would have.
+
+**Caveat when reading the numbers:** rows keep their old insert-time stamp until their *next* sync, so a "stale" count will look unchanged at first and drain as records are re-pulled. To reset the baseline in one go, force a full re-pull for the entity (see [08 — Runbook](08-runbook.md)) and run a sync.
+
+Applied by `sql/patches/2026-09-09_feedback_received_and_synced_at.sql`.
 
 ### The `_raw` JSONB pattern
 

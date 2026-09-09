@@ -89,6 +89,14 @@ CREATE TABLE public.accounts (
   owner_id                    uuid,
   owner_name                  text,
 
+  -- Current event / project (resolved lookups). No REFERENCES: public.events is
+  -- created in a later file (16_events_table.sql), so an FK here would fail a
+  -- rebuild, and bcs_project is not mirrored at all.
+  current_event_id            uuid,
+  current_event_name          text,
+  current_project_id          uuid,
+  current_project_name        text,
+
   -- Pre-computed activity rollups (from Dynamics; we pass through)
   last_touchpoint_date        timestamptz,
   next_touchpoint_date        timestamptz,
@@ -99,9 +107,35 @@ CREATE TABLE public.accounts (
   last_teaser_date            timestamptz,
   days_since_last_review      int,
 
+  -- Onboarding / reporting milestones
+  last_data_upload            timestamptz,
+  onboarding_call             timestamptz,
+  original_start_date         timestamptz,
+  shareholder_report_received_date timestamptz,
+  -- Two separate Dynamics fields, not a duplicate: bcs_teachin and
+  -- bcs_teachindate. Both are mapped, so both are declared.
+  teach_in                    timestamptz,
+  teach_in_date               timestamptz,
+
   -- Operational flags
   do_not_call                 boolean,
   ir_only                     boolean,
+  bda_peers                   boolean,
+  calendar                    boolean,
+  calendar_confirmed          boolean,
+  distro                      boolean,
+  meeting_history_received    boolean,
+  mgmt_review                 boolean,
+  recurring_call_scheduled    boolean,
+  report                      boolean,
+  rep_short_interest          boolean,
+  sh_report                   boolean,
+
+  -- Free text
+  dietary_restrictions        text,
+  ipreo_ticker                text,
+  onboarding_notes            text,
+  peers                       text,
 
   -- Standard
   state_code                  int,
@@ -153,6 +187,14 @@ CREATE TABLE public.meetings (
   host_name               text,
   booker_id               uuid REFERENCES public.users(user_id),
   booker_name             text,
+  -- Feedback assignee (bcs_feedback). Deliberately NO REFERENCES, unlike host
+  -- and booker above: this column was added to the live table out-of-band
+  -- without one, and an FK here would reject any meeting whose assignee is not
+  -- in the users mirror. Several views still read this person out of _raw
+  -- (v_feedback_outstanding, v_admin_meetings_all) because the column was
+  -- missing from this file until 2026-09-09.
+  feedback_id             uuid,
+  feedback_name           text,
 
   -- Type drives the in-person premium
   meeting_type_code       int,
@@ -463,3 +505,61 @@ GRANT DELETE ON public.events              TO service_role;
 
 -- Identity columns above draw from implicit sequences.
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
+
+
+-- -----------------------------------------------------------------------------
+-- _synced_at — LAST SYNCED, not first inserted.
+--
+-- The column is DEFAULT now(), and a DEFAULT fires only on INSERT. No mapper
+-- writes _synced_at (lib/sync/mappers.ts), and the sync upserts only the mapped
+-- columns, so ON CONFLICT DO UPDATE never touched it. That made _synced_at an
+-- INSERT timestamp: any row edited in Dynamics after its first mirror insert
+-- showed modified_on > _synced_at forever, even when the sync had re-pulled it
+-- correctly every ten minutes since. It made the obvious staleness test
+-- (modified_on > _synced_at) useless — it flagged every ever-edited row.
+--
+-- This trigger stamps the column on INSERT *and* UPDATE, so _synced_at means
+-- what its name says and modified_on > _synced_at becomes a real staleness
+-- signal. A trigger rather than nine mapper edits: uniform, automatic, and it
+-- cannot be forgotten when a tenth entity is added.
+--
+-- BEFORE INSERT too, not just UPDATE: it overrides the DEFAULT with the same
+-- value, so insert behaviour is unchanged and the column has one writer.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.touch_synced_at()
+RETURNS trigger AS $$
+BEGIN
+  NEW._synced_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS accounts_touch_synced_at ON public.accounts;
+CREATE TRIGGER accounts_touch_synced_at
+  BEFORE INSERT OR UPDATE ON public.accounts
+  FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();
+
+DROP TRIGGER IF EXISTS users_touch_synced_at ON public.users;
+CREATE TRIGGER users_touch_synced_at
+  BEFORE INSERT OR UPDATE ON public.users
+  FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();
+
+DROP TRIGGER IF EXISTS meetings_touch_synced_at ON public.meetings;
+CREATE TRIGGER meetings_touch_synced_at
+  BEFORE INSERT OR UPDATE ON public.meetings
+  FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();
+
+DROP TRIGGER IF EXISTS touchpoints_touch_synced_at ON public.touchpoints;
+CREATE TRIGGER touchpoints_touch_synced_at
+  BEFORE INSERT OR UPDATE ON public.touchpoints
+  FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();
+
+DROP TRIGGER IF EXISTS client_notes_touch_synced_at ON public.client_notes;
+CREATE TRIGGER client_notes_touch_synced_at
+  BEFORE INSERT OR UPDATE ON public.client_notes
+  FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();
+
+DROP TRIGGER IF EXISTS contracts_touch_synced_at ON public.contracts;
+CREATE TRIGGER contracts_touch_synced_at
+  BEFORE INSERT OR UPDATE ON public.contracts
+  FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();

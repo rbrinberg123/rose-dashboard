@@ -10,8 +10,14 @@
 --   - Full Dynamics row preserved in _raw
 --
 -- "Mirror everything" per Decision 12.
+--
+-- TABLE NAME: public.new_vacationrequest — the Dataverse entity's own name, and
+-- the name lib/sync/entities.ts writes to and every view/page reads. This file
+-- created public.ooo until 2026-09-09, so a database rebuilt from sql/ got a
+-- table nothing referenced and every OOO/Time Off feature came up empty. The
+-- idx_ooo_* index names are left as they are — short, and already live.
 
-CREATE TABLE IF NOT EXISTS public.ooo (
+CREATE TABLE IF NOT EXISTS public.new_vacationrequest (
   -- Primary key (Dataverse new_vacationrequestid)
   ooo_id                    uuid PRIMARY KEY,
 
@@ -54,10 +60,16 @@ CREATE TABLE IF NOT EXISTS public.ooo (
 );
 
 -- Indexes for common access patterns + the incremental watermark
-CREATE INDEX IF NOT EXISTS idx_ooo_modified_on    ON public.ooo (modified_on DESC);
-CREATE INDEX IF NOT EXISTS idx_ooo_requested_by   ON public.ooo (requested_by_id);
-CREATE INDEX IF NOT EXISTS idx_ooo_dates          ON public.ooo (start_date, end_date);
-CREATE INDEX IF NOT EXISTS idx_ooo_status         ON public.ooo (request_status_code);
+CREATE INDEX IF NOT EXISTS idx_ooo_modified_on    ON public.new_vacationrequest (modified_on DESC);
+CREATE INDEX IF NOT EXISTS idx_ooo_requested_by   ON public.new_vacationrequest (requested_by_id);
+CREATE INDEX IF NOT EXISTS idx_ooo_dates          ON public.new_vacationrequest (start_date, end_date);
+CREATE INDEX IF NOT EXISTS idx_ooo_status         ON public.new_vacationrequest (request_status_code);
 
 -- Sync writes via service_role
 GRANT INSERT, UPDATE, SELECT ON public.new_vacationrequest TO service_role;
+
+-- Stamp _synced_at on every sync (see public.touch_synced_at in 01_mirror_tables.sql).
+DROP TRIGGER IF EXISTS new_vacationrequest_touch_synced_at ON public.new_vacationrequest;
+CREATE TRIGGER new_vacationrequest_touch_synced_at
+  BEFORE INSERT OR UPDATE ON public.new_vacationrequest
+  FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();

@@ -31,7 +31,11 @@ export function AccountTeamAvatars({ members }: { members: readonly TeamAvatarMe
     <div className="flex items-center">
       {shown.map((m, i) => (
         <span
-          key={m.role}
+          // Index included because `role` is NOT guaranteed unique: a caller may
+          // pass several people under one role (the Meetings page renders a
+          // meeting's two Hosts that way). Existing callers pass distinct roles,
+          // so this changes nothing for them — React keys are internal.
+          key={`${m.role}-${i}`}
           title={`${m.role}: ${m.name}`}
           aria-label={`${m.role}: ${m.name}`}
           className="flex shrink-0 items-center justify-center rounded-full"

@@ -83,6 +83,7 @@ const HIDDEN_PAGES = [
   { href: "/relationships", label: "Relationships" },
   { href: "/conference-rooms", label: "Conference Rooms" },
   { href: "/ooo-summary", label: "OOO Summary" },
+  { href: "/meetings", label: "Meetings (all CRM)" },
 ] as const
 
 type Health = "ok" | "warn" | "bad" | "muted"

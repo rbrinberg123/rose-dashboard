@@ -3817,8 +3817,20 @@ WHERE COALESCE(r.report_completed, false) = false          -- drop Done (report 
 --
 -- LINKAGE — NEAREST-CREATED-ON PAIRS WITHIN AN EVENT (2026-09-09):
 --   A Feedback task and its Feedback Report Sent task are tied to the SAME event by
---   event_key = COALESCE(regarding_id, bcs_event_id) — the event GUID, stored in
---   regarding_id on some tasks and bcs_event_id on others.
+--   event_key = COALESCE(bcs_event_id, regarding_id) — the EXPLICIT event field
+--   first, falling back to the polymorphic regarding_id only when it is absent.
+--
+--   ORDER MATTERS (fixed 2026-09-09). This was regarding_id-first, which was
+--   wrong: regarding_id is polymorphic and on some feedback tasks points at the
+--   ACCOUNT, not the event, while the true event sits in bcs_event_id. Those
+--   tasks grouped under an account id, split from their own event, and corrupted
+--   the pairing. Real example: task 930c699d "Feedback for DSFIR - Part 2
+--   September" — bcs_event_id is the DSFIR-NL event, regarding_id is the account.
+--   bcs_event_id is the field Dynamics fills to mean "this task belongs to this
+--   event", so it is the one to trust.
+--
+--   The flip is a NO-OP for any task where bcs_event_id IS NULL or already equals
+--   regarding_id; only tasks carrying two different non-null values change key.
 --   (An earlier build matched by a ticker "event code" parsed from the event name;
 --   that was WRONG — the ticker is client-grained, so it paired a report with a
 --   closed Feedback from a DIFFERENT event of the same client. Dropped.)
@@ -3876,7 +3888,7 @@ WITH tk AS (
   -- (the event GUID, wherever it is stored on the task).
   SELECT
     t.*,
-    COALESCE(t.regarding_id, t.bcs_event_id) AS event_key
+    COALESCE(t.bcs_event_id, t.regarding_id) AS event_key
   FROM public.tasks t
   WHERE t.bcs_task_subtype_label IN ('Feedback', 'Feedback Report Sent')
 ),
@@ -3940,9 +3952,20 @@ in_progress AS (
     (CURRENT_DATE - (f.crdfa_feedback_received_date AT TIME ZONE 'UTC')::date) AS days_in_stage
   -- Independent of pairing: every qualifying Feedback task stands on its own,
   -- whether or not it has a Report Sent partner.
+  --
+  -- MEMBERSHIP KEYS ON crdfa_feedback_received_date, NOT the legacy
+  -- bcs_feedback_received boolean (changed 2026-09-09). That boolean is stale in
+  -- Dynamics: it reads true on tasks whose CRM "Feedback Received" toggle is
+  -- actually No -- real case, task 930c699d (DSFIR "Part 2 September"). The
+  -- crdfa_* date is the field the CRM form now reflects.
+  --
+  -- It also makes membership agree with what the row DISPLAYS: received_date and
+  -- days_in_stage above are already computed from crdfa_feedback_received_date,
+  -- so a bcs-only row used to appear in Open with a blank FB Received cell and a
+  -- null Waiting figure. Same field for both now, so that cannot recur.
   FROM fb f
   WHERE f.state_label = 'Open'
-    AND COALESCE(f.bcs_feedback_received, false) = true
+    AND f.crdfa_feedback_received_date IS NOT NULL
 ),
 pending_review AS (
   SELECT
@@ -4745,3 +4768,98 @@ WHERE e.state_label = 'Active'
 ORDER BY ticker NULLS LAST, e.event_start_actual;
 
 GRANT SELECT ON public.v_marketing_calendar TO service_role;
+
+
+-- -----------------------------------------------------------------------------
+-- v_admin_meetings_all
+-- EVERY meeting in the CRM mirror, unfiltered. Powers the super-user-only
+-- Admin -> Hidden Pages -> "Meetings" page (app/meetings), which reproduces the
+-- Dynamics "Investor Meetings (All)" view.
+--
+-- SECURITY: this view is deliberately UNSCOPED and UNFILTERED. It returns every
+-- client's meetings to anyone who can read it, and the page that consumes it
+-- does NOT apply resolveMeetingScope. The gate is the route:
+--   * lib/access-control.ts ADMIN_ONLY_ROUTES makes /meetings super-user-only and
+--     NOT grantable through the Roles matrix, and
+--   * app/meetings/page.tsx re-checks the effective role server-side BEFORE it
+--     fetches anything.
+-- Do not reuse this view on any row-scoped page.
+--
+-- NO FILTERS AT ALL, on purpose ("show all of them"):
+--   * every meeting_status_label (Confirmed, Pending, Cancelled, ...)
+--   * every date, past and future, no recency floor
+--   * BOTH state_label = 'Active' and 'Inactive' (deactivated) records.
+--     state_label is exposed as a column so the page can show/filter it, and so
+--     this default is easy to reverse if deactivated rows turn out to be noise.
+--
+-- COLUMN SOURCES. Most come from the flattened public.meetings columns. Four do
+-- not, and are read out of the _raw jsonb (the sync stores the whole Dynamics
+-- record there). Reading a key that does not exist yields NULL rather than an
+-- error, so a wrong guess degrades to an empty column instead of breaking:
+--   event_name      LEFT JOIN public.events (meetings has event_id but no name)
+--   feedback_name   _raw _bcs_feedback_value FormattedValue -- the same
+--                   expression v_feedback_outstanding already relies on
+--   host_names      flattened host_name, plus a second host from _raw when the
+--                   record carries one (bcs_host2). A meeting can have more than
+--                   one host; concat_ws drops the NULLs.
+--   on_behalf_of    _raw, trying the Rose custom lookup first and falling back to
+--                   the Dataverse system createdonbehalfby.
+--   fb_received     _raw, trying the boolean flag then the dated variants.
+-- The last two are UNCONFIRMED key names -- see the patch header for the
+-- discovery query that settles them.
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS public.v_admin_meetings_all CASCADE;
+CREATE VIEW public.v_admin_meetings_all AS
+SELECT
+  m.meeting_id,
+
+  -- 1-3: type, status, date (stored UTC; the page renders it Eastern)
+  m.meeting_type_label,
+  m.meeting_status_label,
+  m.meeting_date,
+
+  -- 4-7: who/what
+  m.client_account_name,
+  e.name                                        AS event_name,
+  m.institution_name,
+  m.investor_text                               AS investor_name,
+
+  -- 8: host(s). One meeting can carry more than one; both are shown.
+  NULLIF(concat_ws(', ',
+    NULLIF(m.host_name, ''),
+    NULLIF(m._raw->>'_bcs_host2_value@OData.Community.Display.V1.FormattedValue', '')
+  ), '')                                        AS host_names,
+
+  -- 9: feedback assignee (bcs_feedback) -- _raw only, same expression as
+  -- v_feedback_outstanding.
+  NULLIF(m._raw->>'_bcs_feedback_value@OData.Community.Display.V1.FormattedValue', '')
+                                                AS feedback_name,
+
+  -- 10-11: the two booking people
+  m.booker_name,
+  COALESCE(
+    NULLIF(m._raw->>'_bcs_onbehalfof_value@OData.Community.Display.V1.FormattedValue', ''),
+    NULLIF(m._raw->>'_createdonbehalfby_value@OData.Community.Display.V1.FormattedValue', '')
+  )                                             AS on_behalf_of,
+
+  -- 12-13: workflow choice fields (both flattened)
+  m.calendar_label,
+  m.feedback_bda_label,
+
+  -- 14: FB Rec'd -- flag or date depending on how Dynamics models it. Rendered
+  -- as text so either shape displays without the view having to commit.
+  COALESCE(
+    NULLIF(m._raw->>'bcs_feedbackreceived@OData.Community.Display.V1.FormattedValue', ''),
+    NULLIF(m._raw->>'bcs_feedbackreceiveddate@OData.Community.Display.V1.FormattedValue', ''),
+    NULLIF(m._raw->>'crdfa_feedbackreceiveddate@OData.Community.Display.V1.FormattedValue', '')
+  )                                             AS fb_received,
+
+  -- Not rendered as one of the 14 CRM columns, but carried for the row link,
+  -- the Excel export and any future filtering.
+  m.state_label,
+  m.client_account_id,
+  m.event_id
+FROM public.meetings m
+LEFT JOIN public.events e ON e.event_id = m.event_id;
+
+GRANT SELECT ON public.v_admin_meetings_all TO service_role;

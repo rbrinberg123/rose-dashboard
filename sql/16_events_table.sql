@@ -188,3 +188,9 @@ CREATE INDEX idx_events_start_actual      ON public.events (event_start_actual D
 
 -- Grant (run AFTER the CREATE TABLE; this was the line that failed when run alone)
 GRANT INSERT, UPDATE ON public.events TO service_role;
+
+-- Stamp _synced_at on every sync (see public.touch_synced_at in 01_mirror_tables.sql).
+DROP TRIGGER IF EXISTS events_touch_synced_at ON public.events;
+CREATE TRIGGER events_touch_synced_at
+  BEFORE INSERT OR UPDATE ON public.events
+  FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();
