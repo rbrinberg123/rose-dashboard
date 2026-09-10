@@ -1,8 +1,10 @@
-# 10 — To-Do List
+# 10 — Outreach Status
+
+> **Renamed.** This page was called the **To-Do List** until 2026-09-10. Only the display name changed. Every internal name is unchanged and still says `to-do`: the route **`/clients/to-do`** (so old bookmarks and the `role_page_access` grant row both still work), the `dashboard/app/clients/to-do/` directory, the `TodoTable` / `todo-scope` / `client-todo-*` modules, the `.todo-print-root` CSS hooks, and the **`v_client_todo`** view. This file keeps its `10-to-do-list.md` filename for the same reason.
 
 ## What it does (plain language)
 
-**Clients → To-Do List** (`/clients/to-do`) is one wide row per **active client**, pulling together everything that usually needs chasing: how much you've met them, when you last spoke to them, when their data was last uploaded, what their next marketing event looks like, what feedback is still open, and a free-text note you can type straight into the table.
+**Clients → Outreach Status** (`/clients/to-do`) is one wide row per **active client**, pulling together everything that usually needs chasing: how much you've met them, when you last spoke to them, when their data was last uploaded, what their next marketing event looks like, what feedback is still open, and a free-text note you can type straight into the table.
 
 It is a **worklist**, not a report. The colours are the point:
 
@@ -20,7 +22,7 @@ Rows are deliberately dense — this is meant to be a whole client book you can 
 
 The page is **client-scoped**. You see a row for every active client **you're on the account-management team for** — the same rule as Portfolio and Client Detail. Someone with the "All" data scope (and every Super User) sees every active client. If you have no client access at all, the page shows "No clients assigned to you" rather than an empty table.
 
-Access to the page itself is separate from that: it's an independently-grantable row in **Admin → Roles**, so a role can be given the To-Do List without being given Portfolio or Client Detail.
+Access to the page itself is separate from that: it's an independently-grantable row in **Admin → Roles**, so a role can be given Outreach Status without being given Portfolio or Client Detail.
 
 ### The status key
 
@@ -30,8 +32,8 @@ A compact **colour key** sits directly above the toolbar, listing the five statu
 
 - **Client Manager** — narrows the table to one manager's clients. Defaults to **all**. The dropdown lists only managers of clients **you can already see**, so it never reveals who runs an account outside your scope. "Client Manager" here means the client's **account manager** (`accounts.sales_lead_primary_name`), which is owned in the CRM and read-only in the dashboard — this is a filter, not an assignment control.
 - **Search** — matches client name, ticker, or event name.
-- **Export to Excel** — downloads an `.xlsx` of **exactly what's on screen**: the rows as currently filtered (search + Client Manager) and in the current sort order, not the whole table. Filter first, then export. The file is named `client-todo-list_YYYY-MM-DD.xlsx`.
-- **Export PDF** — the same current view, but as a **landscape PDF that looks like the table**: the same twelve columns with their status pills, open-slots ambers, aging colours and feedback pills intact, under a "Client To-Do List" header carrying the date and the filters that were applied. It opens your browser's print dialog — choose **"Save as PDF"** as the destination. Filter first, then export, exactly as with Excel. Suggested filename `client-todo-list_YYYY-MM-DD.pdf`.
+- **Export to Excel** — downloads an `.xlsx` of **exactly what's on screen**: the rows as currently filtered (search + Client Manager) and in the current sort order, not the whole table. Filter first, then export. The file is named `client-outreach-status_YYYY-MM-DD.xlsx`, and the sheet inside it is called **Outreach Status**.
+- **Export PDF** — the same current view, but as a **landscape PDF that looks like the table**: the same twelve columns with their status pills, open-slots ambers, aging colours and feedback pills intact, under a "Client Outreach Status" header carrying the date and the filters that were applied. It opens your browser's print dialog — choose **"Save as PDF"** as the destination. Filter first, then export, exactly as with Excel. Suggested filename `client-outreach-status_YYYY-MM-DD.pdf`.
 - The count on the right reads "*N* of *M*" so you can see how much the filters are hiding.
 
 Which to use: **Excel** when you want to sort, pivot or re-cut the numbers; **PDF** when you want to circulate or print the worklist as it looks.
@@ -134,7 +136,7 @@ There is **no PDF library in the app.** "Export PDF" reuses the mechanism the Cl
 The contract between the table and the stylesheet is by class:
 
 - `.todo-print-root` wraps the whole component and scopes every print rule.
-- `.print-only` is the branded report header — `display: none` on screen, revealed only on paper. It carries "Rose & Co", **Client To-Do List**, the generated date, and a filter summary built from the *live* filter state (`Client Manager = …`, the search text, and the row count), so the sheet always states what it's a view of.
+- `.print-only` is the branded report header — `display: none` on screen, revealed only on paper. It carries "Rose & Co", **Client Outreach Status**, the generated date, and a filter summary built from the *live* filter state (`Client Manager = …`, the search text, and the row count), so the sheet always states what it's a view of.
 - `.no-print` hides the screen chrome: the title card, the whole filter/search/export toolbar, and the event-meetings drawer.
 
 Because it prints the **rendered** table, the export inherits everything for free — the pills, the aging reds and ambers, and the client scoping (nothing is re-fetched; there's no second code path to drift, unlike the Excel export's parallel column list).
@@ -150,9 +152,9 @@ What the print rules have to undo, and why:
 
 **The note field is the one thing that doesn't translate.** A `<textarea>` prints as an empty one-line box — its value isn't laid out for paper and the scroll position clips it. So `NoteCell` renders the control *and* a static `.todo-print-note` twin: the textarea carries `data-print="hide"`, and the twin is `.print-only` and wraps (`pre-wrap`). The twin reads the component's `value` state rather than `row.note`, so a note typed but not yet blurred still makes it into the PDF.
 
-**Filename.** The browser seeds "Save as PDF" from `document.title`, so the handler swaps the title to `client-todo-list_YYYY-MM-DD` for the duration of the print call and restores it on `afterprint`. The date comes from `ymd()` — exported from `lib/client-todo-excel.ts` and shared with the `.xlsx` name, so both downloads always agree on the date. This is a *suggestion*: the browser's save dialog lets the user rename, and some browsers ignore the title entirely.
+**Filename.** The browser seeds "Save as PDF" from `document.title`, so the handler swaps the title to `client-outreach-status_YYYY-MM-DD` for the duration of the print call and restores it on `afterprint`. The date comes from `ymd()` — exported from `lib/client-todo-excel.ts` and shared with the `.xlsx` name, so both downloads always agree on the date. This is a *suggestion*: the browser's save dialog lets the user rename, and some browsers ignore the title entirely.
 
-The shared reshaping rules are written as a selector list covering both `.portfolio-print-root` and `.todo-print-root`; only the fit-to-page rules above are To-Do-specific.
+The shared reshaping rules are written as a selector list covering both `.portfolio-print-root` and `.todo-print-root`; only the fit-to-page rules above are specific to this page. (The CSS hook is still named `.todo-print-root` — an internal name the rename left alone.)
 
 ### The shared event-detail pane
 
@@ -160,7 +162,7 @@ The event cluster opens **`components/event-meetings-pane.tsx`** (`EventMeetings
 
 Its rows come from **`lib/event-meetings.ts`** (`loadConfirmedMeetingsByEvent`) — the one shared read for `meetings.event_id` + `meeting_status_label = 'Confirmed'`, selecting the fields the pane renders. Both loaders call it; there is no parallel query. Client Detail additionally derives its meeting-count chip and its Current/Previous bucketing dates from that same result, so a single query backs all three.
 
-`loadConfirmedMeetingsByEvent` does **no scoping of its own** — it takes ids the caller has already scope-checked. To-Do passes `next_event_id` from `rows`, which the client scope has already filtered; Client Detail passes the selected client's event ids, which were scope-checked when the client was resolved. Both are therefore scoped implicitly, and the To-Do page stays entirely inside its existing client-scoped loader.
+`loadConfirmedMeetingsByEvent` does **no scoping of its own** — it takes ids the caller has already scope-checked. Outreach Status passes `next_event_id` from `rows`, which the client scope has already filtered; Client Detail passes the selected client's event ids, which were scope-checked when the client was resolved. Both are therefore scoped implicitly, and this page stays entirely inside its existing client-scoped loader.
 
 Interaction detail: the five cells are separate `<td>`s, so a plain CSS `:hover` can't tint them as a group. The table tracks a `hoverEventRow` (and compares `openEvent.eventId` for the selected tint) and applies both to all five cells. The first cell of the cluster carries `role="button"`, `tabIndex`, an `aria-label`, and Enter/Space handling, so the drill-in is reachable by keyboard.
 
@@ -235,7 +237,7 @@ The event universe matches `v_marketing_calendar` exactly: `state_label = 'Activ
 
 `v_marketing_calendar` used to carry a trailing window, `COALESCE(event_end_actual, event_start_actual) >= (CURRENT_DATE - INTERVAL '2 months')`. It was **removed on 2026-09-08**.
 
-Earlier revisions of this page called that cutoff harmless and said the two surfaces bucketed "exactly" alike. **Both claims were wrong.** The rule was shared, but the *pool* was not, and the cutoff was not harmless: it tested the event's **official dates and never its meetings**, so an event whose official window closed months ago — but which still had a confirmed meeting ahead of it, or was still in an active-booking stage — was dropped from `v_marketing_calendar` **before Client Detail could classify it**, while the To-Do List (which never had the cutoff) still showed it. The same client could show an event here and not there. Removing it makes the two pools identical. It was also the only day boundary in this path evaluated in **UTC** (`CURRENT_DATE`) rather than Eastern; that inconsistency is gone with it.
+Earlier revisions of this page called that cutoff harmless and said the two surfaces bucketed "exactly" alike. **Both claims were wrong.** The rule was shared, but the *pool* was not, and the cutoff was not harmless: it tested the event's **official dates and never its meetings**, so an event whose official window closed months ago — but which still had a confirmed meeting ahead of it, or was still in an active-booking stage — was dropped from `v_marketing_calendar` **before Client Detail could classify it**, while this page (which never had the cutoff) still showed it. The same client could show an event here and not there. Removing it makes the two pools identical. It was also the only day boundary in this path evaluated in **UTC** (`CURRENT_DATE`) rather than Eastern; that inconsistency is gone with it.
 
 **Event Mtgs** — `COUNT(public.meetings WHERE event_id = <event> AND meeting_status_label = 'Confirmed')`, the same meetings→event link (`meetings.event_id`, from Dynamics `_bcs_event_value`) the Planning and Client Detail pages use.
 

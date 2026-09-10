@@ -19,7 +19,11 @@ import { TodoTable } from "./todo-table"
 // inline notes are written by other people while the page is open.
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = { title: "To-Do List" }
+// DISPLAY NAME: this page is called "Outreach Status" in the UI. The INTERNAL
+// name stays `to-do` everywhere — the /clients/to-do route, this directory, the
+// TodoTable / todo-scope modules, and the v_client_todo view — so the rename is
+// a label change only and no bookmark, grant row or query breaks.
+export const metadata: Metadata = { title: "Outreach Status" }
 
 export default async function ClientToDoPage() {
   const sb = getSupabaseServer()
@@ -30,7 +34,7 @@ export default async function ClientToDoPage() {
   const load = decideTodoLoad(scope)
   if (load.mode === "deny") {
     return (
-      <PageShell title="To-Do List" description="Clients on your account team">
+      <PageShell title="Outreach Status" description="Clients on your account team">
         <NoClientsAssigned />
       </PageShell>
     )
@@ -43,7 +47,7 @@ export default async function ClientToDoPage() {
   if (error) {
     return (
       <PageShell
-        title="To-Do List"
+        title="Outreach Status"
         description="One row per active client — what needs doing"
       >
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
@@ -187,7 +191,7 @@ export default async function ClientToDoPage() {
 
   return (
     <PageShell
-      title="To-Do List"
+      title="Outreach Status"
       description={`${rows.length.toLocaleString()} active clients`}
       hideHeader
       canvas

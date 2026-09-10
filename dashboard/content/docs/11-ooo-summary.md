@@ -186,7 +186,7 @@ Fields the summary needs, all already synced: `ooo_id`, `requested_by_id`, `requ
 
 `computeOooSummary()` returns the tally (`rows`), the years present, `details` — every individual request with its own day count, which feeds the detail pane — and `skipped`, the count of requests dropped for a missing or inverted date (currently 0).
 
-**The pane's chrome is the shared drawer.** `OooPersonPane` is built on the same `components/ui/sheet` primitives as `components/event-meetings-pane.tsx` (the drawer Client Detail and the To-Do List use) and reuses its shell verbatim — same `SheetContent` width and layout, same bordered header with a teal eyebrow over a navy title, same scrollable body and close affordance. It is a separate component only because `EventMeetingsPane` is typed to `MarketingEventMeeting`; if a third page ever needs this drawer, extract the shell rather than copying it again.
+**The pane's chrome is the shared drawer.** `OooPersonPane` is built on the same `components/ui/sheet` primitives as `components/event-meetings-pane.tsx` (the drawer Client Detail and Outreach Status use) and reuses its shell verbatim — same `SheetContent` width and layout, same bordered header with a teal eyebrow over a navy title, same scrollable body and close affordance. It is a separate component only because `EventMeetingsPane` is typed to `MarketingEventMeeting`; if a third page ever needs this drawer, extract the shell rather than copying it again.
 
 ### Why TypeScript and not a view
 

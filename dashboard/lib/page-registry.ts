@@ -55,7 +55,9 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   { route: "/client-statistics", label: "Client Statistics", section: "Clients" },
   { route: "/portfolio", label: "Client Portfolio", section: "Clients" },
   { route: "/client-detail", label: "Client Detail", section: "Clients" },
-  { route: "/clients/to-do", label: "To-Do List", section: "Clients" },
+  // Label is the DISPLAY name (shown on the Admin → Roles matrix); the route is
+  // the stable key that role grants are stored against, so it stays `to-do`.
+  { route: "/clients/to-do", label: "Outreach Status", section: "Clients" },
 
   // ---- Institutions ----
   { route: "/institutions", label: "Institution Summary", section: "Institutions" },

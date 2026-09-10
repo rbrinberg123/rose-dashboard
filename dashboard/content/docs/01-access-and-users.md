@@ -159,7 +159,7 @@ It is **one shared component with a single mount point** — `<SectionNav />` in
 - **Data-driven, never hardcoded.** The strip derives its list from the *same* `sections` array and the *same* `canAccessRoute` filter the sidebar renders from, re-exported as `visibleNavSections` / `isNavRouteActive`. Add a page to the nav and its tab appears everywhere in that section with no further edit.
 - **Access-gated identically to the sidebar.** Tabs come from the already-filtered item list, so the strip can never offer a page the proxy would block — a user granted 2 of Logistics' 9 pages sees exactly those 2 tabs.
 - **Hidden when it would be noise.** No strip on a section with fewer than **2** reachable pages (no lone tab), and none on a page that isn't a nav section's child — so `/admin`, `/login`, `/no-access`, the drill-in detail pages (`/institution-detail`, `/institution-style`), the unlinked `/planning`, and the unlinked finance routes all render without one. The two direct-link sections (Institutions, Contracts) carry no child items and so never show a strip either.
-- **Active match** uses the sidebar's own ancestor rule, keeping the **longest** match so `/clients/to-do` marks *To-Do List* rather than a shorter sibling prefix.
+- **Active match** uses the sidebar's own ancestor rule, keeping the **longest** match so `/clients/to-do` marks *Outreach Status* rather than a shorter sibling prefix.
 
 ### View as (super-user testing mode)
 

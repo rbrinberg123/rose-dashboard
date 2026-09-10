@@ -12,6 +12,7 @@ import {
   CalendarRange,
   Database,
   FileText,
+  ListChecks,
   Settings,
   Menu,
   LogOut,
@@ -73,7 +74,10 @@ const sections: NavSection[] = [
       { href: "/client-statistics", label: "Statistics" },
       { href: "/portfolio", label: "Portfolio" },
       { href: "/client-detail", label: "Detail" },
-      { href: "/clients/to-do", label: "To-Do List" },
+      // Display name only — the route stays /clients/to-do (see the note in
+      // app/clients/to-do/page.tsx). This label also drives the Clients tab in
+      // the sectional nav strip, which reads the same `sections` array.
+      { href: "/clients/to-do", label: "Outreach Status" },
     ],
   },
   {
@@ -143,6 +147,9 @@ const CRM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   // CalendarRange, not CalendarDays: CalendarDays already means "Logistics" in
   // this rail, and an event is a date RANGE rather than a single day.
   "/events": CalendarRange,
+  // ListChecks: a worklist of things to tick off, and the only checkbox-shaped
+  // icon in the rail — nothing else here could be mistaken for it.
+  "/tasks": ListChecks,
 }
 
 type CrmItem = CrmNavItem & { icon: React.ComponentType<{ className?: string }> }

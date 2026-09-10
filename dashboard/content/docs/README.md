@@ -20,8 +20,9 @@ These files live in `dashboard/content/docs/` and are also browsable in-app at *
 | [07 — Business Rules](07-business-rules.md) | The tricky definitions (occurred, live/virtual, new client, feedback, etc.) and where each lives. |
 | [08 — Runbook](08-runbook.md) | Step-by-step: run a sync, apply SQL, handle a deletion, fix common problems. |
 | [09 — Configuration](09-configuration.md) | Every environment variable and the external project references. |
-| [10 — To-Do List](10-to-do-list.md) | The Clients → To-Do List worklist: every column's definition, the aging thresholds, notes storage, and its client scoping. |
+| [10 — Outreach Status](10-to-do-list.md) | The Clients → Outreach Status worklist (formerly "To-Do List"; the route and view are still `to-do` / `v_client_todo`): every column's definition, the aging thresholds, notes storage, and its client scoping. |
 | [11 — OOO Summary](11-ooo-summary.md) | The per-person/per-year/per-type time-off tally behind `/ooo-summary`: the four categories, NYSE business-day counting, and the comment-driven half-day rule. |
+| [14 — Tasks (all CRM)](14-tasks.md) | The super-user-only `/tasks` page: every CRM task with no row scoping, its nine list columns, the four-section detail drawer, the Open-tasks default, and the two field-sourcing judgement calls (priority precedence, and owners that are not always people). **SQL patch still to run.** |
 | [13 — Events (all CRM)](13-events.md) | The super-user-only `/events` page: every marketing event with no row scoping, its seven list columns, the General/Planning detail drawer, the Current & Upcoming default, and the shared table machinery it runs on with Meetings. |
 | [12 — Meetings (all CRM)](12-meetings-all.md) | The super-user-only `/meetings` page: every CRM meeting with no row scoping, its **saved views** (system + personal, with defaults), the column catalog behind Edit columns, the Edit filters builder, and why the route — and the app's first write path — are gated the way they are. |
 

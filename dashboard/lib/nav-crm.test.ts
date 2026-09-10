@@ -31,7 +31,7 @@ test("super_user sees the CRM block, with every item", () => {
   assert.equal(canSeeCrmNav("super_user", []), true)
   assert.deepEqual(
     visibleCrmNavItems("super_user", []).map((i) => i.href),
-    ["/meetings", "/events"],
+    ["/meetings", "/events", "/tasks"],
   )
 })
 
@@ -56,7 +56,7 @@ test("the Roles matrix cannot open the CRM block to another role", () => {
 })
 
 test("a matrix grant of every route still does not open it", () => {
-  const everything = ["/", "/meetings", "/meetings/anything", "/events", "/events/anything", "/admin"]
+  const everything = ["/", "/meetings", "/meetings/anything", "/events", "/events/anything", "/tasks", "/tasks/anything", "/admin"]
   for (const role of NON_SUPER) {
     assert.equal(canSeeCrmNav(role, everything), false)
   }

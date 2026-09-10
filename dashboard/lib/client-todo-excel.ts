@@ -8,8 +8,8 @@ import {
 
 // Local YYYY-MM-DD for the filename (today's date), so repeated exports don't
 // overwrite each other. Same helper as lib/pipeline-excel.ts. Exported so the
-// To-Do List's PDF export names its file off the same function — the two
-// downloads stay `client-todo-list_<same date>.{xlsx,pdf}`.
+// page's PDF export names its file off the same function — the two downloads
+// stay `client-outreach-status_<same date>.{xlsx,pdf}`.
 export function ymd(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, "0")
@@ -44,7 +44,9 @@ export async function exportClientTodoList(rows: ClientTodoTableRow[]): Promise<
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
   a.href = url
-  a.download = `client-todo-list_${ymd(new Date())}.xlsx`
+  // Display name: the file the user saves is named "Outreach Status" even though
+  // this module and its rows keep the internal `todo` naming.
+  a.download = `client-outreach-status_${ymd(new Date())}.xlsx`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -60,7 +62,7 @@ export async function buildClientTodoWorkbook(rows: ClientTodoTableRow[]) {
   const ExcelJS = (mod as { default?: typeof import("exceljs") }).default ?? mod
 
   const wb = new ExcelJS.Workbook()
-  const ws = wb.addWorksheet("To-Do List")
+  const ws = wb.addWorksheet("Outreach Status")
 
   const DATE_FMT = "mmm d, yyyy"
   // Left to right in the SAME order as the on-screen table, so someone reading

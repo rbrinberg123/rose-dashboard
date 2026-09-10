@@ -1474,3 +1474,62 @@ export type AdminMeetingRow = {
    *  is run, in which case the cell falls back to the (truncated) name. */
   client_ticker: string | null
 }
+
+/**
+ * One row of `v_admin_tasks_all` — the Tasks admin list (CRM → Tasks).
+ *
+ * Every field is nullable because the mirror mirrors whatever Dynamics holds,
+ * and several are sparsely filled in practice: `actual_start` is empty on every
+ * live row, `claimed_by_name` on 91% of them.
+ *
+ * `priority_label` is a COALESCE of the two underlying priority columns, both of
+ * which are also exposed — see the sourcing note in
+ * sql/patches/2026-09-11_admin_tasks.sql.
+ */
+export type AdminTaskRow = {
+  task_id: string
+  // the nine default list columns
+  client_account_name: string | null
+  subject: string | null
+  regarding_name: string | null
+  task_type_label: string | null
+  task_subtype_label: string | null
+  priority_label: string | null
+  due_date: string | null
+  owner_name: string | null
+  status_label: string | null
+  // identity / links
+  client_account_id: string | null
+  client_ticker: string | null
+  event_id: string | null
+  event_name: string | null
+  regarding_type: string | null
+  regarding_type_label: string | null
+  // classification / state
+  state_label: string | null
+  priority_stock_label: string | null
+  priority_rose_label: string | null
+  percent_complete: number | null
+  // schedule
+  scheduled_start: string | null
+  actual_start: string | null
+  actual_end: string | null
+  // people
+  owner_id: string | null
+  created_by_name: string | null
+  modified_by_name: string | null
+  claimed_by_name: string | null
+  current_assignment_name: string | null
+  // workflow
+  outreach_status_label: string | null
+  drafting: boolean | null
+  draft_complete: boolean | null
+  review_complete: boolean | null
+  processed: boolean | null
+  feedback_received: boolean | null
+  notified: boolean | null
+  // free text / system
+  description: string | null
+  created_on: string | null
+  modified_on: string | null
+}

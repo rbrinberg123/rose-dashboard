@@ -11,7 +11,7 @@ export default function ClientToDoError({
 }) {
   return (
     <ErrorState
-      title="To-Do List"
+      title="Outreach Status"
       description="One row per active client — what needs doing"
       error={error}
       reset={reset}

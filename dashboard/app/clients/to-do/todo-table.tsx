@@ -623,7 +623,7 @@ export function TodoTable({
   // the title for the export name across the print call and restore it after.
   const onExportPdf = React.useCallback(() => {
     const previousTitle = document.title
-    document.title = `client-todo-list_${ymd(new Date())}`
+    document.title = `client-outreach-status_${ymd(new Date())}`
     window.addEventListener("afterprint", () => {
       document.title = previousTitle
     }, { once: true })
@@ -668,7 +668,7 @@ export function TodoTable({
                 Rose &amp; Co
               </div>
               <div style={{ fontSize: 20, fontWeight: 700, color: "#111827", marginTop: 2 }}>
-                Client To-Do List
+                Client Outreach Status
               </div>
             </div>
             <div style={{ fontSize: 11, color: "#4B5563" }} suppressHydrationWarning>
@@ -681,7 +681,7 @@ export function TodoTable({
 
       <div className="mb-4 no-print">
         <ListTitleCard
-          title="To-Do List"
+          title="Outreach Status"
           subtitle={`${rows.length.toLocaleString()} active clients · ${openItemsCount.toLocaleString()} with open feedback items`}
         />
       </div>

@@ -81,7 +81,7 @@ Four display conventions, all screen-only — the underlying data, the row set, 
 
   These columns' width floor is the **header text**, not the circles — two overlapping circles need only 40px.
 - **Investor stays a full name**, deliberately: it is the row's primary *external* identifier, not internal staff.
-- **Client shows the ticker symbol**, with the full account name on hover — see [Condensed columns](#condensed-columns). It still links to `/client-detail?account_id=…`, the same destination the Portfolio, To-Do and Onboarding tables use, and a row with no account id renders plain text rather than a dead link.
+- **Client shows the ticker symbol**, with the full account name on hover — see [Condensed columns](#condensed-columns). It still links to `/client-detail?account_id=…`, the same destination the Portfolio, Outreach Status and Onboarding tables use, and a row with no account id renders plain text rather than a dead link.
 - **Date is one compact line** — `11/18/26 11:30 AM`, Eastern. The `MM/dd/yy` shape matches the other tables (see `DATE_FMT` in `app/feedback-manager/feedback-manager-view.tsx`).
 
 Two things the abbreviations deliberately do **not** change:
@@ -385,7 +385,7 @@ Until the patch runs, the Host filter **falls back** to the old name-token match
 
   **The scroll container is the shared `<Table>`'s own wrapper, not a div of ours** — and getting this wrong is what broke the header on the first two attempts. `components/ui/table.tsx` renders `<div data-slot="table-container" class="relative w-full overflow-x-auto">` around the `<table>`. That `overflow-x: auto` makes the div a scroll container on *both* axes as far as sticky positioning is concerned, so a `sticky top-0` `<thead>` anchors to **it** — not to any scroller wrapped around it. With no bounded height on that container it never scrolls vertically, the sticky never engages, and the header rides away with the body.
 
-  So the height (`calc(100vh - 16rem)`) and `overflow-y: auto` are applied **to that container**, via arbitrary variants, exactly as Portfolio and the To-Do list do it. The scroll listener and `ResizeObserver` attach to the same element, so the virtualization and the sticky header can never disagree about what is scrolling. **Do not reintroduce an outer scrolling div** — it re-breaks the header.
+  So the height (`calc(100vh - 16rem)`) and `overflow-y: auto` are applied **to that container**, via arbitrary variants, exactly as Portfolio and Outreach Status do it. The scroll listener and `ResizeObserver` attach to the same element, so the virtualization and the sticky header can never disagree about what is scrolling. **Do not reintroduce an outer scrolling div** — it re-breaks the header.
 
   Header cells carry an explicit opaque `bg-card` at cell level (`[&_th]:bg-card`), so rows cannot show through on scroll. The toolbar is separately `sticky top-0` so it stays pinned if a short viewport lets the page itself scroll.
 

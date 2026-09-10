@@ -113,7 +113,7 @@ Consequences worth knowing:
 
   **`pending_review` is unaffected** — it keys off task completion plus a paired open report, and never reads the received signal at all.
 - **Orphans and completed partners drop out.** A Completed Feedback with no paired Open Report Sent — orphaned, or its partner already Completed — produces no row, which is also how "done" is expressed.
-- **Both surfaces are task-grained already**, so two pairs from one event render as two rows: the Feedback Reports table keys on `task_id`, and the To-Do hover panel lists every pipeline row without per-event dedupe.
+- **Both surfaces are task-grained already**, so two pairs from one event render as two rows: the Feedback Reports table keys on `task_id`, and the Outreach Status hover panel lists every pipeline row without per-event dedupe.
 
 ---
 

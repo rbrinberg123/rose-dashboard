@@ -2,7 +2,7 @@
 
 > **Status: built, SQL deployed.** The page is at `/events`, reached from the **CRM** block at the bottom of the main nav rail (super-user-only).
 >
-> Both patches are live in Supabase as of 2026-09-10 — `sql/patches/2026-09-10_admin_events.sql` (list view, filter-options view, indexes, saved-views table) and `sql/patches/2026-09-10_admin_events_slots.sql` (the three capacity columns behind the [stat row](#the-capacity-stat-row), plus `idx_meetings_event_id`, which also speeds up Portfolio and the To-Do list). Verified against the live database: `v_admin_events_all` has 43 columns and the index is present.
+> Both patches are live in Supabase as of 2026-09-10 — `sql/patches/2026-09-10_admin_events.sql` (list view, filter-options view, indexes, saved-views table) and `sql/patches/2026-09-10_admin_events_slots.sql` (the three capacity columns behind the [stat row](#the-capacity-stat-row), plus `idx_meetings_event_id`, which also speeds up Portfolio and Outreach Status). Verified against the live database: `v_admin_events_all` has 43 columns and the index is present.
 >
 > **Not yet pushed to any remote.** The application code is local-only.
 

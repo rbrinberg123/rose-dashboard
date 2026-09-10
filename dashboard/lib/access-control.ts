@@ -118,7 +118,7 @@ export const ALWAYS_ALLOWED_ROUTES = ["/no-access"] as const
  * BEFORE the matrix lookup, so an accidental (or malicious) role_page_access row
  * granting one of these to another role has no effect.
  */
-export const ADMIN_ONLY_ROUTES = ["/meetings", "/events"] as const
+export const ADMIN_ONLY_ROUTES = ["/meetings", "/events", "/tasks"] as const
 
 /** True when `pathname` is `route` or a sub-path of it (segment-aware). */
 function matchesRoute(pathname: string, route: string): boolean {
@@ -173,6 +173,7 @@ export type CrmNavItem = { href: string; label: string }
 export const CRM_NAV_ITEMS: readonly CrmNavItem[] = [
   { href: "/meetings", label: "Meetings" },
   { href: "/events", label: "Events" },
+  { href: "/tasks", label: "Tasks" },
 ]
 
 /**
