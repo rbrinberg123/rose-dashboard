@@ -25,11 +25,16 @@ export default async function ClientPortfolioPage() {
   // Level-2 client scoping (Account Management). null = see all (super / All);
   // a Set = only those account ids; empty Set = none.
   const identity = await getEffectiveIdentity()
-  const scope = await resolveClientScope(identity)
-  // Field-level Financials grant — independent of the row scope above. When
-  // false, the money fields are stripped from every row BEFORE the payload
-  // reaches the client, and the Retainer / Doc columns are not rendered.
-  const showFinancials = await canSeeFinancials(identity)
+  // Field-level Financials grant — independent of the row scope, so the two
+  // resolve TOGETHER rather than one after the other (measured ~700 ms → ~380 ms
+  // for a scoped user). When false, the money fields are stripped from every row
+  // BEFORE the payload reaches the client, and the Retainer / Doc columns are
+  // not rendered. Both still fail closed on their own terms; running them
+  // concurrently changes neither decision.
+  const [scope, showFinancials] = await Promise.all([
+    resolveClientScope(identity),
+    canSeeFinancials(identity),
+  ])
   if (scope && scope.size === 0) {
     return (
       <PageShell title="Client Portfolio" description="Clients on your account team">

@@ -1,3 +1,5 @@
+import { cache } from "react"
+
 import { getSupabaseServer } from "@/lib/supabase"
 import { getRealRole } from "@/lib/user-role"
 import {
@@ -42,11 +44,33 @@ export type PersonView = {
  * ignored). Case-insensitive email match.
  */
 export async function lookupPerson(email: string): Promise<PersonView | null> {
+  return lookupPersonByEmail(email.trim().toLowerCase())
+}
+
+/**
+ * The mirror lookup itself, memoised for ONE request.
+ *
+ * getEffectiveIdentity resolves the caller through here on every page, and the
+ * nested getRealRole is memoised too, so what used to be two round trips per
+ * call is now one lookup shared across the whole render.
+ *
+ * ── SECURITY: PER-REQUEST ONLY ─────────────────────────────────────────────
+ * This resolves WHICH PERSON a request is acting as — including, for a real
+ * super-user, the impersonated person from the `view_as_user` cookie. React's
+ * `cache()` lives on the per-request dispatcher, so it cannot carry an identity
+ * into another request. Never make this a module-level cache: that would pin
+ * one visitor's identity (or someone's active impersonation) onto everyone
+ * else's requests. See the note in lib/user-role.ts.
+ *
+ * Keyed on the normalised email; the query itself still matches
+ * case-insensitively via ilike, so behaviour is unchanged.
+ */
+const lookupPersonByEmail = cache(async (emailLower: string): Promise<PersonView | null> => {
   const sb = getSupabaseServer()
   const { data, error } = await sb
     .from("users")
     .select("user_id, display_name, email")
-    .ilike("email", email)
+    .ilike("email", emailLower)
     .limit(1)
   if (error || !data || data.length === 0) return null
   const row = data[0] as { user_id: string | null; display_name: string | null; email: string | null }
@@ -58,7 +82,7 @@ export async function lookupPerson(email: string): Promise<PersonView | null> {
     name: row.display_name?.trim() || row.email,
     role,
   }
-}
+})
 
 export type EffectiveResolution = {
   /** Role the app should gate on (nav + routes). Null → no-access experience. */

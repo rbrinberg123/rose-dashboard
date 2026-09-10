@@ -1,3 +1,5 @@
+import { cache } from "react"
+
 import { getSupabaseServer } from "@/lib/supabase"
 import { getRealRole } from "@/lib/user-role"
 import type { EffectiveIdentity } from "@/lib/effective-identity"
@@ -62,6 +64,27 @@ export async function getUserScopes(
   const role = await getRealRole(email)
   if (role === "super_user") return { ...DENY_SCOPES, all: true, financials: true }
 
+  return loadScopesForEmail(email.trim().toLowerCase())
+}
+
+/**
+ * The `user_data_scopes` read, memoised for ONE request.
+ *
+ * resolveClientScope / resolveMeetingScope / canSeeFinancials each need this
+ * row, so a single page load asked for it two or three times. They now share
+ * one read.
+ *
+ * ── SECURITY: PER-REQUEST ONLY ─────────────────────────────────────────────
+ * These are a specific person's DATA SCOPES — the rows they may see. React's
+ * `cache()` is scoped to one request's dispatcher, so a later request for a
+ * different user starts cold. Never promote this to a module-level/global cache
+ * keyed by email: that would hand one user another user's row scope. Same rule
+ * as getRealRole in lib/user-role.ts.
+ *
+ * Keyed on the normalised email, and it still fails closed on every path — a
+ * read error or a missing row denies, exactly as before, and is still logged.
+ */
+const loadScopesForEmail = cache(async (emailLower: string): Promise<UserScopes> => {
   const sb = getSupabaseServer()
   const { data, error } = await sb
     .from("user_data_scopes")
@@ -71,20 +94,20 @@ export async function getUserScopes(
     // EVERYONE until the DDL is run. With *, a not-yet-migrated database simply
     // yields no `financials` key and scopesFromRow reads it as false.
     .select("*")
-    .eq("email", email.trim().toLowerCase())
+    .eq("email", emailLower)
     .maybeSingle()
   if (error) {
-    console.error("[data-scope] user_data_scopes read failed for", email, "—", error.message)
+    console.error("[data-scope] user_data_scopes read failed for", emailLower, "—", error.message)
     return DENY_SCOPES
   }
   if (!data) {
     console.warn(
-      `[data-scope] no data-scope row for ${email} — denying by default (Level-2 scoping is LIVE; assign scopes on Admin → Users).`,
+      `[data-scope] no data-scope row for ${emailLower} — denying by default (Level-2 scoping is LIVE; assign scopes on Admin → Users).`,
     )
     return DENY_SCOPES
   }
   return scopesFromRow(data)
-}
+})
 
 /**
  * The `accounts.account_id`s where ANY of `userIds` is on the Account-Management

@@ -8,6 +8,12 @@ import {
 import { getRealRole } from "@/lib/user-role"
 import { resolveEffective } from "@/lib/impersonation"
 import { getAllowedRoutes } from "@/lib/page-access"
+import {
+  ANONYMOUS_IDENTITY,
+  IDENTITY_HEADER,
+  encodeIdentityHeader,
+  type ProxyIdentity,
+} from "@/lib/identity-header"
 
 /**
  * Auth proxy. Runs before every page render (matcher below excludes
@@ -29,6 +35,36 @@ const PUBLIC_PATHS = ["/login", "/auth/callback"]
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))
+}
+
+/**
+ * Attach the resolved identity to the REQUEST headers so the root layout can
+ * read it instead of re-querying auth + role + routes (see lib/identity-header.ts).
+ *
+ * `Headers.set` OVERWRITES, which is the security property that makes this safe:
+ * a client-supplied `x-rose-identity` never survives. EVERY return path in
+ * proxy() that renders a page must go through here — including the public /login
+ * path, which passes ANONYMOUS_IDENTITY rather than skipping the call. Redirects
+ * do not render the layout and so do not need it.
+ *
+ * `NextResponse.next({ request: { headers } })` makes the header visible to the
+ * server render only. It is deliberately NOT `NextResponse.next({ headers })`,
+ * which would expose it to the browser.
+ *
+ * The Supabase client may already have queued refreshed session cookies onto
+ * `response`; those are copied across so a token refresh still reaches the
+ * browser.
+ */
+function withIdentity(
+  request: NextRequest,
+  response: NextResponse,
+  identity: ProxyIdentity,
+): NextResponse {
+  const headers = new Headers(request.headers)
+  headers.set(IDENTITY_HEADER, encodeIdentityHeader(identity))
+  const out = NextResponse.next({ request: { headers } })
+  for (const cookie of response.cookies.getAll()) out.cookies.set(cookie)
+  return out
 }
 
 export async function proxy(request: NextRequest) {
@@ -54,7 +90,9 @@ export async function proxy(request: NextRequest) {
       url.search = ""
       return NextResponse.redirect(url)
     }
-    return response
+    // /login renders the root layout, so it needs the header too — set to the
+    // anonymous payload, which also overwrites any value the client sent.
+    return withIdentity(request, response, ANONYMOUS_IDENTITY)
   }
 
   // Protected path with no session → bounce to /login, preserving the
@@ -75,7 +113,7 @@ export async function proxy(request: NextRequest) {
   // view_as cookies ONLY when the REAL role is super_user, so they can't be
   // spoofed. (The proxy reads cookies off the request — no next/headers here.)
   const realRole = await getRealRole(user.email)
-  const { effectiveRole: role } = await resolveEffective(
+  const { effectiveRole: role, person, roleView } = await resolveEffective(
     realRole,
     request.cookies.get(VIEW_AS_USER_COOKIE)?.value,
     request.cookies.get(VIEW_AS_COOKIE)?.value,
@@ -94,7 +132,16 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  return response
+  // Allowed. Hand the layout everything we just resolved so it does not repeat
+  // the auth call and the two role/route queries.
+  return withIdentity(request, response, {
+    email: user.email ?? null,
+    realRole,
+    effectiveRole: role,
+    person,
+    roleView,
+    allowedRoutes,
+  })
 }
 
 /**

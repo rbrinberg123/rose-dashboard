@@ -70,6 +70,21 @@ That means:
 
 See [08 — Runbook](08-runbook.md) for the exact "apply SQL in Supabase" steps.
 
+## What makes a page slow here
+
+Almost every page in this app is fast or slow for one reason: **how many database round trips it makes in a row.** A single trip to Supabase costs ~100–160 ms from the office, and a Supabase Auth check ~180 ms. Row counts barely matter at this scale — `accounts` is 228 rows, `users` 285 — but *sequential* trips add up in a straight line.
+
+So the rules of thumb, in order:
+
+1. **Don't ask the same question twice.** Identity, role and scope lookups are memoised per request — see [Identity is resolved once per request](01-access-and-users.md) for the mechanism and the security rule that goes with it.
+2. **Don't wait on things that don't depend on each other.** Independent reads go in one `Promise.all`. Two places this mattered:
+   - **NDRS Calendar** (`dashboard/app/calendar/page.tsx`) fetched confirmed meetings in 100-event chunks *one after another*. The chunks cover disjoint event ids, so they now go together: measured **~1,220 ms → ~400 ms** on live data.
+   - **Portfolio / Client Detail** resolved the row scope and the Financials field grant sequentially, though neither depends on the other: **~700 ms → ~380 ms** for a scoped user. Both still fail closed on their own terms; running them concurrently changes neither decision.
+3. **Only select the columns you use.** Already the norm — the saved-view tables build their select list from the active view's columns (`selectListFor` in `dashboard/lib/table-views/query.ts`), and the `touchpoints` reads name their six or eight columns. Worth keeping: on the 137-column `events` table a `select *` costs ~1,000 ms against ~140 ms for one column.
+4. **Cache what is genuinely global, per process — and nothing else.** The account-team initials directory (`dashboard/lib/team-initials-directory.ts`) is the same for every viewer and only changes when the sync rewrites `accounts`, so it is cached in-process for 5 minutes instead of re-reading the whole table on all 48 pages. It is consumed by one component on ~7 pages. **Anything that varies per user must not be cached this way** — see the rule in [01](01-access-and-users.md).
+
+> A failed rebuild of that initials map is deliberately **not** cached, so a transient error retries on the next request rather than pinning an empty map for the whole window.
+
 ## Technical
 
 - **Sync entry point:** `dashboard/app/api/sync-dynamics/route.ts` → `runSync()` in `dashboard/lib/sync/run.ts`. Entity list in `dashboard/lib/sync/entities.ts`. Field mapping in `dashboard/lib/sync/mappers.ts`. Dynamics Web API client in `dashboard/lib/sync/dynamics.ts`. Full detail in [05 — Sync & Integrations](05-sync-and-integrations.md).

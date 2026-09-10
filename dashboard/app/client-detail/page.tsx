@@ -38,9 +38,13 @@ export default async function ClientDetailPage({
 
   // Level-2 client scoping (Account Management). null = all; Set = only those; empty = none.
   const identity = await getEffectiveIdentity()
-  const scope = await resolveClientScope(identity)
-  // Field-level Financials grant — independent of the row scope above.
-  const showFinancials = await canSeeFinancials(identity)
+  // Field-level Financials grant — independent of the row scope, so the two
+  // resolve TOGETHER rather than sequentially. Both still fail closed on their
+  // own terms; concurrency changes neither decision.
+  const [scope, showFinancials] = await Promise.all([
+    resolveClientScope(identity),
+    canSeeFinancials(identity),
+  ])
   if (scope && scope.size === 0) {
     return (
       <PageShell title="Client Detail">

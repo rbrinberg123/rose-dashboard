@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { cookies } from "next/headers"
+import { cookies, headers } from "next/headers"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Sidebar } from "@/components/nav"
 import { SectionNav } from "@/components/section-nav"
@@ -13,6 +13,11 @@ import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, viewAsLabel } from "@/lib/access-c
 import { resolveEffective } from "@/lib/impersonation"
 import { getAllowedRoutes } from "@/lib/page-access"
 import { SIDEBAR_COLLAPSED_COOKIE, isSidebarCollapsed } from "@/lib/sidebar"
+import {
+  IDENTITY_HEADER,
+  decodeIdentityHeader,
+  type ProxyIdentity,
+} from "@/lib/identity-header"
 import "./globals.css"
 
 const geistSans = Geist({
@@ -41,35 +46,57 @@ export const metadata: Metadata = {
   },
 }
 
-export default async function RootLayout({
-  children,
-}: Readonly<{ children: React.ReactNode }>) {
-  // Fetch the signed-in user once at the layout boundary so the sidebar
-  // can render their email + sign-out without each page repeating the
-  // call. getUser() contacts Supabase Auth to verify the JWT, so this is
-  // also our authenticity check (proxy.ts handles unauthenticated
-  // redirects; the layout just reads the result).
+/**
+ * The pre-proxy-handoff resolution path, kept as the fallback for when the
+ * identity header is missing or unparseable (see the note in the layout body).
+ *
+ * This is the ORIGINAL code, unchanged in behaviour: verify the JWT with
+ * Supabase Auth, read the real role, apply "View as", load the allowed routes.
+ * It costs one auth round trip and two queries, which is exactly what the
+ * header exists to avoid — so this should essentially never run in practice.
+ */
+async function resolveIdentityLocally(
+  cookieStore: Awaited<ReturnType<typeof cookies>>,
+): Promise<ProxyIdentity> {
   const supabase = await getSupabaseServerAuth()
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  const userEmail = user?.email ?? null
-  // Role drives which nav items the sidebar shows. The proxy does its own
-  // lookup for enforcement; this one is only for the (cosmetic) nav.
-  //
-  // Gate the nav on the EFFECTIVE role so "View as" shrinks the sidebar to what
-  // the impersonated person/role sees. We also keep the real role: the banner
-  // (the always-present exit) shows only when impersonation is actually active.
-  const realRole = await getRealRole(userEmail)
-  const cookieStore = await cookies()
-  const { effectiveRole: role, person, roleView } = await resolveEffective(
+  const email = user?.email ?? null
+  const realRole = await getRealRole(email)
+  const { effectiveRole, person, roleView } = await resolveEffective(
     realRole,
     cookieStore.get(VIEW_AS_USER_COOKIE)?.value,
     cookieStore.get(VIEW_AS_COOKIE)?.value,
   )
-  // The routes the effective role may reach (from the Roles matrix). Passed to
-  // the nav so it hides links the proxy would block — one query, same source.
-  const allowedRoutes = await getAllowedRoutes(role)
+  return {
+    email,
+    realRole,
+    effectiveRole,
+    person,
+    roleView,
+    allowedRoutes: await getAllowedRoutes(effectiveRole),
+  }
+}
+
+export default async function RootLayout({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
+  // Identity comes from proxy.ts, which already resolved all four of these to
+  // enforce access before this render started: the signed-in user, their real
+  // role, the "View as" resolution, and the routes the effective role may reach.
+  // It arrives on a server-only request header (see lib/identity-header.ts for
+  // why that is safe and why a forged header cannot do better than no header).
+  //
+  // FALLBACK, NOT FAIL-CLOSED: if the header is absent or unparseable we resolve
+  // it here exactly as before. That costs an auth call plus two queries, which
+  // is the old behaviour — a decode failure must never look like "signed out".
+  const headerStore = await headers()
+  const forwarded = decodeIdentityHeader(headerStore.get(IDENTITY_HEADER))
+  const cookieStore = await cookies()
+
+  const resolved = forwarded ?? (await resolveIdentityLocally(cookieStore))
+  const { email: userEmail, effectiveRole: role, person, roleView, allowedRoutes } = resolved
 
   // Remembered sidebar width. Reading it here (rather than in the client) means
   // the first paint already has the right width — no expand/collapse flash.

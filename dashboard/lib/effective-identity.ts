@@ -1,3 +1,4 @@
+import { cache } from "react"
 import { cookies } from "next/headers"
 
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
@@ -19,14 +20,32 @@ import { lookupPerson, resolveEffective } from "@/lib/impersonation"
  *     lights up automatically once those land — no scoping changes here.
  */
 
-async function readRealIdentity(): Promise<{ email: string | null; role: Role | null }> {
-  const supabase = await getSupabaseServerAuth()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  const email = user?.email ?? null
-  return { email, role: await getRealRole(email) }
-}
+/**
+ * Verify the JWT with Supabase Auth and read the caller's real role.
+ *
+ * Memoised for ONE request. `auth.getUser()` is a network call to Supabase Auth
+ * (~180 ms — more expensive than a database query), and pages that ask for both
+ * the role and the identity (e.g. /meetings calls getEffectiveRole then
+ * getEffectiveIdentity) used to pay for it twice.
+ *
+ * ── SECURITY: PER-REQUEST ONLY ─────────────────────────────────────────────
+ * This is the authenticity check itself — it establishes WHO is calling. React's
+ * `cache()` is scoped to a single request's dispatcher, so the verified user is
+ * never carried into another request. Never make this a module-level cache: it
+ * would authenticate every visitor as whoever loaded a page first. The JWT is
+ * still validated against Supabase Auth once per request, not trusted from a
+ * cookie. See the note in lib/user-role.ts.
+ */
+const readRealIdentity = cache(
+  async (): Promise<{ email: string | null; role: Role | null }> => {
+    const supabase = await getSupabaseServerAuth()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    const email = user?.email ?? null
+    return { email, role: await getRealRole(email) }
+  },
+)
 
 async function readViewCookies(): Promise<{ user?: string; role?: string }> {
   const c = await cookies()

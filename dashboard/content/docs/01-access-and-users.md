@@ -104,9 +104,38 @@ Public paths (`/login`, `/auth/callback`) are allowlisted. The matcher excludes 
 
 > Because the proxy runs server-side before render, it also blocks someone who types a restricted URL directly. The sidebar hiding links (via the same `canAccessRoute`) is **cosmetic** — the proxy is the gate.
 
+### Identity is resolved **once per request** — and never cached across requests
+
+Resolving "who is this and what may they see?" costs real time: `auth.getUser()` is a network call to Supabase Auth (~180 ms — dearer than a query), and the role / scope / roster reads are ~100–160 ms each. It used to be done over and over inside a single page load. Two mechanisms fix that, and both have a security rule attached.
+
+**1. Request-scoped memoisation (React `cache()`).** A single Client Portfolio load used to run the *same* one-row `user_role_grants` query **seven times** — once in the proxy, once in the layout, and up to five more inside `getEffectiveIdentity` → `lookupPerson` → `getUserScopes` → `canSeeFinancials`. `user_data_scopes` was read twice. These are now wrapped in React's `cache()`, so each resolves once per request:
+
+| Function | File |
+| --- | --- |
+| `getRealRole` | `dashboard/lib/user-role.ts` |
+| `getUserScopes` | `dashboard/lib/access/data-scope.ts` |
+| `lookupPerson` | `dashboard/lib/impersonation.ts` |
+| `loadIdentity` | `dashboard/lib/access/identity.ts` |
+| `readRealIdentity` (the `auth.getUser()` call) | `dashboard/lib/effective-identity.ts` |
+
+> 🔒 **These caches are per-REQUEST and must stay that way.** React's `cache()` stores its memo on the per-request cache dispatcher Next.js installs around each render; a new request gets a cold cache. **Never** move any identity-, role-, scope- or permission-derived value to a module-level `Map`, a global, or any process cache — that would serve one user's permissions to another. Each wrapped function carries this warning in its own header. The cache key is always the **normalised (lower-cased) email**, so callers passing different casings share the lookup instead of missing it.
+>
+> Outside an RSC render — i.e. in `proxy.ts` — React's `cache()` simply calls straight through, so the proxy always does its own fresh lookup and shares nothing with the render.
+
+**2. The proxy hands its result to the layout.** The proxy *must* resolve the user, role, View-as state and allowed routes in order to enforce access. The root layout then needed the same four answers for the nav, and used to throw that work away and re-query all of it. The proxy now forwards its result on a **server-only request header** (`x-rose-identity`, see `dashboard/lib/identity-header.ts`), set with `NextResponse.next({ request: { headers } })` — Next.js's documented proxy→app channel. It is deliberately *not* `NextResponse.next({ headers })`, which would expose it to the browser.
+
+> 🔒 **Why a header cannot be spoofed into access.** Three properties, and all three must hold:
+> 1. The proxy **overwrites** the header on every request it handles (`Headers.set`, never "only if absent") — including the public `/login` path, where it writes the *anonymous* payload rather than leaving a client value in place. A browser that sends `x-rose-identity: {"realRole":"super_user"}` has it discarded.
+> 2. Nothing that renders the root layout escapes the proxy matcher: it excludes only `/api`, `_next` internals and static file extensions, none of which render a layout, and the app has **no dynamic or catch-all routes** that could be shaped to match one.
+> 3. The reader **fails safe, not open** — a missing, malformed or unparseable header returns `null` and the layout resolves identity itself exactly as before (`resolveIdentityLocally` in `dashboard/app/layout.tsx`). A forged header can do no better than *no* header, which costs latency, not access.
+>
+> The header is **not** an authorization decision. `canAccessRoute` in the proxy has already enforced access before the value exists, and self-guarding pages (`/meetings`, `/events`) still re-check through `getEffectiveRole`. The header only saves the nav from re-deriving what was just computed.
+
+Verified live: a request carrying a forged `super_user` header still gets `307`'d off `/portfolio` and `/admin`, and `/login` renders with **zero** admin/meetings/events links and no attacker email.
+
 ### The nav mirrors the gate — `dashboard/components/nav.tsx`
 
-The root layout loads `getAllowedRoutes(effectiveRole)` once and passes it to the sidebar, which filters each section's items with `canAccessRoute(role, item.href, allowedRoutes)` and drops any section left empty — so the nav shows exactly the pages the grid grants, never one more query than needed. Admin is reached via a small **gear icon** (links to `/admin`) that renders only when `canAccessRoute(role, "/admin", allowedRoutes)` is true.
+The sidebar receives `allowedRoutes` from the root layout — resolved by the proxy and forwarded (see above), not re-queried — and filters each section's items with `canAccessRoute(role, item.href, allowedRoutes)`, dropping any section left empty. So the nav shows exactly the pages the grid grants, and costs **no** query of its own. Admin is reached via a small **gear icon** (links to `/admin`) that renders only when `canAccessRoute(role, "/admin", allowedRoutes)` is true.
 
 ### Collapsing the sidebar
 
