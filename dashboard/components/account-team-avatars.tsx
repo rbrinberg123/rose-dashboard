@@ -3,15 +3,10 @@
 import * as React from "react"
 import { lookupInitials } from "@/lib/team-initials"
 import { useTeamInitials } from "@/components/team-initials-context"
+import type { TeamAvatarMember } from "@/lib/account-team"
 
-// One team member to render as an avatar. `name` may be null/blank — those are
-// dropped, so callers can pass an optional secondary without pre-filtering.
-export type TeamAvatarMember = {
-  role: string
-  name: string | null | undefined
-  bg: string
-  fg: string
-}
+// Re-exported so existing importers of the type keep working.
+export type { TeamAvatarMember }
 
 // Overlapping cluster of circular initials avatars. Only members with a non-blank
 // name render; if none do, an em-dash is shown. Earlier members sit on top of

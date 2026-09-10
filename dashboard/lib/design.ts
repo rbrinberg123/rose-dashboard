@@ -26,6 +26,20 @@ export const TEAL = "#1C8C9C"
  * value from TEAL above, not a substitute for it.
  */
 export const TEAL_LIGHT = "#4FC6BC"
+
+/**
+ * The CRM accent — the nav rail's outlined "CRM · Meetings" entry.
+ *
+ * Deliberately its own value rather than TEAL (#1C8C9C): the CRM block is meant
+ * to read as a DIFFERENT KIND of thing from the reporting sections above it, and
+ * a brighter, greener teal separates it from the navy→teal ramp the rest of the
+ * nav and the avatar circles are built from. Used as a 1.5px outline with a
+ * transparent fill, never as a filled background — outlined is the whole point.
+ */
+export const CRM_TEAL = "#1FB6A5"
+
+/** The faintest wash of CRM_TEAL, for the active state of that outlined entry. */
+export const CRM_TEAL_TINT = "color-mix(in srgb, #1FB6A5 10%, white)"
 /**
  * The DEEP, blue-leaning end of the teal ramp. Started life inside Planning V2
  * as its single "complete" colour; promoted here so the Portfolio group-header

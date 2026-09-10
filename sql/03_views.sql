@@ -4830,10 +4830,10 @@ SELECT
     NULLIF(m._raw->>'_bcs_host2_value@OData.Community.Display.V1.FormattedValue', '')
   ), '')                                        AS host_names,
 
-  -- 9: feedback assignee (bcs_feedback) -- _raw only, same expression as
-  -- v_feedback_outstanding.
-  NULLIF(m._raw->>'_bcs_feedback_value@OData.Community.Display.V1.FormattedValue', '')
-                                                AS feedback_name,
+  -- 9: feedback assignee. WAS a _raw extraction; now the flattened column,
+  -- which is identical in content and can be indexed
+  -- (idx_meetings_feedback_name). See sql/patches/2026-09-10_meetings_perf.sql.
+  NULLIF(btrim(m.feedback_name), '')            AS feedback_name,
 
   -- 10-11: the two booking people
   m.booker_name,
@@ -4858,8 +4858,259 @@ SELECT
   -- the Excel export and any future filtering.
   m.state_label,
   m.client_account_id,
-  m.event_id
+  m.event_id,
+
+  -- Client ticker, for the table's Client column: the screen shows the SYMBOL
+  -- (full name on hover) so the column can be ~90px instead of ~200px. The full
+  -- name stays in client_account_name above and is what the Excel export uses.
+  --
+  -- POSITION MATTERS: this is LAST on purpose. CREATE OR REPLACE VIEW matches
+  -- columns positionally and can only APPEND, so the patch that adds it to an
+  -- already-deployed view (sql/patches/2026-09-09_admin_meetings_ticker.sql)
+  -- must add it here at the end. Do not reorder it next to client_account_name.
+  a.ticker_symbol                               AS client_ticker,
+
+  -- ---------------------------------------------------------------------------
+  -- SAVED-VIEW COLUMN CATALOG (new in this patch)
+  -- Same order as MEETING_SECTIONS in dashboard/lib/meeting-record.ts.
+  -- ---------------------------------------------------------------------------
+
+  -- Overview. Only the ids are flattened (city_id / state_region_id), so the
+  -- readable names come from the lookups' formatted values in _raw.
+  NULLIF(m._raw->>'_bcs_city_value@OData.Community.Display.V1.FormattedValue', '')
+                                                AS city_name,
+  NULLIF(m._raw->>'_bcs_stateregion_value@OData.Community.Display.V1.FormattedValue', '')
+                                                AS state_region_name,
+  m.group_meeting,
+  m.hosted_in_hq,
+  m.general_notes,
+
+  -- Representatives
+  m.client_booked,
+  m.host_notes_label,
+
+  -- Planning
+  m.profile_label,
+
+  -- Feedback
+  m.feedback_notes,
+
+  -- Logistics -- Live meetings only, so null on virtual rows.
+  m.sent,
+  m.confirm,
+  m.driver,
+  m.food_order,
+  m.logistics_notes,
+
+  -- System. created_by / modified_by are not flattened columns on
+  -- public.meetings, so both come from _raw -- the drawer's expressions.
+  NULLIF(m._raw->>'_createdby_value@OData.Community.Display.V1.FormattedValue', '')
+                                                AS created_by_name,
+  m.created_on,
+  NULLIF(m._raw->>'_modifiedby_value@OData.Community.Display.V1.FormattedValue', '')
+                                                AS modified_by_name,
+  m.modified_on,
+
+  -- The Host filter's indexed target (idx_meetings_host); never rendered as a
+  -- column. Appended LAST because CREATE OR REPLACE VIEW may only append.
+  m.host_id
 FROM public.meetings m
-LEFT JOIN public.events e ON e.event_id = m.event_id;
+LEFT JOIN public.events e ON e.event_id = m.event_id
+LEFT JOIN public.accounts a ON a.account_id = m.client_account_id;
 
 GRANT SELECT ON public.v_admin_meetings_all TO service_role;
+
+
+-- -----------------------------------------------------------------------------
+-- v_admin_meetings_filter_options
+-- Distinct choices for the Meetings toolbar Client / Host / Feedback dropdowns.
+-- PostgREST has no DISTINCT, so it happens here: the page reads a few hundred
+-- rows instead of all ~13.6k. Hosts are unnested because host_names is a
+-- ", "-joined list. See sql/patches/2026-09-10_admin_meetings_filter_options.sql.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_admin_meetings_filter_options AS
+  -- Clients, keyed by account id (two accounts could share a display name).
+  SELECT
+    'client'::text                             AS kind,
+    m.client_account_id::text                  AS value,
+    min(m.client_account_name)                 AS label,
+    count(*)::bigint                           AS meeting_count
+  FROM public.meetings m
+  WHERE m.client_account_id IS NOT NULL
+    AND NULLIF(btrim(m.client_account_name), '') IS NOT NULL
+  GROUP BY 1, 2
+
+  UNION ALL
+
+  -- Hosts, keyed by CANONICAL user id -- see THE ALIAS TRAP in the header. Both
+  -- of a duplicated person's systemuser records collapse into one option, and
+  -- the count is the sum across them.
+  SELECT
+    'host'::text                               AS kind,
+    public.canonical_user_id(m.host_id)::text  AS value,
+    min(m.host_name)                           AS label,
+    count(*)::bigint                           AS meeting_count
+  FROM public.meetings m
+  WHERE m.host_id IS NOT NULL
+    AND NULLIF(btrim(m.host_name), '') IS NOT NULL
+  GROUP BY 1, 2
+
+  UNION ALL
+
+  -- Feedback assignees, keyed by name. The name is what the view exposes and
+  -- what the filter matches; a duplicated person shares one name, so aliases
+  -- already collapse here without any extra work.
+  SELECT
+    'feedback'::text                           AS kind,
+    btrim(m.feedback_name)                     AS value,
+    btrim(m.feedback_name)                     AS label,
+    count(*)::bigint                           AS meeting_count
+  FROM public.meetings m
+  WHERE NULLIF(btrim(m.feedback_name), '') IS NOT NULL
+  GROUP BY 1, 2;
+
+
+-- -----------------------------------------------------------------------------
+-- v_admin_events_all
+-- EVERY marketing event in the CRM mirror, flat and display-shaped. Powers the
+-- super-user-only CRM -> Events page (app/events).
+--
+-- SECURITY: UNSCOPED by design, exactly like v_admin_meetings_all. It returns
+-- every client's events to anyone who can read it, and the page reads it with
+-- the service-role key. The gate is the route: /events is in ADMIN_ONLY_ROUTES
+-- and app/events/page.tsx re-checks the effective role before fetching.
+-- Do not reuse this view on any row-scoped page.
+--
+-- NO _raw: the list must never carry the Dynamics blob. public.events is
+-- already a full flattened mirror, so nothing here is dug out of jsonb.
+--
+-- Two sourcing judgements, both documented in
+-- sql/patches/2026-09-10_admin_events.sql: ACCOUNT MANAGER reads
+-- sales_lead_primary (the manager_* lookup is empty on every live row), and
+-- MEMO maps to the teaser_* columns.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_admin_events_all AS
+SELECT
+  e.event_id,
+
+  -- ---- the seven list columns ----
+  e.client_account_name,
+  e.dates                                       AS event_dates,      -- free text, e.g. "10/2 & 10/3"
+  e.event_location,
+  e.event_state_label,
+  e.targeting_url,
+  e.name                                        AS event_title,
+  e.user_team_lead,
+
+  -- ---- identity / links ----
+  e.client_account_id,
+  -- Prefer the account's ticker (same source the Meetings page links on); fall
+  -- back to the event's own denormalised copy.
+  COALESCE(a.ticker_symbol, e.client_ticker)    AS client_ticker,
+  e.marketing_state_label,
+  e.state_label,
+
+  -- ---- General section ----
+  e.tbc,
+  e.sales_lead_primary_id                       AS account_manager_id,
+  e.sales_lead_primary_name                     AS account_manager_name,
+  e.logistics_coordinator_id,
+  e.logistics_coordinator_name,
+  e.feedback_team_name,
+  e.feedback_report_id,
+  e.feedback_report_name,
+  e.leads_labels,
+  e.team,
+  e.event_notes,
+  e.event_start_actual                          AS meetings_start,
+  e.event_end_actual                            AS meetings_end,
+
+  -- ---- Planning section ----
+  e.event_parameters,
+  e.of_slots,
+  e.urgency_label,
+  e.proposed_launch_date                        AS launch_week,
+  e.teaser_date                                 AS memo_date,          -- MEMO = teaser (see header)
+  e.teaser_not_required                         AS memo_not_required,  -- MEMO = teaser (see header)
+  e.last_data_upload,
+  e.shareholder_report_received_date,
+  e.targeting_not_required,
+  e.targeting_date,
+  e.profile_link,
+  e.targeting_notes,
+  e.launch,
+  e.outreach_complete,
+
+  -- ---- system ----
+  e.created_on,
+  e.modified_on,
+
+  -- ---- capacity: the drawer's stat row ----
+  -- COUNTED from public.meetings, NOT the Dynamics events.confirmed_meetings
+  -- rollup, which is stale on 29 of 968 live events. Same definition as the
+  -- event_confirmed CTE behind Portfolio's Open Slots, so the two reconcile.
+  COALESCE(mc.confirmed_meetings, 0)::int       AS confirmed_meetings,
+
+  -- of_slots - confirmed, NOT floored at 0: on a single event an overbooking is
+  -- the useful answer (92 of the 419 events with a slot count are overbooked).
+  -- Portfolio floors it only because it SUMS across a client's events.
+  -- NULL when there is no slot count: unknown capacity is not zero capacity.
+  CASE
+    WHEN e.of_slots IS NULL THEN NULL
+    ELSE e.of_slots - COALESCE(mc.confirmed_meetings, 0)
+  END::int                                      AS slots_remaining
+FROM public.events e
+LEFT JOIN public.accounts a ON a.account_id = e.client_account_id
+LEFT JOIN (
+  SELECT m.event_id, count(*)::int AS confirmed_meetings
+  FROM public.meetings m
+  WHERE m.meeting_status_label = 'Confirmed'
+    AND m.event_id IS NOT NULL
+  GROUP BY m.event_id
+) mc ON mc.event_id = e.event_id;
+
+GRANT SELECT ON public.v_admin_events_all TO service_role;
+
+
+-- -----------------------------------------------------------------------------
+-- v_admin_events_filter_options
+-- Distinct choices for the Events toolbar Client / Event State / Account
+-- Manager dropdowns. Read straight off public.events so the dropdowns never
+-- scan the joined view. Account managers are keyed by CANONICAL user id, so a
+-- person with duplicate systemuser records is ONE option.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.v_admin_events_filter_options AS
+  SELECT
+    'client'::text                                    AS kind,
+    e.client_account_id::text                         AS value,
+    min(e.client_account_name)                        AS label,
+    count(*)::bigint                                  AS event_count
+  FROM public.events e
+  WHERE e.client_account_id IS NOT NULL
+    AND NULLIF(btrim(e.client_account_name), '') IS NOT NULL
+  GROUP BY 1, 2
+
+  UNION ALL
+
+  SELECT
+    'event_state'::text                               AS kind,
+    btrim(e.event_state_label)                        AS value,
+    btrim(e.event_state_label)                        AS label,
+    count(*)::bigint                                  AS event_count
+  FROM public.events e
+  WHERE NULLIF(btrim(e.event_state_label), '') IS NOT NULL
+  GROUP BY 1, 2
+
+  UNION ALL
+
+  SELECT
+    'manager'::text                                   AS kind,
+    public.canonical_user_id(e.sales_lead_primary_id)::text AS value,
+    min(e.sales_lead_primary_name)                    AS label,
+    count(*)::bigint                                  AS event_count
+  FROM public.events e
+  WHERE e.sales_lead_primary_id IS NOT NULL
+    AND NULLIF(btrim(e.sales_lead_primary_name), '') IS NOT NULL
+  GROUP BY 1, 2;
+
+GRANT SELECT ON public.v_admin_events_filter_options TO service_role;

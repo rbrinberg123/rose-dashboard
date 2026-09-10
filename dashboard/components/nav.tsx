@@ -9,6 +9,8 @@ import {
   Landmark,
   Users,
   CalendarDays,
+  CalendarRange,
+  Database,
   FileText,
   Settings,
   Menu,
@@ -24,13 +26,20 @@ import {
   persistSidebarCollapsed,
 } from "@/lib/sidebar"
 import {
+  CRM_TEAL,
+  CRM_TEAL_TINT,
   RAIL_ACCENT_FILL,
   RAIL_ACCENT_UNDERLINE,
   RAIL_ACTIVE_TINT,
   RAIL_HOVER_TINT,
   TEAL,
 } from "@/lib/design"
-import { canAccessRoute, type ViewAsRole } from "@/lib/access-control"
+import {
+  canAccessRoute,
+  visibleCrmNavItems,
+  type CrmNavItem,
+  type ViewAsRole,
+} from "@/lib/access-control"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -116,6 +125,35 @@ const sections: NavSection[] = [
     href: "/contract-management",
   },
 ]
+
+/* ---------------------------------------------------------------------------
+ * CRM — the bottom-pinned, super-user-only block
+ *
+ * WHO may see it lives in lib/nav-crm.ts, as a pure function with unit tests.
+ * What lives HERE is only how it is drawn: a teal OUTLINE rather than the navy
+ * fill the reporting items take. Outlined rather than filled is the point — it
+ * should read as a different KIND of destination, not as a more important one.
+ * ------------------------------------------------------------------------ */
+
+/** Icon per CRM href. Kept here because lib/nav-crm.ts stays React-free.
+ *  Database, not CalendarDays: CalendarDays already means "Logistics" in this
+ *  rail, and this entry is the CRM store rather than another scheduling view. */
+const CRM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  "/meetings": Database,
+  // CalendarRange, not CalendarDays: CalendarDays already means "Logistics" in
+  // this rail, and an event is a date RANGE rather than a single day.
+  "/events": CalendarRange,
+}
+
+type CrmItem = CrmNavItem & { icon: React.ComponentType<{ className?: string }> }
+
+/** The CRM items to draw, with icons attached. Empty ⇒ nothing renders at all. */
+function crmItemsFor(role: ViewAsRole | null, allowedRoutes: readonly string[]): CrmItem[] {
+  return visibleCrmNavItems(role, allowedRoutes).map((item) => ({
+    ...item,
+    icon: CRM_ICONS[item.href] ?? Database,
+  }))
+}
 
 /** A route is "current" when it matches exactly or is an ancestor of the path.
  *  Exported as `isNavRouteActive` for `components/section-nav.tsx`, so the
@@ -251,6 +289,7 @@ function NavContents({
   onNavigate?: () => void
 }) {
   const visible = visibleSections(role, allowedRoutes)
+  const crm = crmItemsFor(role, allowedRoutes)
 
   return (
     <>
@@ -260,7 +299,91 @@ function NavContents({
           <Section section={section} current={pathname} onNavigate={onNavigate} />
         </React.Fragment>
       ))}
+
+      {/* CRM, pinned to the bottom. `mt-auto` is what pushes it there — it needs
+          the containing <nav> to be a flex column, which is why both navs carry
+          `flex flex-col`. Renders nothing at all for a non-super-user: no
+          divider, no label, no item. */}
+      {crm.length > 0 ? (
+        <div className="mt-auto pt-2">
+          <CrmDivider />
+          {crm.map((item) => (
+            <CrmNavRow
+              key={item.href}
+              item={item}
+              active={isActive(pathname, item.href)}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
+      ) : null}
     </>
+  )
+}
+
+/** The section break above the CRM block: a hairline rule with a small "CRM"
+ *  caption sitting on it, so the block reads as its own area rather than as one
+ *  more reporting section. */
+function CrmDivider() {
+  return (
+    <div className="mx-3 mb-1 flex items-center gap-2" aria-hidden="true">
+      <span className="h-px flex-1" style={{ backgroundColor: CRM_TEAL, opacity: 0.35 }} />
+      <span
+        className="text-[10px] font-semibold uppercase tracking-[0.14em]"
+        style={{ color: CRM_TEAL }}
+      >
+        CRM
+      </span>
+      <span className="h-px flex-1" style={{ backgroundColor: CRM_TEAL, opacity: 0.35 }} />
+    </div>
+  )
+}
+
+/**
+ * One CRM row in the EXPANDED sidebar (and the mobile sheet): the icon in a teal
+ * outlined box, the label tinted teal beside it.
+ *
+ * The outline is the whole treatment. Active does NOT switch to a filled navy
+ * background the way the reporting rows do — it deepens the outline and adds the
+ * faintest teal wash, so the entry still reads as outlined when it is the
+ * current page.
+ */
+function CrmNavRow({
+  item,
+  active,
+  onNavigate,
+}: {
+  item: CrmItem
+  active: boolean
+  onNavigate?: () => void
+}) {
+  const { href, label, icon: Icon } = item
+  return (
+    <div className="px-3 py-[5px]">
+      <Link
+        href={href}
+        onClick={onNavigate}
+        aria-current={active ? "page" : undefined}
+        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium uppercase tracking-wider transition-colors"
+        style={{
+          color: CRM_TEAL,
+          backgroundColor: active ? CRM_TEAL_TINT : undefined,
+        }}
+      >
+        <span
+          aria-hidden="true"
+          className="flex size-[26px] shrink-0 items-center justify-center rounded-md"
+          style={{
+            border: `1.5px solid ${CRM_TEAL}`,
+            backgroundColor: "transparent",
+            opacity: active ? 1 : 0.85,
+          }}
+        >
+          <Icon className="size-[15px]" />
+        </span>
+        <span>{label}</span>
+      </Link>
+    </div>
   )
 }
 
@@ -621,6 +744,8 @@ function RailContents({
   role: ViewAsRole | null
   allowedRoutes: readonly string[]
 }) {
+  const crm = crmItemsFor(role, allowedRoutes)
+
   return (
     <>
       {visibleSections(role, allowedRoutes).map((section) =>
@@ -636,7 +761,104 @@ function RailContents({
           />
         ),
       )}
+
+      {/* CRM, pinned to the bottom of the rail — same gate, same treatment, just
+          the icon and a 3-letter caption at 58px wide. Nothing renders here for
+          a non-super-user. */}
+      {crm.length > 0 ? (
+        <div className="mt-auto pt-2">
+          <RailCrmDivider />
+          {crm.map((item) => (
+            <RailCrmIconLink
+              key={item.href}
+              item={item}
+              active={isActive(pathname, item.href)}
+            />
+          ))}
+        </div>
+      ) : null}
     </>
+  )
+}
+
+/** The rail's CRM section break: hairline rule with the caption under it. The
+ *  rail is only 58px wide, so the label sits below the rule rather than inside
+ *  it — three letters still fit comfortably. */
+function RailCrmDivider() {
+  return (
+    <div className="px-2 pb-1" aria-hidden="true">
+      <span
+        className="block h-px w-full"
+        style={{ backgroundColor: CRM_TEAL, opacity: 0.35 }}
+      />
+      <span
+        className="mt-1 block text-center text-[9px] font-semibold uppercase tracking-[0.12em]"
+        style={{ color: CRM_TEAL }}
+      >
+        CRM
+      </span>
+    </div>
+  )
+}
+
+/**
+ * One CRM icon in the COLLAPSED rail. Same 40px box and same hover fly-out label
+ * as every other rail icon — only the treatment differs: a 1.5px teal outline
+ * over a transparent fill, teal glyph, and no navy gradient when active (the
+ * active state deepens to a faint teal wash instead, so it stays outlined).
+ *
+ * ── THE IN-BOX LABEL ───────────────────────────────────────────────────────
+ * This icon — and ONLY this icon — carries its name inside the box: a 6px
+ * "Meetings" under the glyph. No other rail icon does; the rest rely on the
+ * hover fly-out alone. It is deliberately an exception, for the one entry that
+ * is not part of the reporting nav.
+ *
+ * Sizing inside a 40px box: the glyph drops to 14px and the caption sits under
+ * it on a 7px line, which leaves the pair vertically centred with room to spare.
+ * `leading-none` matters — the default line-height on 6px text would push the
+ * caption into the border. The text is aria-hidden because the Link already
+ * carries the same word as its aria-label, and a screen reader should hear it
+ * once, not twice.
+ */
+function RailCrmIconLink({ item, active }: { item: CrmItem; active: boolean }) {
+  const { href, label, icon: Icon } = item
+  const { open, triggerProps, panelProps } = useFlyout("bottom")
+  const tooltipId = React.useId()
+
+  return (
+    <div className="flex justify-center py-[3px]" {...triggerProps}>
+      <Link
+        href={href}
+        aria-label={label}
+        aria-current={active ? "page" : undefined}
+        aria-describedby={open ? tooltipId : undefined}
+        className="flex size-10 flex-col items-center justify-center gap-[1px] rounded-md transition-colors"
+        style={{
+          border: `1.5px solid ${CRM_TEAL}`,
+          backgroundColor: active ? CRM_TEAL_TINT : "transparent",
+          color: CRM_TEAL,
+          opacity: active ? 1 : 0.85,
+        }}
+      >
+        <Icon className="size-[14px]" />
+        <span
+          aria-hidden="true"
+          className="text-[6px] font-semibold uppercase leading-none tracking-[0.04em]"
+        >
+          {label}
+        </span>
+      </Link>
+      {open ? (
+        <FlyoutPanel
+          id={tooltipId}
+          role="tooltip"
+          panelProps={panelProps}
+          className="min-w-0 whitespace-nowrap px-3 py-1.5 text-sm text-[#1E2858]"
+        >
+          {label}
+        </FlyoutPanel>
+      ) : null}
+    </div>
   )
 }
 
@@ -864,7 +1086,7 @@ export function Sidebar({
                 <Brand />
               </SheetTitle>
             </SheetHeader>
-            <nav className="flex-1 overflow-y-auto py-2">
+            <nav className="flex flex-1 flex-col overflow-y-auto py-2">
               <NavContents
                 pathname={pathname}
                 role={role ?? null}
@@ -910,7 +1132,7 @@ export function Sidebar({
         >
           {collapsed ? <BrandMark /> : <Brand />}
         </div>
-        <nav id={navId} className="flex-1 overflow-y-auto py-2">
+        <nav id={navId} className="flex flex-1 flex-col overflow-y-auto py-2">
           {collapsed ? (
             <RailContents
               pathname={pathname}

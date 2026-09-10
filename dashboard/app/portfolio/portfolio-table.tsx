@@ -55,6 +55,7 @@ import {
 } from "@/components/client-institutions-pane"
 import { DaysLeftPill, AutoRenewFlag, ContractDash } from "@/components/contract-fields"
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
+import { ACCOUNT_TEAM_ROLES, accountTeamMembers } from "@/lib/account-team"
 import { EXPIRY_BUCKETS, EXPIRY_BUCKET_BY_KEY } from "@/lib/contract-expiry"
 import type { ClientInstitutionRow, ClientPortfolioRow } from "@/lib/types"
 
@@ -181,26 +182,11 @@ function frozenStyle(left: number, z: number, width?: number): React.CSSProperti
  * rather than cramming.
  */
 
-// Account-team roles, in display order. Account mgr = the sales lead. Colors are
-// drawn from the shared navy→teal palette; Logistics is light so it uses dark text.
-const ACCOUNT_TEAM_ROLES = [
-  { role: "Account mgr", key: "sales_lead_primary_name", bg: "#1E2858", fg: "#FFFFFF" },
-  { role: "Secondary", key: "secondary_manager_name", bg: "#3D5599", fg: "#FFFFFF" },
-  { role: "Associate", key: "associate_name", bg: "#1C8C9C", fg: "#FFFFFF" },
-  { role: "Logistics", key: "logistics_coordinator_name", bg: "#4FC6BC", fg: "#0A3B36" },
-] as const
-
 // Maps a Portfolio row's four account-team roles into the shared avatar cluster.
-// Rendering (initials, 24px overlapping circles, colors) lives in the shared
-// component so Portfolio and Profiles stay identical.
+// The roles, the colours and the rendering all live in the shared component now,
+// so Portfolio, Profiles and the Events Client column cannot drift apart.
 function AccountTeamAvatars({ row }: { row: ClientPortfolioRow }) {
-  const members = ACCOUNT_TEAM_ROLES.map((r) => ({
-    role: r.role,
-    name: row[r.key],
-    bg: r.bg,
-    fg: r.fg,
-  }))
-  return <TeamAvatars members={members} />
+  return <TeamAvatars members={accountTeamMembers(row)} />
 }
 
 // Filter sentinel for "client has no note on record".

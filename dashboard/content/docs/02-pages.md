@@ -427,9 +427,20 @@ Display is compact: the leading **`TICKER - ` is stripped** with the shared `str
 | `/admin/database` | `sync_runs`, `sync_errors` (+ row counts) | Mirror-table row counts, watermarks, recent errors. |
 | `/admin/docs` | markdown files + live catalog panels | This documentation, in-app. |
 
+### CRM (nav rail, super-user only)
+
+The bottom block of the nav rail, behind a "CRM" divider. Both read unscoped admin views with the service-role key and are in `ADMIN_ONLY_ROUTES` — super-user-only and **not** grantable through the Roles matrix.
+
+| Route | Label | Reads | Purpose |
+|-------|-------|-------|---------|
+| `/meetings` | Meetings | `v_admin_meetings_all` | Every meeting in the CRM. See [12 — Meetings](12-meetings-all.md). |
+| `/events` | Events | `v_admin_events_all` | Every marketing event in the CRM. See [13 — Events](13-events.md). |
+
 ### Hidden Pages (linked from Admin, super-user only)
 
 Parked pages — pulled off the main nav but kept reachable from the **Hidden Pages** section on the Admin hub (`dashboard/app/admin/page.tsx`, the `HIDDEN_PAGES` array). Their routes/pages are unchanged; they're super-user-only now because Admin is (and they were removed from `USER_ALLOWED_ROUTES`). Add another parked page with one `{ href, label }` line in `HIDDEN_PAGES`.
+
+> **`/meetings` is no longer here.** It moved to the **bottom of the main nav rail** as a super-user-only **CRM** entry (its own section break, teal outline). Gating is unchanged — still `ADMIN_ONLY_ROUTES`. See [01 — Access & users](01-access-and-users.md#the-crm-block-in-the-nav-rail).
 
 | Route | Label | Reads | Purpose |
 |-------|-------|-------|---------|
@@ -437,7 +448,7 @@ Parked pages — pulled off the main nav but kept reachable from the **Hidden Pa
 | `/relationships` | Relationships | `v_relationships` | Who at Rose owns each institution relationship. |
 | `/conference-rooms` | Conference Rooms | `/api/conference-rooms` (Graph, client-side) | Single-day room availability across the four rooms. |
 | `/ooo-summary` | OOO Summary | `new_vacationrequest` (the mirror table, **not** `v_time_off`) | Business days taken per person, per year, per category. See [11 — OOO Summary](11-ooo-summary.md). |
-| `/meetings` | Meetings (all CRM) | `v_admin_meetings_all` | Every meeting in the CRM, unfiltered — all statuses, all dates, active **and** deactivated, **no row scoping**. Reproduces the Dynamics "Investor Meetings (All)" view. Gated harder than the rest of this table: it is in `ADMIN_ONLY_ROUTES` and cannot be opened to another role from the Roles matrix. See [12 — Meetings (all CRM)](12-meetings-all.md). |
+| `/meetings` **(nav rail → CRM)** | Meetings (all CRM) | `v_admin_meetings_all` | Every meeting in the CRM — all statuses, all dates, active **and** deactivated, **no row scoping**. Reproduces the Dynamics "Investor Meetings (All)" view. **Saved views**: System (shared) + Personal (private, tied to the login), with per-user defaults; the five old presets are built-in System views and **Upcoming (today or later)** is the fallback default. Columns, filters and sort are all part of the view and all applied **server-side**, so only the selected set is fetched (**All meetings** is the one view that still loads all ~13.6k rows). Saved-view writes are the app's first write path — see [12 — Meetings (all CRM)](12-meetings-all.md#security-model-for-saved-views). Gated harder than the rest of this table: it is in `ADMIN_ONLY_ROUTES` and cannot be opened to another role from the Roles matrix. See [12 — Meetings (all CRM)](12-meetings-all.md). |
 
 ### Unlinked / hidden routes (super-user only — not in the nav)
 

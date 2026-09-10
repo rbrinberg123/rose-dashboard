@@ -2,7 +2,18 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Download, PanelRightOpen, Search, X } from "lucide-react"
+import { useRouter } from "next/navigation"
+import {
+  Check,
+  CircleSlash,
+  Clock,
+  Columns3,
+  Download,
+  Filter,
+  PanelRightOpen,
+  Search,
+  X,
+} from "lucide-react"
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { ListTitleCard } from "@/components/page-masthead"
@@ -25,11 +36,33 @@ import {
   BODY_SECTION_START_STYLE,
   type GroupBand,
 } from "@/components/table-group-header"
-import { BRAND_BLUE, CANVAS, CARD_CLASS } from "@/lib/design"
+import { BRAND_BLUE, CANVAS, CARD_CLASS, STATUS_PILL_LIGHT } from "@/lib/design"
 import { exportAdminMeetings } from "@/lib/admin-meetings-excel"
+import { baseTicker } from "@/lib/client-todo-format"
 import type { MeetingRecord } from "@/lib/meeting-record"
-import { loadMeetingRecord } from "./actions"
-import { MeetingRecordPane } from "./meeting-record-pane"
+import { bandStarts, bandsFor, getColumn, type MeetingColumnDef } from "@/lib/meetings/columns"
+import {
+  configsDiffer,
+  encodeConfig,
+  type FilterCondition,
+  type SavedView,
+  type ViewConfig,
+} from "@/lib/meetings/views"
+import type { QuickFilters } from "@/lib/meetings/query"
+import { ColumnEditor } from "@/components/table-views/column-editor"
+import { FilterEditor } from "@/components/table-views/filter-editor"
+import { ViewSwitcher, type ViewActions } from "@/components/table-views/view-switcher"
+import { catalogBySection, COLUMN_CATALOG, getColumn as getCatalogColumn } from "@/lib/meetings/columns"
+import { opsForField } from "@/lib/meetings/views"
+import {
+  createSavedView,
+  deleteSavedView,
+  setDefaultSavedView,
+  updateSavedView,
+} from "./views-actions"
+import { loadMeetingRecord, loadRowsForExport } from "./actions"
+import { QuickFilterControls } from "./quick-filters"
+import { MeetingRecordPane, statusPill } from "./meeting-record-pane"
 import type { AdminMeetingRow } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -99,88 +132,10 @@ function formatEastern(iso: string | null): string {
   return `${EASTERN_DATE.format(d)} ${EASTERN_TIME.format(d)}`
 }
 
-// Eastern calendar day as YYYY-MM-DD. en-CA yields exactly that shape, and
-// YYYY-MM-DD strings compare lexicographically, so plain string comparison is
-// also correct date comparison — the same helper shape as EASTERN_YMD in
-// app/client-detail/client-detail-view.tsx.
-const EASTERN_YMD = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/New_York",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-})
-function easternDay(iso: string | null): string | null {
-  if (!iso) return null
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? null : EASTERN_YMD.format(d)
-}
-
-/**
- * True when the meeting has nobody hosting it.
- *
- * NOTE this reads the resolved host NAME, not host_id — the view exposes
- * `host_names` (the flattened host plus any second host from _raw) and not the
- * id. In practice the name is the Dynamics formatted value of the same lookup,
- * so the two agree; a meeting carrying a host_id whose name failed to resolve
- * would read as unassigned here. Expose host_id on v_admin_meetings_all if that
- * ever needs to be exact.
- */
-function hasNoHost(r: AdminMeetingRow): boolean {
-  return !(r.host_names ?? "").trim()
-}
-
-/**
- * The "Pending" meeting status.
- *
- * UNCONFIRMED LABEL: only 'Confirmed' and 'Cancelled' appear anywhere in this
- * repo, so the exact stored spelling of the pending state could not be verified
- * from code. Matched case-insensitively on the "pending" prefix, so a stored
- * "Pending", "pending" or "Pending Confirmation" all qualify. The dropdown shows
- * each preset's row count, so a mismatch surfaces immediately as "Pending
- * status (0)" rather than silently returning nothing. If the real label shares
- * no prefix with "pending", change this one predicate.
- */
-function isPendingStatus(label: string | null): boolean {
-  return (label ?? "").trim().toLowerCase().startsWith("pending")
-}
-
-/** The View dropdown's preset filters. `all` is the default — the page's point. */
-type PresetKey = "all" | "today" | "pending" | "upcoming" | "upcoming_no_host"
-
-const PRESETS: {
-  key: PresetKey
-  label: string
-  /** `todayEt` is the Eastern calendar day, passed in so it is computed once. */
-  match: (r: AdminMeetingRow, todayEt: string) => boolean
-}[] = [
-  { key: "all", label: "All meetings", match: () => true },
-  {
-    key: "today",
-    label: "Happening today",
-    match: (r, todayEt) => easternDay(r.meeting_date) === todayEt,
-  },
-  {
-    key: "pending",
-    label: "Pending status",
-    match: (r) => isPendingStatus(r.meeting_status_label),
-  },
-  {
-    key: "upcoming",
-    label: "Upcoming (today or later)",
-    match: (r, todayEt) => {
-      const d = easternDay(r.meeting_date)
-      return d !== null && d >= todayEt
-    },
-  },
-  {
-    key: "upcoming_no_host",
-    label: "Upcoming, no host assigned",
-    match: (r, todayEt) => {
-      const d = easternDay(r.meeting_date)
-      return d !== null && d >= todayEt && hasNoHost(r)
-    },
-  },
-]
+// The View presets themselves live in ./presets, shared with the server loader.
+// Their PREDICATES are no longer here at all: each one is applied as a PostgREST
+// filter in app/meetings/page.tsx, so `rows` arrives already narrowed to the
+// active preset. See that file for the Eastern-day and no-host translations.
 
 /**
  * Per-column colours for the staff avatar circles, taken from the same navy→teal
@@ -222,81 +177,95 @@ function staffAvatars(
   return <TeamAvatars members={names.map((name) => ({ ...spec, name }))} />
 }
 
-type SortKey =
-  | "meeting_type_label"
-  | "meeting_status_label"
-  | "meeting_date"
-  | "client_account_name"
-  | "event_name"
-  | "institution_name"
-  | "investor_name"
-  | "host_names"
-  | "feedback_name"
-  | "booker_name"
-  | "on_behalf_of"
-  | "calendar_label"
-  | "feedback_bda_label"
-  | "fb_received"
+// ---------------------------------------------------------------------------
+// Compact renderings for the narrow workflow columns.
+//
+// Every one of these paints a MARK and nothing else; the real value always
+// reaches the user through the cell's `title`, because Cell is passed the full
+// text as `value` and only the mark as `display`. Nothing here is allowed to
+// decide whether a cell is empty — that stays with `value` — so a column can
+// never render a confident-looking icon over a blank field. The Excel export is
+// untouched by all of it and still carries the words.
+// ---------------------------------------------------------------------------
 
+/**
+ * Meeting Status as a coloured pill carrying the FULL word.
+ *
+ * Colours come from the SAME map the record drawer's status pill uses
+ * (`statusPill`, imported from meeting-record-pane), so a pill on a row and the
+ * pill inside that row's drawer can never disagree: Confirmed green, Cancelled
+ * red, Pending amber, anything else (e.g. TBR) neutral grey.
+ *
+ * This was briefly a bare dot. The colour is the part that earns its keep — live
+ * data is ~96% Confirmed, so the tint is what makes the other 4% jump out of a
+ * long scroll — but the word belongs on screen rather than one hover away, and
+ * carrying it costs 90px against the 125px the plain-text column used.
+ */
+function statusPillCell(label: string | null): React.ReactNode | undefined {
+  if (!label) return undefined
+  const { bg, text } = statusPill(label)
+  return (
+    <span
+      className="inline-flex max-w-full items-center truncate rounded-full px-2 py-0.5 text-[11px] font-medium"
+      style={{ backgroundColor: bg, color: text }}
+    >
+      {label}
+    </span>
+  )
+}
+
+/**
+ * FB in BDA as a three-state mark.
+ *
+ * NOT a yes/no: the field carries "Closed - All in", "Closed - No Feedback" and
+ * "Awaiting Additional", and collapsing the first two together would erase the
+ * distinction the column exists to show. So: a green check for all-in, a muted
+ * slashed circle for closed-with-nothing, an amber clock for still-waiting, and
+ * anything unrecognised falls back to the raw text rather than an invented icon.
+ */
+function bdaMark(label: string | null): React.ReactNode | undefined {
+  if (!label) return undefined
+  const s = label.trim().toLowerCase()
+  if (s.startsWith("closed") && s.includes("all in")) {
+    return <Check className="mx-auto size-3.5" style={{ color: STATUS_PILL_LIGHT.positive.text }} />
+  }
+  if (s.startsWith("closed")) {
+    return <CircleSlash className="mx-auto size-3.5" style={{ color: STATUS_PILL_LIGHT.neutral.text }} />
+  }
+  if (s.startsWith("awaiting")) {
+    return <Clock className="mx-auto size-3.5" style={{ color: STATUS_PILL_LIGHT.watch.text }} />
+  }
+  return undefined
+}
+
+/**
+ * FB Rec'd as a check when the CRM holds anything at all.
+ *
+ * The field is a flag OR a date depending on how Dynamics models it, and the
+ * view passes whichever through as text — so "has a value" is the only thing
+ * that can be read from it without guessing. The value itself (a "Yes", a date)
+ * is on the hover. Live data currently has this NULL on every row sampled, so
+ * expect a column of em dashes until the CRM starts populating it.
+ */
+function receivedMark(value: string | null): React.ReactNode | undefined {
+  if (!value) return undefined
+  return <Check className="mx-auto size-3.5" style={{ color: STATUS_PILL_LIGHT.positive.text }} />
+}
+
+
+/**
+ * The table's columns now come from the ACTIVE SAVED VIEW, not from a fixed
+ * list: `activeConfig.columns` is an ordered list of catalog keys, resolved
+ * through lib/meetings/columns.ts for each one's label, width and renderer.
+ *
+ * What the catalog does NOT own is how a cell is painted — that is the
+ * `renderer` switch in `renderCell` below, which is the one place that knows a
+ * status is a dot and a host is a circle.
+ */
+
+/** A sort key is any catalog column key; the view stores which one is active. */
+type SortKey = string
 type SortState = { key: SortKey; dir: "asc" | "desc" }
-
-/** The 14 CRM columns, in the order the Dynamics "Investor Meetings (All)" view shows them. */
-const COLUMNS: {
-  key: SortKey
-  label: string
-  width: string
-  title?: string
-}[] = [
-  { key: "meeting_type_label", label: "Meeting Type", width: "110px" },
-  { key: "meeting_status_label", label: "Meeting Status", width: "125px" },
-  {
-    key: "meeting_date",
-    label: "Date",
-    width: "130px",
-    title: "Meeting date and time, Eastern",
-  },
-  {
-    key: "client_account_name",
-    label: "Client",
-    width: "200px",
-    title: "Links to the client's detail page",
-  },
-  { key: "event_name", label: "Event", width: "220px" },
-  { key: "institution_name", label: "Institution", width: "200px" },
-  // Investor stays a FULL name on purpose: it is the primary external
-  // identifier for the row, not internal staff.
-  { key: "investor_name", label: "Investor", width: "180px" },
-  // The four staff columns render initial-circle avatars (full name on hover),
-  // which is what lets them be this narrow. Their floor is the HEADER text, not
-  // the circles: two overlapping 24px circles need only 40px.
-  {
-    key: "host_names",
-    label: "Host",
-    width: "76px",
-    title: "All hosts on the meeting — initials, full name on hover",
-  },
-  {
-    key: "feedback_name",
-    label: "Feedback",
-    width: "88px",
-    title: "Feedback assignee (bcs_feedback) — initials, full name on hover",
-  },
-  {
-    key: "booker_name",
-    label: "Booked By",
-    width: "88px",
-    title: "Initials — full name on hover",
-  },
-  {
-    key: "on_behalf_of",
-    label: "On Behalf Of",
-    width: "96px",
-    title: "Initials — full name on hover",
-  },
-  { key: "calendar_label", label: "Calendar", width: "150px" },
-  { key: "feedback_bda_label", label: "FB in BDA", width: "110px" },
-  { key: "fb_received", label: "FB Rec'd", width: "110px" },
-]
 
 /**
  * Did this click land on something that handles its own activation?
@@ -315,55 +284,170 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   )
 }
 
-/** Column index at which each header band starts — places the vertical dividers. */
-const BAND_STARTS = new Set([3, 7, 11])
+/** One row's searchable text, lower-cased. Shared by the on-screen filter and
+ *  the export, so the two can never disagree about what a keyword matches. */
+function haystackFor(row: AdminMeetingRow, keys: string[]): string {
+  return keys
+    .map((k) => {
+      const v = (row as unknown as Record<string, unknown>)[k]
+      // Booleans are searchable as the words the cell paints, so typing "yes"
+      // finds the rows a toggle column shows Yes on.
+      if (typeof v === "boolean") return v ? "yes" : "no"
+      return typeof v === "string" ? v : ""
+    })
+    .join(" ")
+    .toLowerCase()
+}
 
-// Header bands, grouping the 14 columns into the four things they actually
-// describe. The last band absorbs the trailing open-record column, so the
-// gradient sweep always spans the full table width.
-const BANDS: GroupBand[] = [
-  { key: "what", label: "Meeting", colSpan: 3 },
-  { key: "who", label: "Client & Counterparty", colSpan: 4 },
-  { key: "people", label: "People", colSpan: 4 },
-  { key: "workflow", label: "Workflow", colSpan: 4 },
-]
+/** Apply the keyword box to an arbitrary row set (used by the export path). */
+function matchesKeyword(
+  rows: AdminMeetingRow[],
+  keys: string[],
+  query: string,
+): AdminMeetingRow[] {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (!terms.length) return rows
+  return rows.filter((r) => {
+    const hay = haystackFor(r, keys)
+    return terms.every((t) => hay.includes(t))
+  })
+}
 
 /**
- * The text columns the keyword box searches. Dates are excluded on purpose: a
+ * The keyword box searches the VISIBLE text columns, plus the ticker.
+ *
+ * Derived from the active columns rather than fixed, so hiding a column also
+ * stops it matching — typing a value and hitting a row whose matching cell is
+ * not on screen is worse than not matching. Dates are excluded on purpose: a
  * term like "Sep" would match a twelfth of the table and tell you nothing.
+ *
+ * Ticker is always searchable: the Client column paints it, so typing what is
+ * on screen has to find the row.
  */
-const SEARCH_KEYS: SortKey[] = [
-  "meeting_type_label",
-  "meeting_status_label",
-  "client_account_name",
-  "event_name",
-  "institution_name",
-  "investor_name",
-  "host_names",
-  "feedback_name",
-  "booker_name",
-  "on_behalf_of",
-  "calendar_label",
-  "feedback_bda_label",
-  "fb_received",
-]
+function searchKeysFor(columns: MeetingColumnDef[]): string[] {
+  const keys = columns
+    .filter((c) => c.renderer !== "date" && c.type !== "date")
+    .map((c) => c.key)
+  return [...new Set([...keys, "client_ticker"])]
+}
 
 export function MeetingsView({
   rows,
   crmBase,
+  views,
+  activeViewId,
+  savedConfig,
+  activeConfig,
+  viewCounts,
+  canManageSystemViews,
+  readOnlyViews,
+  availableColumns,
+  quickFilters,
+  truncated,
+  rowCap,
+  matchingRows,
 }: {
+  /** Already narrowed to the active view by the server query — never the full set. */
   rows: AdminMeetingRow[]
   crmBase: string | null
+  /** Views the caller may see: built-ins, system views, and their OWN personal ones. */
+  views: SavedView[]
+  activeViewId: string
+  /** The active view's SAVED config — the baseline "Save" would write over. */
+  savedConfig: ViewConfig
+  /** What is actually rendered: the working config if one is in flight, else saved. */
+  activeConfig: ViewConfig
+  viewCounts: Record<string, number | null>
+  canManageSystemViews: boolean
+  /** True while impersonating: every saved-view write is refused server-side. */
+  readOnlyViews: boolean
+  /**
+   * The columns the deployed view actually has, probed server-side. The editors
+   * grey out anything absent rather than letting a view be built that would fail
+   * to query. null = could not tell, so nothing is greyed out.
+   */
+  availableColumns: string[] | null
+  /** The toolbar dropdowns' current selection, owned by the URL. */
+  quickFilters: QuickFilters
+  /** True when the fetch stopped at `rowCap` — the view matches more than this. */
+  truncated: boolean
+  rowCap: number
+  /** Rows the view + filters actually match. Equals rows.length unless truncated. */
+  matchingRows: number | null
 }) {
+  const router = useRouter()
+  // Changing the view, the columns, the filters or the sort re-runs the SERVER
+  // query, so each is a navigation rather than a setState. The transition keeps
+  // the current rows on screen while the new set is fetched.
+  const [switching, startSwitch] = React.useTransition()
   const [query, setQuery] = React.useState("")
-  const [preset, setPreset] = React.useState<PresetKey>("all")
-  // Default sort matches the CRM view: newest meeting first.
-  const [sort, setSort] = React.useState<SortState>({
-    key: "meeting_date",
-    dir: "desc",
-  })
   const [scrollTop, setScrollTop] = React.useState(0)
   const [exporting, setExporting] = React.useState(false)
+  const [panel, setPanel] = React.useState<null | "columns" | "filters">(null)
+  const [viewError, setViewError] = React.useState<string | null>(null)
+
+  /**
+   * The four saved-view writes, bound to the Meetings spec on the server side
+   * (./views-actions) and handed to the shared switcher. The switcher itself is
+   * entity-free; the authorisation lives in lib/table-views/saved-views.ts.
+   */
+  const viewActions = React.useMemo<ViewActions>(
+    () => ({
+      create: createSavedView,
+      update: updateSavedView,
+      setDefault: setDefaultSavedView,
+      remove: deleteSavedView,
+    }),
+    [],
+  )
+
+  /** The catalog, grouped for the column picker. */
+  const catalogSections = React.useMemo(() => catalogBySection(), [])
+
+  /** Set form of the probed column list, for the editors' availability checks. */
+  const availableSet = React.useMemo(
+    () => (availableColumns ? new Set(availableColumns) : null),
+    [availableColumns],
+  )
+
+  /**
+   * The columns to render, resolved from the active view's ordered keys.
+   *
+   * A key with no catalog entry is dropped rather than rendered blank — that is
+   * how a view saved before a column was retired keeps working.
+   */
+  const columns = React.useMemo(
+    () =>
+      activeConfig.columns
+        .map((k) => getColumn(k))
+        .filter((c): c is MeetingColumnDef => c !== undefined),
+    [activeConfig.columns],
+  )
+
+  const bands: GroupBand[] = React.useMemo(
+    () => bandsFor(columns.map((c) => c.key)),
+    [columns],
+  )
+  const bandStartSet = React.useMemo(() => bandStarts(columns.map((c) => c.key)), [columns])
+
+  /** The table's min-width has to track the chosen columns, or the browser
+   *  spreads the slack and the layout stops matching the declared widths. */
+  const minWidth = React.useMemo(
+    () => columns.reduce((sum, c) => sum + (parseInt(c.width, 10) || 100), 0) + 36,
+    [columns],
+  )
+
+  const sort: SortState = React.useMemo(
+    () => ({ key: activeConfig.sort.field, dir: activeConfig.sort.dir }),
+    [activeConfig.sort],
+  )
+
+  /** Unsaved column/filter/sort edits are in flight. */
+  const dirty = React.useMemo(
+    () => configsDiffer(activeConfig, savedConfig),
+    [activeConfig, savedConfig],
+  )
+
 
   // The open meeting record. The list is never unmounted while the drawer is up,
   // so its scroll position and virtualization window survive open/swap/close.
@@ -440,67 +524,33 @@ export function MeetingsView({
     }
   }, [])
 
-  // Eastern "today", fixed for the life of the mount. The page is force-dynamic
-  // and nobody leaves an admin dump open across midnight; recomputing per render
-  // would just make the memos below churn.
-  const todayEt = React.useMemo(() => EASTERN_YMD.format(new Date()), [])
-
-  // Row count per preset, over the FULL set (not the keyword-filtered one) so the
-  // dropdown labels hold still while someone types. Also the diagnostic for the
-  // unconfirmed Pending label — a 0 there means the predicate needs correcting.
-  const presetCounts = React.useMemo(() => {
-    const out = {} as Record<PresetKey, number>
-    for (const p of PRESETS) out[p.key] = rows.filter((r) => p.match(r, todayEt)).length
-    return out
-  }, [rows, todayEt])
-
   // Precompute one lower-cased haystack per row so a keystroke does not re-read
-  // and re-case 13 fields across 10k rows.
+  // and re-case every visible field across the loaded rows.
+  const searchKeys = React.useMemo(() => searchKeysFor(columns), [columns])
+
   const haystacks = React.useMemo(
-    () =>
-      rows.map((r) =>
-        SEARCH_KEYS.map((k) => r[k] ?? "")
-          .join(" ")
-          .toLowerCase(),
-      ),
-    [rows],
+    () => rows.map((r) => haystackFor(r, searchKeys)),
+    [rows, searchKeys],
   )
 
-  // Preset AND keyword. Both are applied in one pass over the original array so
-  // the haystack index stays aligned with the row index.
+  // Keyword only — the View preset was already applied by the server query, so
+  // `rows` is the preset’s set. Filtering here stays cheap for every preset but
+  // "All meetings", which remains the one heavy case, exactly as before.
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase()
     // Every whitespace-separated term must appear somewhere in the row, so
     // "cancelled fidelity" narrows the set instead of widening it.
     const terms = q ? q.split(/\s+/) : []
-    const match = PRESETS.find((p) => p.key === preset)?.match
-    if (!terms.length && (!match || preset === "all")) return rows
-    return rows.filter(
-      (r, i) =>
-        (preset === "all" || !match || match(r, todayEt)) &&
-        terms.every((t) => haystacks[i].includes(t)),
-    )
-  }, [rows, haystacks, query, preset, todayEt])
+    if (!terms.length) return rows
+    // The haystack index stays aligned with the row index, so filter by index.
+    return rows.filter((_r, i) => terms.every((t) => haystacks[i].includes(t)))
+  }, [rows, haystacks, query])
 
-  const sorted = React.useMemo(() => {
-    const dir = sort.dir === "asc" ? 1 : -1
-    const out = [...filtered]
-    out.sort((a, b) => {
-      const va = a[sort.key]
-      const vb = b[sort.key]
-      // Nulls always sort last, in either direction — an empty cell is never
-      // "the most recent" or "first alphabetically", it is just missing.
-      if (va == null && vb == null) return 0
-      if (va == null) return 1
-      if (vb == null) return -1
-      const c =
-        sort.key === "meeting_date"
-          ? new Date(va).getTime() - new Date(vb).getTime()
-          : String(va).localeCompare(String(vb))
-      return c * dir
-    })
-    return out
-  }, [filtered, sort])
+  // Sorting is SERVER-SIDE now: it is part of the view config, so clicking a
+  // header re-queries with a new ORDER BY (and saves with the view). `rows`
+  // therefore arrives already ordered, and the keyword filter preserves that
+  // order — so there is nothing left to sort here.
+  const sorted = filtered
 
   /** Jump back to the top whenever the row set or its order changes — otherwise
    *  the scroll position points into a slice that no longer means anything. */
@@ -509,17 +559,77 @@ export function MeetingsView({
     scrollerRef.current?.scrollTo({ top: 0 })
   }, [])
 
+  /**
+   * Push a new working config into the URL, which re-runs the server query.
+   *
+   * Filters and sort MUST round-trip through the server — that is what keeps
+   * them applied in the database over all ~13.6k rows instead of over whatever
+   * the browser happens to be holding. Columns go the same route so one
+   * mechanism covers all three.
+   */
+  /**
+   * Build the page URL from the three things that live in it: the view, any
+   * unsaved config, and the quick filters.
+   *
+   * One builder for all of them, because they must not clobber each other —
+   * applying a column edit has to preserve the selected host, and picking a host
+   * has to preserve an unsaved column set.
+   */
+  const buildUrl = React.useCallback(
+    (config: ViewConfig, quick: QuickFilters) => {
+      const params = new URLSearchParams({ view: activeViewId })
+      // Back to the saved view's own URL when the edits exactly undo — keeps a
+      // clean link rather than a redundant ?cfg= that says nothing.
+      if (configsDiffer(config, savedConfig)) params.set("cfg", encodeConfig(config))
+      if (quick.client) params.set("client", quick.client)
+      if (quick.host) params.set("host", quick.host)
+      if (quick.feedback) params.set("fb", quick.feedback)
+      return `/meetings?${params.toString()}`
+    },
+    [activeViewId, savedConfig],
+  )
+
+  const applyConfig = React.useCallback(
+    (next: ViewConfig) => {
+      const url = buildUrl(next, quickFilters)
+      resetScroll()
+      startSwitch(() => {
+        router.push(url)
+      })
+    },
+    [buildUrl, quickFilters, resetScroll, router],
+  )
+
+  /** A dropdown changed: same round trip, so the filter applies in the query. */
+  const applyQuickFilters = React.useCallback(
+    (next: QuickFilters) => {
+      const url = buildUrl(activeConfig, next)
+      resetScroll()
+      startSwitch(() => {
+        router.push(url)
+      })
+    },
+    [activeConfig, buildUrl, resetScroll, router],
+  )
+
+  const anyQuickFilter = !!(quickFilters.client || quickFilters.host || quickFilters.feedback)
+
   const toggleSort = React.useCallback(
     (key: SortKey) => {
-      resetScroll()
-      setSort((s) =>
-        s.key === key
-          ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
-          : // Dates open newest-first; text opens A–Z. Same as every other table here.
-            { key, dir: key === "meeting_date" ? "desc" : "asc" },
-      )
+      const col = getColumn(key)
+      const dir: "asc" | "desc" =
+        sort.key === key
+          ? sort.dir === "asc"
+            ? "desc"
+            : "asc"
+          : // Dates open newest-first; everything else A–Z. Same as every other
+            // table here.
+            col?.type === "date"
+            ? "desc"
+            : "asc"
+      applyConfig({ ...activeConfig, sort: { field: key, dir } })
     },
-    [resetScroll],
+    [activeConfig, applyConfig, sort],
   )
 
   // The visible window: which slice of `sorted` is actually mounted.
@@ -531,12 +641,31 @@ export function MeetingsView({
   const padBottom = Math.max(0, (total - last) * ROW_H)
 
   // +1 for the trailing open-record column, which is always rendered.
-  const colCount = COLUMNS.length + 1
+  const colCount = columns.length + 1
 
   async function onExport() {
     setExporting(true)
+    setViewError(null)
     try {
-      await exportAdminMeetings(sorted)
+      // The sheet mirrors the ACTIVE VIEW: its columns, in its order. Values stay
+      // full and human-readable — the compaction is screen-only (see
+      // lib/admin-meetings-excel.ts).
+      //
+      // The ROWS, though, come from a fresh UNCAPPED server fetch rather than
+      // from what is on screen. The page stops at ROW_CAP; the export must not,
+      // or capping the page would quietly start truncating spreadsheets. The
+      // keyword box is re-applied here because it is the one filter that lives
+      // in the browser — everything else was already applied in the query.
+      let out = sorted
+      if (truncated) {
+        const res = await loadRowsForExport({ config: activeConfig, quick: quickFilters })
+        if (!res.ok) {
+          setViewError(`Export failed: ${res.error}`)
+          return
+        }
+        out = matchesKeyword(res.data, searchKeys, query)
+      }
+      await exportAdminMeetings(out, columns)
     } finally {
       setExporting(false)
     }
@@ -557,31 +686,41 @@ export function MeetingsView({
           negative margins let its opaque canvas background span the full width
           of PageShell's p-6, so rows can't show through beside it. */}
       <div
-        className="sticky top-0 z-30 -mx-6 mb-3 flex flex-wrap items-center gap-3 px-6 py-2"
+        className="relative sticky top-0 z-30 -mx-6 mb-3 flex flex-wrap items-center gap-3 px-6 py-2"
         style={{ background: CANVAS }}
       >
-        {/* Preset views, first — it frames what the count then reports. Counts
-            are over the full set, so they hold still while someone types in the
-            keyword box — and a "Pending status (0)" is the tell that the
-            unconfirmed status label needs correcting. */}
-        <label htmlFor="mtg-view" className="sr-only">
-          View
-        </label>
-        <select
-          id="mtg-view"
-          value={preset}
-          onChange={(e) => {
-            setPreset(e.target.value as PresetKey)
-            resetScroll()
-          }}
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-        >
-          {PRESETS.map((p) => (
-            <option key={p.key} value={p.key}>
-              {p.label} ({presetCounts[p.key].toLocaleString()})
-            </option>
-          ))}
-        </select>
+        {/* The saved-view switcher, first — it frames what the count then
+            reports. Changing it re-queries the DB rather than re-filtering in
+            the browser, so the page only ever holds the selected view's set. */}
+        <ViewSwitcher
+          views={views}
+          activeViewId={activeViewId}
+          workingConfig={activeConfig}
+          dirty={dirty}
+          counts={viewCounts}
+          canManageSystemViews={canManageSystemViews}
+          readOnly={readOnlyViews}
+          onError={setViewError}
+          actions={viewActions}
+          basePath="/meetings"
+        />
+
+        {/* Client / Host / Feedback. Each re-queries; they AND with the view's
+            own filters and with the keyword box. */}
+        <QuickFilterControls
+          values={quickFilters}
+          onChange={applyQuickFilters}
+          disabled={switching}
+        />
+        {anyQuickFilter && (
+          <button
+            type="button"
+            onClick={() => applyQuickFilters({})}
+            className="h-9 cursor-pointer rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            Clear filters
+          </button>
+        )}
 
         <div className="text-sm font-medium tabular-nums">
           {total.toLocaleString()}
@@ -593,7 +732,27 @@ export function MeetingsView({
               of {rows.length.toLocaleString()}
             </span>
           )}
+          {/* "All meetings" is a multi-second fetch; without this the table just
+              sits there showing the previous view's rows and looks stuck. */}
+          {switching && (
+            <span className="ml-2 font-normal text-muted-foreground">Loading…</span>
+          )}
         </div>
+
+        {/* The row cap bit. Said in the toolbar rather than at the bottom of the
+            table, because the whole point is that you cannot scroll to the end
+            to discover it. The Excel export is NOT capped, which is worth
+            saying here — otherwise the honest thing to assume is that it is. */}
+        {truncated && (
+          <span
+            className="rounded-md border border-amber-300/60 bg-amber-50 px-2 py-1 text-[11px] text-amber-800"
+            title="Narrow the view or use the Client / Host / Feedback filters to see the rest. Export to Excel still includes every matching row."
+          >
+            Showing first {rowCap.toLocaleString()}
+            {matchingRows ? ` of ${matchingRows.toLocaleString()}` : ""} — refine filters to
+            narrow. Export includes all.
+          </span>
+        )}
 
         <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -622,41 +781,132 @@ export function MeetingsView({
           )}
         </div>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={onExport}
-          disabled={exporting || total === 0}
-          className="ml-auto cursor-pointer"
-        >
-          <Download />
-          {exporting ? "Exporting…" : "Export to Excel"}
-        </Button>
+        {/* Top-right cluster: the two view editors, then Export. */}
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setPanel((cur) => (cur === "columns" ? null : "columns"))}
+            className="cursor-pointer"
+          >
+            <Columns3 />
+            Edit columns
+            <span className="ml-1 text-[11px] text-muted-foreground">{columns.length}</span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setPanel((cur) => (cur === "filters" ? null : "filters"))}
+            className="cursor-pointer"
+          >
+            <Filter />
+            Edit filters
+            {activeConfig.filters.length > 0 && (
+              <span className="ml-1 text-[11px] text-muted-foreground">
+                {activeConfig.filters.length}
+              </span>
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onExport}
+            disabled={exporting || total === 0}
+            className="cursor-pointer"
+          >
+            <Download />
+            {exporting ? "Exporting…" : "Export to Excel"}
+          </Button>
+        </div>
+
+        {/* A failed saved-view write, surfaced where the controls are. Server
+            actions never throw to the client — they return an error string, and
+            this is where it lands. */}
+        {viewError && (
+          <div className="absolute left-6 right-6 top-full z-40 mt-1 flex items-start gap-2 rounded-md border border-destructive/30 bg-card px-3 py-2 text-[13px] shadow-lg">
+            <span className="flex-1 text-destructive">{viewError}</span>
+            <button
+              type="button"
+              onClick={() => setViewError(null)}
+              aria-label="Dismiss"
+              className="cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* The two editors. Both hand back a whole config and let applyConfig
+            re-query — neither filters nor reorders anything locally.
+
+            Anchored to the sticky toolbar (which is `relative`), so they open
+            directly under the buttons that toggle them and travel with the
+            toolbar when the page scrolls. An absolutely-positioned child does
+            not participate in the toolbar's flex layout. */}
+        {panel === "columns" && (
+          <div className="absolute right-6 top-full z-40 mt-1">
+            <ColumnEditor
+              columns={activeConfig.columns}
+              available={availableSet}
+              sections={catalogSections}
+              getColumn={getCatalogColumn}
+              onClose={() => setPanel(null)}
+              onApply={(next: string[]) => {
+                setPanel(null)
+                applyConfig({ ...activeConfig, columns: next })
+              }}
+            />
+          </div>
+        )}
+        {panel === "filters" && (
+          <div className="absolute right-6 top-full z-40 mt-1">
+            <FilterEditor
+              filters={activeConfig.filters}
+              available={availableSet}
+              catalog={COLUMN_CATALOG}
+              getColumn={getCatalogColumn}
+              opsForField={opsForField}
+              onClose={() => setPanel(null)}
+              onApply={(next: FilterCondition[]) => {
+                setPanel(null)
+                applyConfig({ ...activeConfig, filters: next })
+              }}
+            />
+          </div>
+        )}
       </div>
+
 
       {/* The scroll element is the shared Table's OWN table-container (see
           SCROLLER_CLASSES) — height-bounded there, so the sticky <thead> has a
           real scrolling ancestor to stick to. overflow-hidden on the card keeps
           the 14px corners so rows pass behind the curve. */}
       <div ref={cardRef} className={`${CARD_CLASS} overflow-hidden ${SCROLLER_CLASSES}`}>
-        <Table className="min-w-[1700px]">
+        {/* The min-width tracks the CHOSEN columns: leave it fixed and the
+            browser spreads the slack, so the declared widths stop matching what
+            renders. Recomputed from the active view's own widths. */}
+        <Table style={{ minWidth: `${minWidth}px` }}>
           <TableHeader className="sticky top-0 z-20 bg-card [&_tr]:border-b-0 [&_th]:bg-card">
-            {/* Tier 1: unfilled navy section bands (shared with Portfolio / To-Do). */}
-            <GroupBandRow bands={BANDS} />
+            {/* Tier 1: unfilled navy section bands (shared with Portfolio / To-Do).
+                Derived from the columns' catalog sections — see bandsFor. */}
+            <GroupBandRow bands={bands} />
 
-            {/* Tier 2: the sortable column labels. */}
+            {/* Tier 2: the sortable column labels. Clicking one re-queries with a
+                new ORDER BY; the sort is part of the view and saves with it. */}
             <TableRow className="border-b-0" style={{ backgroundColor: SUBHEADER_BG }}>
-              {COLUMNS.map((col, i) => (
+              {columns.map((col, i) => (
                 <TableHead
                   key={col.key}
-                  className={cn("h-7 px-2", BAND_STARTS.has(i) && "relative")}
+                  className={cn("h-7 px-2", bandStartSet.has(i) && "relative")}
                   style={{ width: col.width, minWidth: col.width }}
                 >
-                  {BAND_STARTS.has(i) && <SectionDivider />}
+                  {bandStartSet.has(i) && <SectionDivider />}
                   <SortHeader
-                    label={col.label}
-                    title={col.title}
+                    label={col.header ?? col.label}
+                    title={col.title ?? col.label}
                     isSorted={sort.key === col.key ? sort.dir : false}
                     onClick={() => toggleSort(col.key)}
                   />
@@ -666,7 +916,7 @@ export function MeetingsView({
             </TableRow>
 
             {/* Tier 3: the navy → blue → teal sweep closing the header. */}
-            <GradientSweepRow bands={BANDS} />
+            <GradientSweepRow bands={bands} />
           </TableHeader>
 
           <TableBody>
@@ -707,58 +957,15 @@ export function MeetingsView({
                       }
                     }}
                   >
-                    <Cell i={0} value={r.meeting_type_label} />
-                    <Cell i={1} value={r.meeting_status_label} />
-                    <Cell i={2} value={formatEastern(r.meeting_date)} className="tabular-nums" />
-                    {/* Client links to its detail page, the same
-                          /client-detail?account_id= destination the Portfolio,
-                          To-Do and Onboarding tables use. Falls back to plain
-                          text when the row carries no account id, so the table
-                          never renders a dead link. */}
-                    <Cell
-                      i={3}
-                      value={r.client_account_name}
-                      display={
-                        r.client_account_name && r.client_account_id ? (
-                          <Link
-                            href={`/client-detail?account_id=${r.client_account_id}`}
-                            className="hover:underline"
-                            style={{ color: BRAND_BLUE }}
-                          >
-                            {r.client_account_name}
-                          </Link>
-                        ) : undefined
-                      }
-                    />
-                    <Cell i={4} value={r.event_name} />
-                    <Cell i={5} value={r.institution_name} />
-                    <Cell i={6} value={r.investor_name} />
-                    {/* Staff columns: the shared initials-circle avatars, one
-                          circle per person, each carrying its own full-name
-                          tooltip from the component. */}
-                    <Cell
-                      i={7}
-                      value={r.host_names}
-                      display={staffAvatars(STAFF_ROLES.host, r.host_names)}
-                    />
-                    <Cell
-                      i={8}
-                      value={r.feedback_name}
-                      display={staffAvatars(STAFF_ROLES.feedback, r.feedback_name)}
-                    />
-                    <Cell
-                      i={9}
-                      value={r.booker_name}
-                      display={staffAvatars(STAFF_ROLES.booker, r.booker_name)}
-                    />
-                    <Cell
-                      i={10}
-                      value={r.on_behalf_of}
-                      display={staffAvatars(STAFF_ROLES.onBehalf, r.on_behalf_of)}
-                    />
-                    <Cell i={11} value={r.calendar_label} />
-                    <Cell i={12} value={r.feedback_bda_label} />
-                    <Cell i={13} value={r.fb_received} />
+                    {columns.map((col, ci) => (
+                      <Cell
+                        key={col.key}
+                        col={col}
+                        index={ci}
+                        bandStart={bandStartSet.has(ci)}
+                        row={r}
+                      />
+                    ))}
                     {/* Opens the record drawer. This used to be a direct
                         "Open in CRM" link; that link now lives in the drawer's
                         action bar, where it sits beside the rest of the record. */}
@@ -804,46 +1011,141 @@ export function MeetingsView({
 }
 
 /**
- * One body cell: truncated to its column width with the full value on hover, and
- * carrying the vertical section divider when it opens a header band. An empty
- * value renders a muted em dash, so a blank cell reads as "nothing recorded in
- * the CRM" rather than as a rendering failure.
+ * One body cell.
  *
- * `value` is always the FULL underlying text — it drives both the tooltip and
- * the empty check. `display` optionally overrides only what is painted: the
- * staff columns pass initials, and Client passes a link. Keeping the two
- * separate is what lets a cell show "NM" while still hovering "Natalie
- * Mavroidis", and it means an abbreviated cell can never be mistaken for the
- * real value by anything else in the component.
+ * Truncated to its column's width with the FULL value on hover, carrying the
+ * vertical section divider when it opens a header band. An empty value renders a
+ * muted em dash, so a blank cell reads as "nothing recorded in the CRM" rather
+ * than as a rendering failure.
+ *
+ * ── THE VALUE / DISPLAY SPLIT ──────────────────────────────────────────────
+ * `title` always carries the full underlying text, and the painted content is
+ * whatever the column's `renderer` produces. That separation is what lets a cell
+ * show "NM" while hovering "Natalie Mavroidis", or a green check while hovering
+ * "Closed - All in" — and it means an abbreviated cell can never be mistaken for
+ * the real value by anything else in the component. The Excel export reads the
+ * row, never the cell, so it is unaffected by any of it.
  */
 function Cell({
-  i,
-  value,
-  display,
-  className,
+  col,
+  index,
+  bandStart,
+  row,
 }: {
-  i: number
-  value: string | null | undefined
-  display?: React.ReactNode
-  className?: string
+  col: MeetingColumnDef
+  index: number
+  bandStart: boolean
+  row: AdminMeetingRow
 }) {
-  const empty = value == null || value === "" || value === "—"
-  const width = COLUMNS[i].width
+  const raw = (row as unknown as Record<string, unknown>)[col.key]
+
+  // The hover text and the empty check both come from the raw value. Booleans
+  // are their painted words, so a toggle column hovers "Yes" rather than "true".
+  const title =
+    typeof raw === "boolean" ? (raw ? "Yes" : "No") : typeof raw === "string" ? raw : null
+  const empty = raw === null || raw === undefined || raw === "" || raw === "—"
+
+  const { width, compact } = col
   return (
     <TableCell
       className={cn(
-        "truncate px-2 py-0.5 text-[13px]",
+        "truncate py-0.5 text-[13px]",
+        // Mark columns centre their glyph and halve the side padding; text
+        // columns keep the standard px-2 so their truncation still reads.
+        compact ? "px-1 text-center" : "px-2",
         empty && "text-muted-foreground",
-        className,
+        col.renderer === "date" && "tabular-nums",
       )}
       style={{
         width,
         maxWidth: width,
-        ...(BAND_STARTS.has(i) ? BODY_SECTION_START_STYLE : null),
+        ...(bandStart ? BODY_SECTION_START_STYLE : null),
       }}
-      title={empty ? undefined : (value as string)}
+      title={empty ? undefined : (title ?? undefined)}
+      data-column={col.key}
+      data-column-index={index}
     >
-      {empty ? "—" : (display ?? value)}
+      {empty ? "—" : renderCell(col, row, raw)}
     </TableCell>
   )
+}
+
+/**
+ * Paint one cell, by the column's renderer.
+ *
+ * The one place that knows a status is a dot and a host is a circle. Every arm
+ * is display-only — nothing here reads or changes data, and the em-dash /
+ * emptiness decision has already been made by the caller.
+ */
+function renderCell(col: MeetingColumnDef, row: AdminMeetingRow, raw: unknown): React.ReactNode {
+  const text = typeof raw === "string" ? raw : null
+
+  switch (col.renderer) {
+    case "date":
+      return formatEastern(text)
+
+    case "ticker": {
+      // Shows the TICKER, hovers the full account name (the cell's title), and
+      // links to the same /client-detail?account_id= destination Portfolio,
+      // To-Do and Onboarding use. Falls back to plain text when the row carries
+      // no account id, so the table never renders a dead link — and to the
+      // account name when there is no ticker (an account without one, or the
+      // whole column before the ticker patch is run).
+      if (!row.client_account_id) return text
+      return (
+        <Link
+          href={`/client-detail?account_id=${row.client_account_id}`}
+          className="font-medium hover:underline"
+          style={{ color: BRAND_BLUE }}
+        >
+          {row.client_ticker ? baseTicker(row.client_ticker) : text}
+        </Link>
+      )
+    }
+
+    case "people":
+      // The shared initials-circle cluster, one circle per person, each with its
+      // own full-name tooltip from the component.
+      return staffAvatars(staffSpecFor(col.key), text) ?? text
+
+    case "statusPill":
+      return statusPillCell(text) ?? text
+
+    case "bdaMark":
+      return bdaMark(text) ?? text
+
+    case "checkMark":
+      return receivedMark(text) ?? text
+
+    case "bool":
+      return raw === true ? "Yes" : raw === false ? "No" : text
+
+    case "text":
+    default:
+      return text
+  }
+}
+
+/**
+ * Which avatar colour a people column uses.
+ *
+ * One hue per COLUMN rather than per person — that is what keeps several staff
+ * columns readable at a glance once the names are gone. The four original
+ * columns keep the hues they had; anything else added from the catalog (Created
+ * By, Modified By) takes the neutral navy rather than borrowing a hue that
+ * already means something else.
+ */
+function staffSpecFor(key: string): { role: string; bg: string; fg: string } {
+  switch (key) {
+    case "host_names":
+      return STAFF_ROLES.host
+    case "feedback_name":
+      return STAFF_ROLES.feedback
+    case "booker_name":
+      return STAFF_ROLES.booker
+    case "on_behalf_of":
+      return STAFF_ROLES.onBehalf
+    default:
+      return { role: getColumn(key)?.label ?? "Person", bg: "#1E2858", fg: "#FFFFFF" }
+  }
 }

@@ -266,7 +266,18 @@ CREATE INDEX idx_meetings_client ON public.meetings (client_account_id, meeting_
 CREATE INDEX idx_meetings_host ON public.meetings (host_id, meeting_date DESC);
 CREATE INDEX idx_meetings_booker ON public.meetings (booker_id, meeting_date DESC);
 CREATE INDEX idx_meetings_status ON public.meetings (meeting_status_label);
+-- The Meetings page's Feedback filter matches this column exactly. It used to
+-- be read out of _raw, which no index could serve; see
+-- sql/patches/2026-09-10_meetings_perf.sql.
+CREATE INDEX idx_meetings_feedback_name ON public.meetings (feedback_name);
 CREATE INDEX idx_meetings_modified ON public.meetings (modified_on DESC);
+
+-- Confirmed-meeting counts per event: v_client_portfolio (Open Slots),
+-- v_client_todo and v_admin_events_all all GROUP BY event_id. Partial --
+-- a meeting with no event contributes to none of them.
+CREATE INDEX IF NOT EXISTS idx_meetings_event_id
+  ON public.meetings (event_id)
+  WHERE event_id IS NOT NULL;
 
 
 -- -----------------------------------------------------------------------------

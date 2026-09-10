@@ -105,7 +105,9 @@ export const ALWAYS_ALLOWED_ROUTES = ["/no-access"] as const
  * the page opens to that role. These routes are deliberately NOT delegable that
  * way, because they expose data the row-scoping layer would otherwise restrict:
  *
- *   /meetings  Admin -> Hidden Pages -> "Meetings". Every meeting in the CRM,
+ *   /events    CRM -> Events. Every marketing event in the CRM, read the same
+ *              unscoped way from v_admin_events_all.
+ *   /meetings  CRM -> Meetings. Every meeting in the CRM,
  *              read with the service-role key (RLS bypassed) and WITHOUT
  *              resolveMeetingScope, so it returns every client's meetings to
  *              whoever loads it. The page re-checks the effective role
@@ -116,7 +118,7 @@ export const ALWAYS_ALLOWED_ROUTES = ["/no-access"] as const
  * BEFORE the matrix lookup, so an accidental (or malicious) role_page_access row
  * granting one of these to another role has no effect.
  */
-export const ADMIN_ONLY_ROUTES = ["/meetings"] as const
+export const ADMIN_ONLY_ROUTES = ["/meetings", "/events"] as const
 
 /** True when `pathname` is `route` or a sub-path of it (segment-aware). */
 function matchesRoute(pathname: string, route: string): boolean {
@@ -150,4 +152,67 @@ export function canAccessRoute(
   if (ADMIN_ONLY_ROUTES.some((r) => matchesRoute(pathname, r))) return false
   if (!role) return false
   return allowedRoutes.some((r) => matchesRoute(pathname, r))
+}
+
+/* ---------------------------------------------------------------------------
+ * The nav rail's CRM block
+ *
+ * Meetings is not one of the reporting sections in the rail. It is the raw CRM
+ * mirror — every meeting for every client, unscoped — so it sits apart: pinned
+ * to the bottom of the rail, under its own "CRM" rule, drawn as an outline
+ * rather than a fill (components/nav.tsx owns the drawing).
+ *
+ * WHO may see it is decided here, beside `canAccessRoute` and ADMIN_ONLY_ROUTES,
+ * rather than in the nav component — it is an access decision, this module is
+ * pure, and keeping it here is what lets lib/nav-crm.test.ts cover it.
+ * ------------------------------------------------------------------------ */
+
+/** One entry in the rail's CRM block. Icons live in nav.tsx; this stays pure. */
+export type CrmNavItem = { href: string; label: string }
+
+export const CRM_NAV_ITEMS: readonly CrmNavItem[] = [
+  { href: "/meetings", label: "Meetings" },
+  { href: "/events", label: "Events" },
+]
+
+/**
+ * Whether to render the CRM block AT ALL — the divider, the "CRM" label and the
+ * items together. False means none of it reaches the DOM: a non-super-user sees
+ * no item AND no section break, rather than an empty labelled section.
+ *
+ * TWO conditions, deliberately, although today either alone would do:
+ *
+ *   role === "super_user"  an explicit floor. This is the requirement — the CRM
+ *                          block is super-user-only — stated where it cannot be
+ *                          weakened from somewhere else. Were /meetings ever
+ *                          taken out of ADMIN_ONLY_ROUTES, the second check
+ *                          would start returning true for matrix-granted roles;
+ *                          this one keeps the block super-user-only regardless.
+ *
+ *   canAccessRoute(...)    the SAME predicate proxy.ts enforces with, so the nav
+ *                          can never advertise a route the proxy would block.
+ *
+ * `role` is the EFFECTIVE role (resolved in app/layout.tsx), so a super-user
+ * using "View as" loses this block exactly as the impersonated person would —
+ * matching what the page itself does server-side.
+ *
+ * NONE OF THIS IS THE SECURITY BOUNDARY. proxy.ts gates the route before the
+ * page renders, and app/meetings/page.tsx re-checks the effective role before it
+ * fetches anything. This only decides whether a link is drawn.
+ */
+export function canSeeCrmNav(
+  role: Role | null,
+  allowedRoutes: readonly string[],
+): boolean {
+  if (role !== "super_user") return false
+  return CRM_NAV_ITEMS.some((item) => canAccessRoute(role, item.href, allowedRoutes))
+}
+
+/** The CRM items to draw — empty whenever the block must not render at all. */
+export function visibleCrmNavItems(
+  role: Role | null,
+  allowedRoutes: readonly string[],
+): CrmNavItem[] {
+  if (!canSeeCrmNav(role, allowedRoutes)) return []
+  return CRM_NAV_ITEMS.filter((item) => canAccessRoute(role, item.href, allowedRoutes))
 }

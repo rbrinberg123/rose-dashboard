@@ -1,46 +1,72 @@
 import type { AdminMeetingRow } from "@/lib/types"
 import { ymd } from "@/lib/client-todo-excel"
+import { getColumn, type MeetingColumnDef } from "@/lib/meetings/columns"
 
 /**
- * The 14 CRM columns in the page's order, plus `State` — which the page does not
- * render but the export carries, because "is this row deactivated?" is the first
- * question anyone asks of a 10k-row dump.
+ * The Meetings sheet mirrors the ACTIVE SAVED VIEW: its columns, in its order,
+ * over the rows on screen.
  *
- * Kept beside the table's own column list rather than derived from it: the sheet
- * is a deliberate artefact, and a column added to the screen should be a decision
- * to add here too, not an automatic consequence.
+ * ── THE SHEET KEEPS FULL, HUMAN-READABLE VALUES ────────────────────────────
+ * None of the screen's compaction reaches the export. The table paints a ticker,
+ * a coloured pill, an icon; the sheet writes the full client NAME, the plain
+ * word "Confirmed" with no tint, the real "Closed - All in" rather than a check.
+ * That is deliberate: the compaction exists to fit a screen, and a spreadsheet
+ * has no such constraint — someone filtering or pivoting this needs the words.
+ *
+ * The only transformation is TYPE, not wording: dates go in as real Dates so
+ * Excel sorts them natively, and booleans as "Yes"/"No" rather than TRUE/FALSE.
+ *
+ * Two columns are always present regardless of the view, because they answer the
+ * first two questions anyone asks of a CRM dump and neither is guessable from
+ * the rest: the full client name and the row's State (is this deactivated?).
  */
-const COLUMNS: { header: string; width: number; get: (r: AdminMeetingRow) => string | Date | null }[] = [
-  { header: "Meeting Type", width: 14, get: (r) => r.meeting_type_label },
-  { header: "Meeting Status", width: 16, get: (r) => r.meeting_status_label },
-  { header: "Date", width: 20, get: (r) => (r.meeting_date ? new Date(r.meeting_date) : null) },
-  { header: "Client", width: 30, get: (r) => r.client_account_name },
-  { header: "Event", width: 34, get: (r) => r.event_name },
-  { header: "Institution", width: 30, get: (r) => r.institution_name },
-  { header: "Investor", width: 26, get: (r) => r.investor_name },
-  { header: "Host", width: 24, get: (r) => r.host_names },
-  { header: "Feedback", width: 20, get: (r) => r.feedback_name },
-  { header: "Booked By", width: 20, get: (r) => r.booker_name },
-  { header: "On Behalf Of", width: 20, get: (r) => r.on_behalf_of },
-  { header: "Calendar", width: 18, get: (r) => r.calendar_label },
-  { header: "FB in BDA", width: 14, get: (r) => r.feedback_bda_label },
-  { header: "FB Rec'd", width: 14, get: (r) => r.fb_received },
-  { header: "State", width: 12, get: (r) => r.state_label },
-]
+
+/** Rendered label for a column in the sheet header. */
+function headerFor(col: MeetingColumnDef): string {
+  // The sheet uses the drawer's full label, never the table's abbreviated one —
+  // "On Behalf Of", not "OBO".
+  return col.label
+}
+
+/** One cell value: full text, a real Date, or a Yes/No word. */
+function valueFor(col: MeetingColumnDef, row: AdminMeetingRow): string | Date | null {
+  const raw = (row as unknown as Record<string, unknown>)[col.key]
+  if (raw === null || raw === undefined || raw === "") return null
+  if (typeof raw === "boolean") return raw ? "Yes" : "No"
+  if (col.type === "date" || col.renderer === "date") {
+    const d = new Date(String(raw))
+    return Number.isNaN(d.getTime()) ? String(raw) : d
+  }
+  return String(raw)
+}
+
+/** Sensible column width for a header, since the catalog's px widths are screen units. */
+function sheetWidth(col: MeetingColumnDef): number {
+  if (col.type === "date" || col.renderer === "date") return 20
+  if (col.type === "notes") return 40
+  if (col.type === "person") return 22
+  return Math.min(36, Math.max(12, col.label.length + 6))
+}
 
 /**
- * Download the CURRENT VIEW as .xlsx — `rows` is what the table is showing
- * (keyword filter applied, in the active sort order), not the whole dataset.
+ * Download the CURRENT VIEW as .xlsx.
  *
- * Dates are written as real Dates so Excel sorts and filters them natively;
- * everything else goes in as text. Missing values are left BLANK rather than
- * "—" or "None", so a gap in the CRM reads as a gap in the sheet.
+ * `rows` is what the table is showing (the view's server-side filter plus the
+ * keyword box, in the active sort order), and `columns` is the view's resolved
+ * column list — so the sheet and the screen can never disagree about which
+ * columns or which rows.
+ *
+ * Missing values are left BLANK rather than "—" or "None", so a gap in the CRM
+ * reads as a gap in the sheet.
  *
  * ExcelJS is imported lazily so its weight only loads when someone exports —
  * same shape as lib/client-todo-excel.ts and lib/pipeline-excel.ts.
  */
-export async function exportAdminMeetings(rows: AdminMeetingRow[]): Promise<void> {
-  const wb = await buildAdminMeetingsWorkbook(rows)
+export async function exportAdminMeetings(
+  rows: AdminMeetingRow[],
+  columns: MeetingColumnDef[],
+): Promise<void> {
+  const wb = await buildAdminMeetingsWorkbook(rows, columns)
   const buf = await wb.xlsx.writeBuffer()
   const blob = new Blob([buf as BlobPart], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -55,15 +81,37 @@ export async function exportAdminMeetings(rows: AdminMeetingRow[]): Promise<void
   URL.revokeObjectURL(url)
 }
 
+/**
+ * The columns the sheet always carries, appended if the view does not already
+ * show them. See the header note: the full client name and State.
+ */
+const ALWAYS_IN_SHEET = ["client_account_name", "state_label"] as const
+
+function sheetColumns(columns: MeetingColumnDef[]): MeetingColumnDef[] {
+  const out = [...columns]
+  const present = new Set(out.map((c) => c.key))
+  for (const key of ALWAYS_IN_SHEET) {
+    if (present.has(key)) continue
+    const col = getColumn(key)
+    if (col) out.push(col)
+  }
+  return out
+}
+
 /** The workbook itself, split from the download so it can be exercised without a DOM. */
-export async function buildAdminMeetingsWorkbook(rows: AdminMeetingRow[]) {
+export async function buildAdminMeetingsWorkbook(
+  rows: AdminMeetingRow[],
+  columns: MeetingColumnDef[],
+) {
   const mod = await import("exceljs")
   const ExcelJS = (mod as { default?: typeof import("exceljs") }).default ?? mod
+
+  const cols = sheetColumns(columns)
 
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet("Meetings")
 
-  ws.columns = COLUMNS.map((c) => ({ header: c.header, key: c.header, width: c.width }))
+  ws.columns = cols.map((c) => ({ header: headerFor(c), key: c.key, width: sheetWidth(c) }))
 
   const head = ws.getRow(1)
   head.font = { bold: true, color: { argb: "FFFFFFFF" } }
@@ -71,13 +119,20 @@ export async function buildAdminMeetingsWorkbook(rows: AdminMeetingRow[]) {
   head.alignment = { vertical: "middle" }
 
   for (const r of rows) {
-    ws.addRow(COLUMNS.map((c) => c.get(r) ?? null))
+    ws.addRow(cols.map((c) => valueFor(c, r)))
   }
 
-  // Excel's own date formatting for the Date column (3rd), and a filter bar over
-  // the whole used range so a 10k-row sheet is usable the moment it opens.
-  ws.getColumn(3).numFmt = "yyyy-mm-dd hh:mm"
-  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: COLUMNS.length } }
+  // Excel's own date formatting on whichever columns are dates — the position is
+  // no longer fixed, so it is derived rather than hard-coded to column 3.
+  cols.forEach((c, i) => {
+    if (c.type === "date" || c.renderer === "date") {
+      ws.getColumn(i + 1).numFmt = "yyyy-mm-dd hh:mm"
+    }
+  })
+
+  // A filter bar over the whole used range, so a large sheet is usable the
+  // moment it opens.
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: cols.length } }
   ws.views = [{ state: "frozen", ySplit: 1 }]
 
   return wb

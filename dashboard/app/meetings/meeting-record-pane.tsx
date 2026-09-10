@@ -62,7 +62,7 @@ function formatFull(iso: string | null): string | null {
  * status does anywhere else. An unrecognised value falls back to neutral grey
  * rather than vanishing.
  */
-function statusPill(status: string | null): { bg: string; text: string } {
+export function statusPill(status: string | null): { bg: string; text: string } {
   const s = (status ?? "").trim().toLowerCase()
   if (s === "confirmed") return { bg: "#E3F3EF", text: "#0F7E72" }
   if (s.startsWith("cancel")) return STATUS_PILL_LIGHT.atRisk

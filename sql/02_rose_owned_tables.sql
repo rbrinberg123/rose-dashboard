@@ -256,3 +256,141 @@ AS $$
     p_id
   );
 $$;
+
+
+-- -----------------------------------------------------------------------------
+-- meeting_saved_views
+-- The Meetings page's saved views -- the app's first write path. USER
+-- PREFERENCES ONLY (columns / filters / sort); no CRM data is written here.
+--
+-- Two locks: RLS on with zero policies (so only service_role, which bypasses
+-- RLS, reaches it), AND authorisation in dashboard/app/meetings/views-actions.ts
+-- for the service-role path that the app actually uses. The constraints below
+-- are a third layer. See sql/patches/2026-09-09_meeting_saved_views.sql.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.meeting_saved_views (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- 'system'   = shared, visible to everyone, super-user managed.
+  -- 'personal' = private to owner_user_id.
+  scope         text NOT NULL CHECK (scope IN ('system', 'personal')),
+
+  -- NULL for system views; the canonical user id for personal ones. The pairing
+  -- is enforced below so a personal view can never become ownerless (and so
+  -- visible to all) through a bad update.
+  owner_user_id uuid REFERENCES public.users(user_id),
+
+  name          text NOT NULL CHECK (btrim(name) <> ''),
+
+  -- { columns: string[], filters: {field,op,value}[], sort: {field,dir} }
+  -- Validated in the action layer against the column catalog before it lands
+  -- here; jsonb keeps the shape free to grow (e.g. related-table columns).
+  config        jsonb NOT NULL,
+
+  is_default    boolean NOT NULL DEFAULT false,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT meeting_saved_views_owner_matches_scope CHECK (
+    (scope = 'system'   AND owner_user_id IS NULL) OR
+    (scope = 'personal' AND owner_user_id IS NOT NULL)
+  )
+);
+
+-- At most ONE default personal view per user. Partial unique index rather than a
+-- trigger: the constraint is declarative, and a second default fails loudly at
+-- write time instead of quietly winning a race.
+CREATE UNIQUE INDEX IF NOT EXISTS meeting_saved_views_one_personal_default
+  ON public.meeting_saved_views (owner_user_id)
+  WHERE scope = 'personal' AND is_default;
+
+-- At most ONE default system view overall. Indexing `scope` works because the
+-- predicate already pins it to a single value across the whole indexed subset.
+CREATE UNIQUE INDEX IF NOT EXISTS meeting_saved_views_one_system_default
+  ON public.meeting_saved_views (scope)
+  WHERE scope = 'system' AND is_default;
+
+-- Names are unique per owner (and across system views), case- and
+-- whitespace-insensitively, so "Q4 prep" cannot shadow "Q4 Prep ".
+CREATE UNIQUE INDEX IF NOT EXISTS meeting_saved_views_personal_name
+  ON public.meeting_saved_views (owner_user_id, lower(btrim(name)))
+  WHERE scope = 'personal';
+
+CREATE UNIQUE INDEX IF NOT EXISTS meeting_saved_views_system_name
+  ON public.meeting_saved_views (lower(btrim(name)))
+  WHERE scope = 'system';
+
+-- The switcher's read: "system views + my personal views".
+CREATE INDEX IF NOT EXISTS idx_meeting_saved_views_scope_owner
+  ON public.meeting_saved_views (scope, owner_user_id);
+
+-- Reuses the shared trigger function from 02_rose_owned_tables.sql.
+DROP TRIGGER IF EXISTS meeting_saved_views_touch_updated_at ON public.meeting_saved_views;
+CREATE TRIGGER meeting_saved_views_touch_updated_at
+  BEFORE UPDATE ON public.meeting_saved_views
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+-- Lock down: RLS on, zero policies => only service_role can read/write. The
+-- anon key used by the browser gets nothing. Same pattern as user_roles.
+ALTER TABLE public.meeting_saved_views ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.meeting_saved_views TO service_role;
+
+-- Check what is there:
+--   SELECT scope, name, is_default, owner_user_id
+--   FROM public.meeting_saved_views ORDER BY scope, name;
+
+
+-- -----------------------------------------------------------------------------
+-- event_saved_views
+-- The Events page's saved views. Identical shape and identical rules to
+-- meeting_saved_views; the APP CODE is shared (one parameterised module in
+-- dashboard/lib/table-views/saved-views.ts enforces both), so only the storage
+-- is duplicated. USER PREFERENCES ONLY -- no CRM data is written here.
+--
+-- RLS on with zero policies => only service_role reaches it. See
+-- sql/patches/2026-09-10_admin_events.sql for the full rationale.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.event_saved_views (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope         text NOT NULL CHECK (scope IN ('system', 'personal')),
+  owner_user_id uuid REFERENCES public.users(user_id),
+  name          text NOT NULL CHECK (btrim(name) <> ''),
+  config        jsonb NOT NULL,
+  is_default    boolean NOT NULL DEFAULT false,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT event_saved_views_owner_matches_scope CHECK (
+    (scope = 'system'   AND owner_user_id IS NULL) OR
+    (scope = 'personal' AND owner_user_id IS NOT NULL)
+  )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_saved_views_one_personal_default
+  ON public.event_saved_views (owner_user_id)
+  WHERE scope = 'personal' AND is_default;
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_saved_views_one_system_default
+  ON public.event_saved_views (scope)
+  WHERE scope = 'system' AND is_default;
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_saved_views_personal_name
+  ON public.event_saved_views (owner_user_id, lower(btrim(name)))
+  WHERE scope = 'personal';
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_saved_views_system_name
+  ON public.event_saved_views (lower(btrim(name)))
+  WHERE scope = 'system';
+
+CREATE INDEX IF NOT EXISTS idx_event_saved_views_scope_owner
+  ON public.event_saved_views (scope, owner_user_id);
+
+DROP TRIGGER IF EXISTS event_saved_views_touch_updated_at ON public.event_saved_views;
+CREATE TRIGGER event_saved_views_touch_updated_at
+  BEFORE UPDATE ON public.event_saved_views
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+ALTER TABLE public.event_saved_views ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_saved_views TO service_role;

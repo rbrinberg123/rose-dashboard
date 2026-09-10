@@ -153,7 +153,17 @@ A super-user can preview the app as an abstract **role** or as a specific **pers
 
 `/admin` and everything under `/admin/*` have no `role_page_access` grants for any non-super role, so they're Super-User-only by the deny-by-default rule. Don't tick them on for another role unless you truly mean to.
 
-The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx`, the `HIDDEN_PAGES` array) that links to routes parked off the main nav — currently `/pipeline`, `/relationships`, `/conference-rooms`, `/ooo-summary` and `/meetings`. Those pages are super-user-only purely because Admin is; the pages themselves keep their own routes. To park another page later, add one `{ href, label }` line to `HIDDEN_PAGES`.
+The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx`, the `HIDDEN_PAGES` array) that links to routes parked off the main nav — currently `/pipeline`, `/relationships`, `/conference-rooms` and `/ooo-summary`. Those pages are super-user-only purely because Admin is; the pages themselves keep their own routes. To park another page later, add one `{ href, label }` line to `HIDDEN_PAGES`.
+
+### The CRM block in the nav rail
+
+`/meetings` and `/events` are **not** hidden pages. They have their own entries at the **bottom of the main nav rail**, below every reporting section, under a thin **"CRM"** section break and drawn as a teal outline rather than the navy fill the reporting items use — it is the raw CRM mirror, not another report, and the treatment says so.
+
+**Their gating is the strictest in the app.** Both are in `ADMIN_ONLY_ROUTES`: super-user-only, and not openable to another role through the Admin → Roles matrix. What decides whether the nav entry is *drawn* is `canSeeCrmNav` in `lib/access-control.ts`, which requires **both** `role === "super_user"` **and** `canAccessRoute` — the second so the rail can never advertise a route the proxy would block, the first as an explicit floor if `/meetings` were ever taken out of `ADMIN_ONLY_ROUTES`. For any non-super-user the whole block is absent: no item, and no divider either.
+
+The role is the **effective** one, so a super-user in **View as** loses the block exactly as the impersonated person would. None of it is the security boundary — `proxy.ts` gates the route and the page re-checks the effective role before fetching. Covered by `lib/nav-crm.test.ts`.
+
+To add another CRM entry later, add a `{ href, label }` line to `CRM_NAV_ITEMS` and an icon to `CRM_ICONS` in `components/nav.tsx` — but only for a page that is itself super-user-only; the test asserts that.
 
 #### Super-user-only routes that the Roles matrix cannot open
 

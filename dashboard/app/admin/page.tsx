@@ -78,12 +78,15 @@ const EMAIL_JOBS = [
 // Pages parked off the main nav but kept reachable here (Admin is super-user-
 // gated, so these stay super-user-only). To park another page later, add ONE
 // line — { href, label } — to this array; the Hidden Pages section renders it.
+// Meetings (all CRM) used to be listed here. It now has its own entry at the
+// BOTTOM OF THE MAIN NAV RAIL, under a "CRM" section break — see CRM_NAV_ITEMS
+// in lib/access-control.ts. Its gating is unchanged (ADMIN_ONLY_ROUTES,
+// super-user-only); only the entry point moved, so it is not duplicated here.
 const HIDDEN_PAGES = [
   { href: "/pipeline", label: "Upcoming Meetings" },
   { href: "/relationships", label: "Relationships" },
   { href: "/conference-rooms", label: "Conference Rooms" },
   { href: "/ooo-summary", label: "OOO Summary" },
-  { href: "/meetings", label: "Meetings (all CRM)" },
 ] as const
 
 type Health = "ok" | "warn" | "bad" | "muted"

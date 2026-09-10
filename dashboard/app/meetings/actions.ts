@@ -4,6 +4,15 @@ import { getSupabaseServer } from "@/lib/supabase"
 import { getEffectiveRole } from "@/lib/effective-identity"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import type { MeetingRecord } from "@/lib/meeting-record"
+import type { AdminMeetingRow } from "@/lib/types"
+import { parseConfig } from "@/lib/meetings/views"
+import {
+  availableColumns,
+  fetchAllViewRows,
+  loadFilterOptions,
+  loadHostAliasGroups,
+  type FilterOptions,
+} from "@/lib/meetings/query"
 
 /**
  * Load ONE meeting's full record for the Meetings drawer.
@@ -180,4 +189,75 @@ export async function loadMeetingRecord(
   }
 
   return ok(record)
+}
+
+/**
+ * Every row of the current view, UNCAPPED — for the Excel export only.
+ *
+ * The page itself stops at ROW_CAP (lib/meetings/query.ts) because "All
+ * meetings" is ~13.6k rows and painting a screen never needed them. The export
+ * is different: it is an explicit click with a progress state, and a silently
+ * truncated spreadsheet is a far worse failure than a slow download. So this
+ * re-runs the same query with no cap and hands back the lot.
+ *
+ * SECURITY: same gate as the page and the record loader — the EFFECTIVE role
+ * must be super_user, checked before any query is built. `config` arrives from
+ * the client, so it goes through `parseConfig`, which admits only known column
+ * keys and a closed operator set; the quick filters are three opaque strings
+ * used as equality arguments, never as query syntax.
+ */
+export async function loadRowsForExport(input: {
+  config: unknown
+  quick?: { client?: string; host?: string; feedback?: string }
+}): Promise<ActionResult<AdminMeetingRow[]>> {
+  // ---- GATE (must stay first) ----
+  const role = await getEffectiveRole()
+  if (role !== "super_user") return fail("Not authorised.")
+
+  const parsed = parseConfig(input.config)
+  if (!parsed.ok) return fail(parsed.error)
+
+  const sb = getSupabaseServer()
+  const [available, aliasGroups] = await Promise.all([
+    availableColumns(sb),
+    loadHostAliasGroups(sb),
+  ])
+
+  const { rows, error } = await fetchAllViewRows<AdminMeetingRow>(
+    sb,
+    parsed.config,
+    new Date(),
+    available,
+    input.quick ?? {},
+    aliasGroups,
+  )
+  if (error) return fail(error)
+  return ok(rows)
+}
+
+/**
+ * The Client / Host / Feedback dropdown choices.
+ *
+ * ── WHY THIS IS AN ACTION AND NOT PART OF THE PAGE LOAD ────────────────────
+ * These used to be fetched in app/meetings/page.tsx, in the critical path. That
+ * was fine when `v_admin_meetings_filter_options` existed and cost one small
+ * query — but when it does not, the loader falls back to scanning every row of
+ * the view, which measured 4.6 s. The table's own rows were ready in ~250 ms and
+ * sat there waiting for a list of dropdown values nobody had clicked yet.
+ *
+ * So the page no longer waits for them. The client asks for them after the table
+ * has rendered, and the result is cached for the browser session. The fast path
+ * is unchanged — the view is still preferred whenever it exists; the fallback
+ * simply can no longer hold the page up.
+ *
+ * SECURITY: same gate as the rest of this file — the EFFECTIVE role must be
+ * super_user, checked before any query is built. The lists are distinct values
+ * drawn from the same unscoped view the page already shows.
+ */
+export async function loadMeetingFilterOptions(): Promise<ActionResult<FilterOptions>> {
+  // ---- GATE (must stay first) ----
+  const role = await getEffectiveRole()
+  if (role !== "super_user") return fail("Not authorised.")
+
+  return ok(await loadFilterOptions(getSupabaseServer()))
 }

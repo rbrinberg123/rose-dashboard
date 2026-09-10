@@ -186,6 +186,16 @@ CREATE INDEX idx_events_modified_on       ON public.events (modified_on DESC);
 CREATE INDEX idx_events_client_account_id ON public.events (client_account_id);
 CREATE INDEX idx_events_start_actual      ON public.events (event_start_actual DESC);
 
+-- Added for the /events admin page (sql/patches/2026-09-10_admin_events.sql):
+-- the default "Current & Upcoming" view, the Event State dropdown, and the
+-- Account Manager dropdown.
+CREATE INDEX IF NOT EXISTS idx_events_state_pair
+  ON public.events (state_label, event_state_label);
+CREATE INDEX IF NOT EXISTS idx_events_event_state_label
+  ON public.events (event_state_label);
+CREATE INDEX IF NOT EXISTS idx_events_sales_lead_primary
+  ON public.events (sales_lead_primary_id);
+
 -- Grant (run AFTER the CREATE TABLE; this was the line that failed when run alone)
 GRANT INSERT, UPDATE ON public.events TO service_role;
 

@@ -1369,6 +1369,87 @@ export type ClientTodoTouchDetail = {
  * Dynamics may model it as either a Yes/No flag or a date — the view passes the
  * formatted value straight through.
  */
+/**
+ * One row of `v_admin_events_all` — the Events admin list.
+ *
+ * Every field is nullable because the mirror mirrors whatever Dynamics holds,
+ * and several of these are sparsely filled in practice (targeting_notes and
+ * shareholder_report_received_date are empty on every live row today).
+ */
+export type AdminEventRow = {
+  event_id: string
+  // the seven list columns
+  client_account_name: string | null
+  event_dates: string | null
+  event_location: string | null
+  event_state_label: string | null
+  targeting_url: string | null
+  event_title: string | null
+  user_team_lead: string | null
+  // identity / links
+  client_account_id: string | null
+  client_ticker: string | null
+  marketing_state_label: string | null
+  state_label: string | null
+  // General
+  tbc: boolean | null
+  account_manager_id: string | null
+  account_manager_name: string | null
+  logistics_coordinator_id: string | null
+  logistics_coordinator_name: string | null
+  feedback_team_name: string | null
+  feedback_report_id: string | null
+  feedback_report_name: string | null
+  leads_labels: string | null
+  team: boolean | null
+  event_notes: string | null
+  meetings_start: string | null
+  meetings_end: string | null
+  // Planning
+  event_parameters: string | null
+  of_slots: number | null
+  urgency_label: string | null
+  launch_week: string | null
+  memo_date: string | null
+  last_data_upload: string | null
+  shareholder_report_received_date: string | null
+  targeting_not_required: boolean | null
+  memo_not_required: boolean | null
+  targeting_date: string | null
+  profile_link: string | null
+  targeting_notes: string | null
+  launch: boolean | null
+  outreach_complete: boolean | null
+  // system
+  created_on: string | null
+  modified_on: string | null
+  /**
+   * Confirmed meetings attached to this event — COUNTED from public.meetings,
+   * not read from the stale Dynamics rollup. The same definition Portfolio's
+   * "Open Slots" uses. See sql/patches/2026-09-10_admin_events_slots.sql.
+   */
+  confirmed_meetings: number | null
+  /** of_slots − confirmed, NOT floored at 0; null when the event has no slot count. */
+  slots_remaining: number | null
+
+  /**
+   * The client's ACCOUNT TEAM, merged in server-side from `accounts` — the same
+   * four columns, from the same table, that Client Portfolio reads, so the two
+   * pages show the same people.
+   *
+   * NOT on v_admin_events_all, and deliberately not taken from the event's own
+   * `account_manager_name` / `logistics_coordinator_name`: those are the EVENT's
+   * staffing and differ from the account's on roughly a fifth of live events.
+   *
+   * Screen-only — these are not catalog columns, so they never reach the column
+   * picker, a saved view, or the Excel export.
+   */
+  sales_lead_primary_name?: string | null
+  secondary_manager_name?: string | null
+  associate_name?: string | null
+  logistics_coordinator_account_name?: string | null
+}
+
 export type AdminMeetingRow = {
   meeting_id: string
   meeting_type_label: string | null
@@ -1388,4 +1469,8 @@ export type AdminMeetingRow = {
   state_label: string | null
   client_account_id: string | null
   event_id: string | null
+  /** accounts.ticker_symbol. The table's Client column shows this instead of
+   *  client_account_name; null until sql/patches/2026-09-09_admin_meetings_ticker.sql
+   *  is run, in which case the cell falls back to the (truncated) name. */
+  client_ticker: string | null
 }
