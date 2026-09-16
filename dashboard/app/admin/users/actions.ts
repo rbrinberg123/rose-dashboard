@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { getSupabaseServer } from "@/lib/supabase"
 import { requireSuperUser } from "@/lib/api-auth"
+import { diffRows, recordAudit } from "@/lib/audit"
 
 const PATH = "/admin/users"
 
@@ -59,10 +60,30 @@ export async function setUserRole(
 
   const sb = getSupabaseServer()
 
+  // Prior grant, for the audit diff — read once, used by both branches.
+  const { data: priorGrant } = await sb
+    .from("user_role_grants")
+    .select("role")
+    .eq("email", normalizedEmail)
+    .maybeSingle()
+
   if (role === null) {
     // "None" — remove any staged grant for this user.
     const { error } = await sb.from("user_role_grants").delete().eq("email", normalizedEmail)
     if (error) return fail(describeError(error))
+
+    // AUDIT — a role being REMOVED is the change most worth reconstructing
+    // later, and deleting the row is otherwise completely untraceable.
+    if (priorGrant) {
+      await recordAudit({
+        action: "delete",
+        entity: "user_role_grants",
+        recordId: normalizedEmail,
+        changes: { email: normalizedEmail, role: priorGrant.role },
+        context: PATH,
+      })
+    }
+
     revalidatePath(PATH)
     return ok()
   }
@@ -79,6 +100,15 @@ export async function setUserRole(
       { onConflict: "email" },
     )
   if (error) return fail(describeError(error))
+
+  // AUDIT — see lib/audit.ts.
+  await recordAudit({
+    action: priorGrant ? "update" : "create",
+    entity: "user_role_grants",
+    recordId: normalizedEmail,
+    changes: priorGrant ? diffRows(priorGrant, { role }) : { email: normalizedEmail, role },
+    context: PATH,
+  })
 
   revalidatePath(PATH)
   return ok()

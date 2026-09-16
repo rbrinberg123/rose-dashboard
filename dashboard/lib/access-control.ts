@@ -118,7 +118,21 @@ export const ALWAYS_ALLOWED_ROUTES = ["/no-access"] as const
  * BEFORE the matrix lookup, so an accidental (or malicious) role_page_access row
  * granting one of these to another role has no effect.
  */
-export const ADMIN_ONLY_ROUTES = ["/meetings", "/events", "/tasks"] as const
+export const ADMIN_ONLY_ROUTES = [
+  "/meetings",
+  "/events",
+  "/tasks",
+  "/touchpoints",
+  "/notes",
+  // Admin -> Account Teams. NOT a CRM data table (deliberately absent from
+  // CRM_NAV_ITEMS); listed here so the Roles matrix can never delegate it.
+  // Adding a NEW route here changes no existing page's behaviour.
+  "/admin/account-teams",
+  // Admin -> Audit Log. Read-only, but it describes every write in the app —
+  // salary edits, permission grants — so it is at least as sensitive as the
+  // most sensitive thing in it. Never delegable through the Roles matrix.
+  "/admin/audit-log",
+] as const
 
 /** True when `pathname` is `route` or a sub-path of it (segment-aware). */
 function matchesRoute(pathname: string, route: string): boolean {
@@ -174,6 +188,11 @@ export const CRM_NAV_ITEMS: readonly CrmNavItem[] = [
   { href: "/meetings", label: "Meetings" },
   { href: "/events", label: "Events" },
   { href: "/tasks", label: "Tasks" },
+  // DISPLAY NAME is "Touches"; everything internal stays "touchpoints" — the
+  // route, v_admin_touchpoints_all, public.touchpoints, the spec key and the
+  // file names. Label only.
+  { href: "/touchpoints", label: "Touches" },
+  { href: "/notes", label: "Notes" },
 ]
 
 /**

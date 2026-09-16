@@ -13,6 +13,8 @@ import {
   Database,
   FileText,
   ListChecks,
+  MessagesSquare,
+  StickyNote,
   Settings,
   Menu,
   LogOut,
@@ -150,6 +152,15 @@ const CRM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   // ListChecks: a worklist of things to tick off, and the only checkbox-shaped
   // icon in the rail — nothing else here could be mistaken for it.
   "/tasks": ListChecks,
+  // MessagesSquare: a touchpoint is a logged CONVERSATION — and not necessarily
+  // a phone call, despite the entity being Dynamics' `phonecall` (Virtual, Email,
+  // In-Person and Social all land here). PhoneCall would name the plumbing
+  // rather than the thing, and stacked speech bubbles read as "contact history".
+  "/touchpoints": MessagesSquare,
+  // StickyNote: a client-review note is a written jotting ABOUT the relationship,
+  // not a record of an interaction — the only paper-shaped icon in the rail, and
+  // visually distinct from the speech bubbles one row above it.
+  "/notes": StickyNote,
 }
 
 type CrmItem = CrmNavItem & { icon: React.ComponentType<{ className?: string }> }

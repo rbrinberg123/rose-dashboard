@@ -55,6 +55,7 @@ import "server-only"
 import { revalidatePath } from "next/cache"
 
 import { getSupabaseServer } from "@/lib/supabase"
+import { diffRows, recordAudit, snapshot } from "@/lib/audit"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { builtinSavedViews, parseConfig } from "./config"
@@ -241,6 +242,22 @@ export async function createSavedView(
     .single()
 
   if (error) return fail(describeError(error))
+
+  // AUDIT — see lib/audit.ts. `entity` is the concrete table, so a meetings
+  // view and a notes view do not land in one undifferentiated pile.
+  await recordAudit({
+    action: "create",
+    entity: spec.savedViewsTable,
+    recordId: data.id as string,
+    changes: snapshot({
+      scope: input.scope,
+      name: named.name,
+      owner_user_id: input.scope === "personal" ? caller.userId : null,
+      config: parsed.config,
+    }),
+    context: `/${spec.key}`,
+  })
+
   revalidatePath(`/${spec.key}`)
   return ok({ id: data.id as string })
 }
@@ -284,7 +301,9 @@ export async function updateSavedView(
   // for routing, not for permission.
   const { data: existing, error: readErr } = await sb
     .from(spec.savedViewsTable)
-    .select("scope, owner_user_id")
+    // name + config come along for the audit diff; scope/owner_user_id are what
+    // the routing below needs.
+    .select("scope, owner_user_id, name, config")
     .eq("id", input.id)
     .maybeSingle()
   if (readErr) return fail(describeError(readErr))
@@ -306,6 +325,18 @@ export async function updateSavedView(
   const { data, error } = await q.select("id")
   if (error) return fail(describeError(error))
   if (!data || data.length === 0) return fail("View not found, or not yours to edit.")
+
+  // AUDIT — see lib/audit.ts.
+  const changes = diffRows(existing, patch)
+  if (changes) {
+    await recordAudit({
+      action: "update",
+      entity: spec.savedViewsTable,
+      recordId: input.id,
+      changes,
+      context: `/${spec.key}`,
+    })
+  }
 
   revalidatePath(`/${spec.key}`)
   return ok()
@@ -351,6 +382,18 @@ export async function setDefaultSavedView(
       if (error) return fail(describeError(error))
       if (!data || data.length === 0) return fail("System view not found.")
     }
+
+    // AUDIT — logged as one event on the ENTITY rather than per row: setting a
+    // default clears the old one and sets the new one, and two entries would
+    // read as two unrelated edits. `input.id` null means "no system default".
+    await recordAudit({
+      action: "update",
+      entity: spec.savedViewsTable,
+      recordId: input.id ?? null,
+      changes: { system_default: { old: null, new: input.id ?? null } },
+      context: `/${spec.key} · setDefault(system)`,
+    })
+
     revalidatePath(`/${spec.key}`)
     return ok()
   }
@@ -379,6 +422,18 @@ export async function setDefaultSavedView(
     if (!data || data.length === 0) return fail("View not found, or not yours.")
   }
 
+  // AUDIT — see the note on the system branch above.
+  await recordAudit({
+    action: "update",
+    entity: spec.savedViewsTable,
+    recordId: input.id ?? null,
+    changes: {
+      personal_default: { old: null, new: input.id ?? null },
+      owner_user_id: caller.userId,
+    },
+    context: `/${spec.key} · setDefault(personal)`,
+  })
+
   revalidatePath(`/${spec.key}`)
   return ok()
 }
@@ -399,7 +454,8 @@ export async function deleteSavedView(
   const sb = getSupabaseServer()
   const { data: existing, error: readErr } = await sb
     .from(spec.savedViewsTable)
-    .select("scope")
+    // name/owner/config come along so the audit entry records WHAT was deleted.
+    .select("scope, name, owner_user_id, is_default, config")
     .eq("id", input.id)
     .maybeSingle()
   if (readErr) return fail(describeError(readErr))
@@ -421,6 +477,15 @@ export async function deleteSavedView(
   const { data, error } = await q.select("id")
   if (error) return fail(describeError(error))
   if (!data || data.length === 0) return fail("View not found, or not yours to delete.")
+
+  // AUDIT — see lib/audit.ts.
+  await recordAudit({
+    action: "delete",
+    entity: spec.savedViewsTable,
+    recordId: input.id,
+    changes: snapshot(existing),
+    context: `/${spec.key}`,
+  })
 
   revalidatePath(`/${spec.key}`)
   return ok()

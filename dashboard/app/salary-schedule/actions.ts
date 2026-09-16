@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { getSupabaseServer } from "@/lib/supabase"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
+import { diffRows, recordAudit, snapshot } from "@/lib/audit"
 
 const baseRow = z.object({
   user_id: z.guid("Pick a user"),
@@ -39,8 +40,28 @@ export async function upsertSalary(input: SalaryInput): Promise<ActionResult<{ i
   const sb = getSupabaseServer()
 
   if (id) {
+    const { data: before } = await sb
+      .from("salary_schedule")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle()
+
     const { error } = await sb.from("salary_schedule").update(row).eq("id", id)
     if (error) return fail(humanize(error))
+
+    // AUDIT — see lib/audit.ts. Salary is the most sensitive data the app
+    // stores; an old -> new diff of who changed what is the whole point.
+    const changes = diffRows(before, row)
+    if (changes) {
+      await recordAudit({
+        action: "update",
+        entity: "salary_schedule",
+        recordId: id,
+        changes,
+        context: "/salary-schedule",
+      })
+    }
+
     revalidatePath("/salary-schedule")
     return ok({ id })
   }
@@ -51,14 +72,41 @@ export async function upsertSalary(input: SalaryInput): Promise<ActionResult<{ i
     .select("id")
     .single()
   if (error) return fail(humanize(error))
+
+  // AUDIT — see lib/audit.ts.
+  await recordAudit({
+    action: "create",
+    entity: "salary_schedule",
+    recordId: data.id as number,
+    changes: snapshot(row),
+    context: "/salary-schedule",
+  })
+
   revalidatePath("/salary-schedule")
   return ok({ id: data.id as number })
 }
 
 export async function deleteSalary(id: number): Promise<ActionResult> {
   const sb = getSupabaseServer()
+  const { data: before } = await sb
+    .from("salary_schedule")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle()
+
   const { error } = await sb.from("salary_schedule").delete().eq("id", id)
   if (error) return fail(describeError(error))
+
+  // AUDIT — see lib/audit.ts.
+  if (before) {
+    await recordAudit({
+      action: "delete",
+      entity: "salary_schedule",
+      recordId: id,
+      changes: snapshot(before),
+      context: "/salary-schedule",
+    })
+  }
   revalidatePath("/salary-schedule")
   return ok()
 }
@@ -133,7 +181,7 @@ export async function recordRaise(input: RaiseInput): Promise<ActionResult> {
   }
 
   // Step 2: insert the new row.
-  const { error: insertErr } = await sb.from("salary_schedule").insert({
+  const newRow = {
     user_id,
     effective_from,
     effective_to: null,
@@ -141,7 +189,12 @@ export async function recordRaise(input: RaiseInput): Promise<ActionResult> {
     annual_bonus: rest.annual_bonus,
     benefits_multiplier: rest.benefits_multiplier,
     notes: rest.notes ?? null,
-  })
+  }
+  const { data: inserted, error: insertErr } = await sb
+    .from("salary_schedule")
+    .insert(newRow)
+    .select("id")
+    .single()
 
   if (insertErr) {
     // Best-effort rollback on the previous row's end-date.
@@ -150,6 +203,24 @@ export async function recordRaise(input: RaiseInput): Promise<ActionResult> {
     }
     return fail(humanize(insertErr))
   }
+
+  // AUDIT — see lib/audit.ts. A raise is TWO mutations (end-date the old row,
+  // insert the new one) but ONE business event, so it is logged as one 'create'
+  // carrying both halves. Logging two rows would make the history read as an
+  // unrelated edit followed by an unrelated addition.
+  await recordAudit({
+    action: "create",
+    entity: "salary_schedule",
+    recordId: inserted?.id ?? null,
+    changes: {
+      raise: snapshot(newRow),
+      ended_previous_period:
+        prevRowId === null
+          ? null
+          : { id: prevRowId, effective_to: { old: null, new: dayBeforeIso } },
+    },
+    context: "/salary-schedule · recordRaise",
+  })
 
   revalidatePath("/salary-schedule")
   return ok()

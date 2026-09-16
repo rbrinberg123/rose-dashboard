@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { getSupabaseServer } from "@/lib/supabase"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
+import { diffRows, recordAudit, snapshot } from "@/lib/audit"
 
 const upsertSchema = z.object({
   id: z.number().int().positive().optional(),
@@ -25,8 +26,27 @@ export async function upsertOverheadPeriod(input: OverheadPeriodInput): Promise<
   const sb = getSupabaseServer()
 
   if (id) {
+    const { data: before } = await sb
+      .from("overhead_periods")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle()
+
     const { error } = await sb.from("overhead_periods").update(row).eq("id", id)
     if (error) return fail(humanize(error))
+
+    // AUDIT — see lib/audit.ts.
+    const changes = diffRows(before, row)
+    if (changes) {
+      await recordAudit({
+        action: "update",
+        entity: "overhead_periods",
+        recordId: id,
+        changes,
+        context: "/quarterly-overhead",
+      })
+    }
+
     revalidatePath("/quarterly-overhead")
     return ok({ id })
   }
@@ -37,14 +57,41 @@ export async function upsertOverheadPeriod(input: OverheadPeriodInput): Promise<
     .select("id")
     .single()
   if (error) return fail(humanize(error))
+
+  // AUDIT — see lib/audit.ts.
+  await recordAudit({
+    action: "create",
+    entity: "overhead_periods",
+    recordId: data.id as number,
+    changes: snapshot(row),
+    context: "/quarterly-overhead",
+  })
+
   revalidatePath("/quarterly-overhead")
   return ok({ id: data.id as number })
 }
 
 export async function deleteOverheadPeriod(id: number): Promise<ActionResult> {
   const sb = getSupabaseServer()
+  const { data: before } = await sb
+    .from("overhead_periods")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle()
+
   const { error } = await sb.from("overhead_periods").delete().eq("id", id)
   if (error) return fail(describeError(error))
+
+  // AUDIT — see lib/audit.ts.
+  if (before) {
+    await recordAudit({
+      action: "delete",
+      entity: "overhead_periods",
+      recordId: id,
+      changes: snapshot(before),
+      context: "/quarterly-overhead",
+    })
+  }
   revalidatePath("/quarterly-overhead")
   return ok()
 }

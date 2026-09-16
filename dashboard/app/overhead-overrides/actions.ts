@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { getSupabaseServer } from "@/lib/supabase"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
+import { diffRows, recordAudit, snapshot } from "@/lib/audit"
 
 const upsertSchema = z
   .object({
@@ -32,8 +33,27 @@ export async function upsertOverheadOverride(input: OverheadOverrideInput): Prom
   const sb = getSupabaseServer()
 
   if (id) {
+    const { data: before } = await sb
+      .from("overhead_overrides")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle()
+
     const { error } = await sb.from("overhead_overrides").update(row).eq("id", id)
     if (error) return fail(humanize(error))
+
+    // AUDIT — see lib/audit.ts.
+    const changes = diffRows(before, row)
+    if (changes) {
+      await recordAudit({
+        action: "update",
+        entity: "overhead_overrides",
+        recordId: id,
+        changes,
+        context: "/overhead-overrides",
+      })
+    }
+
     revalidatePath("/overhead-overrides")
     return ok({ id })
   }
@@ -44,14 +64,41 @@ export async function upsertOverheadOverride(input: OverheadOverrideInput): Prom
     .select("id")
     .single()
   if (error) return fail(humanize(error))
+
+  // AUDIT — see lib/audit.ts.
+  await recordAudit({
+    action: "create",
+    entity: "overhead_overrides",
+    recordId: data.id as number,
+    changes: snapshot(row),
+    context: "/overhead-overrides",
+  })
+
   revalidatePath("/overhead-overrides")
   return ok({ id: data.id as number })
 }
 
 export async function deleteOverheadOverride(id: number): Promise<ActionResult> {
   const sb = getSupabaseServer()
+  const { data: before } = await sb
+    .from("overhead_overrides")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle()
+
   const { error } = await sb.from("overhead_overrides").delete().eq("id", id)
   if (error) return fail(describeError(error))
+
+  // AUDIT — see lib/audit.ts.
+  if (before) {
+    await recordAudit({
+      action: "delete",
+      entity: "overhead_overrides",
+      recordId: id,
+      changes: snapshot(before),
+      context: "/overhead-overrides",
+    })
+  }
   revalidatePath("/overhead-overrides")
   return ok()
 }

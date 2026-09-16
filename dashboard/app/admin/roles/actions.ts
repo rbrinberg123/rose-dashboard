@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { getSupabaseServer } from "@/lib/supabase"
 import { requireSuperUser } from "@/lib/api-auth"
+import { diffRows, recordAudit } from "@/lib/audit"
 import {
   isDataPermissionKey,
   isRegisteredRoute,
@@ -54,10 +55,32 @@ export async function setRolePageAccess(
   }
 
   const sb = getSupabaseServer()
+
+  // Prior grant, for the audit diff. role_page_access records NO actor and no
+  // timestamp of its own, so before this the only evidence a permission had
+  // ever changed was the permission itself.
+  const { data: before } = await sb
+    .from("role_page_access")
+    .select("allowed")
+    .eq("role", role)
+    .eq("route", route)
+    .maybeSingle()
+
   const { error } = await sb
     .from("role_page_access")
     .upsert({ role, route, allowed }, { onConflict: "role,route" })
   if (error) return fail(describeError(error))
+
+  // AUDIT — see lib/audit.ts. This is a PERMISSION change, so it is among the
+  // most important things the trail carries. Composite record id: the table's
+  // key is (role, route), not a surrogate id.
+  await recordAudit({
+    action: before ? "update" : "create",
+    entity: "role_page_access",
+    recordId: `role:${role}|route:${route}`,
+    changes: before ? diffRows(before, { allowed }) : { role, route, allowed },
+    context: PATH,
+  })
 
   revalidatePath(PATH)
   return ok()
@@ -92,10 +115,29 @@ export async function setRoleDataPermission(
   }
 
   const sb = getSupabaseServer()
+
+  const { data: before } = await sb
+    .from("role_page_access")
+    .select("allowed")
+    .eq("role", role)
+    .eq("route", key)
+    .maybeSingle()
+
   const { error } = await sb
     .from("role_page_access")
     .upsert({ role, route: key, allowed }, { onConflict: "role,route" })
   if (error) return fail(describeError(error))
+
+  // AUDIT — logged under its own entity name even though it shares the
+  // role_page_access TABLE with page grants: a data permission and a page grant
+  // are different decisions and the trail should not conflate them.
+  await recordAudit({
+    action: before ? "update" : "create",
+    entity: "role_data_permission",
+    recordId: `role:${role}|key:${key}`,
+    changes: before ? diffRows(before, { allowed }) : { role, key, allowed },
+    context: PATH,
+  })
 
   revalidatePath(PATH)
   return ok()

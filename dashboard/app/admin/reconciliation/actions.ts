@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { getSupabaseServer } from "@/lib/supabase"
+import { recordAudit } from "@/lib/audit"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import type { ReconcileResult } from "@/lib/sync/reconcile"
 
@@ -94,6 +95,26 @@ async function deleteOne(
     .eq("id", id)
   if (updErr) return fail(describeError(updErr))
 
+  // AUDIT — see lib/audit.ts. Logged against the MIRROR TABLE the row was
+  // removed from, not against deletion_candidates: someone later asking "where
+  // did this account go?" will search for the account's id, not for the
+  // bookkeeping row that approved its removal.
+  //
+  // This is the one place the app hard-deletes synced data, so it is the single
+  // most important delete in the system to have a trail for. Both the single
+  // and the bulk action funnel through here, so both are covered.
+  await recordAudit({
+    action: "delete",
+    entity: cand.table_name as string,
+    recordId: cand.pk_value as string,
+    changes: {
+      approved_via: "deletion-reconciliation",
+      candidate_id: id,
+      pk_column: cand.pk_column,
+    },
+    context: PATH,
+  })
+
   return ok()
 }
 
@@ -108,13 +129,27 @@ export async function deleteCandidate(id: number): Promise<ActionResult> {
 export async function dismissCandidate(id: number): Promise<ActionResult> {
   const sb = getSupabaseServer()
   const email = await currentEmail()
-  const { error } = await sb
+  const { data, error } = await sb
     .from("deletion_candidates")
     .update({ status: "dismissed", resolved_at: new Date().toISOString(), resolved_by: email })
     .eq("id", id)
     .eq("status", "pending")
+    .select("id")
   revalidatePath(PATH)
   if (error) return fail(describeError(error))
+
+  // AUDIT — only when a row actually moved. The .eq("status","pending") makes
+  // re-dismissing an already-resolved candidate a no-op, and a no-op should not
+  // leave a trail entry claiming otherwise.
+  if (data && data.length > 0) {
+    await recordAudit({
+      action: "update",
+      entity: "deletion_candidates",
+      recordId: id,
+      changes: { status: { old: "pending", new: "dismissed" } },
+      context: PATH,
+    })
+  }
   return ok()
 }
 
@@ -138,12 +173,27 @@ export async function deleteCandidates(ids: number[]): Promise<ActionResult<{ de
 export async function dismissCandidates(ids: number[]): Promise<ActionResult<{ dismissed: number }>> {
   const sb = getSupabaseServer()
   const email = await currentEmail()
-  const { error, count } = await sb
+  const { data, error, count } = await sb
     .from("deletion_candidates")
     .update({ status: "dismissed", resolved_at: new Date().toISOString(), resolved_by: email }, { count: "exact" })
     .in("id", ids)
     .eq("status", "pending")
+    .select("id")
   revalidatePath(PATH)
   if (error) return fail(describeError(error))
+
+  // AUDIT — one entry per candidate actually dismissed, so each row's history
+  // is complete when queried by record_id. The counts here are small (a sweep
+  // surfaces tens, not thousands), so per-row entries are affordable and more
+  // useful than a single summary row nobody can join to.
+  for (const r of (data ?? []) as { id: number }[]) {
+    await recordAudit({
+      action: "update",
+      entity: "deletion_candidates",
+      recordId: r.id,
+      changes: { status: { old: "pending", new: "dismissed" } },
+      context: `${PATH} · bulk`,
+    })
+  }
   return ok({ dismissed: count ?? 0 })
 }

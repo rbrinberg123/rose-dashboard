@@ -325,6 +325,17 @@ CREATE INDEX idx_touchpoints_client ON public.touchpoints (client_account_id, sc
 CREATE INDEX idx_touchpoints_owner ON public.touchpoints (owner_id, scheduled_start DESC);
 CREATE INDEX idx_touchpoints_modified ON public.touchpoints (modified_on DESC);
 
+-- Added 2026-09-15 for the CRM -> Touchpoints admin page: the default sort and the
+-- five quick-filter dropdowns. See sql/patches/2026-09-15_admin_touchpoints.sql for
+-- the measurements behind each. NOTE idx_touchpoints_client leads with
+-- client_account_id and so cannot serve an unfiltered ORDER BY scheduled_start DESC.
+CREATE INDEX IF NOT EXISTS idx_touchpoints_scheduled_start   ON public.touchpoints (scheduled_start DESC);
+CREATE INDEX IF NOT EXISTS idx_touchpoints_type_label        ON public.touchpoints (touchpoint_type_label);
+CREATE INDEX IF NOT EXISTS idx_touchpoints_contact_type_label ON public.touchpoints (contact_type_label);
+CREATE INDEX IF NOT EXISTS idx_touchpoints_created_by_id     ON public.touchpoints (created_by_id);
+CREATE INDEX IF NOT EXISTS idx_touchpoints_status_label      ON public.touchpoints (status_label);
+CREATE INDEX IF NOT EXISTS idx_touchpoints_state_label       ON public.touchpoints (state_label);
+
 
 -- -----------------------------------------------------------------------------
 -- client_notes
@@ -362,6 +373,22 @@ CREATE TABLE public.client_notes (
 
 CREATE INDEX idx_client_notes_client ON public.client_notes (client_account_id, note_date DESC);
 CREATE INDEX idx_client_notes_modified ON public.client_notes (modified_on DESC);
+
+-- Added 2026-09-15 for the CRM -> Notes admin page: the default sort and the five
+-- quick-filter dropdowns. See sql/patches/2026-09-15_admin_notes.sql for the
+-- measurements. NOTE idx_client_notes_client leads with client_account_id and so
+-- cannot serve an unfiltered ORDER BY note_date DESC.
+--
+-- The three btrim() indexes are EXPRESSION indexes, matching the btrim
+-- v_admin_notes_all applies: status_text and primary_risk_driver are typed with a
+-- trailing newline about half the time, so the raw columns hold "Stable" and
+-- "Stable\n" as different values and a plain index could not serve a filter on
+-- the trimmed one.
+CREATE INDEX IF NOT EXISTS idx_client_notes_note_date    ON public.client_notes (note_date DESC);
+CREATE INDEX IF NOT EXISTS idx_client_notes_owner_id     ON public.client_notes (owner_id);
+CREATE INDEX IF NOT EXISTS idx_client_notes_status_text  ON public.client_notes (btrim(status_text));
+CREATE INDEX IF NOT EXISTS idx_client_notes_risk_driver  ON public.client_notes (btrim(primary_risk_driver));
+CREATE INDEX IF NOT EXISTS idx_client_notes_review_cycle ON public.client_notes (btrim(name));
 
 
 -- -----------------------------------------------------------------------------
@@ -550,10 +577,16 @@ CREATE TRIGGER accounts_touch_synced_at
   BEFORE INSERT OR UPDATE ON public.accounts
   FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();
 
-DROP TRIGGER IF EXISTS users_touch_synced_at ON public.users;
-CREATE TRIGGER users_touch_synced_at
-  BEFORE INSERT OR UPDATE ON public.users
-  FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();
+-- public.users is deliberately NOT in this list. It is the one mirror table
+-- with no _synced_at column — it tracks freshness with first_seen_at /
+-- last_seen_at instead, and mapSystemUser writes last_seen_at directly. The
+-- trigger was attached to it anyway when this block was first written, and
+-- every users upsert then failed with
+--   record "new" has no field "_synced_at"
+-- so no new or changed Dynamics user mirrored in from 2026-09-11 until the
+-- trigger was dropped on 2026-09-16
+-- (sql/patches/2026-09-16_drop_users_synced_at_trigger.sql).
+-- Do not re-add it unless users gains a real _synced_at column.
 
 DROP TRIGGER IF EXISTS meetings_touch_synced_at ON public.meetings;
 CREATE TRIGGER meetings_touch_synced_at

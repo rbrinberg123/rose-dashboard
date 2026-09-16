@@ -7,6 +7,7 @@ import { getSupabaseServer } from "@/lib/supabase"
 import { getEffectiveIdentity } from "@/lib/effective-identity"
 import { resolveClientScope } from "@/lib/access/data-scope"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
+import { diffRows, recordAudit } from "@/lib/audit"
 import { canEditClientNote } from "./todo-scope"
 
 /**
@@ -42,13 +43,25 @@ export async function saveClientTodoNote(
   }
 
   const trimmed = note.trim()
+  const nextNote = trimmed === "" ? null : trimmed
   const sb = getSupabaseServer()
+
+  // Prior text, for the audit diff. This table records only `updated_at` — no
+  // actor at all — so until now a note's history was unrecoverable: the upsert
+  // is last-write-wins and the previous text was simply gone. The trail is the
+  // only place that now survives.
+  const { data: before } = await sb
+    .from("client_todo_notes")
+    .select("note")
+    .eq("client_account_id", client_account_id)
+    .maybeSingle()
+
   const { error } = await sb
     .from("client_todo_notes")
     .upsert(
       {
         client_account_id,
-        note: trimmed === "" ? null : trimmed,
+        note: nextNote,
         // Set explicitly so an INSERT stamps it too (the trigger only fires on
         // UPDATE), keeping "saved N ago" honest on the first save.
         updated_at: new Date().toISOString(),
@@ -56,6 +69,19 @@ export async function saveClientTodoNote(
       { onConflict: "client_account_id" },
     )
   if (error) return fail(describeError(error))
+
+  // AUDIT — see lib/audit.ts. `diffRows` returns null when the text is
+  // unchanged, so re-saving an untouched note leaves no entry.
+  const changes = diffRows(before ?? {}, { note: nextNote })
+  if (changes) {
+    await recordAudit({
+      action: before ? "update" : "create",
+      entity: "client_todo_notes",
+      recordId: client_account_id,
+      changes,
+      context: "/clients/to-do",
+    })
+  }
 
   revalidatePath("/clients/to-do")
   return ok()

@@ -103,7 +103,23 @@ The entity *list* is data-driven, but individual *fields* are hand-modeled. Mini
 
 **Backfill caveat:** the sync requests all attributes, so the new field flows in for rows **modified after** the next run. Unchanged historical rows won't get the new column populated until you either reset that entity's `sync_runs` watermark (forcing a full re-pull) or backfill from `_raw`. See [08 — Runbook](08-runbook.md).
 
-Adding a whole new **entity** (not a field) is the case where `entities.ts` changes — add an `ENTITIES` object plus its mapper and its `create table` SQL.
+Adding a whole new **entity** (not a field) is the case where `entities.ts` changes — add an `ENTITIES` object plus its mapper and its `create table` SQL. If the new table declares a `_synced_at` column, also attach the `touch_synced_at` trigger — and if it does **not**, make sure you do not (see the next section).
+
+### `public.users` has no `_synced_at` — never attach the trigger to it
+
+Eight of the nine mirror tables carry a `_synced_at` column, stamped on every write by the `public.touch_synced_at()` `BEFORE INSERT OR UPDATE` trigger.
+
+**`public.users` is the exception.** It has no `_synced_at` and no `_raw`; it records freshness with **`first_seen_at` / `last_seen_at`**, and `mapSystemUser` writes `last_seen_at` on every run (`first_seen_at` is deliberately omitted from the payload so the `DEFAULT now()` survives on the upsert's UPDATE path).
+
+Attaching `touch_synced_at` to `users` does not fail at `CREATE TRIGGER` time — plpgsql resolves `NEW._synced_at` at **runtime** — so the breakage only shows up on the next sync, where every `users` upsert throws:
+
+```
+record "new" has no field "_synced_at"
+```
+
+This happened for real between 2026-09-11 and 2026-09-16: no new or changed Dynamics user mirrored in for five days, and those users could not be granted roles or appear in permissions at all. Because `syncEntity` marks a batch-level upsert failure as `partial` and **still advances the watermark**, recovery also required a forced full re-pull (`UPDATE public.sync_runs SET last_synced_at = NULL WHERE entity_name = 'systemusers';`), not just dropping the trigger.
+
+Full write-up, plus the audit query that lists every `touch_synced_at` attachment against whether the table really has the column, is in [03 — Data Model](03-data-model.md#_synced_at--last-synced).
 
 ### The two-Azure-apps caveat
 

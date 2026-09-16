@@ -15,6 +15,8 @@ import {
   EyeOff,
   Users,
   ShieldCheck,
+  UsersRound,
+  ScrollText,
 } from "lucide-react"
 
 import { PageShell } from "@/components/page-shell"
@@ -731,6 +733,18 @@ export default async function AdminHubPage() {
               title="Roles"
               description="Pages × roles matrix — live, controls which pages each role can reach."
               href="/admin/roles"
+            />
+            <InternalCard
+              icon={UsersRound}
+              title="Account Teams"
+              description="Who holds each of the six account-team roles per client. Setup only — not yet wired to visibility."
+              href="/admin/account-teams"
+            />
+            <InternalCard
+              icon={ScrollText}
+              title="Audit Log"
+              description="Every change made through the dashboard — who, what, and old → new. Read-only."
+              href="/admin/audit-log"
             />
             <InternalCard
               icon={BookOpen}

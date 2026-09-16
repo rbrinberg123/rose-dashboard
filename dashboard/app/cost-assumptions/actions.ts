@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { getSupabaseServer } from "@/lib/supabase"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
+import { diffRows, recordAudit } from "@/lib/audit"
 
 /**
  * Cost-assumptions has exactly one row (id = 1, enforced by DB CHECK).
@@ -31,12 +32,34 @@ export async function updateCostAssumptions(
   }
 
   const sb = getSupabaseServer()
+
+  // Prior values, for the audit diff. These assumptions drive every margin and
+  // productivity figure in the app, so "who changed the multiplier, and from
+  // what" is exactly the question this trail has to answer.
+  const { data: before } = await sb
+    .from("cost_assumptions")
+    .select("*")
+    .eq("id", 1)
+    .maybeSingle()
+
   const { error } = await sb
     .from("cost_assumptions")
     .update(parsed.data)
     .eq("id", 1)
 
   if (error) return fail(describeError(error))
+
+  // AUDIT — see lib/audit.ts. Null diff = a save that changed nothing.
+  const changes = diffRows(before, parsed.data)
+  if (changes) {
+    await recordAudit({
+      action: "update",
+      entity: "cost_assumptions",
+      recordId: 1,
+      changes,
+      context: "/cost-assumptions",
+    })
+  }
 
   revalidatePath("/cost-assumptions")
   return ok()

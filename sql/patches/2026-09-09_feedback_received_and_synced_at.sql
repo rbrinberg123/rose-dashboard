@@ -210,10 +210,18 @@ CREATE TRIGGER accounts_touch_synced_at
   BEFORE INSERT OR UPDATE ON public.accounts
   FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();
 
-DROP TRIGGER IF EXISTS users_touch_synced_at ON public.users;
-CREATE TRIGGER users_touch_synced_at
-  BEFORE INSERT OR UPDATE ON public.users
-  FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();
+-- SUPERSEDED 2026-09-16 -- the users trigger below was WRONG and is removed.
+-- public.users has no _synced_at column (it uses first_seen_at/last_seen_at),
+-- so this trigger made every users upsert throw
+--   record "new" has no field "_synced_at"
+-- and the systemusers sync failed every run from 2026-09-11 to 2026-09-16.
+-- Dropped by sql/patches/2026-09-16_drop_users_synced_at_trigger.sql.
+-- DO NOT re-enable when re-running this patch.
+--
+-- DROP TRIGGER IF EXISTS users_touch_synced_at ON public.users;
+-- CREATE TRIGGER users_touch_synced_at
+--   BEFORE INSERT OR UPDATE ON public.users
+--   FOR EACH ROW EXECUTE FUNCTION public.touch_synced_at();
 
 DROP TRIGGER IF EXISTS meetings_touch_synced_at ON public.meetings;
 CREATE TRIGGER meetings_touch_synced_at

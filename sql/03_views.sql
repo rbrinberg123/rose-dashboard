@@ -5114,3 +5114,314 @@ CREATE OR REPLACE VIEW public.v_admin_events_filter_options AS
   GROUP BY 1, 2;
 
 GRANT SELECT ON public.v_admin_events_filter_options TO service_role;
+
+-- =============================================================================
+-- v_admin_touchpoints_all  /  v_admin_touchpoints_filter_options
+-- The CRM -> Touchpoints admin table. Added 2026-09-15.
+--
+-- public.touchpoints is the mirror of the Dynamics `phonecall` entity,
+-- relabelled because Rose logs every client contact as one (Virtual 946 / Email
+-- 94 / In-Person 71 / Social 10 / Onboarding Call 9 / Teach-in 4 of 1,141 rows).
+--
+-- SECURITY: UNSCOPED, like v_admin_meetings_all / v_admin_events_all /
+-- v_admin_tasks_all. /touchpoints is in ADMIN_ONLY_ROUTES (super-user-only, not
+-- grantable through the Roles matrix) and every server action re-checks the role.
+-- Do not reuse this view on a row-scoped page.
+--
+-- Three columns are NOT what their Dynamics names suggest, and are renamed here
+-- to say so. The full measurements are in
+-- sql/patches/2026-09-15_admin_touchpoints.sql; the short version:
+--   owner -> owner_team_*  `_ownerid_value@...lookuplogicalname` is "team" on
+--                          every row and the team is named after the CLIENT, so
+--                          owner_name duplicated client_account_name on ~94% of
+--                          sampled rows and no owner_id resolves to public.users.
+--                          The real person is created_by.
+--   contact_type_label     WHICH ROLE was spoken to (IRO/CEO/CFO/Other),
+--                          semicolon-joined for multi-select. There is no contact
+--                          NAME anywhere in this entity.
+--   direction_label        derived from direction_code, which is true on all
+--                          1,141 rows -- constant "Outgoing" today.
+-- modified_by_name is dug out of _raw: the mirror flattens created_by but not
+-- modified_by. is_recent is the rolling 12-month window the page's default view
+-- filters on (the shared filter grammar has no relative-date token, so a saved
+-- date filter would freeze to the day it was written).
+-- =============================================================================
+
+CREATE OR REPLACE VIEW public.v_admin_touchpoints_all AS
+SELECT
+  t.touchpoint_id,
+
+  -- ---- identity ----
+  NULLIF(btrim(t.subject), '')                        AS subject,
+  NULLIF(btrim(t.description), '')                    AS description,
+
+  -- ---- classification ----
+  t.touchpoint_type_label,
+  t.contact_type_label,
+  t.state_label,
+  t.status_label,
+  CASE
+    WHEN t.direction_code IS TRUE  THEN 'Outgoing'
+    WHEN t.direction_code IS FALSE THEN 'Incoming'
+    ELSE NULL
+  END                                                 AS direction_label,
+
+  -- ---- dates ----
+  t.scheduled_start                                   AS touchpoint_date,
+  t.scheduled_end,
+  t.actual_duration_minutes                           AS duration_minutes,
+  (t.scheduled_start >= (now() - interval '12 months')) AS is_recent,
+  t.created_on,
+  t.modified_on,
+
+  -- ---- links ----
+  t.client_account_id,
+  t.client_account_name,
+  a.ticker_symbol                                     AS client_ticker,
+  t.regarding_id,
+
+  -- ---- people ----
+  t.created_by_id,
+  t.created_by_name,
+  NULLIF(btrim(t._raw ->> '_modifiedby_value@OData.Community.Display.V1.FormattedValue'), '')
+                                                      AS modified_by_name,
+  NULLIF(t._raw ->> '_modifiedby_value', '')::uuid    AS modified_by_id,
+  t.owner_id                                          AS owner_team_id,
+  t.owner_name                                        AS owner_team_name,
+
+  -- ---- raw codes (available-but-hidden in the column catalog) ----
+  t.touchpoint_type_code,
+  t.contact_type_code,
+  t.state_code,
+  t.status_code,
+  t.direction_code,
+  t._synced_at
+FROM public.touchpoints t
+LEFT JOIN public.accounts a ON a.account_id = t.client_account_id;
+
+GRANT SELECT ON public.v_admin_touchpoints_all TO service_role;
+
+
+-- Distinct values for the five quick-filter dropdowns, in the same
+-- (kind, value, label, count) shape as the meetings / events / tasks options
+-- views. There is deliberately NO `owner` kind -- see the owner note above.
+CREATE OR REPLACE VIEW public.v_admin_touchpoints_filter_options AS
+  SELECT
+    'client'::text                                    AS kind,
+    t.client_account_id::text                         AS value,
+    min(t.client_account_name)                        AS label,
+    count(*)::bigint                                  AS touchpoint_count
+  FROM public.touchpoints t
+  WHERE t.client_account_id IS NOT NULL
+    AND NULLIF(btrim(t.client_account_name), '') IS NOT NULL
+  GROUP BY 1, 2
+
+  UNION ALL
+
+  SELECT
+    'type'::text                                      AS kind,
+    btrim(t.touchpoint_type_label)                    AS value,
+    btrim(t.touchpoint_type_label)                    AS label,
+    count(*)::bigint                                  AS touchpoint_count
+  FROM public.touchpoints t
+  WHERE NULLIF(btrim(t.touchpoint_type_label), '') IS NOT NULL
+  GROUP BY 1, 2
+
+  UNION ALL
+
+  -- The whole multi-select combination is the value, because that is what the
+  -- column literally holds and an `eq` filter has to match it exactly.
+  SELECT
+    'contact_type'::text                              AS kind,
+    btrim(t.contact_type_label)                       AS value,
+    btrim(t.contact_type_label)                       AS label,
+    count(*)::bigint                                  AS touchpoint_count
+  FROM public.touchpoints t
+  WHERE NULLIF(btrim(t.contact_type_label), '') IS NOT NULL
+  GROUP BY 1, 2
+
+  UNION ALL
+
+  -- The real staff member, keyed by CANONICAL user id so a person with duplicate
+  -- systemuser records is not split across two choices.
+  SELECT
+    'created_by'::text                                AS kind,
+    public.canonical_user_id(t.created_by_id)::text   AS value,
+    min(t.created_by_name)                            AS label,
+    count(*)::bigint                                  AS touchpoint_count
+  FROM public.touchpoints t
+  WHERE t.created_by_id IS NOT NULL
+    AND NULLIF(btrim(t.created_by_name), '') IS NOT NULL
+  GROUP BY 1, 2
+
+  UNION ALL
+
+  SELECT
+    'status'::text                                    AS kind,
+    btrim(t.status_label)                             AS value,
+    btrim(t.status_label)                             AS label,
+    count(*)::bigint                                  AS touchpoint_count
+  FROM public.touchpoints t
+  WHERE NULLIF(btrim(t.status_label), '') IS NOT NULL
+  GROUP BY 1, 2;
+
+GRANT SELECT ON public.v_admin_touchpoints_filter_options TO service_role;
+
+-- =============================================================================
+-- v_admin_notes_all  /  v_admin_notes_filter_options
+-- The CRM -> Notes admin table. Added 2026-09-15.
+--
+-- public.client_notes mirrors the Dynamics `bcs_clientnote` entity: a monthly
+-- client-review record, one per client per cycle. 693 live rows, note_date
+-- 2026-02-04 .. 2026-09-11.
+--
+-- SECURITY: UNSCOPED, like the other v_admin_* views. /notes is in
+-- ADMIN_ONLY_ROUTES (super-user-only, not grantable through the Roles matrix) and
+-- every server action re-checks the role. This is the most sensitive of the five
+-- CRM tables -- it carries the firm's candid internal assessment of each
+-- relationship. Do not reuse this view on a row-scoped page.
+--
+-- FIVE TRAPS, all measured; the full write-up is in
+-- sql/patches/2026-09-15_admin_notes.sql:
+--   1. status_text / primary_risk_driver carry TRAILING NEWLINES about half the
+--      time -- "Stable" and "Stable\n" are stored as different values (13 and 32
+--      distinct raw, 8 and 21 after btrim). Both are btrim'd here, and the
+--      options view btrims to match. "At Risk." stays distinct from "At Risk":
+--      that is a typo in two rows, not whitespace.
+--   2. THE BODY IS BETTER IN _raw. The mirror flattens bcs_notestext into
+--      notes_text with its line breaks COLLAPSED; Dynamics also carries
+--      `bcs_notes`, the same text with the breaks intact. They differ on 435 of
+--      693 rows. note_body prefers bcs_notes; notes_text is kept alongside it.
+--   3. OWNER IS A REAL PERSON but has NO NAME COLUMN -- the mapper took only
+--      owner_id, and the ids do not resolve against public.users. owner_name,
+--      created_by_name and modified_by_name all come out of _raw.
+--   4. state_label and status_label are BOTH 'Active' on all 693 rows. The
+--      status that means something is status_text, a free-text Rose field.
+--   5. note_date / action_deadline are `date`s, LIFTED TO EASTERN MIDNIGHT here.
+--      The shared filter grammar resolves a date filter to the UTC instant of an
+--      Eastern midnight; comparing a bare date against that casts to UTC
+--      midnight, four hours earlier, and silently drops the boundary day.
+--
+-- Also: 25 rows are empty shells (no date, client, body or cycle). The default
+-- view filters on note_date, which drops exactly those.
+-- =============================================================================
+
+CREATE OR REPLACE VIEW public.v_admin_notes_all AS
+SELECT
+  cn.note_id,
+
+  -- ---- the note ----
+  -- `name` is the review CYCLE, not a title: "Client Review - June 2026".
+  NULLIF(btrim(cn.name), '')                          AS review_cycle,
+  (cn.note_date::timestamp AT TIME ZONE 'America/New_York')
+                                                      AS note_date,
+  COALESCE(
+    NULLIF(btrim(cn._raw ->> 'bcs_notes'), ''),
+    NULLIF(btrim(cn.notes_text), '')
+  )                                                   AS note_body,
+  NULLIF(btrim(cn.notes_text), '')                    AS notes_text,
+
+  -- ---- assessment (both btrim'd -- see trap 1) ----
+  NULLIF(btrim(cn.status_text), '')                   AS status_text,
+  NULLIF(btrim(cn.primary_risk_driver), '')           AS primary_risk_driver,
+
+  -- ---- action ----
+  NULLIF(btrim(cn.action_step), '')                   AS action_step,
+  -- Staff INITIALS, sometimes several ("LW/RB"). Not a resolvable person id.
+  NULLIF(btrim(cn.action_owner), '')                  AS action_owner,
+  (cn.action_deadline::timestamp AT TIME ZONE 'America/New_York')
+                                                      AS action_deadline,
+
+  -- ---- links ----
+  cn.client_account_id,
+  cn.client_account_name,
+  a.ticker_symbol                                     AS client_ticker,
+
+  -- ---- people (all sourced from _raw -- see trap 3) ----
+  cn.owner_id,
+  NULLIF(btrim(cn._raw ->> '_ownerid_value@OData.Community.Display.V1.FormattedValue'), '')
+                                                      AS owner_name,
+  NULLIF(cn._raw ->> '_createdby_value', '')::uuid    AS created_by_id,
+  NULLIF(btrim(cn._raw ->> '_createdby_value@OData.Community.Display.V1.FormattedValue'), '')
+                                                      AS created_by_name,
+  NULLIF(btrim(cn._raw ->> '_modifiedby_value@OData.Community.Display.V1.FormattedValue'), '')
+                                                      AS modified_by_name,
+
+  -- ---- system ----
+  (cn.note_date >= ((now() AT TIME ZONE 'America/New_York')::date - interval '12 months'))
+                                                      AS is_recent,
+  cn.state_label,
+  cn.status_label,
+  cn.created_on,
+  cn.modified_on,
+  cn._synced_at
+FROM public.client_notes cn
+LEFT JOIN public.accounts a ON a.account_id = cn.client_account_id;
+
+GRANT SELECT ON public.v_admin_notes_all TO service_role;
+
+
+-- Distinct values for the five quick-filter dropdowns, in the same
+-- (kind, value, label, count) shape as the other options views. Every text kind
+-- btrims, matching the view above -- otherwise "Stable" and "Stable\n" would
+-- appear as two choices and each would return only part of the rows.
+CREATE OR REPLACE VIEW public.v_admin_notes_filter_options AS
+  SELECT
+    'client'::text                                    AS kind,
+    cn.client_account_id::text                        AS value,
+    min(cn.client_account_name)                       AS label,
+    count(*)::bigint                                  AS note_count
+  FROM public.client_notes cn
+  WHERE cn.client_account_id IS NOT NULL
+    AND NULLIF(btrim(cn.client_account_name), '') IS NOT NULL
+  GROUP BY 1, 2
+
+  UNION ALL
+
+  SELECT
+    'status'::text                                    AS kind,
+    btrim(cn.status_text)                             AS value,
+    btrim(cn.status_text)                             AS label,
+    count(*)::bigint                                  AS note_count
+  FROM public.client_notes cn
+  WHERE NULLIF(btrim(cn.status_text), '') IS NOT NULL
+  GROUP BY 1, 2
+
+  UNION ALL
+
+  SELECT
+    'risk'::text                                      AS kind,
+    btrim(cn.primary_risk_driver)                     AS value,
+    btrim(cn.primary_risk_driver)                     AS label,
+    count(*)::bigint                                  AS note_count
+  FROM public.client_notes cn
+  WHERE NULLIF(btrim(cn.primary_risk_driver), '') IS NOT NULL
+  GROUP BY 1, 2
+
+  UNION ALL
+
+  -- The note's author. Label from _raw -- client_notes has no owner_name column.
+  SELECT
+    'owner'::text                                     AS kind,
+    public.canonical_user_id(cn.owner_id)::text       AS value,
+    min(btrim(cn._raw ->> '_ownerid_value@OData.Community.Display.V1.FormattedValue'))
+                                                      AS label,
+    count(*)::bigint                                  AS note_count
+  FROM public.client_notes cn
+  WHERE cn.owner_id IS NOT NULL
+    AND NULLIF(btrim(cn._raw ->> '_ownerid_value@OData.Community.Display.V1.FormattedValue'), '')
+        IS NOT NULL
+  GROUP BY 1, 2
+
+  UNION ALL
+
+  SELECT
+    'cycle'::text                                     AS kind,
+    btrim(cn.name)                                    AS value,
+    btrim(cn.name)                                    AS label,
+    count(*)::bigint                                  AS note_count
+  FROM public.client_notes cn
+  WHERE NULLIF(btrim(cn.name), '') IS NOT NULL
+  GROUP BY 1, 2;
+
+GRANT SELECT ON public.v_admin_notes_filter_options TO service_role;

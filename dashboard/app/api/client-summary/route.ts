@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import Anthropic from "@anthropic-ai/sdk"
 import { getSupabaseServer } from "@/lib/supabase"
 import { requireSuperUser } from "@/lib/api-auth"
+import { recordAudit } from "@/lib/audit"
 import {
   ClientSummaryError,
   SUMMARY_MODEL,
@@ -47,6 +48,27 @@ export async function GET(request: Request) {
 
   try {
     const result = await generateAndCacheClientSummary(sb, anthropic, accountId)
+
+    // AUDIT — see lib/audit.ts. A super-user regenerating one client's AI
+    // summary OVERWRITES the stored text, so the previous wording is otherwise
+    // gone. Only the generated-at stamp is diffed, not the prose: the trail
+    // records that a regeneration happened and who asked for it, and the full
+    // text belongs in the row, not duplicated into every log entry.
+    //
+    // The NIGHTLY batch (/api/client-summary/refresh-all) is deliberately NOT
+    // audited per client -- it is scheduled machinery, not a person's decision,
+    // and 228 entries a night would bury the human trail.
+    await recordAudit({
+      action: "update",
+      entity: "accounts.ai_summary",
+      recordId: result.accountId,
+      changes: {
+        ai_summary_generated_at: { old: null, new: result.generatedAt },
+        model: SUMMARY_MODEL,
+      },
+      context: "/api/client-summary",
+    })
+
     return NextResponse.json({
       account_id: result.accountId,
       client_name: result.clientName,

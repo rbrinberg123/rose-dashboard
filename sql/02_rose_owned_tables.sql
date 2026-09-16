@@ -394,3 +394,264 @@ CREATE TRIGGER event_saved_views_touch_updated_at
 ALTER TABLE public.event_saved_views ENABLE ROW LEVEL SECURITY;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_saved_views TO service_role;
+
+-- -----------------------------------------------------------------------------
+-- touchpoint_saved_views
+-- Saved views for the CRM -> Touchpoints admin table. Identical shape and
+-- identical rules to meeting_saved_views and event_saved_views above; the APP
+-- CODE is shared (one parameterised module in dashboard/lib/table-views/
+-- saved-views.ts enforces all of them), so only the storage is duplicated.
+--
+-- RLS on, zero policies => only service_role reaches it.
+-- Added 2026-09-15; see sql/patches/2026-09-15_admin_touchpoints.sql.
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.touchpoint_saved_views (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope         text NOT NULL CHECK (scope IN ('system', 'personal')),
+  owner_user_id uuid REFERENCES public.users(user_id),
+  name          text NOT NULL CHECK (btrim(name) <> ''),
+  config        jsonb NOT NULL,
+  is_default    boolean NOT NULL DEFAULT false,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT touchpoint_saved_views_owner_matches_scope CHECK (
+    (scope = 'system'   AND owner_user_id IS NULL) OR
+    (scope = 'personal' AND owner_user_id IS NOT NULL)
+  )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS touchpoint_saved_views_one_personal_default
+  ON public.touchpoint_saved_views (owner_user_id)
+  WHERE scope = 'personal' AND is_default;
+
+CREATE UNIQUE INDEX IF NOT EXISTS touchpoint_saved_views_one_system_default
+  ON public.touchpoint_saved_views (scope)
+  WHERE scope = 'system' AND is_default;
+
+CREATE UNIQUE INDEX IF NOT EXISTS touchpoint_saved_views_personal_name
+  ON public.touchpoint_saved_views (owner_user_id, lower(btrim(name)))
+  WHERE scope = 'personal';
+
+CREATE UNIQUE INDEX IF NOT EXISTS touchpoint_saved_views_system_name
+  ON public.touchpoint_saved_views (lower(btrim(name)))
+  WHERE scope = 'system';
+
+CREATE INDEX IF NOT EXISTS idx_touchpoint_saved_views_scope_owner
+  ON public.touchpoint_saved_views (scope, owner_user_id);
+
+DROP TRIGGER IF EXISTS touchpoint_saved_views_touch_updated_at ON public.touchpoint_saved_views;
+CREATE TRIGGER touchpoint_saved_views_touch_updated_at
+  BEFORE UPDATE ON public.touchpoint_saved_views
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+ALTER TABLE public.touchpoint_saved_views ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.touchpoint_saved_views TO service_role;
+
+-- -----------------------------------------------------------------------------
+-- note_saved_views
+-- Saved views for the CRM -> Notes admin table. Identical shape and identical
+-- rules to the other *_saved_views tables above; the APP CODE is shared (one
+-- parameterised module in dashboard/lib/table-views/saved-views.ts enforces all
+-- five), so only the storage is duplicated.
+--
+-- RLS on, zero policies => only service_role reaches it.
+-- Added 2026-09-15; see sql/patches/2026-09-15_admin_notes.sql.
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.note_saved_views (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope         text NOT NULL CHECK (scope IN ('system', 'personal')),
+  owner_user_id uuid REFERENCES public.users(user_id),
+  name          text NOT NULL CHECK (btrim(name) <> ''),
+  config        jsonb NOT NULL,
+  is_default    boolean NOT NULL DEFAULT false,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT note_saved_views_owner_matches_scope CHECK (
+    (scope = 'system'   AND owner_user_id IS NULL) OR
+    (scope = 'personal' AND owner_user_id IS NOT NULL)
+  )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS note_saved_views_one_personal_default
+  ON public.note_saved_views (owner_user_id)
+  WHERE scope = 'personal' AND is_default;
+
+CREATE UNIQUE INDEX IF NOT EXISTS note_saved_views_one_system_default
+  ON public.note_saved_views (scope)
+  WHERE scope = 'system' AND is_default;
+
+CREATE UNIQUE INDEX IF NOT EXISTS note_saved_views_personal_name
+  ON public.note_saved_views (owner_user_id, lower(btrim(name)))
+  WHERE scope = 'personal';
+
+CREATE UNIQUE INDEX IF NOT EXISTS note_saved_views_system_name
+  ON public.note_saved_views (lower(btrim(name)))
+  WHERE scope = 'system';
+
+CREATE INDEX IF NOT EXISTS idx_note_saved_views_scope_owner
+  ON public.note_saved_views (scope, owner_user_id);
+
+DROP TRIGGER IF EXISTS note_saved_views_touch_updated_at ON public.note_saved_views;
+CREATE TRIGGER note_saved_views_touch_updated_at
+  BEFORE UPDATE ON public.note_saved_views
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+ALTER TABLE public.note_saved_views ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.note_saved_views TO service_role;
+
+-- -----------------------------------------------------------------------------
+-- account_team_members
+-- The DASHBOARD-OWNED account team: who holds each of six roles on each client.
+-- Not a Dynamics mirror (no _raw, no _synced_at; the sync never writes here).
+--
+-- SEEDED from the CRM's account-level role lookups, then owned here. The
+-- role -> accounts-column mapping, the memo=teaser reasoning, and the
+-- re-runnable seed all live in sql/patches/2026-09-15_account_team_members.sql.
+--
+-- SETUP ONLY as of 2026-09-15: the ONLY reader/writer is /admin/account-teams.
+-- It is deliberately NOT wired into teamAccountIds, resolveClientScope,
+-- lib/access/*, lib/account-team.ts, or any CRM or reporting page. It is
+-- intended to become the source of truth for account-team-based visibility
+-- later; that is a separate, deliberate change.
+--
+-- NO UNIQUE (account_id, role) ON PURPOSE: the UI allows one assignee per slot
+-- and enforces that in the server action, but the schema permits several so a
+-- future multi-assignee role needs no migration. The unique index below only
+-- blocks the meaningless case -- the same person twice in the same slot.
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.account_team_members (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id  uuid NOT NULL REFERENCES public.accounts(account_id) ON DELETE CASCADE,
+  role        text NOT NULL CHECK (role IN (
+                'account_manager','secondary_manager','feedback_report',
+                'associate','memo','logistics'
+              )),
+  user_id     uuid NOT NULL REFERENCES public.users(user_id) ON DELETE RESTRICT,
+  source      text NOT NULL DEFAULT 'manual' CHECK (source IN ('crm_seed','manual')),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  created_by  text,
+  updated_by  text
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS account_team_members_unique_assignment
+  ON public.account_team_members (account_id, role, user_id);
+CREATE INDEX IF NOT EXISTS idx_account_team_members_account
+  ON public.account_team_members (account_id, role);
+CREATE INDEX IF NOT EXISTS idx_account_team_members_user
+  ON public.account_team_members (user_id);
+CREATE INDEX IF NOT EXISTS idx_account_team_members_role
+  ON public.account_team_members (role);
+
+DROP TRIGGER IF EXISTS account_team_members_touch_updated_at ON public.account_team_members;
+CREATE TRIGGER account_team_members_touch_updated_at
+  BEFORE UPDATE ON public.account_team_members
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+ALTER TABLE public.account_team_members ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.account_team_members TO service_role;
+
+-- -----------------------------------------------------------------------------
+-- account_status
+-- A DASHBOARD-OWNED Active/Inactive flag per client, one row per account.
+-- Seeded from public.accounts.state_label (the Dynamics statecode: Active 106 /
+-- Inactive 122 today). Full reasoning + the re-runnable seed live in
+-- sql/patches/2026-09-15b_account_status.sql.
+--
+-- SETUP ONLY as of 2026-09-15: the ONLY reader/writer is the toggle on
+-- /admin/account-teams. It filters nothing, hides nothing, and appears in no
+-- query's WHERE clause.
+--
+-- NOTE accounts.state_label is LOAD-BEARING elsewhere -- 'WHERE state_label =
+-- ''Active''' appears ~15 times in sql/03_views.sql and in
+-- app/institution-style/page.tsx. This table is a PARALLEL copy that nothing
+-- reads; the CRM field stays the source of truth for every existing filter
+-- until a separate, deliberate change switches those readers over.
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.account_status (
+  account_id  uuid PRIMARY KEY REFERENCES public.accounts(account_id) ON DELETE CASCADE,
+  is_active   boolean NOT NULL,
+  source      text NOT NULL DEFAULT 'manual' CHECK (source IN ('crm_seed','manual')),
+  changed_at  timestamptz NOT NULL DEFAULT now(),
+  changed_by  text
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_status_is_active ON public.account_status (is_active);
+CREATE INDEX IF NOT EXISTS idx_account_status_source    ON public.account_status (source);
+
+ALTER TABLE public.account_status ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.account_status TO service_role;
+
+-- -----------------------------------------------------------------------------
+-- audit_log
+-- APPEND-ONLY change history for every write the dashboard makes on a person's
+-- behalf. One row per mutation: who, what action, which entity/record, and a
+-- field-level {old,new} diff (a full row snapshot for creates and deletes).
+--
+-- THE RULE: every server action or route handler that inserts/updates/deletes
+-- on a person's behalf calls recordAudit() in dashboard/lib/audit.ts. There is
+-- no second logging mechanism. Background machinery on a schedule (the nightly
+-- sync, the reconcile sweep, the cron send log) is deliberately excluded -- it
+-- has its own run logs and would bury the human trail.
+--
+-- APPEND-ONLY IS ENFORCED, not merely intended: UPDATE/DELETE are revoked from
+-- service_role AND blocked by a trigger (which also catches the table owner
+-- typing in the SQL editor). To correct an entry, append a correcting row.
+--
+-- Full reasoning + the check queries: sql/patches/2026-09-15c_audit_log.sql.
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.audit_log (
+  id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  occurred_at   timestamptz NOT NULL DEFAULT now(),
+  -- No FK on actor_user_id on purpose: history must survive the person.
+  actor_user_id uuid,
+  actor_email   text,
+  action        text NOT NULL CHECK (action IN ('create','update','delete')),
+  entity        text NOT NULL,
+  record_id     text,
+  changes       jsonb,
+  context       text
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_entity_record
+  ON public.audit_log (entity, record_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_occurred_at
+  ON public.audit_log (occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor
+  ON public.audit_log (actor_email, occurred_at DESC);
+
+CREATE OR REPLACE FUNCTION public.audit_log_is_append_only()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION
+    'audit_log is append-only: % is not permitted. Append a correcting row instead.',
+    TG_OP;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS audit_log_no_update ON public.audit_log;
+CREATE TRIGGER audit_log_no_update
+  BEFORE UPDATE ON public.audit_log
+  FOR EACH ROW EXECUTE FUNCTION public.audit_log_is_append_only();
+
+DROP TRIGGER IF EXISTS audit_log_no_delete ON public.audit_log;
+CREATE TRIGGER audit_log_no_delete
+  BEFORE DELETE ON public.audit_log
+  FOR EACH ROW EXECUTE FUNCTION public.audit_log_is_append_only();
+
+ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
+
+REVOKE UPDATE, DELETE ON public.audit_log FROM service_role;
+GRANT SELECT, INSERT ON public.audit_log TO service_role;
+GRANT USAGE, SELECT ON SEQUENCE public.audit_log_id_seq TO service_role;

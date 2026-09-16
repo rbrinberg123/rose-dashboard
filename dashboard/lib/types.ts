@@ -1533,3 +1533,111 @@ export type AdminTaskRow = {
   created_on: string | null
   modified_on: string | null
 }
+
+/**
+ * One row of `v_admin_touchpoints_all` — the CRM → Touchpoints table.
+ *
+ * `public.touchpoints` is the mirror of the Dynamics `phonecall` entity,
+ * relabelled because Rose logs every client contact as one (Virtual 946 / Email
+ * 94 / In-Person 71 / … of 1,141 live rows). Every field is nullable because the
+ * mirror mirrors whatever Dynamics holds.
+ *
+ * Three fields are NOT what their Dynamics names suggest, and the view renames
+ * them to say so — see sql/patches/2026-09-15_admin_touchpoints.sql:
+ *   `owner_team_name`   a per-account TEAM named after the client, not a person.
+ *   `contact_type_label` WHICH ROLE was spoken to, semicolon-joined; not a name.
+ *   `direction_label`   derived, and "Outgoing" on every live row.
+ * `modified_by_name` is dug out of `_raw` by the view; the mirror flattens
+ * created_by but not modified_by.
+ */
+export type AdminTouchpointRow = {
+  touchpoint_id: string
+  // the seven default list columns
+  client_account_name: string | null
+  touchpoint_date: string | null
+  subject: string | null
+  touchpoint_type_label: string | null
+  contact_type_label: string | null
+  status_label: string | null
+  created_by_name: string | null
+  // identity / links
+  client_account_id: string | null
+  client_ticker: string | null
+  regarding_id: string | null
+  // classification / state
+  state_label: string | null
+  direction_label: string | null
+  // people
+  created_by_id: string | null
+  modified_by_name: string | null
+  owner_team_name: string | null
+  // dates / system
+  scheduled_end: string | null
+  duration_minutes: number | null
+  is_recent: boolean | null
+  created_on: string | null
+  modified_on: string | null
+  // free text
+  description: string | null
+  // raw option-set codes
+  touchpoint_type_code: number | null
+  contact_type_code: string | null
+  state_code: number | null
+  status_code: number | null
+  direction_code: boolean | null
+}
+
+/**
+ * One row of `v_admin_notes_all` — the CRM → Notes table.
+ *
+ * `public.client_notes` mirrors the Dynamics `bcs_clientnote` entity: a monthly
+ * client-review record, one per client per cycle. 693 live rows, note_date
+ * 2026-02-04 .. 2026-09-11. Every field is nullable because the mirror mirrors
+ * whatever Dynamics holds — and 25 rows are empty shells with no date, client,
+ * body or cycle at all.
+ *
+ * Four fields are sourced from `_raw` by the view, because the mapper never
+ * flattened them — see sql/patches/2026-09-15_admin_notes.sql:
+ *   `note_body`          `bcs_notes`, which keeps the note's LINE BREAKS;
+ *                        the flattened `notes_text` collapses them, and the two
+ *                        differ on 435 of 693 rows.
+ *   `owner_name`         the author. Real people here (unlike Touches), but the
+ *                        mirror kept only owner_id and the ids do not resolve
+ *                        against public.users.
+ *   `created_by_name` / `modified_by_name`  likewise.
+ *
+ * `status_text` and `primary_risk_driver` are btrim'd by the view: the raw
+ * columns store "Stable" and "Stable\n" as separate values. `note_date` and
+ * `action_deadline` are `date`s in the mirror, lifted to Eastern midnight by the
+ * view so they compare correctly against the shared date-filter grammar.
+ */
+export type AdminNoteRow = {
+  note_id: string
+  // the seven default list columns
+  client_account_name: string | null
+  note_date: string | null
+  note_body: string | null
+  status_text: string | null
+  primary_risk_driver: string | null
+  action_step: string | null
+  owner_name: string | null
+  // identity / links
+  client_account_id: string | null
+  client_ticker: string | null
+  // the note
+  review_cycle: string | null
+  notes_text: string | null
+  // action
+  action_owner: string | null
+  action_deadline: string | null
+  // people
+  owner_id: string | null
+  created_by_name: string | null
+  modified_by_name: string | null
+  // system
+  is_recent: boolean | null
+  state_label: string | null
+  status_label: string | null
+  created_on: string | null
+  modified_on: string | null
+}

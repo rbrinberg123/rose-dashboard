@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { getSupabaseServer } from "@/lib/supabase"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
+import { recordAudit, snapshot } from "@/lib/audit"
 
 /**
  * revenue_overrides is append-only: insert + delete, no update path.
@@ -26,16 +27,51 @@ export async function addRevenueOverride(input: RevenueOverrideInput): Promise<A
     return fail(parsed.error.issues.map((i) => i.message).join("; "))
   }
   const sb = getSupabaseServer()
-  const { error } = await sb.from("revenue_overrides").insert(parsed.data)
+  // .select("id") added for the audit entry's record id — a RETURNING clause
+  // only; nothing about what is written changes.
+  const { data, error } = await sb
+    .from("revenue_overrides")
+    .insert(parsed.data)
+    .select("id")
+    .single()
   if (error) return fail(describeError(error))
+
+  // AUDIT — see lib/audit.ts. This table is itself append-only (insert +
+  // delete, no update path), so the trail is what records who added an
+  // adjustment and why.
+  await recordAudit({
+    action: "create",
+    entity: "revenue_overrides",
+    recordId: data?.id ?? null,
+    changes: snapshot(parsed.data),
+    context: "/revenue-overrides",
+  })
+
   revalidatePath("/revenue-overrides")
   return ok()
 }
 
 export async function deleteRevenueOverride(id: number): Promise<ActionResult> {
   const sb = getSupabaseServer()
+  const { data: before } = await sb
+    .from("revenue_overrides")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle()
+
   const { error } = await sb.from("revenue_overrides").delete().eq("id", id)
   if (error) return fail(describeError(error))
+
+  // AUDIT — see lib/audit.ts.
+  if (before) {
+    await recordAudit({
+      action: "delete",
+      entity: "revenue_overrides",
+      recordId: id,
+      changes: snapshot(before),
+      context: "/revenue-overrides",
+    })
+  }
   revalidatePath("/revenue-overrides")
   return ok()
 }

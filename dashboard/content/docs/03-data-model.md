@@ -74,7 +74,7 @@ One cosmetic difference the fingerprint deliberately ignores: live `accounts` or
 
 **That was not true before 2026-09-09.** The column is `DEFAULT now()`, and a DEFAULT fires only on INSERT. No mapper writes `_synced_at`, and the sync upserts only the mapped columns, so `ON CONFLICT DO UPDATE` never touched it — making it an *insert* timestamp. Every row ever edited after its first insert showed `modified_on > _synced_at` **forever**, even when the sync had re-pulled it correctly every ten minutes since. The obvious staleness test flagged every ever-edited row, which is what a reading of "425 stale tasks" actually measured.
 
-A `BEFORE INSERT OR UPDATE` trigger on each of the nine mirror tables now stamps it:
+A `BEFORE INSERT OR UPDATE` trigger on each of the **eight** mirror tables that have the column now stamps it:
 
 ```sql
 CREATE OR REPLACE FUNCTION public.touch_synced_at()
@@ -90,7 +90,40 @@ A trigger rather than nine mapper edits: uniform, automatic, and it cannot be fo
 
 **Caveat when reading the numbers:** rows keep their old insert-time stamp until their *next* sync, so a "stale" count will look unchanged at first and drain as records are re-pulled. To reset the baseline in one go, force a full re-pull for the entity (see [08 — Runbook](08-runbook.md)) and run a sync.
 
-Applied by `sql/patches/2026-09-09_feedback_received_and_synced_at.sql`.
+#### ⚠️ `public.users` must NOT have this trigger
+
+**`public.users` is the one mirror table with no `_synced_at` column.** It tracks freshness with `first_seen_at` / `last_seen_at` instead, and `mapSystemUser` writes `last_seen_at` directly on every run. It also has no `_raw`. It is not shaped like the other mirrors.
+
+The 2026-09-09 patch attached the trigger to `users` anyway. Because a plpgsql trigger referencing a non-existent field fails at **runtime**, not at `CREATE TRIGGER` time, nothing complained until the next sync — and then **every** `users` upsert threw:
+
+```
+record "new" has no field "_synced_at"
+```
+
+The systemusers sync failed on every run from 2026-09-11 to 2026-09-16. No new or changed Dynamics user mirrored in for five days, so they could not be granted roles or appear anywhere in permissions (`jfoley@roseandco.com` was the record that surfaced it). Worse, the watermark still advanced — `syncEntity` treats per-batch upsert failures as `partial` and writes `last_synced_at` anyway (`lib/sync/run.ts`) — so the missed users were **not** picked up automatically once the trigger was dropped. They needed a forced full re-pull:
+
+```sql
+UPDATE public.sync_runs SET last_synced_at = NULL WHERE entity_name = 'systemusers';
+```
+
+**Rule: when adding a mirror table, attach `touch_synced_at` only if the table actually declares `_synced_at`.** This query lists every attachment and whether the column exists — every row should read `true`:
+
+```sql
+SELECT c.relname AS table_name,
+       EXISTS (
+         SELECT 1 FROM information_schema.columns col
+          WHERE col.table_schema = 'public'
+            AND col.table_name   = c.relname
+            AND col.column_name  = '_synced_at'
+       ) AS has_column
+  FROM pg_trigger t
+  JOIN pg_class   c ON c.oid = t.tgrelid
+ WHERE NOT t.tgisinternal
+   AND t.tgfoid = 'public.touch_synced_at'::regproc
+ ORDER BY c.relname;
+```
+
+Applied by `sql/patches/2026-09-09_feedback_received_and_synced_at.sql`; the `users` trigger removed by `sql/patches/2026-09-16_drop_users_synced_at_trigger.sql`.
 
 ### The `_raw` JSONB pattern
 
