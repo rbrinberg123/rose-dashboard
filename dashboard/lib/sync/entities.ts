@@ -27,7 +27,8 @@ import {
   mapTouchpoint,
   mapTask,
   mapOOO,
-  mapEvent
+  mapEvent,
+  mapContact
 } from "./mappers"
 
 export type EntityConfig = {
@@ -48,6 +49,18 @@ export type EntityConfig = {
   idField: string
   /** Map a raw Dynamics row to a mirror-table row. */
   map: (row: Record<string, unknown>, runStartedAt: string) => Record<string, unknown>
+  /**
+   * Opt this entity OUT of the nightly deletion-reconciliation sweep
+   * (./reconcile.ts). The sweep does a FULL primary-key pull from Dynamics for
+   * every entity, every day — cheap for small entities, wasteful for large
+   * ones. Set this where the cost outweighs the benefit of detecting a hard
+   * delete promptly; the trade-off is that a deleted row lingers in the mirror
+   * until someone reconciles it by hand.
+   *
+   * Opted-out entities are skipped entirely (not reported as a "skip"), so the
+   * sweep's skipped counter keeps meaning "something went wrong".
+   */
+  skipDeletionSweep?: boolean
 }
 
 export const ENTITIES: EntityConfig[] = [
@@ -60,4 +73,8 @@ export const ENTITIES: EntityConfig[] = [
   { name: "tasks", entitySet: "tasks", table: "tasks", pk: "task_id", idField: "activityid", map: mapTask },
   { name: "new_vacationrequest", entitySet: "new_vacationrequests", table: "new_vacationrequest", pk: "ooo_id", idField: "new_vacationrequestid", map: mapOOO },
   { name: "events", entitySet: "bcs_events", table: "events", pk: "event_id", idField: "bcs_eventid", map: mapEvent },
+  // Contacts opt out of the deletion sweep: it is expected to be the largest
+  // entity after meetings, and a full daily ID pull is not worth it for a
+  // low-stakes stale row. See EntityConfig.skipDeletionSweep.
+  { name: "contacts", entitySet: "contacts", table: "contacts", pk: "contact_id", idField: "contactid", map: mapContact, skipDeletionSweep: true },
 ]

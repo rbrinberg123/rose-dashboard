@@ -11,7 +11,6 @@ import {
   RefreshCw,
   ArrowRight,
   BookOpen,
-  Eye,
   EyeOff,
   Users,
   ShieldCheck,
@@ -24,8 +23,6 @@ import { ListTitleCard } from "@/components/page-masthead"
 import { getSupabaseServer } from "@/lib/supabase"
 import { formatRelative, formatDate } from "@/lib/format"
 import { KPI_CARD_CLASS, CARD_CLASS, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
-import { VIEW_AS_ROLE_OPTIONS } from "@/lib/access-control"
-import { setViewAsAction } from "@/app/view-as-actions"
 import { RefreshSummariesCard } from "./refresh-summaries-card"
 
 export const dynamic = "force-dynamic"
@@ -426,55 +423,6 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   )
 }
 
-/**
- * Super-user "View as role" control — a compact dropdown + Apply that starts
- * impersonation. Deliberately kept OFF the main nav and only here on the Admin
- * hub (itself super-user-only). Applying posts to setViewAsAction (which
- * re-checks the REAL role) and redirects into the impersonated view; the slim
- * top banner is then the always-present way back. Selecting "Super User" clears
- * impersonation. It is a plain server-action form — no client JS needed.
- */
-function ViewAsControl() {
-  return (
-    <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 p-4 ${CARD_CLASS}`}>
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#EEF2FB] text-[#1E2858]">
-        <Eye className="size-[18px]" />
-      </span>
-      <div className="min-w-0">
-        <div className="font-medium" style={{ color: TEXT_PRIMARY }}>
-          View as role
-        </div>
-        <p className="text-xs" style={{ color: TEXT_MUTED }}>
-          Preview the app as another role. A banner keeps an exit always in reach.
-        </p>
-      </div>
-      <form action={setViewAsAction} className="ml-auto flex items-center gap-2">
-        <label htmlFor="view-as-role" className="sr-only">
-          Role to view as
-        </label>
-        <select
-          id="view-as-role"
-          name="role"
-          defaultValue="super_user"
-          className="rounded-md border border-[rgba(16,24,40,0.15)] bg-white px-2.5 py-1.5 text-sm text-[#1E2858] focus:outline-none focus:ring-2 focus:ring-[#0355A7]/30"
-        >
-          {VIEW_AS_ROLE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <button
-          type="submit"
-          className="rounded-md bg-[#1E2858] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[#0355A7]"
-        >
-          Apply
-        </button>
-      </form>
-    </div>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -518,9 +466,6 @@ export default async function AdminHubPage() {
           title="Admin"
           subtitle="System health — website, sync, reconciliation, email jobs, and database"
         />
-
-        {/* ---- Super-user "View as role" testing control ---- */}
-        <ViewAsControl />
 
         {/* ---- Live health tiles ---- */}
         <section>
@@ -569,7 +514,6 @@ export default async function AdminHubPage() {
               icon={AlertTriangle}
               label="Sync errors"
               health={errHealth}
-              footer={<TileLink href="/admin/sync">View errors</TileLink>}
             >
               {!syncErrors ? (
                 <Unavailable />
@@ -704,24 +648,6 @@ export default async function AdminHubPage() {
         <section>
           <SectionTitle>In-app tools</SectionTitle>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <InternalCard
-              icon={RefreshCw}
-              title="Sync status &amp; manual run"
-              description="Per-entity nightly sync status; trigger a run on demand."
-              href="/admin/sync"
-            />
-            <InternalCard
-              icon={Trash2}
-              title="Deletion reconciliation"
-              description="Review records deleted in Dynamics before they drop out."
-              href="/admin/reconciliation"
-            />
-            <InternalCard
-              icon={Database}
-              title="Database health"
-              description="Row counts, sync watermarks, and recent errors per table."
-              href="/admin/database"
-            />
             <InternalCard
               icon={Users}
               title="Users"

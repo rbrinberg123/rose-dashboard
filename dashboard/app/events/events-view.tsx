@@ -21,6 +21,7 @@ import { Columns3, Download, ExternalLink, Filter, PanelRightOpen, Search, X } f
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { accountTeamMembers } from "@/lib/account-team"
 import { ListTitleCard } from "@/components/page-masthead"
+import { AddNewButton } from "@/components/crm-add-new"
 import { SortHeader } from "@/components/sort-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -415,6 +416,7 @@ export function EventsView({
           eyebrow="CRM"
           title="Events"
           subtitle="Every marketing event in the CRM — all states, all dates. No row scoping is applied, so this page is super-user only."
+          rightSlot={<AddNewButton entity="event" />}
         />
       </div>
 

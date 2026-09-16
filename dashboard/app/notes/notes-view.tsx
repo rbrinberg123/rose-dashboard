@@ -22,6 +22,7 @@ import { Columns3, Download, Filter, PanelRightOpen, Search, X } from "lucide-re
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { ListTitleCard } from "@/components/page-masthead"
+import { AddNewButton } from "@/components/crm-add-new"
 import { SortHeader } from "@/components/sort-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -450,6 +451,7 @@ export function NotesView({
           eyebrow="CRM"
           title="Notes"
           subtitle="Every client-review note in the CRM — status, risk driver and agreed actions, one record per client per monthly cycle. No row scoping is applied, so this page is super-user only."
+          rightSlot={<AddNewButton entity="note" />}
         />
       </div>
 

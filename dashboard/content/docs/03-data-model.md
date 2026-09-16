@@ -29,11 +29,13 @@ Defined by the `ENTITIES` array in `dashboard/lib/sync/entities.ts`. Each mirror
 | `tasks` | `tasks` | `activityid` | `task_id` | `mapTask` |
 | `new_vacationrequest` | `new_vacationrequests` | `new_vacationrequestid` | `ooo_id` | `mapOOO` |
 | `events` | `bcs_events` | `bcs_eventid` | `event_id` | `mapEvent` |
+| `contacts` | `contacts` | `contactid` | `contact_id` | `mapContact` |
 
 Notes:
 - `touchpoints` and `tasks` share the Dynamics PK field `activityid` because both are Dataverse **activity** entities.
+- `contacts` is the newest mirror (added 2026-09-16, sync only — no page yet) and the only entity opted **out** of the deletion sweep. Its client-link column is deliberately undecided; see [05 — Sync & Integrations](05-sync-and-integrations.md#entity-contacts-sync-only-added-2026-09-16).
 - The **time-off** mirror table is named `new_vacationrequest` (this is what the sync writes and what `v_time_off` reads). `sql/15_ooo_table.sql` used to create a table named `ooo` instead; **as of 2026-09-09 that file creates `new_vacationrequest`**, so a database rebuilt from `sql/` now gets the table the app actually reads. The `idx_ooo_*` index names are unchanged.
-- The DDL for these tables lives at repo root: `sql/01_mirror_tables.sql` (accounts, meetings, touchpoints, client_notes, contracts, users), `sql/14_tasks_table.sql` (tasks), `sql/15_ooo_table.sql` (new_vacationrequest), `sql/16_events_table.sql` (events).
+- The DDL for these tables lives at repo root: `sql/01_mirror_tables.sql` (accounts, meetings, touchpoints, client_notes, contracts, users), `sql/14_tasks_table.sql` (tasks), `sql/15_ooo_table.sql` (new_vacationrequest), `sql/16_events_table.sql` (events), `sql/23_contacts_table.sql` (contacts).
 
 #### DDL ↔ mapper reconciliation (2026-09-09)
 

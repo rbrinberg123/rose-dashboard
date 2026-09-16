@@ -299,6 +299,9 @@ export async function runReconciliation(): Promise<ReconcileResult> {
 
   const entities: ReconcileEntityResult[] = []
   for (const entity of ENTITIES) {
+    // Opted-out entities are excluded outright rather than reported as skips,
+    // so `skipped` in the summary keeps meaning "the safety guard fired".
+    if (entity.skipDeletionSweep) continue
     entities.push(await reconcileEntity(sb, entity, runStartedAt))
   }
 

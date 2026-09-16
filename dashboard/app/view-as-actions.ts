@@ -5,16 +5,21 @@ import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
 
 import { requireSuperUser } from "@/lib/api-auth"
-import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, isViewAsRole } from "@/lib/access-control"
+import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE } from "@/lib/access-control"
 
 /**
- * Server Actions backing the super-user "View as role" testing mode.
+ * Server Actions backing the super-user "View as" testing mode.
+ *
+ * ENTRY POINT: the per-person "View as" button on each /admin/users row
+ * (setViewAsUserAction). The Admin hub's abstract role dropdown was removed on
+ * 2026-09-16 — see the note further down.
+ * EXIT: the sticky banner in the root layout (exitViewAsAction).
  *
  * SECURITY: both actions authorize off the caller's REAL role
  * (requireSuperUser → getRealRole, a service-role DB lookup that ignores the
- * view_as cookie), NEVER the effective/impersonated role. So:
+ * view_as cookies), NEVER the effective/impersonated role. So:
  *   - only a real super_user can ever set or clear a view_as cookie, and
- *   - a super who is currently viewing-as "User" (which can't reach Admin) can
+ *   - a super who is currently viewing as someone who can't reach Admin can
  *     STILL exit from the always-present banner, because exit checks the real
  *     role — you can never lock yourself out.
  */
@@ -22,37 +27,26 @@ import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, isViewAsRole } from "@/lib/access-
 // Secure in production; relaxed in dev so the cookie works over http://localhost.
 const SECURE = process.env.NODE_ENV === "production"
 
-/**
- * Begin (or clear) impersonation. Reads the target role from the submitted
- * form. Selecting "super_user" is a no-op that clears the cookie (viewing as
- * your real self). After applying, redirect to "/" and let the proxy route the
- * impersonated role to wherever it is allowed to land.
+/*
+ * NO setViewAsAction HERE ANY MORE.
+ *
+ * ROLE view ("view as Logistics", the abstract role preview) was started by a
+ * dropdown at the top of the Admin hub. That control was removed on 2026-09-16
+ * — the per-person "View as" on /admin/users covers testing better, because it
+ * previews a real person's role AND their data scope. Its handler went with it;
+ * nothing else ever called it.
+ *
+ * The role-view READ path is deliberately still intact: resolveEffective() in
+ * lib/impersonation.ts still honours a VIEW_AS_COOKIE, the root-layout banner
+ * still labels it, and exitViewAsAction below still clears it. That is what
+ * retires a STALE cookie left in someone's browser from before the removal —
+ * they see the banner on every page and can exit normally. Deleting the read
+ * path instead would have stranded those cookies as an invisible role
+ * downgrade.
+ *
+ * So: nothing can START a role view any more, and anything already in one can
+ * still get out.
  */
-export async function setViewAsAction(formData: FormData) {
-  const auth = await requireSuperUser()
-  if (!auth.ok) return // silently ignore — not a real super-user
-
-  const role = formData.get("role")
-  if (typeof role !== "string" || !isViewAsRole(role)) return
-
-  const cookieStore = await cookies()
-  // The two modes are mutually exclusive — starting a ROLE view clears any
-  // PERSON view.
-  cookieStore.delete(VIEW_AS_USER_COOKIE)
-  if (role === "super_user") {
-    cookieStore.delete(VIEW_AS_COOKIE)
-  } else {
-    cookieStore.set(VIEW_AS_COOKIE, role, {
-      httpOnly: true,
-      secure: SECURE,
-      sameSite: "lax",
-      path: "/",
-    })
-  }
-
-  revalidatePath("/", "layout")
-  redirect("/")
-}
 
 /**
  * Begin PERSON impersonation — view the app as one specific @roseandco.com

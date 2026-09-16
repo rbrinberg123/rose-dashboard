@@ -41,6 +41,15 @@ export const CRM_TEAL = "#1FB6A5"
 /** The faintest wash of CRM_TEAL, for the active state of that outlined entry. */
 export const CRM_TEAL_TINT = "color-mix(in srgb, #1FB6A5 10%, white)"
 /**
+ * Fainter still — the same wash on HOVER of a NON-active CRM entry, so hover
+ * reads as a step short of active rather than a different colour. Exactly the
+ * relationship RAIL_HOVER_TINT has to RAIL_ACTIVE_TINT further down, and applied
+ * the same way (a CSS custom property, since an inline style cannot express
+ * `:hover`) — but mixed from CRM_TEAL rather than TEAL, because the CRM block is
+ * deliberately a different hue from the ramp the reporting rows use.
+ */
+export const CRM_TEAL_HOVER_TINT = `color-mix(in srgb, ${CRM_TEAL} 5%, white)`
+/**
  * The DEEP, blue-leaning end of the teal ramp. Started life inside Planning V2
  * as its single "complete" colour; promoted here so the Portfolio group-header
  * sweep can end on the exact same teal Planning's does and the two big tables

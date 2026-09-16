@@ -74,6 +74,8 @@ It writes:
 
 The sweep **never deletes mirror data** — an admin approves each removal at `/admin/reconciliation`. See the recovery recipe in [08 — Runbook](08-runbook.md).
 
+An entity can be excluded from the sweep entirely with `skipDeletionSweep` — see [Opting an entity out of the deletion sweep](#opting-an-entity-out-of-the-deletion-sweep-skipdeletionsweep) below.
+
 ### Field-type helpers (`mappers.ts`)
 
 There is **one mapper per table**, and its object keys are literally the mirror-table column names, so the result goes straight into the upsert. Helpers at the top of the file:
@@ -104,6 +106,85 @@ The entity *list* is data-driven, but individual *fields* are hand-modeled. Mini
 **Backfill caveat:** the sync requests all attributes, so the new field flows in for rows **modified after** the next run. Unchanged historical rows won't get the new column populated until you either reset that entity's `sync_runs` watermark (forcing a full re-pull) or backfill from `_raw`. See [08 — Runbook](08-runbook.md).
 
 Adding a whole new **entity** (not a field) is the case where `entities.ts` changes — add an `ENTITIES` object plus its mapper and its `create table` SQL. If the new table declares a `_synced_at` column, also attach the `touch_synced_at` trigger — and if it does **not**, make sure you do not (see the next section).
+
+### Opting an entity out of the deletion sweep (`skipDeletionSweep`)
+
+`EntityConfig` carries an optional `skipDeletionSweep?: boolean`. The reconciliation sweep pulls the **full** primary-key list from Dynamics for every entity, every day — trivial for 228 accounts, wasteful for a very large entity. Setting the flag excludes that entity from `runReconciliation()` entirely:
+
+```ts
+// dashboard/lib/sync/reconcile.ts
+if (entity.skipDeletionSweep) continue
+```
+
+Opted-out entities are **omitted**, not reported as skips, so the sweep's `skipped` counter keeps meaning *"the safety guard fired"* rather than becoming a daily false alarm people learn to ignore.
+
+**The trade-off:** a record hard-deleted in Dynamics lingers in that mirror table indefinitely, because the incremental sync is upsert-only and nothing else detects deletions. Only set the flag where a stale row is low-stakes. `contacts` is currently the only entity using it.
+
+### Entity: `contacts` (sync only, added 2026-09-16)
+
+The Dataverse `contact` entity — the people at client companies. **Sync only: there is no contacts page, view, or filter-options view yet.** The table fills up in the background so the client-link question below can be answered from real data.
+
+| | |
+|--|--|
+| Dynamics entity set | `contacts` (PK `contactid`) |
+| Mirror table | `public.contacts` (PK `contact_id`) |
+| Mapper | `mapContact` in `lib/sync/mappers.ts` |
+| DDL | `sql/23_contacts_table.sql` |
+| Deletion sweep | **Opted out** (`skipDeletionSweep: true`) |
+
+Modeled throughout on `tasks`, which is the same situation: a standard Dataverse entity that Rose has heavily customized with `bcs_*` fields.
+
+#### The client link is deliberately UNDECIDED
+
+Two candidate fields tie a contact to a client account, and **both are mirrored** rather than one being picked in advance:
+
+| Column(s) | Dynamics field | Dynamics label |
+|---|---|---|
+| `parent_customer_id` / `_name` / `_type` | `_parentcustomerid_value` | Company Name |
+| `company_master_record_id` / `_name` | `_bcs_companymasterrecord_value` | Master Company Record |
+
+Carrying both costs a handful of nullable columns, which is far cheaper than guessing wrong and rebuilding views later.
+
+**`parentcustomerid` is polymorphic** — in Dynamics it points at *either* an account *or* a contact. That is why it gets the full id/name/**type** triple, exactly like `regardingobjectid` on tasks. **Always filter on `parent_customer_type = 'account'` before joining to `accounts`**, or you will silently mix two entity types in one column. (`touchpoints.regarding_id` has this problem today: it stores the GUID with no type.)
+
+To choose the canonical link once contacts have synced, compare populate rate and match rate:
+
+```sql
+select
+  count(*)                                                           as contacts,
+  count(parent_customer_id)                                          as parent_populated,
+  count(company_master_record_id)                                    as master_populated,
+  count(*) filter (where parent_customer_id in (select account_id from public.accounts))       as parent_matches_accounts,
+  count(*) filter (where company_master_record_id in (select account_id from public.accounts)) as master_matches_accounts
+from public.contacts;
+```
+
+Read the result carefully: `public.accounts` holds only Rose's ~228 **client** accounts, not all of Dynamics, so every contact at a non-client company fails to match **by design**. A low absolute match rate is expected and is not disqualifying — the field to prefer is the one that matches well *for contacts that are actually at client companies*.
+
+#### Flattened columns vs `_raw`
+
+Flattened (the curated set): the standard backbone (`first_name`, `last_name`, `full_name`, `job_title`, `created_on`, `modified_on`, `state_code`/`state_label`, `status_code`/`status_label`); both client-link candidates; the choice fields `contact_type`, `industry`, `internal_assignment`, `lead_state` (`bcs_state`), `state_for_address`, `last_activity_type` — each as the standard `_code` + `_label` pair; the Yes/No fields `distribution_list`, `do_not_call`, `ex_employee`, `ir_only`, `poc`; and `last_activity_subject`, `last_activity_time`, `previous_company`, `ticker_symbol`, `verified_on`.
+
+Left in `_raw` on purpose: the activity-pointer lookups (last appointment / email / phone / task activity), primary opportunity, segment id, the country lookup, and `parent_contactid`. **Nothing is lost** — `_raw` holds the complete Dynamics payload, so promoting any of these to a real column later is an `ALTER TABLE` plus a `_raw` backfill, no re-sync required.
+
+> **Unverified field shapes.** The six choice fields above were modeled as option sets (`integer` code + `text` label) without being able to read the Dynamics metadata first. If any of them is really a text or lookup attribute, its `_code` column will reject the value and those rows will land in `sync_errors` with a type error — visible at `/admin` after the first run. The fix is one line each: drop the `_code` column to `text`, or switch the mapper to the `lookupId`+`lookupName` pair. **Check `sync_errors` after the first contacts run.**
+
+#### `_synced_at` is present — and so is its trigger
+
+`public.contacts` declares `_synced_at`, and `sql/23_contacts_table.sql` attaches `contacts_touch_synced_at`. That pairing is deliberate and must stay matched — see the `public.users` incident in the next section for what happens when a table gets the trigger without the column.
+
+#### Backfill: forcing the first full pull
+
+The sync is incremental off `sync_runs.last_synced_at`. With **no row** for `contacts`, the first run is automatically a full pull — so a fresh deployment needs nothing. Run this only to *re-force* a full backfill (for example after adding a column):
+
+```sql
+-- entity_name must be exactly 'contacts' (EntityConfig.name in entities.ts)
+delete from public.sync_runs where entity_name = 'contacts';
+-- or, keeping the bookkeeping row:
+update public.sync_runs set last_synced_at = null where entity_name = 'contacts';
+```
+
+The next scheduled sync (every 10 minutes on weekdays — see [06 — Automations](06-automations.md)) then pulls every contact. Order matters only in that `accounts` syncs first, so the client-link comparison above is valid on the same run.
 
 ### `public.users` has no `_synced_at` — never attach the trigger to it
 

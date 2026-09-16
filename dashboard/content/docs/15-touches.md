@@ -6,6 +6,8 @@
 >
 > **Not yet pushed to any remote.** The application code is local-only.
 
+> **"+ Add New Touch" is a placeholder.** The button top-right of the masthead — and the matching entry in the nav's CRM quick-add menu — create nothing yet. No form, no write, no navigation: clicking shows a "Coming soon" toast. Both route through the single stub `onAddNew("touch")` in `dashboard/components/crm-add-new.tsx`, staged for the CRM cutover. See [02 — Pages](02-pages.md#add-new-buttons-and-the-quick-add-menu--placeholders-not-wired-up).
+
 ## Naming: "Touches" on screen, "touchpoints" underneath
 
 The page is called **Touches** everywhere a person sees it — the nav rail label, the page and browser-tab title, the built-in view names ("Recent touches", "All touches"), the `Touch` column band, the drawer's `Touch` section and header, and the Excel export (sheet **Touches**, file `crm-touches_<date>.xlsx`).

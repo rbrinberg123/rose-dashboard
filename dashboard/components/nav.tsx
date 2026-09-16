@@ -17,6 +17,7 @@ import {
   StickyNote,
   Settings,
   Menu,
+  Plus,
   LogOut,
   ChevronsLeft,
   ChevronsRight,
@@ -30,6 +31,7 @@ import {
 } from "@/lib/sidebar"
 import {
   CRM_TEAL,
+  CRM_TEAL_HOVER_TINT,
   CRM_TEAL_TINT,
   RAIL_ACCENT_FILL,
   RAIL_ACCENT_UNDERLINE,
@@ -37,6 +39,12 @@ import {
   RAIL_HOVER_TINT,
   TEAL,
 } from "@/lib/design"
+import {
+  CRM_ENTITY_LABELS,
+  QUICK_ADD_ORDER,
+  onAddNew,
+  type CrmEntity,
+} from "@/components/crm-add-new"
 import {
   canAccessRoute,
   visibleCrmNavItems,
@@ -171,6 +179,95 @@ function crmItemsFor(role: ViewAsRole | null, allowedRoutes: readonly string[]):
     ...item,
     icon: CRM_ICONS[item.href] ?? Database,
   }))
+}
+
+/**
+ * The "+" quick-add in the CRM block — a five-item menu (New Meeting / Event /
+ * Task / Touch / Note).
+ *
+ * OPENS ON HOVER, through the rail's own `useFlyout`. That is the point: it is
+ * the identical mechanism every other rail fly-out uses, so it inherits the
+ * same open-on-mouseenter, the same 80ms close grace when the pointer crosses
+ * the gap to the panel, the same fixed positioning off the trigger's measured
+ * rect (`rect.right + FLYOUT_GAP`), the same portal out of the clipping <nav>,
+ * and the same keyboard handling — focus opens it, Tab walks into the panel,
+ * Escape closes and returns focus. No new pattern, no second set of timings.
+ *
+ * `align="bottom"` matches the CRM icons beside it: the block is pinned to the
+ * bottom of the rail, so the panel is anchored from the bottom and grows upward
+ * instead of running off-screen.
+ *
+ * FILLED teal, where the CRM destinations are OUTLINED teal — outlined means "a
+ * place to go", filled means "a thing to do".
+ *
+ * INERT: every item calls `onAddNew`, which today is a "coming soon" toast and
+ * nothing else. See components/crm-add-new.tsx.
+ */
+function CrmQuickAdd({ variant }: { variant: "sidebar" | "rail" }) {
+  const { open, triggerProps, panelProps } = useFlyout("bottom")
+  const menuId = React.useId()
+
+  const pick = (entity: CrmEntity) => onAddNew(entity)
+
+  return (
+    <div className={variant === "rail" ? "flex justify-center" : "flex"} {...triggerProps}>
+      <button
+        type="button"
+        // Disclosure, not role="menu": the panel carries a heading and a rule
+        // above its items exactly like every other rail fly-out, and role="menu"
+        // permits only menuitem children. aria-expanded + aria-controls is the
+        // right pattern for that shape, and it is what the rest of the rail does.
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        aria-label="Quick add a CRM record"
+        className={cn(
+          "flex shrink-0 items-center justify-center rounded-md text-white transition-opacity",
+          "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1FB6A5]/50",
+          variant === "rail" ? "size-6" : "size-[18px]",
+          open ? "opacity-100" : "opacity-85",
+        )}
+        style={{ backgroundColor: CRM_TEAL }}
+      >
+        <Plus
+          className={variant === "rail" ? "size-[14px]" : "size-[12px]"}
+          aria-hidden="true"
+        />
+      </button>
+      {open ? (
+        <FlyoutPanel id={menuId} panelProps={panelProps}>
+          <div className="px-2 pb-1 pt-0.5 text-[12px] font-medium uppercase tracking-wider text-[#1E2858]">
+            Quick add
+          </div>
+          <div
+            aria-hidden="true"
+            className="mx-2 mb-1.5 h-0.5 rounded-full"
+            style={{ backgroundImage: RAIL_ACCENT_UNDERLINE }}
+          />
+          <ul className="space-y-0.5">
+            {QUICK_ADD_ORDER.map((entity) => (
+              <li key={entity}>
+                <button
+                  type="button"
+                  onClick={() => pick(entity)}
+                  className="flex w-full items-center gap-2 rounded-md py-1 pl-3 pr-2 text-left text-sm text-[#5B6472] transition-colors hover:bg-[var(--rail-hover)] hover:text-[#1E2858]"
+                  style={
+                    { "--rail-hover": CRM_TEAL_HOVER_TINT } as React.CSSProperties
+                  }
+                >
+                  <Plus
+                    className="size-3.5 shrink-0"
+                    style={{ color: CRM_TEAL }}
+                    aria-hidden="true"
+                  />
+                  New {CRM_ENTITY_LABELS[entity]}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </FlyoutPanel>
+      ) : null}
+    </div>
+  )
 }
 
 /** A route is "current" when it matches exactly or is an ancestor of the path.
@@ -344,15 +441,25 @@ function NavContents({
  *  more reporting section. */
 function CrmDivider() {
   return (
-    <div className="mx-3 mb-1 flex items-center gap-2" aria-hidden="true">
-      <span className="h-px flex-1" style={{ backgroundColor: CRM_TEAL, opacity: 0.35 }} />
+    <div className="mx-3 mb-1 flex items-center gap-2">
       <span
+        aria-hidden="true"
+        className="h-px flex-1"
+        style={{ backgroundColor: CRM_TEAL, opacity: 0.35 }}
+      />
+      <span
+        aria-hidden="true"
         className="text-[10px] font-semibold uppercase tracking-[0.14em]"
         style={{ color: CRM_TEAL }}
       >
         CRM
       </span>
-      <span className="h-px flex-1" style={{ backgroundColor: CRM_TEAL, opacity: 0.35 }} />
+      <span
+        aria-hidden="true"
+        className="h-px flex-1"
+        style={{ backgroundColor: CRM_TEAL, opacity: 0.35 }}
+      />
+      <CrmQuickAdd variant="sidebar" />
     </div>
   )
 }
@@ -382,8 +489,16 @@ function CrmNavRow({
         href={href}
         onClick={onNavigate}
         aria-current={active ? "page" : undefined}
-        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium uppercase tracking-wider transition-colors"
+        className={cn(
+          "flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium uppercase tracking-wider transition-colors",
+          // Mild hover wash on the NON-active row only — the active row already
+          // carries the (stronger) CRM_TEAL_TINT and must not shift on hover.
+          !active && "hover:bg-[var(--crm-hover)]",
+        )}
+        // Same trick as the reporting rows' `--rail-hover`: the tint travels as
+        // a CSS custom property because an inline style cannot express `:hover`.
         style={{
+          ...({ "--crm-hover": CRM_TEAL_HOVER_TINT } as React.CSSProperties),
           color: CRM_TEAL,
           backgroundColor: active ? CRM_TEAL_TINT : undefined,
         }}
@@ -804,17 +919,22 @@ function RailContents({
  *  it — three letters still fit comfortably. */
 function RailCrmDivider() {
   return (
-    <div className="px-2 pb-1" aria-hidden="true">
+    <div className="px-2 pb-1">
       <span
+        aria-hidden="true"
         className="block h-px w-full"
         style={{ backgroundColor: CRM_TEAL, opacity: 0.35 }}
       />
       <span
+        aria-hidden="true"
         className="mt-1 block text-center text-[9px] font-semibold uppercase tracking-[0.12em]"
         style={{ color: CRM_TEAL }}
       >
         CRM
       </span>
+      <div className="mt-1 flex justify-center">
+        <CrmQuickAdd variant="rail" />
+      </div>
     </div>
   )
 }
@@ -850,10 +970,18 @@ function RailCrmIconLink({ item, active }: { item: CrmItem; active: boolean }) {
         aria-label={label}
         aria-current={active ? "page" : undefined}
         aria-describedby={open ? tooltipId : undefined}
-        className="flex size-10 flex-col items-center justify-center gap-[1px] rounded-md transition-colors"
+        className={cn(
+          "flex size-10 flex-col items-center justify-center gap-[1px] rounded-md transition-colors",
+          // Mild hover wash on the NON-active tile only.
+          !active && "hover:bg-[var(--crm-hover)]",
+        )}
         style={{
+          ...({ "--crm-hover": CRM_TEAL_HOVER_TINT } as React.CSSProperties),
           border: `1.5px solid ${CRM_TEAL}`,
-          backgroundColor: active ? CRM_TEAL_TINT : "transparent",
+          // `undefined`, NOT "transparent", for the inactive tile: an inline
+          // background-color outranks the `hover:bg-*` class above and would
+          // silently cancel the hover wash.
+          backgroundColor: active ? CRM_TEAL_TINT : undefined,
           color: CRM_TEAL,
           opacity: active ? 1 : 0.85,
         }}

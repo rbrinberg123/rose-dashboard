@@ -427,6 +427,24 @@ Display is compact: the leading **`TICKER - ` is stripped** with the shared `str
 | `/admin/database` | `sync_runs`, `sync_errors` (+ row counts) | Mirror-table row counts, watermarks, recent errors. |
 | `/admin/docs` | markdown files + live catalog panels | This documentation, in-app. |
 
+#### Admin hub section layout
+
+The hub (`dashboard/app/admin/page.tsx`) is five sections. **Every destination appears exactly once.**
+
+The three system-plumbing pages — **Sync**, **Reconciliation**, **Database** — all live under **Live health**, reached from their own status tile. Each tile shows the numbers *and* is the way in to the full page, so there is one link per destination and no second copy under In-app tools.
+
+| Section | Contents |
+|---------|----------|
+| **Live health** | Six status tiles. Three link out: **Sync** → `/admin/sync` · **Reconciliation** → `/admin/reconciliation` · **Database** → `/admin/database`. Three are readouts with no link: **Sync errors**, **Scheduled emails**, **Build**. |
+| **In-app tools** | People-and-content management only: **Users** (`/admin/users`) · **Roles** (`/admin/roles`) · **Account Teams** (`/admin/account-teams`) · **Audit Log** (`/admin/audit-log`) · **Documentation** (`/admin/docs`). It does **not** list Sync, Reconciliation or Database. |
+| **Maintenance** | On-demand jobs (Refresh AI summaries). Click-to-run; the crons are unaffected. |
+| **Hidden Pages** | The `HIDDEN_PAGES` array — see below. |
+| **External dashboards** | Vercel, Supabase, Dynamics, GitHub, Status. Off-site links only. |
+
+**The Sync errors tile has no link on purpose.** It used to point at `/admin/sync` — the same page as the Sync tile directly above it — which made `/admin/sync` the hub's most duplicated destination. The errors it summarises are on the Sync page, one tile up.
+
+**Rule when adding to the hub:** link a destination from *one* place. If a page already has a Live-health tile, that tile is its entry point — don't add a matching card under In-app tools. Before 2026-09-16 the hub linked `/admin/sync` three times and `/admin/reconciliation` and `/admin/database` twice each.
+
 ### CRM (nav rail, super-user only)
 
 The bottom block of the nav rail, behind a "CRM" divider. Both read unscoped admin views with the service-role key and are in `ADMIN_ONLY_ROUTES` — super-user-only and **not** grantable through the Roles matrix.
@@ -436,6 +454,25 @@ The bottom block of the nav rail, behind a "CRM" divider. Both read unscoped adm
 | `/meetings` | Meetings | `v_admin_meetings_all` | Every meeting in the CRM. See [12 — Meetings](12-meetings-all.md). |
 | `/events` | Events | `v_admin_events_all` | Every marketing event in the CRM. See [13 — Events](13-events.md). |
 | `/tasks` | Tasks | `v_admin_tasks_all` | Every task in the CRM — all types, all states, opening on **Open tasks** sorted by due date. See [14 — Tasks](14-tasks.md). Needs `sql/patches/2026-09-11_admin_tasks.sql`. |
+
+#### "Add New" buttons and the quick-add menu — PLACEHOLDERS, not wired up
+
+> **These create nothing.** They are visual scaffolding staged ahead of the CRM cutover. There is no form, no Server Action, no database write and no navigation behind any of them. Clicking one shows a **"Coming soon — record creation isn't enabled yet"** toast and stops there. The toast exists so a click reads as *deliberate* rather than broken.
+
+Two entry points (1–2), plus the hover treatment they sit alongside (3). All added 2026-09-16:
+
+1. **Per-page button** — top-right of each CRM page's masthead (`ListTitleCard`'s `rightSlot`), solid brand blue→teal as the page's primary action: **+ Add New Meeting / Event / Task / Touch / Note**.
+2. **Nav quick-add** — a **filled teal "+"** in the CRM block of the nav rail, **opening on hover** into a five-item menu: *New Meeting · New Event · New Task · New Touch · New Note*. Filled where the CRM destinations above it are outlined — outlined means "a place to go", filled means "a thing to do".
+
+   It opens through the rail's own `useFlyout`, the same hook every other rail fly-out uses, so the behaviour is identical rather than merely similar: open on mouse-enter, the same 80ms grace period so crossing the gap to the panel doesn't flicker it shut, the same fixed positioning off the trigger's measured rect (`rect.right + FLYOUT_GAP`), the same portal out of the clipping `<nav>`, and the same keyboard handling — focus opens it, Tab walks into the panel, Escape closes and returns focus. `align="bottom"`, so it grows upward from the bottom-pinned CRM block. It is a **disclosure** (`aria-expanded` + `aria-controls`), not `role="menu"`: the panel carries a heading and rule above its items like every other fly-out, and `role="menu"` permits only `menuitem` children.
+
+3. **Mild hover fill on the CRM nav items.** Meetings / Events / Tasks / Touches / Notes previously showed a background only when **active**. Non-active items now take a faint wash on hover, in both the expanded sidebar and the collapsed rail, with the existing `transition-colors`. The token is `CRM_TEAL_HOVER_TINT` (`CRM_TEAL` at 5%), which sits to `CRM_TEAL_TINT` (10%, active) exactly as `RAIL_HOVER_TINT` (6%) sits to `RAIL_ACTIVE_TINT` (12%) on the reporting rows — hover reads as a step short of active, so the two are never confused. Mixed from `CRM_TEAL` rather than reusing `RAIL_HOVER_TINT` directly, because the CRM block is deliberately a different hue from the reporting ramp; applied the same way those rows do it, as a CSS custom property, since an inline style cannot express `:hover`. **The active state is unchanged**, and these remain plain navigation links.
+
+   One trap worth recording: the collapsed rail's CRM tile used to set `backgroundColor: "transparent"` inline for the inactive state. An inline background-color outranks a `hover:bg-*` class, so it silently cancelled the wash — it is now `undefined`.
+
+**Everything funnels through one stub**, `onAddNew(entity)` in `dashboard/components/crm-add-new.tsx`. That is the point of the shape: when create flows land, replacing that one function body (open a drawer, route to `/meetings/new`, call an action) lights up all six controls at once. No call site changes.
+
+**Gating is inherited, not re-implemented.** The buttons sit inside pages that already `redirect("/no-access")` for a non-super-user server-side; the quick-add sits inside the nav CRM block, which renders nothing at all unless `canSeeCrmNav` passes. There is deliberately no second role check in `crm-add-new.tsx` — a copy of the rule there could drift from the one that actually enforces it.
 
 ### Hidden Pages (linked from Admin, super-user only)
 

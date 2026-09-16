@@ -707,3 +707,81 @@ export function mapEvent(row: Row): Row {
     _raw: row,
   }
 }
+
+/**
+ * Dataverse `contact`. Standard entity, heavily customized with bcs_* fields —
+ * same situation as `task`, so this follows mapTask's shape exactly.
+ *
+ * CLIENT LINK: both candidates are mapped deliberately. `parentcustomerid`
+ * ("Company Name") is POLYMORPHIC — it points at either an account or a
+ * contact — so it gets the full id/name/type triple like `regardingobjectid`
+ * on tasks. `bcs_companymasterrecord` ("Master Company Record") is the second
+ * candidate. Which one is canonical is decided from the synced data; until
+ * then neither is privileged. See sql/23_contacts_table.sql.
+ *
+ * Only the curated field set is flattened; the activity-pointer lookups
+ * (last appointment/email/phone/task activity), primary opportunity, segment
+ * id, the country lookup and parent_contactid stay in `_raw`.
+ */
+export function mapContact(row: Row): Row {
+  return {
+    // PK (Dataverse contactid)
+    contact_id: row["contactid"],
+
+    // Standard backbone
+    first_name: str(row["firstname"]),
+    last_name: str(row["lastname"]),
+    full_name: str(row["fullname"]),
+    job_title: str(row["jobtitle"]),
+
+    // Client link candidate 1: parentcustomerid — polymorphic (account / contact)
+    parent_customer_id: lookupId(row, "_parentcustomerid_value"),
+    parent_customer_name: lookupName(row, "_parentcustomerid_value"),
+    parent_customer_type: str(
+      row["_parentcustomerid_value@Microsoft.Dynamics.CRM.lookuplogicalname"],
+    ),
+
+    // Client link candidate 2: bcs_companymasterrecord
+    company_master_record_id: lookupId(row, "_bcs_companymasterrecord_value"),
+    company_master_record_name: lookupName(row, "_bcs_companymasterrecord_value"),
+
+    // Rose custom choice fields
+    contact_type_code: num(row["bcs_contacttype"]),
+    contact_type_label: fv(row, "bcs_contacttype"),
+    industry_code: num(row["bcs_industrychoice"]),
+    industry_label: fv(row, "bcs_industrychoice"),
+    internal_assignment_code: num(row["bcs_internalassignment"]),
+    internal_assignment_label: fv(row, "bcs_internalassignment"),
+    lead_state_code: num(row["bcs_state"]),
+    lead_state_label: fv(row, "bcs_state"),
+    state_for_address_code: num(row["bcs_stateforaddress"]),
+    state_for_address_label: fv(row, "bcs_stateforaddress"),
+    last_activity_type_code: num(row["bcs_lastactivitytype"]),
+    last_activity_type_label: fv(row, "bcs_lastactivitytype"),
+
+    // Rose custom Yes/No fields
+    distribution_list: bool(row["bcs_distributionlist"]),
+    do_not_call: bool(row["bcs_donotcall"]),
+    ex_employee: bool(row["bcs_exemployee"]),
+    ir_only: bool(row["bcs_ironly"]),
+    poc: bool(row["bcs_poc"]),
+
+    // Rose custom other-typed fields
+    last_activity_subject: str(row["bcs_lastactivitysubject"]),
+    last_activity_time: parseDt(row["bcs_lastactivitytime"]),
+    previous_company: str(row["bcs_previouscompany"]),
+    ticker_symbol: str(row["bcs_tickersymbol"]),
+    verified_on: parseDt(row["bcs_verifiedon"]),
+
+    // Standard Dataverse system fields
+    state_code: num(row["statecode"]),
+    state_label: fv(row, "statecode"),
+    status_code: num(row["statuscode"]),
+    status_label: fv(row, "statuscode"),
+    created_on: parseDt(row["createdon"]),
+    modified_on: parseDt(row["modifiedon"]),
+
+    // Catch-all + bookkeeping
+    _raw: row,
+  }
+}

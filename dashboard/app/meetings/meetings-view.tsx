@@ -17,6 +17,7 @@ import {
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { ListTitleCard } from "@/components/page-masthead"
+import { AddNewButton } from "@/components/crm-add-new"
 import { SortHeader } from "@/components/sort-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -678,6 +679,7 @@ export function MeetingsView({
           eyebrow="Admin · Hidden pages"
           title="Meetings"
           subtitle="Every meeting in the CRM — all statuses, all dates, active and deactivated. No row scoping is applied, so this page is super-user only."
+          rightSlot={<AddNewButton entity="meeting" />}
         />
       </div>
 

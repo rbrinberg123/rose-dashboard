@@ -6,6 +6,8 @@
 >
 > **Not yet pushed to any remote.** The application code is local-only.
 
+> **"+ Add New Event" is a placeholder.** The button top-right of the masthead — and the matching entry in the nav's CRM quick-add menu — create nothing yet. No form, no write, no navigation: clicking shows a "Coming soon" toast. Both route through the single stub `onAddNew("event")` in `dashboard/components/crm-add-new.tsx`, staged for the CRM cutover. See [02 — Pages](02-pages.md#add-new-buttons-and-the-quick-add-menu--placeholders-not-wired-up).
+
 ## What it is
 
 Every marketing event in the CRM, in one table, with nothing hidden. It reproduces the Dynamics **"Current and Upcoming Marketing"** view so an admin can answer "what is in flight?" without opening Dynamics — and, unlike the Calendar page, it shows the underlying record rather than a timeline.

@@ -9,6 +9,8 @@
 >
 > The page loads in every one of those states: it asks the database which columns it actually has (`availableColumns`) and drops anything absent from the select list and the filters, rather than erroring. Un-runnable columns show as disabled in the column picker with the reason.
 
+> **"+ Add New Meeting" is a placeholder.** The button top-right of the masthead — and the matching entry in the nav's CRM quick-add menu — create nothing yet. No form, no write, no navigation: clicking shows a "Coming soon" toast. Both route through the single stub `onAddNew("meeting")` in `dashboard/components/crm-add-new.tsx`, staged for the CRM cutover. See [02 — Pages](02-pages.md#add-new-buttons-and-the-quick-add-menu--placeholders-not-wired-up).
+
 ## What it is
 
 Every meeting in the CRM, in one table, with nothing hidden. It reproduces the Dynamics **"Investor Meetings (All)"** view so an admin can answer "what does the CRM actually hold?" without opening Dynamics.
