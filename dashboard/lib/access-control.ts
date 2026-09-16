@@ -124,6 +124,7 @@ export const ADMIN_ONLY_ROUTES = [
   "/tasks",
   "/touchpoints",
   "/notes",
+  "/contacts",
   // Admin -> Account Teams. NOT a CRM data table (deliberately absent from
   // CRM_NAV_ITEMS); listed here so the Roles matrix can never delegate it.
   // Adding a NEW route here changes no existing page's behaviour.
@@ -193,6 +194,7 @@ export const CRM_NAV_ITEMS: readonly CrmNavItem[] = [
   // file names. Label only.
   { href: "/touchpoints", label: "Touches" },
   { href: "/notes", label: "Notes" },
+  { href: "/contacts", label: "Contacts" },
 ]
 
 /**

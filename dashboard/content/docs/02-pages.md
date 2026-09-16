@@ -454,6 +454,7 @@ The bottom block of the nav rail, behind a "CRM" divider. Both read unscoped adm
 | `/meetings` | Meetings | `v_admin_meetings_all` | Every meeting in the CRM. See [12 — Meetings](12-meetings-all.md). |
 | `/events` | Events | `v_admin_events_all` | Every marketing event in the CRM. See [13 — Events](13-events.md). |
 | `/tasks` | Tasks | `v_admin_tasks_all` | Every task in the CRM — all types, all states, opening on **Open tasks** sorted by due date. See [14 — Tasks](14-tasks.md). Needs `sql/patches/2026-09-11_admin_tasks.sql`. |
+| `/contacts` | Contacts | `v_admin_contacts_all` | Every contact in the CRM — the people at client companies, opening on **Active contacts** sorted by last activity. See [19 — Contacts](19-contacts.md). Needs `sql/23_contacts_table.sql` **and** `sql/patches/2026-09-16_admin_contacts.sql`. |
 
 #### "Add New" buttons and the quick-add menu — PLACEHOLDERS, not wired up
 

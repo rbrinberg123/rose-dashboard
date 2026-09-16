@@ -1641,3 +1641,90 @@ export type AdminNoteRow = {
   created_on: string | null
   modified_on: string | null
 }
+
+/**
+ * One row of `v_admin_contacts_all` — the CRM → Contacts list (sixth CRM table).
+ *
+ * Mirrors the Dynamics `contact` entity: the PEOPLE at client companies. This is
+ * the only CRM table that is mostly PERSONAL data, which is why /contacts is in
+ * ADMIN_ONLY_ROUTES and every server action re-checks the role.
+ *
+ * `_raw` is deliberately ABSENT here. The list never selects it; only the
+ * drawer's single-row query does (see app/contacts/actions.ts), where it is
+ * typed on `ContactRecord` instead.
+ *
+ * ── THE CLIENT LINK IS PROVISIONAL ─────────────────────────────────────────
+ * A contact carries TWO candidate pointers at a client account and which is
+ * canonical has not been decided:
+ *   `parent_customer_*`       "Company Name" — POLYMORPHIC (account or contact)
+ *   `company_master_record_*` "Master Company Record"
+ * The view resolves the client through the FIRST, guarded on
+ * parent_customer_type = 'account', and exposes the result as
+ * client_account_id / client_account_name / client_ticker — the same three names
+ * every other admin view uses, so the shared ticker renderer works unchanged.
+ * Switching candidates is one line in sql/patches/2026-09-16_admin_contacts.sql
+ * and changes nothing here.
+ *
+ * `is_active` is computed in the view as state_code = 0 and is what the default
+ * "Active contacts" view filters on. `verified_on` is a `date` in the mirror,
+ * lifted to Eastern midnight by the view so it compares correctly against the
+ * shared date-filter grammar.
+ */
+export type AdminContactRow = {
+  contact_id: string
+  // the eleven default list columns
+  full_name: string | null
+  parent_customer_name: string | null
+  job_title: string | null
+  contact_type_label: string | null
+  industry_label: string | null
+  ir_only: boolean | null
+  poc: boolean | null
+  do_not_call: boolean | null
+  lead_state_label: string | null
+  last_activity_time: string | null
+  state_label: string | null
+  // identity / links
+  first_name: string | null
+  last_name: string | null
+  parent_customer_id: string | null
+  parent_customer_type: string | null
+  company_master_record_id: string | null
+  company_master_record_name: string | null
+  client_account_id: string | null
+  client_account_name: string | null
+  client_ticker: string | null
+  // profile
+  internal_assignment_label: string | null
+  state_for_address_label: string | null
+  previous_company: string | null
+  ticker_symbol: string | null
+  // contact info — flattened out of _raw 2026-09-16. Before that the mirror had
+  // no way to actually reach a contact. `email` is indexed.
+  email: string | null
+  mobile_phone: string | null
+  direct_phone: string | null
+  city: string | null
+  street: string | null
+  // provenance — who owns the record, who made it, who last touched it
+  owner_id: string | null
+  owner_name: string | null
+  created_by_id: string | null
+  created_by_name: string | null
+  modified_by_id: string | null
+  modified_by_name: string | null
+  // flags
+  distribution_list: boolean | null
+  ex_employee: boolean | null
+  // activity
+  last_activity_subject: string | null
+  last_activity_type_label: string | null
+  verified_on: string | null
+  // status / system
+  is_active: boolean | null
+  state_code: number | null
+  status_code: number | null
+  status_label: string | null
+  created_on: string | null
+  modified_on: string | null
+}

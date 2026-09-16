@@ -144,9 +144,61 @@ Present on: `accounts`, `meetings`, `touchpoints`, `client_notes`, `contracts`, 
 
 Why it matters: a Dynamics field that isn't its own column can still be read with `table._raw->>'bcs_fieldname'`. Several views already do this — e.g. `v_live_outreach` reads `accounts._raw->>'bcs_divyield'`, and `v_feedback_outstanding` reads `_raw->>'_bcs_feedback_value'`. See the "backfill from `_raw`" recipe in [08 — Runbook](08-runbook.md).
 
+#### The flatten pass (2026-09-16)
+
+A `_raw` coverage audit across every mirror table — sampling the 500 most recently modified rows per table and matching each JSON key against both the table's columns and the keys its mapper actually reads — found that **tasks, events and new_vacationrequest were already fully mined**, while accounts (42 fields), contacts (10) and a handful elsewhere carried populated data no column exposed.
+
+The first pass flattened the fields that were **already load-bearing** — three admin views were extracting them from `_raw` with `->>` at query time, which no index can serve and which breaks silently if an upstream key is renamed:
+
+| Table | Columns added | Was being extracted from `_raw` by |
+|---|---|---|
+| `client_notes` | `note_body`, `owner_name`, `created_by_id`/`_name`, `modified_by_id`/`_name` | `v_admin_notes_all` |
+| `contacts` | `email`, `mobile_phone`, `direct_phone`, `city`, `street`, `owner_id`/`_name`, `created_by_id`/`_name`, `modified_by_id`/`_name` | — (new content, not previously surfaced at all) |
+| `meetings` | `created_by_id`/`_name`, `modified_by_id`/`_name` | `v_admin_meetings_all` |
+| `touchpoints` | `modified_by_id`/`_name` | `v_admin_touchpoints_all` |
+| `contracts` | `created_by_id`/`_name`, `modified_by_id`/`_name` | — |
+| `accounts` | `created_by_id`/`_name`, `modified_by_id`/`_name` | — |
+
+`sql/patches/2026-09-16_flatten_raw_fields.sql` does the `ALTER TABLE` + a one-time backfill from `_raw`, and `lib/sync/mappers.ts` was updated so future syncs populate them. **No re-sync was needed** — `_raw` is the complete Dynamics record (the sync sends no `$select`), so every value was already on every row.
+
+The three views now read real columns. They kept their exact column names, types and order, so nothing downstream changed.
+
+**Created-by / modified-by is now uniform** across `accounts`, `meetings`, `touchpoints`, `client_notes`, `contracts` and `contacts`. It pairs with `audit_log` ([18 — Audit Trail](18-audit-trail.md)): that records who changed something *in the dashboard*, these record who last changed it *in Dynamics*.
+
+Still deferred: the ~40 remaining accounts content fields (the staff-initials cluster `bcs_acctmgr`/`bcs_feedback`/`bcs_assoc`/`bcs_log`/`bcs_tser`/`bcs_targt`/`bcs_secmgr`, the `address1_*` question, `crdfa_additionalnotes`, `bcs_mtgplatformpref`), and the remaining `_raw` extractions in `v_admin_meetings_all` (`host_names`, `on_behalf_of`, `fb_received`, `city_name`, `state_region_name`).
+
+> **Backfills must not stamp `_synced_at`.** The patch wraps every `UPDATE` in `ALTER TABLE … DISABLE/ENABLE TRIGGER *_touch_synced_at`. A backfill is not a sync, and letting the trigger fire would set `_synced_at = now()` on every row and destroy the staleness signal described above. If a backfill ever fails midway, check for a trigger left disabled before the next sync runs — the query is at the bottom of the patch.
+
 ### Column conventions (set by the mappers)
 
 - **Choice / option-set** fields become a pair: `{field}_code` (the numeric code) + `{field}_label` (the display text).
+
+#### Multi-select option sets
+
+A **multi-select** option set is not a `_code integer`. Dynamics returns it as a **comma-joined string of codes**, whose FormattedValue is a **semicolon-joined string of labels**:
+
+```
+"755860001,755860004"  ->  "Robert Brinberg; Brian Smith"
+```
+
+Two shapes exist in this codebase, both valid:
+
+| Shape | Where | Notes |
+|---|---|---|
+| `{field}_code` **text** + `{field}_label` text | `touchpoints.contact_type_code`, `contacts.contact_type_code`, `contacts.internal_assignment_code` | Keeps the singular name; used where a field turned out to be multi-select after the column already existed |
+| `{field}_codes` + `{field}_labels` (both text) | `events.leads_codes` / `leads_labels` | The plural convention, preferred when modeling a known multi-select from scratch |
+
+**Modeling one as `integer` breaks the whole row.** `run.ts` upserts each mapped row as a unit, so a single rejected column fails the entire record — not just that field. This happened to `contacts` in Sept 2026: `bcs_internalassignment` and `bcs_contacttype` are both multi-select, and **150 contacts were missing from the mirror entirely** until `sql/patches/2026-09-16_contacts_multiselect_fix.sql` widened the two columns and the watermark was reset for a re-pull.
+
+Note that `num()` offers no protection — it is a pass-through cast, not a conversion, so a comma-joined string reaches an integer column unchanged and Postgres rejects it.
+
+**Before modeling any new choice field as `integer`, test it:**
+
+```sql
+SELECT count(*) FROM <table> WHERE _raw ->> '<bcs_field>' LIKE '%,%';
+```
+
+Known multi-select fields still unflattened: **`accounts.bcs_internalassignment`** (57.5% populated, 38 of 131 comma-joined) — it must be text when the deferred accounts pass picks it up.
 - **Lookups** (references to another record) become a pair: `{field}_id` (the GUID) + `{field}_name` (the resolved display name).
 - **Money** uses `num()`; contracts also mirror the Dynamics `_base` companion (e.g. `quarterly_retainer_base`).
 - **Multi-select** picklists are stored as two comma-separated text columns (`{field}_codes` / `{field}_labels`).

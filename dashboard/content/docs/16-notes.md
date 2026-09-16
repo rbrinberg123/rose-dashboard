@@ -95,6 +95,8 @@ Note and Action Step are full-width and `whitespace-pre-wrap`, which is the enti
 
 Five things about this entity are not what the column names suggest. All are measured on the 693 live rows; the full write-up is in the patch header.
 
+> **Updated 2026-09-16 — these are now real columns.** Everything below still describes where the data comes *from* in Dynamics and why, and all of it is still true. What changed is the plumbing: `note_body`, `owner_name`, `created_by_id`/`_name` and `modified_by_id`/`_name` are now **flattened columns on `public.client_notes`**, backfilled from `_raw` and written by `mapClientNote` on every sync. `v_admin_notes_all` reads those columns instead of extracting from `_raw` with `->>` at query time. The page renders identically — same data, sturdier source, and now indexable. See the flatten pass in [03 — Data Model](03-data-model.md#the-flatten-pass-2026-09-16).
+
 #### The note body is better in `_raw` than in its own column
 
 The mirror flattens `bcs_notestext` into `notes_text`, but Dynamics **also** carries `bcs_notes` — the same note with its **line breaks intact**. `notes_text` has them collapsed, so a note reads as a run-on paragraph with arbitrary wraps. The two differ on **435 of 693 rows**:
@@ -119,7 +121,7 @@ The list cell collapses newlines to `·` separators, because a raw `\n` inside a
 
 Unlike [Touches](15-touches.md#owner-is-a-team-not-a-person) — where owner is a per-account team — here `_ownerid_value@…lookuplogicalname` is **`"systemuser"`** on every row and the owner is genuinely the note's author.
 
-But `lib/sync/mappers.ts` `mapClientNote` takes only `owner_id` and never the name, and the two owner ids **do not resolve against `public.users`** — so the name cannot be recovered by joining either. `owner_name`, `created_by_name` and `modified_by_name` are all dug out of `_raw` by the view (100% populated, verified).
+The two owner ids **do not resolve against `public.users`**, so the name cannot be recovered by joining — it only exists in the `_ownerid_value@…FormattedValue` annotation. Until 2026-09-16 `mapClientNote` took only `owner_id`, and the view dug `owner_name`, `created_by_name` and `modified_by_name` out of `_raw` (100% populated, verified). **The mapper now takes all of them** via `lookupName(row, "_ownerid_value")` and friends, so they are ordinary columns and the view no longer touches `_raw`.
 
 Created By is the same two people as Owner on every row; Modified By adds only "CRM Administration".
 

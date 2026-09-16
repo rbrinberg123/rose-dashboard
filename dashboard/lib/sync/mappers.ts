@@ -141,6 +141,15 @@ export function mapAccount(row: Row): Row {
     onboarding_notes: str(row["bcs_onboardingnotes"]),
     peers: str(row["bcs_peers"]),
 
+    // Provenance, for parity with every other mirror table. Deliberately the
+    // ONLY accounts fields added in the 2026-09-16 flatten pass — the ~40
+    // unflattened accounts CONTENT fields (the staff-initials cluster,
+    // address1_*, etc.) are a separate, dedicated pass.
+    created_by_id: lookupId(row, "_createdby_value"),
+    created_by_name: lookupName(row, "_createdby_value"),
+    modified_by_id: lookupId(row, "_modifiedby_value"),
+    modified_by_name: lookupName(row, "_modifiedby_value"),
+
     state_code: num(row["statecode"]),
     state_label: fv(row, "statecode"),
     status_code: num(row["statuscode"]),
@@ -222,6 +231,12 @@ export function mapMeeting(row: Row): Row {
     host_notes_label: fv(row, "bcs_hostnotes"),
 
     owner_id: lookupId(row, "_ownerid_value"),
+    // Provenance. v_admin_meetings_all read both names out of _raw until
+    // 2026-09-16; these columns are what let it stop.
+    created_by_id: lookupId(row, "_createdby_value"),
+    created_by_name: lookupName(row, "_createdby_value"),
+    modified_by_id: lookupId(row, "_modifiedby_value"),
+    modified_by_name: lookupName(row, "_modifiedby_value"),
     state_code: num(row["statecode"]),
     state_label: fv(row, "statecode"),
     status_code: num(row["statuscode"]),
@@ -258,6 +273,9 @@ export function mapTouchpoint(row: Row): Row {
     owner_name: lookupName(row, "_ownerid_value"),
     created_by_id: lookupId(row, "_createdby_value"),
     created_by_name: lookupName(row, "_createdby_value"),
+    // v_admin_touchpoints_all read both of these out of _raw until 2026-09-16.
+    modified_by_id: lookupId(row, "_modifiedby_value"),
+    modified_by_name: lookupName(row, "_modifiedby_value"),
 
     state_code: num(row["statecode"]),
     state_label: fv(row, "statecode"),
@@ -288,7 +306,21 @@ export function mapClientNote(row: Row): Row {
     client_account_id: lookupId(row, "_bcs_account_value"),
     client_account_name: lookupName(row, "_bcs_account_value"),
 
+    // The note body with its LINE BREAKS intact. bcs_notes is the same note as
+    // bcs_notestext (-> notes_text) but uncollapsed; they differ on ~63% of
+    // rows. v_admin_notes_all used to COALESCE these two out of _raw at query
+    // time — flattening here is what let the view stop doing that.
+    note_body:
+      str(row["bcs_notes"])?.trim() || str(row["bcs_notestext"])?.trim() || null,
+
     owner_id: lookupId(row, "_ownerid_value"),
+    // owner/created/modified names were all _raw extractions in the view until
+    // 2026-09-16. The owner is the note's AUTHOR and is a real person here.
+    owner_name: lookupName(row, "_ownerid_value"),
+    created_by_id: lookupId(row, "_createdby_value"),
+    created_by_name: lookupName(row, "_createdby_value"),
+    modified_by_id: lookupId(row, "_modifiedby_value"),
+    modified_by_name: lookupName(row, "_modifiedby_value"),
 
     state_code: num(row["statecode"]),
     state_label: fv(row, "statecode"),
@@ -351,6 +383,11 @@ export function mapContract(row: Row): Row {
     notes: str(row["bcs_notes"]),
 
     owner_id: lookupId(row, "_ownerid_value"),
+    // Provenance, for parity with every other mirror table.
+    created_by_id: lookupId(row, "_createdby_value"),
+    created_by_name: lookupName(row, "_createdby_value"),
+    modified_by_id: lookupId(row, "_modifiedby_value"),
+    modified_by_name: lookupName(row, "_modifiedby_value"),
 
     state_code: num(row["statecode"]),
     state_label: fv(row, "statecode"),
@@ -745,12 +782,24 @@ export function mapContact(row: Row): Row {
     company_master_record_id: lookupId(row, "_bcs_companymasterrecord_value"),
     company_master_record_name: lookupName(row, "_bcs_companymasterrecord_value"),
 
-    // Rose custom choice fields
-    contact_type_code: num(row["bcs_contacttype"]),
+    // Rose custom choice fields.
+    //
+    // TWO OF THESE ARE MULTI-SELECT and must stay `str`, not `num`: Dynamics
+    // returns a COMMA-JOINED string of codes ("755860001,755860004") whose
+    // FormattedValue is SEMICOLON-JOINED ("Robert Brinberg; Brian Smith").
+    // Their columns are text (see sql/patches/2026-09-16_contacts_multiselect_fix.sql).
+    //
+    // `num()` would NOT have saved us either way — it is a pass-through cast,
+    // not a conversion, so the comma-joined string reached the integer column
+    // unchanged and Postgres rejected the whole row. That failed 150 contacts
+    // outright, since run.ts upserts the row as a unit.
+    //
+    // Same shape as touchpoints.contact_type_code, which is already text live.
+    contact_type_code: str(row["bcs_contacttype"]),
     contact_type_label: fv(row, "bcs_contacttype"),
     industry_code: num(row["bcs_industrychoice"]),
     industry_label: fv(row, "bcs_industrychoice"),
-    internal_assignment_code: num(row["bcs_internalassignment"]),
+    internal_assignment_code: str(row["bcs_internalassignment"]),
     internal_assignment_label: fv(row, "bcs_internalassignment"),
     lead_state_code: num(row["bcs_state"]),
     lead_state_label: fv(row, "bcs_state"),
@@ -772,6 +821,25 @@ export function mapContact(row: Row): Row {
     previous_company: str(row["bcs_previouscompany"]),
     ticker_symbol: str(row["bcs_tickersymbol"]),
     verified_on: parseDt(row["bcs_verifiedon"]),
+
+    // Contact-ability. Added 2026-09-16 — the original curated set was
+    // classification-and-flags only, so the mirror held no way to actually
+    // reach a contact. emailaddress1 is populated on ~77% of rows.
+    // address1_* is the PRIMARY address block on contact (the opposite of
+    // accounts, where address2_* is the one that is maintained).
+    email: str(row["emailaddress1"]),
+    mobile_phone: str(row["mobilephone"]),
+    direct_phone: str(row["telephone1"]),
+    city: str(row["address1_city"]),
+    street: str(row["address1_line1"]),
+
+    // Provenance — who owns the record, who made it, who last touched it.
+    owner_id: lookupId(row, "_ownerid_value"),
+    owner_name: lookupName(row, "_ownerid_value"),
+    created_by_id: lookupId(row, "_createdby_value"),
+    created_by_name: lookupName(row, "_createdby_value"),
+    modified_by_id: lookupId(row, "_modifiedby_value"),
+    modified_by_name: lookupName(row, "_modifiedby_value"),
 
     // Standard Dataverse system fields
     state_code: num(row["statecode"]),

@@ -105,6 +105,12 @@ The entity *list* is data-driven, but individual *fields* are hand-modeled. Mini
 
 **Backfill caveat:** the sync requests all attributes, so the new field flows in for rows **modified after** the next run. Unchanged historical rows won't get the new column populated until you either reset that entity's `sync_runs` watermark (forcing a full re-pull) or backfill from `_raw`. See [08 — Runbook](08-runbook.md).
 
+> **Prefer the `_raw` backfill to a re-pull.** Because `fetchAll` sends **no `$select`**, `_raw` is the COMPLETE Dynamics record on every row — so any attribute Dynamics returned is already stored, and a new column can be filled with one `UPDATE … SET col = _raw ->> 'key'` instead of re-pulling the entity. The annotations are there too (`Prefer: odata.include-annotations="*"`), so a lookup backfill can read both the id (`_createdby_value`) and the display name (`_createdby_value@OData.Community.Display.V1.FormattedValue`) straight out of `_raw`.
+>
+> Wrap the `UPDATE` in `ALTER TABLE … DISABLE/ENABLE TRIGGER <table>_touch_synced_at`. A backfill is not a sync, and letting the trigger fire stamps `_synced_at = now()` on every row, destroying the staleness signal.
+>
+> `sql/patches/2026-09-16_flatten_raw_fields.sql` is the worked example — it added 27 columns across six tables this way, with no re-sync.
+
 Adding a whole new **entity** (not a field) is the case where `entities.ts` changes — add an `ENTITIES` object plus its mapper and its `create table` SQL. If the new table declares a `_synced_at` column, also attach the `touch_synced_at` trigger — and if it does **not**, make sure you do not (see the next section).
 
 ### Opting an entity out of the deletion sweep (`skipDeletionSweep`)

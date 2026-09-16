@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils"
  * through it, so neither call site needs to change.
  *
  * GATING: super-user only, inherited rather than re-implemented.
- *   - The five CRM pages each do `if (role !== "super_user") redirect("/no-access")`
+ *   - The six CRM pages each do `if (role !== "super_user") redirect("/no-access")`
  *     server-side before rendering, so an AddNewButton inside one can only ever
  *     reach a super-user.
  *   - The nav quick-add sits inside the nav's CRM block, which renders nothing
@@ -37,9 +37,9 @@ import { cn } from "@/lib/utils"
  * both entry points still share one definition of what an entity is.
  * ------------------------------------------------------------------------ */
 
-/** The five CRM record types. "touch" is the DISPLAY name; the route, table and
+/** The six CRM record types. "touch" is the DISPLAY name; the route, table and
  *  view all stay "touchpoints" (see CRM_NAV_ITEMS in lib/access-control.ts). */
-export type CrmEntity = "meeting" | "event" | "task" | "touch" | "note"
+export type CrmEntity = "meeting" | "event" | "task" | "touch" | "note" | "contact"
 
 /** Singular display name per entity. Exported so the nav quick-add menu in
  *  nav.tsx renders "New Meeting" from the same source as the page buttons. */
@@ -49,6 +49,7 @@ export const CRM_ENTITY_LABELS: Record<CrmEntity, string> = {
   task: "Task",
   touch: "Touch",
   note: "Note",
+  contact: "Contact",
 }
 
 /** Menu order — matches the CRM nav rail top-to-bottom. */
@@ -58,6 +59,7 @@ export const QUICK_ADD_ORDER: readonly CrmEntity[] = [
   "task",
   "touch",
   "note",
+  "contact",
 ]
 
 /**

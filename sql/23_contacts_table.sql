@@ -50,12 +50,21 @@ CREATE TABLE IF NOT EXISTS public.contacts (
   company_master_record_id      uuid,
   company_master_record_name    text,
 
-  -- Rose custom choice fields
-  contact_type_code             integer,
+  -- Rose custom choice fields.
+  --
+  -- TWO ARE MULTI-SELECT, so their code columns are text, NOT integer:
+  -- Dynamics returns comma-joined codes ("755860001,755860004") whose labels
+  -- are semicolon-joined ("Robert Brinberg; Brian Smith"). Modeling them as
+  -- integer failed 150 contacts outright in Sept 2026 — run.ts upserts the row
+  -- as a unit, so one rejected column loses the whole contact.
+  -- See sql/patches/2026-09-16_contacts_multiselect_fix.sql.
+  -- CHECK ANY NEW CHOICE FIELD before making it integer:
+  --   SELECT count(*) FROM public.contacts WHERE _raw ->> '<field>' LIKE '%,%';
+  contact_type_code             text,            -- MULTI-SELECT
   contact_type_label            text,
   industry_code                 integer,
   industry_label                text,
-  internal_assignment_code      integer,
+  internal_assignment_code      text,            -- MULTI-SELECT
   internal_assignment_label     text,
   lead_state_code               integer,         -- bcs_state ("LeadState")
   lead_state_label              text,

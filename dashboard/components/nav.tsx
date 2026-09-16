@@ -15,6 +15,7 @@ import {
   ListChecks,
   MessagesSquare,
   StickyNote,
+  Contact2,
   Settings,
   Menu,
   Plus,
@@ -169,6 +170,10 @@ const CRM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   // not a record of an interaction — the only paper-shaped icon in the rail, and
   // visually distinct from the speech bubbles one row above it.
   "/notes": StickyNote,
+  // Contact2: a single PERSON card. Users (the plural silhouette) already means
+  // "People" in the reporting section of this rail, and a contact is one named
+  // individual rather than a group — so the card, not the crowd.
+  "/contacts": Contact2,
 }
 
 type CrmItem = CrmNavItem & { icon: React.ComponentType<{ className?: string }> }
@@ -182,8 +187,8 @@ function crmItemsFor(role: ViewAsRole | null, allowedRoutes: readonly string[]):
 }
 
 /**
- * The "+" quick-add in the CRM block — a five-item menu (New Meeting / Event /
- * Task / Touch / Note).
+ * The "+" quick-add in the CRM block — a six-item menu (New Meeting / Event /
+ * Task / Touch / Note / Contact).
  *
  * OPENS ON HOVER, through the rail's own `useFlyout`. That is the point: it is
  * the identical mechanism every other rail fly-out uses, so it inherits the
