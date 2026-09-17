@@ -125,6 +125,11 @@ export const ADMIN_ONLY_ROUTES = [
   "/touchpoints",
   "/notes",
   "/contacts",
+  // CRM -> Clients. Every account in the CRM, active AND inactive, read the same
+  // unscoped way from v_admin_accounts_all. Distinct from /portfolio, which is
+  // the matrix-grantable analytics view over active clients only — this one is
+  // the raw record and is not delegable.
+  "/accounts",
   // Admin -> Account Teams. NOT a CRM data table (deliberately absent from
   // CRM_NAV_ITEMS); listed here so the Roles matrix can never delegate it.
   // Adding a NEW route here changes no existing page's behaviour.
@@ -186,6 +191,12 @@ export function canAccessRoute(
 export type CrmNavItem = { href: string; label: string }
 
 export const CRM_NAV_ITEMS: readonly CrmNavItem[] = [
+  // FIRST in the block, by request. DISPLAY NAME is "Clients"; everything
+  // internal stays "accounts" — the route, v_admin_accounts_all,
+  // public.accounts, the spec key and the file names. Same split as Touches
+  // below. NOT the Portfolio client table: that is a separate,
+  // matrix-grantable reporting page and is unaffected by this entry.
+  { href: "/accounts", label: "Clients" },
   { href: "/meetings", label: "Meetings" },
   { href: "/events", label: "Events" },
   { href: "/tasks", label: "Tasks" },

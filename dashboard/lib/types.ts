@@ -1728,3 +1728,144 @@ export type AdminContactRow = {
   created_on: string | null
   modified_on: string | null
 }
+
+/**
+ * One row of `v_admin_accounts_all` — the CRM → Clients list (seventh CRM table).
+ *
+ * Mirrors the Dynamics `account` entity: Rose's clients, the issuers. Unscoped,
+ * which is why /accounts is in ADMIN_ONLY_ROUTES and every server action
+ * re-checks the role.
+ *
+ * ── NOT THE PORTFOLIO ROW ──────────────────────────────────────────────────
+ * `ClientPortfolioRow` (v_client_portfolio) is the ANALYTICS rollup: active
+ * clients only, joined to meetings/contracts/notes, carrying meeting counts,
+ * retainers, open slots and a note status. THIS is the account RECORD — every
+ * account, active and inactive, with only its own flattened columns. The two
+ * overlap on name/ticker/sector and nowhere else, and neither replaces the
+ * other.
+ *
+ * `_raw` is deliberately ABSENT here. The list never selects it; only the
+ * drawer's single-row query does (see app/accounts/actions.ts), where it is
+ * typed on `AccountRecord` instead.
+ *
+ * ── THREE STATUS FIELDS, AND THEY DISAGREE ─────────────────────────────────
+ *   state_label          Dynamics statecode, Active / Inactive. What the default
+ *                        view filters on (via the computed `is_active`) and what
+ *                        ~15 views in sql/03_views.sql mean by "active client".
+ *   client_status_label  a Rose business field, Current / Past / blank. Disagrees
+ *                        with the Dynamics state on 33 accounts.
+ *   status_label         the Dynamics statuscode — redundant with state_label.
+ * A fourth, dashboard-owned flag (public.account_status) exists, is setup-only,
+ * and is deliberately not on this view.
+ *
+ * `region_label` and `market_cap_label` are DERIVED in the view by the same CASE
+ * expressions v_client_portfolio uses, so the buckets match Portfolio's. Both
+ * inherit Portfolio's NULL handling: a missing market cap reads as "Micro" and a
+ * missing country reads as "EMEA". `market_cap_b` and `hq_country_name` are
+ * exposed so the raw values stay reachable.
+ *
+ * The engagement dates are DYNAMICS' OWN ROLLUPS, passed through. They lag what
+ * public.meetings and public.events contain; they are what the CRM believes, not
+ * reporting figures.
+ */
+export type AdminAccountRow = {
+  account_id: string
+  // the app-facing client triple — the account's own id/name/ticker under the
+  // names every other admin view uses, so the shared ticker renderer works here
+  client_account_id: string | null
+  client_account_name: string | null
+  client_ticker: string | null
+  // the seven default list columns
+  name: string | null
+  state_label: string | null
+  client_status_label: string | null
+  sector_label: string | null
+  region_label: string | null
+  market_cap_label: string | null
+  last_touchpoint_date: string | null
+  // identity
+  ticker_symbol: string | null
+  ipreo_ticker: string | null
+  website_url: string | null
+  email: string | null
+  company_master_id: string | null
+  company_master_name: string | null
+  // classification / size / geography
+  client_status_code: number | null
+  industry_option_label: string | null
+  fs_sector: string | null
+  fs_industry: string | null
+  exchange_label: string | null
+  market_cap_b: number | null
+  hq_country_name: string | null
+  city: string | null
+  state_province: string | null
+  country: string | null
+  // account team — Dynamics fields, read-only. The first four are what the
+  // Client column's avatar cluster draws from (lib/account-team.ts).
+  sales_lead_primary_id: string | null
+  sales_lead_primary_name: string | null
+  secondary_manager_id: string | null
+  secondary_manager_name: string | null
+  associate_id: string | null
+  associate_name: string | null
+  feedback_report_id: string | null
+  feedback_report_name: string | null
+  logistics_coordinator_id: string | null
+  logistics_coordinator_name: string | null
+  targeting_id: string | null
+  targeting_name: string | null
+  teaser_id: string | null
+  teaser_name: string | null
+  primary_contact_id: string | null
+  primary_contact_name: string | null
+  owner_id: string | null
+  owner_name: string | null
+  // engagement — CRM rollups, see the header
+  current_event_id: string | null
+  current_event_name: string | null
+  current_project_id: string | null
+  current_project_name: string | null
+  next_touchpoint_date: string | null
+  last_event_date: string | null
+  next_event_date: string | null
+  ongoing_event_date: string | null
+  last_targeting_date: string | null
+  last_teaser_date: string | null
+  days_since_last_review: number | null
+  original_start_date: string | null
+  onboarding_call: string | null
+  last_data_upload: string | null
+  teach_in: string | null
+  teach_in_date: string | null
+  shareholder_report_received_date: string | null
+  // flags
+  do_not_call: boolean | null
+  ir_only: boolean | null
+  bda_peers: boolean | null
+  calendar: boolean | null
+  calendar_confirmed: boolean | null
+  distro: boolean | null
+  meeting_history_received: boolean | null
+  mgmt_review: boolean | null
+  recurring_call_scheduled: boolean | null
+  report: boolean | null
+  rep_short_interest: boolean | null
+  sh_report: boolean | null
+  // free text
+  dietary_restrictions: string | null
+  onboarding_notes: string | null
+  peers: string | null
+  // status / system
+  is_active: boolean | null
+  state_code: number | null
+  status_code: number | null
+  status_label: string | null
+  created_by_id: string | null
+  created_by_name: string | null
+  modified_by_id: string | null
+  modified_by_name: string | null
+  created_on: string | null
+  modified_on: string | null
+  _synced_at: string | null
+}

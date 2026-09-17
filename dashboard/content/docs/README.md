@@ -25,6 +25,7 @@ These files live in `dashboard/content/docs/` and are also browsable in-app at *
 | [14 — Tasks (all CRM)](14-tasks.md) | The super-user-only `/tasks` page: every CRM task with no row scoping, its nine list columns, the four-section detail drawer, the Open-tasks default, and the two field-sourcing judgement calls (priority precedence, and owners that are not always people). **SQL patch still to run.** |
 | [13 — Events (all CRM)](13-events.md) | The super-user-only `/events` page: every marketing event with no row scoping, its seven list columns, the General/Planning detail drawer, the Current & Upcoming default, and the shared table machinery it runs on with Meetings. |
 | [12 — Meetings (all CRM)](12-meetings-all.md) | The super-user-only `/meetings` page: every CRM meeting with no row scoping, its **saved views** (system + personal, with defaults), the column catalog behind Edit columns, the Edit filters builder, and why the route — and the app's first write path — are gated the way they are. |
+| [20 — Clients (all CRM)](20-clients.md) | The super-user-only `/accounts` page: every client in the CRM, active **and** inactive — the account record itself, and how it differs from the Portfolio client table. The three disagreeing "status" fields, the two derived buckets it inherits from Portfolio, why it uses only already-flattened columns, and the account-team question it deliberately does not answer. **SQL patch still to run.** |
 
 ## Orientation in one paragraph
 

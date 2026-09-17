@@ -16,6 +16,7 @@ import {
   MessagesSquare,
   StickyNote,
   Contact2,
+  Briefcase,
   Settings,
   Menu,
   Plus,
@@ -174,6 +175,13 @@ const CRM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   // "People" in the reporting section of this rail, and a contact is one named
   // individual rather than a group — so the card, not the crowd.
   "/contacts": Contact2,
+  // Briefcase: the client BOOK — one company Rose works for. Building2 would be
+  // the obvious choice and is deliberately NOT reused: it already means the
+  // "Clients" REPORTING section in this same rail (Statistics / Portfolio /
+  // Detail / Outreach Status), and the whole point of this entry is that it is a
+  // different thing — the CRM record, not the analytics view. Two rows sharing
+  // one icon would say they are the same page.
+  "/accounts": Briefcase,
 }
 
 type CrmItem = CrmNavItem & { icon: React.ComponentType<{ className?: string }> }
@@ -187,8 +195,8 @@ function crmItemsFor(role: ViewAsRole | null, allowedRoutes: readonly string[]):
 }
 
 /**
- * The "+" quick-add in the CRM block — a six-item menu (New Meeting / Event /
- * Task / Touch / Note / Contact).
+ * The "+" quick-add in the CRM block — a seven-item menu (New Client / Meeting /
+ * Event / Task / Touch / Note / Contact).
  *
  * OPENS ON HOVER, through the rail's own `useFlyout`. That is the point: it is
  * the identical mechanism every other rail fly-out uses, so it inherits the

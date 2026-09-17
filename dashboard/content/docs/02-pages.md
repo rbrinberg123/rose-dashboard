@@ -451,6 +451,7 @@ The bottom block of the nav rail, behind a "CRM" divider. Both read unscoped adm
 
 | Route | Label | Reads | Purpose |
 |-------|-------|-------|---------|
+| `/accounts` | Clients | `v_admin_accounts_all` | **First in the block.** Every client in the CRM — the account **record**, active and inactive, opening on **Active clients** sorted by name. **Not** the Portfolio client table: `/portfolio` is the analytics rollup over active clients only, is matrix-grantable, and is unaffected by this page. The route stays `/accounts` (the Dynamics entity and mirror table are both `account`); only the label says "Clients", the same split as Touches. See [20 — Clients](20-clients.md). Needs `sql/patches/2026-09-17_admin_accounts.sql`. |
 | `/meetings` | Meetings | `v_admin_meetings_all` | Every meeting in the CRM. See [12 — Meetings](12-meetings-all.md). |
 | `/events` | Events | `v_admin_events_all` | Every marketing event in the CRM. See [13 — Events](13-events.md). |
 | `/tasks` | Tasks | `v_admin_tasks_all` | Every task in the CRM — all types, all states, opening on **Open tasks** sorted by due date. See [14 — Tasks](14-tasks.md). Needs `sql/patches/2026-09-11_admin_tasks.sql`. |
