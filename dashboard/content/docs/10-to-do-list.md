@@ -46,7 +46,7 @@ Which to use: **Excel** when you want to sort, pivot or re-cut the numbers; **PD
 | **Meetings YTD** | Confirmed meetings this calendar year that have **already occurred** — from January 1 up to *this moment*, not up to end of today. |
 | **Meetings L12M** | Confirmed meetings held in the **trailing 12 months**, up to today. |
 | **UPC** | **Upcoming (confirmed, not yet occurred)** — confirmed meetings that have **not started yet**, with **no far end**, so it counts the whole booked future rather than stopping at December 31. Header is abbreviated to three characters to keep the table narrow; the full label is on hover. YTD and UPC are a **clean split**: every confirmed meeting is in one or the other, never both, because they cut on the meeting's own timestamp against *now*. So **today's meetings divide by time of day** — the 9am has happened and sits in YTD, the 4pm has not and sits in UPC, and the 4pm moves to YTD once it starts. Confirmed only — Cancelled, TBR and Pending are excluded, exactly as for YTD and L12M. |
-| **Last Touch** | The date of the client's most recent **CRM touchpoint**. Amber at 60+ days, red at 90+, red "Never" if there has never been one. **Hover or click the date** to see the touchpoint behind it — its type, subject, exact date and time, and owner. |
+| **Last Touch** | The date of the client's most recent **CRM touchpoint**. Amber at 60+ days, red at 90+, red "Never" if there has never been one. **Hover, focus or click the date** to see the **full touchpoint** behind it — type and direction, exact date and time, duration, contact role, who created it, owner team, subject, and the description in full with its line breaks. |
 | **Last Upload** | The date of the client's most recent completed **Outreach → Data Upload** task. Amber at 120+ days, red at 180+, red "Never" if there has never been one. |
 | **Status** | The client's status flag from their **latest client note** — At Risk · Lost · New Client · Stable · Strong — as a colour pill. It sits in the **Client** section beside the ticker, because it reads as client identity rather than as an activity metric. This is the **same pill, the same five values and the same colours as Client Portfolio's "Status (latest note)"** column: both render `NoteStatusPill` from `dashboard/components/note-status.tsx`, over the palette in `lib/design.ts` (`NOTE_STATUS_PILL`) that the Client Statistics "Clients by Status" donut also reads — so pill, key and chart cannot drift. Hover a pill for the date the status was set. A client with no note on record shows an em dash. Clicking the header sorts by **severity** (At Risk first), not alphabetically — again matching Portfolio. |
 | **Current & Upcoming Event** | The name of the **soonest current-or-upcoming** marketing event — one whose last confirmed meeting is **today-or-later**, *or* whose stage is **Live Outreach / Meetings Ongoing** (the team is still actively booking it, so it stays here even once every booked meeting has passed). Shown in a deliberately narrow column — long names truncate with an ellipsis and the full name is on hover. The leading ticker is **stripped** from the name ("4DX-AU - Virtual - September, October (TBC)" shows as "Virtual - September, October (TBC)") because the Ticker column already says whose event it is. An event with a real upcoming meeting always wins over one that qualifies only on its stage. "None" if there isn't one. |
@@ -102,11 +102,35 @@ The tooltip queries against `v_feedback_pipeline` / `v_feedback_outstanding` and
 
 ### Hover detail
 
-Three cells carry a hover panel (the same group-hover treatment the Capacity chart uses), all built from data the loader fetches alongside the view:
+Three cells carry a hover panel, all built from data the loader fetches alongside the view:
 
 - **Ticker** — the full client name, as a plain `title` tooltip.
-- **Last Touch** — the touchpoint behind the date: `touchpoint_type_label`, `subject`, the exact `scheduled_start`, and `owner_name`. `v_client_todo` carries only the date, so the row itself comes from the base `touchpoints` table. The loader walks that client's touchpoints newest-first and takes the first one landing **on or before the Eastern day the cell shows** — matching on the day rather than just taking the newest row is what stops the tooltip and the date ever disagreeing (the view caps `last_touch_date` at today, so a touchpoint scheduled later today is skipped here too). The panel opens on hover *and* on focus, so it is reachable by click and keyboard.
+- **Last Touch** — the **full touchpoint** behind the date (see below).
 - **Open Items** — the event/subject of each open report and the date · institution of each open collection.
+
+Ticker and Open Items use the same absolute group-hover treatment the Capacity chart uses. Last Touch does not — see its own note.
+
+#### Last Touch — the full touchpoint
+
+**Which touchpoint.** `v_client_todo` carries only the date, so the row itself comes from the base `touchpoints` table. The loader walks that client's touchpoints newest-first and takes the first one landing **on or before the Eastern day the cell shows** — matching on the day rather than just taking the newest row is what stops the panel and the date ever disagreeing (the view caps `last_touch_date` at today, so a touchpoint scheduled later today is skipped here too).
+
+**What it shows.** Everything populated on that one touchpoint, not a headline: **type** and **direction** as the heading, then **When** (the exact `scheduled_start`), **Duration**, **Contact**, **Created by** and **Owner team**, then the **subject**, then the **description in full** with its line breaks preserved (capped at 240px tall and scrollable — the longest live note is 2,000 characters). Empty fields render nothing rather than a dash, so a sparse touchpoint gets a short panel. A client with **no** touchpoint keeps the bare date cell and gets **no panel at all**.
+
+Three of those labels are deliberate, and match the ones the [Touches](02-pages.md) page uses:
+
+| Shown as | Column | Why the label |
+| --- | --- | --- |
+| **Contact** | `contact_type_label` | *Which role* was spoken to (IRO / CEO / CFO / Other), semicolon-joined for multi-select. There is no contact **name** anywhere in the entity. |
+| **Created by** | `created_by_name` | The staff member who logged it — the real "who". |
+| **Owner team** | `owner_name` | A per-account Dynamics **team named after the client**, not a person. Kept under an honest label rather than hidden. |
+
+`Direction` is `direction_code` rendered as Outgoing / Incoming; it is **Outgoing on every live row** today and carries no signal yet. `Duration` is `actual_duration_minutes`, likewise **30 on every populated row**.
+
+**One read, not N+1.** The detail columns ride along on the loader's existing single bulk `touchpoints` query — the same query that already found the right row — so adding them cost no extra round trip. `description` is what makes it heavier: ~1.27 MB / ~650 ms against ~300 KB / ~450 ms for the old headline-only select, server-side and inside the loader's `Promise.all`. Fetching detail for only the ~140 winning ids would save the bytes but costs a second, *serial* round trip (~170–460 ms) plus id chunking, so it is not obviously cheaper. Revisit if `touchpoints` grows an order of magnitude.
+
+**Why this one is a real popover.** The other two panels are absolutely positioned children of the table's scroll container (`[data-slot=table-container]`, `overflow-x: auto` plus a bounded `overflow-y`), so they are **clipped at its edges**. A full touchpoint with notes hits that constantly on the lower rows, so this cell uses the shared `components/ui/popover.tsx` (Base UI) instead: it portals out of the scroll container and flips side/alignment to stay on screen. The visual treatment is deliberately the same 12px navy-headed card, so it still reads as one system with the other two.
+
+**Hover *and* focus, not hover alone.** `openOnHover` (120ms in, 80ms out) covers the mouse; an `onFocus` handler opens it when you tab to the cell; and the trigger is a real button, so Enter/Space work too. `initialFocus`/`finalFocus` are off, so opening the panel never yanks focus off the cell you are tabbing through.
 
 ### Excel export
 

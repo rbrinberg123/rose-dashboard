@@ -1343,13 +1343,32 @@ export type ClientTodoCollectionDetail = {
  * The single touchpoint behind a row's Last Touch date, for that cell's hover
  * detail. Read from the base `touchpoints` table (v_client_todo carries only
  * the date), and matched to the date the cell shows — see app/clients/to-do.
+ *
+ * Carries the FULL touchpoint, because the hover panel shows all of it. Three
+ * of these fields are not what their names suggest — the same three traps
+ * `AdminTouchpointRow` documents, and the panel labels them to match:
+ *   `owner_name`         a per-account Dynamics TEAM named after the client,
+ *                        NOT a staff member. The person who did the work is
+ *                        `created_by_name`.
+ *   `contact_type_label` WHICH ROLE was spoken to (IRO / CEO / CFO / Other),
+ *                        semicolon-joined for multi-select; never a name.
+ *   `direction_code`     the raw Dynamics boolean the admin view renders as
+ *                        `direction_label`; true = Outgoing, and it is true on
+ *                        every live row today.
+ * `actual_duration_minutes` is the base-table column behind that view's
+ * `duration_minutes` (30 on every populated row today).
  */
 export type ClientTodoTouchDetail = {
   client_account_id: string
   touchpoint_id: string
   scheduled_start: string | null
   subject: string | null
+  description: string | null
   touchpoint_type_label: string | null
+  contact_type_label: string | null
+  direction_code: boolean | null
+  actual_duration_minutes: number | null
+  created_by_name: string | null
   owner_name: string | null
 }
 

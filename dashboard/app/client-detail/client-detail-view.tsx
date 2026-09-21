@@ -414,6 +414,144 @@ function MarketingEventColumn({
   )
 }
 
+/**
+ * One Recent-Touchpoints row, with its detail popover.
+ *
+ * The trigger deliberately sits on an inline element INSIDE the first `<td>`,
+ * not on the `<tr>`. Base UI's trigger renders focus-guard `<span>`s as its
+ * siblings, and `<tbody>` may only contain `<tr>` — so a `render={<tr/>}`
+ * trigger emitted invalid DOM and the server/client markup diverged
+ * ("In HTML, <span> cannot be a child of <tbody>", a hydration error). A `<td>`
+ * accepts inline content, so the guards are legal there. Same arrangement as
+ * `LastTouchCell` in app/clients/to-do/todo-table.tsx, which never hit this.
+ *
+ * WHOLE-ROW HOVER IS PRESERVED: it just can't come from the trigger any more,
+ * since the trigger is now one cell's content. The `<tr>` drives a controlled
+ * `open` itself, keeping the original 150 ms open/close delays, and the
+ * row's open-state tint moves from `data-[popup-open]:` to that same state.
+ * Focus/blur on the trigger open it too, so it stays keyboard-reachable.
+ */
+function TouchpointRow({ t }: { t: ClientDetailTouchpointRow }) {
+  const [open, setOpen] = React.useState(false)
+  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clear = () => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+  }
+  // Mirrors the trigger's old `delay` / `closeDelay` of 150 ms.
+  const schedule = (next: boolean) => {
+    clear()
+    timer.current = setTimeout(() => setOpen(next), 150)
+  }
+  React.useEffect(() => clear, [])
+
+  const isOut = t.direction_code === true
+  const hasDescription = t.description != null && t.description.trim() !== ""
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <tr
+        className={`cursor-default border-b transition-colors last:border-b-0 hover:bg-accent/40 ${
+          open ? "bg-accent/40" : ""
+        }`}
+        onMouseEnter={() => schedule(true)}
+        onMouseLeave={() => schedule(false)}
+      >
+        <td className="whitespace-nowrap px-2 py-2 tabular-nums">
+          {/* The popover's anchor and keyboard handle. */}
+          <PopoverTrigger
+            nativeButton={false}
+            onFocus={() => {
+              clear()
+              setOpen(true)
+            }}
+            onBlur={() => schedule(false)}
+            render={<span className="cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50" />}
+          >
+            {formatLongDate(t.scheduled_start)}
+          </PopoverTrigger>
+        </td>
+        <td className="px-2 py-2">{t.subject ?? "—"}</td>
+        <td className="px-2 py-2">
+          {t.touchpoint_type_label ? (
+            <span
+              className="inline-block rounded px-2 py-0.5 text-xs font-medium"
+              style={{ backgroundColor: GRAY_BG, color: NAVY_DEEP }}
+            >
+              {t.touchpoint_type_label}
+            </span>
+          ) : (
+            "—"
+          )}
+        </td>
+        <td className="px-2 py-2">
+          <span
+            className="inline-block rounded px-2 py-0.5 text-xs font-medium"
+            style={
+              isOut
+                ? { backgroundColor: TEAL_LIGHTEST, color: NAVY_DEEP }
+                : { backgroundColor: GRAY_BG, color: NAVY_MID }
+            }
+          >
+            {isOut ? "Out" : "In"}
+          </span>
+        </td>
+        <td className="px-2 py-2 text-right tabular-nums">
+          {t.actual_duration_minutes != null
+            ? t.actual_duration_minutes.toLocaleString()
+            : "—"}
+        </td>
+      </tr>
+      <PopoverContent
+        side="top"
+        align="start"
+        sideOffset={6}
+        initialFocus={false}
+        finalFocus={false}
+        className="w-auto max-w-md gap-0 p-0 text-left"
+      >
+        <div className="border-b px-3.5 py-2.5">
+          <div className="text-sm font-semibold" style={{ color: NAVY_DEEP }}>
+            {t.subject ?? "Touchpoint"}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span>{formatLongDate(t.scheduled_start)}</span>
+            {t.touchpoint_type_label && (
+              <>
+                <span aria-hidden>·</span>
+                <span>{t.touchpoint_type_label}</span>
+              </>
+            )}
+            <span aria-hidden>·</span>
+            <span>{isOut ? "Outbound" : "Inbound"}</span>
+            {t.actual_duration_minutes != null && (
+              <>
+                <span aria-hidden>·</span>
+                <span>{t.actual_duration_minutes.toLocaleString()} min</span>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="max-h-[340px] overflow-y-auto px-3.5 py-3">
+          {hasDescription ? (
+            <p
+              className="whitespace-pre-wrap break-words text-sm leading-relaxed"
+              style={{ color: TEXT_PRIMARY }}
+            >
+              {t.description}
+            </p>
+          ) : (
+            <p className="text-sm italic text-muted-foreground">
+              No additional detail recorded.
+            </p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function ClientDetailView({
   allClients,
   selected,
@@ -1188,106 +1326,9 @@ export function ClientDetailView({
                 </tr>
               </thead>
               <tbody>
-                {tpVisible.map((t) => {
-                  const isOut = t.direction_code === true
-                  const hasDescription =
-                    t.description != null && t.description.trim() !== ""
-                  return (
-                    <Popover key={t.touchpoint_id}>
-                      <PopoverTrigger
-                        nativeButton={false}
-                        openOnHover
-                        delay={150}
-                        closeDelay={150}
-                        render={
-                          <tr className="cursor-default border-b transition-colors last:border-b-0 hover:bg-accent/40 data-[popup-open]:bg-accent/40" />
-                        }
-                      >
-                        <td className="whitespace-nowrap px-2 py-2 tabular-nums">
-                          {formatLongDate(t.scheduled_start)}
-                        </td>
-                        <td className="px-2 py-2">{t.subject ?? "—"}</td>
-                        <td className="px-2 py-2">
-                          {t.touchpoint_type_label ? (
-                            <span
-                              className="inline-block rounded px-2 py-0.5 text-xs font-medium"
-                              style={{ backgroundColor: GRAY_BG, color: NAVY_DEEP }}
-                            >
-                              {t.touchpoint_type_label}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="px-2 py-2">
-                          <span
-                            className="inline-block rounded px-2 py-0.5 text-xs font-medium"
-                            style={
-                              isOut
-                                ? { backgroundColor: TEAL_LIGHTEST, color: NAVY_DEEP }
-                                : { backgroundColor: GRAY_BG, color: NAVY_MID }
-                            }
-                          >
-                            {isOut ? "Out" : "In"}
-                          </span>
-                        </td>
-                        <td className="px-2 py-2 text-right tabular-nums">
-                          {t.actual_duration_minutes != null
-                            ? t.actual_duration_minutes.toLocaleString()
-                            : "—"}
-                        </td>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        side="top"
-                        align="start"
-                        sideOffset={6}
-                        className="w-auto max-w-md gap-0 p-0 text-left"
-                      >
-                        <div className="border-b px-3.5 py-2.5">
-                          <div
-                            className="text-sm font-semibold"
-                            style={{ color: NAVY_DEEP }}
-                          >
-                            {t.subject ?? "Touchpoint"}
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                            <span>{formatLongDate(t.scheduled_start)}</span>
-                            {t.touchpoint_type_label && (
-                              <>
-                                <span aria-hidden>·</span>
-                                <span>{t.touchpoint_type_label}</span>
-                              </>
-                            )}
-                            <span aria-hidden>·</span>
-                            <span>{isOut ? "Outbound" : "Inbound"}</span>
-                            {t.actual_duration_minutes != null && (
-                              <>
-                                <span aria-hidden>·</span>
-                                <span>
-                                  {t.actual_duration_minutes.toLocaleString()} min
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <div className="max-h-[340px] overflow-y-auto px-3.5 py-3">
-                          {hasDescription ? (
-                            <p
-                              className="whitespace-pre-wrap break-words text-sm leading-relaxed"
-                              style={{ color: TEXT_PRIMARY }}
-                            >
-                              {t.description}
-                            </p>
-                          ) : (
-                            <p className="text-sm italic text-muted-foreground">
-                              No additional detail recorded.
-                            </p>
-                          )}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  )
-                })}
+                {tpVisible.map((t) => (
+                  <TouchpointRow key={t.touchpoint_id} t={t} />
+                ))}
               </tbody>
             </table>
           </>

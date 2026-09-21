@@ -105,10 +105,19 @@ export default async function ClientToDoPage() {
     .select("account_id, note_status, note_status_date")
   if (load.mode === "filter") statusQuery = statusQuery.in("account_id", accountIds)
 
+  // The FULL touchpoint, not just a headline: the cell's hover panel shows every
+  // populated field, so the detail columns ride along on this ONE bulk read
+  // rather than a per-row fetch. `description` is what makes it heavier (~714
+  // chars average, 2k max) — measured at ~1.27 MB / ~650 ms against ~300 KB /
+  // ~450 ms for the headline-only select, server-side and inside the Promise.all
+  // below. Fetching the detail for only the ~140 winning ids would save the
+  // bytes but costs a second, serial round trip (~170-460 ms) plus id chunking,
+  // so it is not obviously cheaper; revisit if the table grows an order of
+  // magnitude.
   let touchQuery = sb
     .from("touchpoints")
     .select(
-      "client_account_id, touchpoint_id, scheduled_start, subject, touchpoint_type_label, owner_name",
+      "client_account_id, touchpoint_id, scheduled_start, subject, description, touchpoint_type_label, contact_type_label, direction_code, actual_duration_minutes, created_by_name, owner_name",
     )
     .not("client_account_id", "is", null)
     .not("scheduled_start", "is", null)

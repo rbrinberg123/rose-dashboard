@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ListTitleCard } from "@/components/page-masthead"
 import {
   BRAND_BLUE,
@@ -257,10 +258,33 @@ function AgingDateCell({
   )
 }
 
+/** One `Label   value` line in the Last Touch panel. Renders nothing when empty,
+ *  so a sparse touchpoint shows a short panel rather than a column of dashes. */
+function TouchField({ label, value }: { label: string; value: React.ReactNode }) {
+  if (value == null || value === "") return null
+  return (
+    <div className="flex gap-2">
+      <span className="w-[72px] shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 flex-1 text-foreground">{value}</span>
+    </div>
+  )
+}
+
 /**
- * Last Touch: the aging date, plus the touchpoint behind it on hover/focus.
- * Same group-hover panel treatment as the Feedback cell and the Capacity chart.
- * Focusable so it also opens on click / keyboard, not hover alone.
+ * Last Touch: the aging date, plus the FULL touchpoint behind it on hover/focus.
+ *
+ * Built on the shared <Popover> rather than this file's other two absolute
+ * group-hover panels for one reason: those are children of the table's scroll
+ * container ([data-slot=table-container], overflow-x auto + a bounded
+ * overflow-y), so they are CLIPPED at its edges — which a full touchpoint, notes
+ * and all, hits constantly on the lower rows. The shared popover portals out and
+ * flips side/alignment to stay on screen. The visual treatment is deliberately
+ * the same 12px navy-headed white card, so it still reads as one system.
+ *
+ * Hover + focus, not hover alone: `openOnHover` covers the mouse, `onFocus`
+ * covers tabbing to it, and the trigger is a real button so Enter/Space work
+ * too. `initialFocus`/`finalFocus` are off so opening never yanks focus off the
+ * cell you are tabbing through.
  */
 function LastTouchCell({
   row,
@@ -269,6 +293,7 @@ function LastTouchCell({
   row: ClientTodoTableRow
   detail: ClientTodoTouchDetail | undefined
 }) {
+  const [open, setOpen] = React.useState(false)
   const date = (
     <AgingDateCell
       ymd={row.last_touch_date}
@@ -278,6 +303,8 @@ function LastTouchCell({
       label="Last touch"
     />
   )
+  // No touchpoint behind the date → the bare cell, exactly as before. Never an
+  // empty popover.
   if (!detail) return date
 
   const when = detail.scheduled_start
@@ -288,30 +315,79 @@ function LastTouchCell({
     : formatDay(row.last_touch_date)
 
   return (
-    <div className="group relative inline-flex">
-      <span tabIndex={0} className="cursor-help outline-none">
-        {date}
-      </span>
-      <div
-        className={cn(
-          "pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-[280px] rounded-md border bg-white p-2.5 text-left text-[12px] shadow-md",
-          "group-hover:block group-focus-within:block",
-        )}
-        style={{ borderColor: "#E6E9EF" }}
-        role="tooltip"
+    <Popover open={open} onOpenChange={setOpen}>
+      {/* Explicit `render` button, the same way host-select-cell.tsx drives this
+          popover — it keeps the trigger's box exactly the pill's size so the
+          dense row's height doesn't shift. */}
+      <PopoverTrigger
+        openOnHover
+        delay={120}
+        closeDelay={80}
+        onFocus={() => setOpen(true)}
+        render={
+          <button
+            type="button"
+            aria-label={`Last touch ${when} — show touchpoint detail`}
+            className="inline-flex cursor-help items-center rounded-sm bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          />
+        }
       >
-        <div className="mb-1 font-medium" style={{ color: NAVY }}>
+        {date}
+      </PopoverTrigger>
+      <PopoverContent
+        side="bottom"
+        align="start"
+        initialFocus={false}
+        finalFocus={false}
+        className="w-[340px] gap-1.5 text-left text-[12px] leading-[1.45]"
+      >
+        <div className="font-medium" style={{ color: NAVY }}>
           {detail.touchpoint_type_label ?? "Touchpoint"}
+          {detail.direction_code != null ? (
+            <span className="font-normal text-muted-foreground">
+              {" · "}
+              {detail.direction_code ? "Outgoing" : "Incoming"}
+            </span>
+          ) : null}
         </div>
+
+        <div className="flex flex-col gap-0.5">
+          <TouchField label="When" value={<span className="tabular-nums">{when}</span>} />
+          <TouchField
+            label="Duration"
+            value={
+              detail.actual_duration_minutes != null
+                ? `${detail.actual_duration_minutes} min`
+                : null
+            }
+          />
+          {/* Not a person: the role(s) spoken to, semicolon-joined in Dynamics. */}
+          <TouchField label="Contact" value={detail.contact_type_label} />
+          {/* The staff member who logged it — the real "who" on a touchpoint. */}
+          <TouchField label="Created by" value={detail.created_by_name} />
+          {/* Labelled "Owner team" because it is a per-account Dynamics TEAM
+              named after the client, not a staff member. See lib/types.ts. */}
+          <TouchField label="Owner team" value={detail.owner_name} />
+        </div>
+
         {detail.subject ? (
-          <div className="mb-1 text-foreground">{detail.subject}</div>
+          <div className="border-t pt-1.5 font-medium text-foreground">{detail.subject}</div>
         ) : null}
-        <div className="tabular-nums text-muted-foreground">{when}</div>
-        {detail.owner_name ? (
-          <div className="mt-1 text-muted-foreground">Owner · {detail.owner_name}</div>
+        {detail.description ? (
+          // Notes in full, line breaks preserved. Capped and scrollable: the
+          // longest live note is 2,000 characters and would otherwise run off
+          // the screen on its own.
+          <div
+            className={cn(
+              "max-h-[240px] overflow-y-auto whitespace-pre-wrap break-words text-muted-foreground",
+              detail.subject ? "" : "border-t pt-1.5",
+            )}
+          >
+            {detail.description}
+          </div>
         ) : null}
-      </div>
-    </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
