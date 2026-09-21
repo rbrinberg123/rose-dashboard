@@ -4234,6 +4234,12 @@ WHERE e.event_state_label = 'Live Outreach'
   -- ('Active' = 0 / 'Inactive' = 1), distinct from the event_state_label
   -- workflow field above. Only Active events should appear on the page.
   AND e.state_label = 'Active'
+  -- Exclude Mining events. bcs_mining is a Dynamics Yes/No toggle on the event,
+  -- added 2026-09-21; it is null/absent on events not yet re-synced since, so
+  -- COALESCE treats null / missing / blank as false and only events explicitly
+  -- ticked Mining = Yes are dropped. Activates automatically as the team ticks
+  -- the box (ticking modifies the event, so the incremental sync refetches it).
+  AND COALESCE(NULLIF(e._raw ->> 'bcs_mining', '')::boolean, false) = false
 ORDER BY a.ticker_symbol NULLS LAST, e.name;
 
 

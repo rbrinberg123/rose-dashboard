@@ -320,6 +320,18 @@ It accepts `6/23`, `6/23/26`, `6/23/2026`, `6/29-7/1` and `6/29-30`; ranges are 
 
 **Failure handling.** A token that doesn't match, names an impossible month/day, or resolves to a date the calendar rejects (`2/30`) is skipped; the remaining tokens still render, and the whole scan is wrapped so one bad title can never blank a lane. There is **deliberately no fallback** to the `event_start_actual..event_end_actual` window any more: at a confirmed-only stage the point is that only real meetings show, so an event with nothing to draw renders an **empty lane**. Both the boxes and the per-day density strip come from the same resolved set, so the heat map can't disagree with the marks.
 
+#### Live Outreach — Mining events excluded
+
+**Mining events never reach the page or the email.** `v_live_outreach` filters them out at the view level (added 2026-09-21):
+`AND COALESCE(NULLIF(e._raw ->> 'bcs_mining', '')::boolean, false) = false`.
+`bcs_mining` is a Dynamics **Yes/No toggle on the event**, read out of `events._raw` because the column postdates the mirror table.
+Null / absent / blank all evaluate to false, so **only events explicitly ticked Mining = Yes are dropped** — everything else is kept.
+
+One view change covers both surfaces: the page (`app/live-outreach/page.tsx`), the email preview and the sent digest all read `v_live_outreach`
+through the single `loadLiveOutreachRows()` loader in `app/live-outreach/load.ts`, and none of them applies any further filtering.
+The exclusion **activates on its own** as the team ticks the box in Dynamics — ticking modifies the event, so the incremental sync refetches it
+and the flag turns true. No full resync is needed. On the day it shipped it excluded **0** events, because no boxes had been ticked yet.
+
 #### Live Outreach — Event Summary
 
 The page opens with an **Event Summary** card above the detail cards: one compact line per event — number · ticker · client · status flag · confirmed meetings · open slots · dates — split into two columns and read **column-major** (down the left half, then down the right).
