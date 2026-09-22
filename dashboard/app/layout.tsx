@@ -7,6 +7,7 @@ import { ViewAsBanner } from "@/components/view-as-banner"
 import { TeamInitialsProvider } from "@/components/team-initials-context"
 import { Toaster } from "@/components/ui/sonner"
 import { loadTeamInitialsMap } from "@/lib/team-initials-directory"
+import { loadCriticalAlertCount } from "@/app/clients/alerts/critical-count"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { getRealRole } from "@/lib/user-role"
 import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, viewAsLabel } from "@/lib/access-control"
@@ -107,7 +108,16 @@ export default async function RootLayout({
   // Global account-team initials map — computed once here so same-initial people
   // (e.g. Katie Murphy / Kaila Migliazza) disambiguate to KMu / KMi consistently
   // on every avatar. Only for signed-in users; fail-soft to an empty map.
-  const teamInitials = userEmail ? await loadTeamInitialsMap() : {}
+  //
+  // The Alerts badge count rides along in the SAME batch rather than adding a
+  // serial round trip to every page in the app. It is scoped to the EFFECTIVE
+  // person (so "View as" previews their badge, not yours) and is given that
+  // email directly — resolving identity inside it would undo the whole point of
+  // the proxy header above, which exists to avoid a ~180 ms auth call per page.
+  const effectiveEmail = person?.email ?? userEmail
+  const [teamInitials, alertCount] = userEmail
+    ? await Promise.all([loadTeamInitialsMap(), loadCriticalAlertCount(effectiveEmail)])
+    : [{}, 0]
 
   // Banner label: PERSON mode names the person + their real role ("No role" when
   // they have none); ROLE mode names the abstract role. Only super-users ever
@@ -132,6 +142,7 @@ export default async function RootLayout({
               role={role}
               allowedRoutes={allowedRoutes}
               defaultCollapsed={sidebarCollapsed}
+              alertCount={alertCount}
             />
             <main className="flex-1 overflow-x-hidden">
               {/* Sectional nav strip — the ONE mount point. It renders itself

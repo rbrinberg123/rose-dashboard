@@ -39,6 +39,7 @@ import {
   RAIL_ACCENT_UNDERLINE,
   RAIL_ACTIVE_TINT,
   RAIL_HOVER_TINT,
+  STATUS_PILL_LIGHT,
   TEAL,
 } from "@/lib/design"
 import {
@@ -90,6 +91,7 @@ const sections: NavSection[] = [
       // app/clients/to-do/page.tsx). This label also drives the Clients tab in
       // the sectional nav strip, which reads the same `sections` array.
       { href: "/clients/to-do", label: "Outreach Status" },
+      { href: "/clients/alerts", label: "Alerts" },
     ],
   },
   {
@@ -291,6 +293,80 @@ function isActive(current: string, href: string) {
 }
 export { isActive as isNavRouteActive }
 
+/* ---------------------------------------------------------------------------
+ * The Alerts critical-count badge
+ *
+ * ONE nav item, two visual states. Collapsed, the rail shows only SECTION
+ * icons — Alerts is a child of Clients — so the bubble rides the Clients icon,
+ * which is the rail's only visible stand-in for it. Anywhere labels are shown
+ * (expanded sidebar, mobile sheet, the rail's hover fly-out) it is a trailing
+ * pill after the word "Alerts" instead.
+ *
+ * The count is computed server-side in app/clients/alerts/critical-count.ts off
+ * the SAME scoping and severity rules as the page, arrives as one number on the
+ * Sidebar's `alertCount` prop, and travels down by context rather than through
+ * six layers of props.
+ * ------------------------------------------------------------------------ */
+
+/** The route the badge belongs to. Must match lib/page-registry.ts. */
+const ALERTS_ROUTE = "/clients/alerts"
+
+const AlertCountContext = React.createContext(0)
+
+/**
+ * Red badges cap their DISPLAY at "9+" so a three-digit number can't stretch
+ * the rail, but the real number is what goes in the aria-label — a screen
+ * reader should hear "12 critical", not "9+".
+ */
+function badgeText(count: number): string {
+  return count > 9 ? "9+" : String(count)
+}
+
+/** "Alerts — 8 critical", or the plain label when there is nothing to say. */
+function alertsAriaLabel(label: string, count: number): string {
+  return count > 0 ? `${label} — ${count} critical` : label
+}
+
+// The app's critical red, from the shared token the Alerts page's own "Critical"
+// pill uses (STATUS_PILL_LIGHT.atRisk.text) — so the badge and the rows it is
+// counting are literally the same colour. White on it clears AA comfortably.
+const ALERT_BADGE_RED = STATUS_PILL_LIGHT.atRisk.text
+
+/**
+ * A1 — classic notification bubble, pinned to the top-right of a rail icon.
+ * The 2px white ring matches the rail background, so the bubble reads as
+ * floating above the icon rather than clipped into it.
+ *
+ * Decorative: the count is already in the link's aria-label, so announcing it
+ * again here would read it twice.
+ */
+function RailAlertBubble({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute -right-0.5 -top-0.5 flex min-w-[16px] items-center justify-center rounded-full px-[3px] text-[9.5px] font-semibold leading-none text-white ring-2 ring-white"
+      style={{ height: 16, backgroundColor: ALERT_BADGE_RED }}
+    >
+      {badgeText(count)}
+    </span>
+  )
+}
+
+/** B1 — solid red count pill, trailing a nav label. Decorative, as above. */
+function AlertCountPill({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <span
+      aria-hidden="true"
+      className="ml-auto flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[10.5px] font-semibold leading-none text-white"
+      style={{ height: 17, backgroundColor: ALERT_BADGE_RED }}
+    >
+      {badgeText(count)}
+    </span>
+  )
+}
+
 /**
  * Drive visibility off the SAME allowed-routes set the proxy enforces with, so
  * the nav and the security gate can never disagree. Filter items the user can't
@@ -332,6 +408,7 @@ function Section({
   onNavigate?: () => void
 }) {
   const { label, icon: Icon, items, href } = section
+  const alertCount = React.useContext(AlertCountContext)
 
   // Header-as-link: a section with an href and no child items renders the
   // category row itself as a clickable Link, with the same active/hover
@@ -375,14 +452,16 @@ function Section({
       <ul className="space-y-0.5">
         {(items ?? []).map(({ href: itemHref, label: itemLabel }) => {
           const active = isActive(current, itemHref)
+          const badge = itemHref === ALERTS_ROUTE ? alertCount : 0
           return (
             <li key={itemHref}>
               <Link
                 href={itemHref}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
+                aria-label={badge > 0 ? alertsAriaLabel(itemLabel, badge) : undefined}
                 className={cn(
-                  "relative flex items-center rounded-md py-[3px] pl-6 pr-2 text-sm transition-colors",
+                  "relative flex items-center gap-2 rounded-md py-[3px] pl-6 pr-2 text-sm transition-colors",
                   active
                     ? "bg-[#EEF2FB] font-medium text-[#1E2858]"
                     : "text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
@@ -396,6 +475,7 @@ function Section({
                   />
                 )}
                 <span className="truncate">{itemLabel}</span>
+                <AlertCountPill count={badge} />
               </Link>
             </li>
           )
@@ -730,13 +810,15 @@ function FlyoutPanel({
  * it matches the spine on the fly-out it opens. A gradient can't be expressed as
  * a background-color utility, hence the paired inline style.
  */
-function railIconProps(active: boolean) {
+function railIconProps(active: boolean, extraClass?: string) {
   return {
     className: cn(
       "flex size-10 items-center justify-center rounded-md transition-colors",
       active
         ? "text-white"
         : "text-[#9AA1AD] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
+      // `relative` is passed in by the one caller that pins a badge to the icon.
+      extraClass,
     ),
     style: active ? { backgroundImage: RAIL_ACCENT_FILL } : undefined,
   }
@@ -804,19 +886,27 @@ function RailSection({
   const { open, setOpen, triggerProps, panelProps } = useFlyout()
   const panelId = React.useId()
 
+  // Collapsed, this section icon is the ONLY visible surface for any page
+  // inside it — so when Alerts is one of its (already access-filtered) children,
+  // the bubble rides here. Hiding it in the fly-out would mean the badge only
+  // appeared on hover, which defeats an at-a-glance cue.
+  const alertCount = React.useContext(AlertCountContext)
+  const badge = items.some((item) => item.href === ALERTS_ROUTE) ? alertCount : 0
+
   return (
     <div className="flex justify-center py-[3px]" {...triggerProps}>
       <Link
         href={target}
-        aria-label={label}
+        aria-label={badge > 0 ? `${label} — ${badge} critical alerts` : label}
         aria-current={active ? "page" : undefined}
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         // Navigating dismisses the fly-out; hover/focus re-opens it.
         onClick={() => setOpen(false)}
-        {...railIconProps(active)}
+        {...railIconProps(active, "relative")}
       >
         <Icon className="size-[18px]" />
+        <RailAlertBubble count={badge} />
       </Link>
       {open ? (
         <FlyoutPanel id={panelId} panelProps={panelProps}>
@@ -835,16 +925,20 @@ function RailSection({
           <ul className="space-y-0.5">
             {items.map(({ href, label: itemLabel }) => {
               const itemActive = isActive(current, href)
+              const itemBadge = href === ALERTS_ROUTE ? alertCount : 0
               return (
                 <li key={href}>
                   <Link
                     href={href}
                     aria-current={itemActive ? "page" : undefined}
+                    aria-label={
+                      itemBadge > 0 ? alertsAriaLabel(itemLabel, itemBadge) : undefined
+                    }
                     className={cn(
                       // overflow-hidden clips the accent line to the rounded
                       // corners AND hides it off-edge until hover; pl-3 keeps
                       // the label clear of the 3px line.
-                      "group/nav-item relative block overflow-hidden rounded-md py-1 pl-3 pr-2 text-sm transition-colors",
+                      "group/nav-item relative flex items-center gap-2 overflow-hidden rounded-md py-1 pl-3 pr-2 text-sm transition-colors",
                       itemActive
                         ? "font-medium text-[#1E2858]"
                         : "text-[#5B6472] hover:bg-[var(--rail-hover)] hover:text-[#1E2858]",
@@ -869,7 +963,8 @@ function RailSection({
                       )}
                       style={{ backgroundColor: TEAL }}
                     />
-                    {itemLabel}
+                    <span className="truncate">{itemLabel}</span>
+                    <AlertCountPill count={itemBadge} />
                   </Link>
                 </li>
               )
@@ -1169,6 +1264,7 @@ export function Sidebar({
   role,
   allowedRoutes = [],
   defaultCollapsed = true,
+  alertCount = 0,
 }: {
   userEmail?: string | null
   role?: ViewAsRole | null
@@ -1178,6 +1274,9 @@ export function Sidebar({
    *  server renders the sidebar at its final width (no expand/collapse flash).
    *  Defaults to collapsed — see `isSidebarCollapsed`. */
   defaultCollapsed?: boolean
+  /** Critical (red) Alerts for THIS viewer, from the root layout. 0 hides every
+   *  badge. See app/clients/alerts/critical-count.ts for how it is counted. */
+  alertCount?: number
 }) {
   const pathname = usePathname() || "/"
   const [mobileOpen, setMobileOpen] = React.useState(false)
@@ -1228,7 +1327,9 @@ export function Sidebar({
   }
 
   return (
-    <>
+    // The Alerts count travels by context rather than through NavContents,
+    // RailContents, Section and RailSection as a prop nothing between them uses.
+    <AlertCountContext.Provider value={alertCount}>
       {/* Mobile top bar — visible below md */}
       <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-[#EDEFF3] bg-white px-3 md:hidden">
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -1353,7 +1454,7 @@ export function Sidebar({
           </div>
         )}
       </aside>
-    </>
+    </AlertCountContext.Provider>
   )
 }
 

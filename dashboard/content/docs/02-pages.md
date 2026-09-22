@@ -32,7 +32,7 @@ segmented control and persisted to `?sections=` in the URL. Default view is
 | Client *(locked)* | Client · Status · **Info** (note + AI hover icons) · **Cap $B** · Team |
 | Classification | Mkt Cap · Region · Sector |
 | Contract | Term End · Days · Renew · Term (· Retainer · Doc — Financials-gated) |
-| Meetings | L12M · Inst · L3M · Next 3M · **Open** · Last · **Next** · **# Intro** · **# F/U** |
+| Meetings | **YTD** · L12M · Inst · L3M · Next 3M · **Open** · Last · **Next** · **# Intro** · **# F/U** |
 
 **Removed (2026-09-03) — the Activity section.** The **Last Event** date
 (`accounts.last_event_date`) and **Last Note** date
@@ -176,6 +176,32 @@ next. The forward counterpart to **Last**.
   open slots. Events with a NULL `of_slots` contribute nothing (capacity unknown,
   not zero) — 2 of the 116 currently-qualifying events. A client with no
   qualifying event shows **0**, not a dash.
+
+**YTD** (`meetings_ytd`, added 2026-09-22) — **calendar year-to-date** confirmed
+meetings: **January 1 of the current year through today**. It **opens the
+Meetings group**, immediately before L12M, so the two read together as
+"this year / trailing year".
+
+- It is **L12M's rule with a different window**, deliberately not a new
+  definition. Same source (`public.meetings`), same status filter
+  (`meeting_status_label = 'Confirmed'`), same date field (`meeting_date`), same
+  upper bound (`<= CURRENT_DATE`), same timezone. **Only the lower bound moves** —
+  `date_trunc('year', CURRENT_DATE)` instead of `CURRENT_DATE - interval '365 days'`.
+- Because the YTD window is a strict **subset** of the trailing-365-day window
+  for any date this year, **YTD ≤ L12M always holds**. The gap between them is
+  last year's tail: firm-wide today that is 2,172 YTD against 3,015 L12M, with
+  61 clients showing a tail and 34 where the two are equal (everything they have
+  done with Rose is this year).
+- Sharing L12M's upper bound means a meeting held **later today** is in neither
+  count — `meeting_date <= CURRENT_DATE` compares against midnight this morning.
+  That is inherited on purpose so the two columns agree about what "through
+  today" means; changing it would be a change to L12M.
+- ⚠️ **Not the same cut as Outreach Status' "Meetings YTD"**, which uses
+  `v_client_todo.meetings_ytd` and cuts at `meeting_date < now()` on the
+  **Eastern** day so that today's meetings split by time of day. Both are right
+  for their own page; the two can differ by meetings already held today.
+- Requires `sql/patches/2026-09-22_portfolio_meetings_ytd.sql`. The column
+  prints in the PDF exactly like L12M (no `hide-col` marker).
 
 **# Intro** (`intro_meetings`) and **# F/U** (`followup_meetings`) — the
 relationship split of the client's meetings. They **close the Meetings group**,

@@ -58,6 +58,11 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   // Label is the DISPLAY name (shown on the Admin → Roles matrix); the route is
   // the stable key that role grants are stored against, so it stays `to-do`.
   { route: "/clients/to-do", label: "Outreach Status", section: "Clients" },
+  // Read-only critical-to-dos worklist. Row-scoped per viewer in its own loader
+  // (see app/clients/alerts/load.ts), so this grant only decides who may OPEN
+  // the page — never whose alerts they see. Segment-aware matching means the
+  // /clients/to-do grant does NOT cover it; it needs its own row.
+  { route: "/clients/alerts", label: "Alerts", section: "Clients" },
 
   // ---- Institutions ----
   { route: "/institutions", label: "Institution Summary", section: "Institutions" },

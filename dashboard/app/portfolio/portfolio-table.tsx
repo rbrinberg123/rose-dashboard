@@ -88,7 +88,7 @@ const AI_TEAL = "#1C8C9C"
 const TOGGLE_SECTIONS = [
   { id: "classification", label: "Classification", cols: 3 },
   { id: "contract", label: "Contract", cols: 6 },
-  { id: "meetings", label: "Meetings", cols: 9 },
+  { id: "meetings", label: "Meetings", cols: 10 },
 ] as const
 
 type SectionId = (typeof TOGGLE_SECTIONS)[number]["id"]
@@ -147,12 +147,12 @@ const SECTION_MIN_W = {
   contract: 68 + 45 + 48 + 46,
   // Retainer, Doc — only rendered with the Financials grant
   contractFinancials: 57 + 33,
-  // L12M, Inst, L3M, Next 3M, Open, Last, Next, # Intro, # F/U — this group
+  // YTD, L12M, Inst, L3M, Next 3M, Open, Last, Next, # Intro, # F/U — this group
   // carries 10px cell padding instead of the 6px base (it reads as cramped at
   // 6px), so each column here is its measured tight width + 8. The two adjacent
   // date columns are both 76: Last and Next hold the same MM/DD/YY, and the
   // short "Next" header leaves the width to the data.
-  meetings: 50 + 43 + 44 + 67 + 55 + 76 + 76 + 48 + 45,
+  meetings: 44 + 50 + 43 + 44 + 67 + 55 + 76 + 76 + 48 + 45,
 } as const
 
 /**
@@ -208,6 +208,7 @@ type SortKey =
   | "auto_renew"
   | "contract_status_label"
   | "annualized_retainer"
+  | "meetings_ytd"
   | "meetings_last_365d"
   | "unique_institutions_last_365d"
   | "meetings_last_90d"
@@ -534,7 +535,7 @@ export function PortfolioTable({
     ...(show.contract
       ? [{ key: "contract", label: "Contract", colSpan: showFinancials ? 6 : 4 }]
       : []),
-    ...(show.meetings ? [{ key: "meetings", label: "Meetings", colSpan: 9 }] : []),
+    ...(show.meetings ? [{ key: "meetings", label: "Meetings", colSpan: 10 }] : []),
   ]
 
   const visibleColCount =
@@ -1195,9 +1196,20 @@ export function PortfolioTable({
               )}
               {show.meetings && (
                 <>
-                  {/* Section start — see SectionDivider. */}
+                  {/* Section start — see SectionDivider. YTD leads the group,
+                      so the divider moved here from L12M. */}
                   <TableHead className="relative h-8 px-2.5">
                     <SectionDivider />
+                    <SortHeader
+                      label="YTD"
+                      sortKey="meetings_ytd"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      align="right"
+                    />
+                  </TableHead>
+                  <TableHead className="h-8 px-2.5">
                     <SortHeader
                       label="L12M"
                       sortKey="meetings_last_365d"
@@ -1348,6 +1360,7 @@ export function PortfolioTable({
               </TableRow>
             ) : (
               sortedRows.map((r) => {
+                const meetingsYtd = r.meetings_ytd ?? 0
                 const meetings365 = r.meetings_last_365d ?? 0
                 const meetings90 = r.meetings_last_90d ?? 0
                 // Is there anything to drill into? A client with no confirmed
@@ -1534,8 +1547,12 @@ export function PortfolioTable({
 
                     {show.meetings && (
                       <>
+                        {/* Mtgs YTD — leads the group, so it carries the
+                            section-start rule that used to sit on L12M. */}
+                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums" style={BODY_SECTION_START_STYLE}>{meetingsYtd}</TableCell>
+
                         {/* Mtgs L12M */}
-                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums" style={BODY_SECTION_START_STYLE}>{meetings365}</TableCell>
+                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums">{meetings365}</TableCell>
 
                         {/* Inst L12M */}
                         <TableCell className="px-2.5 py-1 align-top text-right tabular-nums text-muted-foreground">

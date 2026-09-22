@@ -369,6 +369,14 @@ export type ClientPortfolioRow = {
   // ABSENT, not null, so an ungranted client never receives the value.
   quarterly_retainer?: number | null
   annualized_retainer?: number | null
+  // Calendar year-to-date confirmed meetings (Jan 1 → today). EXACTLY
+  // meetings_last_365d's counting basis — same source, same Confirmed filter,
+  // same meeting_date field, same `<= CURRENT_DATE` upper bound — with only the
+  // window start moved to date_trunc('year', CURRENT_DATE). So YTD <= L12M
+  // always holds. NOT the same cut as v_client_todo.meetings_ytd on Outreach
+  // Status, which splits today's meetings by time of day; see
+  // sql/patches/2026-09-22_portfolio_meetings_ytd.sql.
+  meetings_ytd: number | null
   meetings_last_365d: number | null
   meetings_last_90d: number | null
   // Forward-looking: confirmed meetings scheduled in the next 3 months
