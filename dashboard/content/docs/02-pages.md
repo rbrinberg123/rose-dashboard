@@ -32,7 +32,7 @@ segmented control and persisted to `?sections=` in the URL. Default view is
 | Client *(locked)* | Client · Status · **Info** (note + AI hover icons) · **Cap $B** · Team |
 | Classification | Mkt Cap · Region · Sector |
 | Contract | Term End · Days · Renew · Term (· Retainer · Doc — Financials-gated) |
-| Meetings | **YTD** · L12M · Inst · L3M · Next 3M · **Open** · Last · **Next** · **# Intro** · **# F/U** |
+| Meetings | **YTD** · L12M · L3M · Next 3M · **Open** · Last · **Next** · **Inst L12M** · **# Intro** · **# F/U** |
 
 **Removed (2026-09-03) — the Activity section.** The **Last Event** date
 (`accounts.last_event_date`) and **Last Note** date
@@ -203,10 +203,32 @@ Meetings group**, immediately before L12M, so the two read together as
 - Requires `sql/patches/2026-09-22_portfolio_meetings_ytd.sql`. The column
   prints in the PDF exactly like L12M (no `hide-col` marker).
 
+**Inst L12M** (`unique_institutions_last_365d`, renamed and moved 2026-09-22) —
+**distinct institutions met in the trailing 12 months**. It sits **immediately
+after Next**, between the date pair and the all-time # Intro / # F/U pair.
+
+- **Verified definition** — `sql/03_views.sql:403`:
+  `COUNT(DISTINCT institution_name) FILTER (WHERE meeting_date >= CURRENT_DATE - interval '365 days' AND meeting_date <= CURRENT_DATE AND institution_name IS NOT NULL)`,
+  inside the CTE filtered to `meeting_status_label = 'Confirmed'`. It is a
+  **trailing-365-day** count sharing the **exact same window predicate** as the
+  L12M meeting count — not lifetime, not YTD. Checked against live data: the
+  trailing-365 definition reproduces the column on **all 104 active clients**,
+  while an all-time reading misses 91 of them and a calendar-YTD reading misses 61.
+- **Why the label gained the window.** In its old slot (between L12M and L3M)
+  the surrounding columns were all trailing counts, so a bare "Inst" read
+  correctly. Next to the **all-time** # Intro / # F/U pair it would not: an
+  unqualified "Inst" there reads as another lifetime figure, which it is not.
+- ⚠️ **Inst L12M is not # Intro.** Both count distinct institutions, over
+  different windows — `Inst L12M` is the trailing year, `# Intro` is all-time.
+  They coincide on only **13 of 104** clients (those whose entire institution
+  history falls inside the last year). *Example — AKRBP-NO:* Inst L12M **18**,
+  # Intro **145**.
+- Same right-aligned, muted, tabular-nums styling it always had; only the
+  position and the label changed. Prints in the PDF in its new position.
+
 **# Intro** (`intro_meetings`) and **# F/U** (`followup_meetings`) — the
 relationship split of the client's meetings. They **close the Meetings group**,
-after the Last / Next date pair. Compact headers; the full labels are in each
-header's tooltip.
+after Inst L12M. Compact headers; the full labels are in each header's tooltip.
 
 - An **intro** is the **first (earliest) meeting** between this client and a
   given institution — the first time Rose organized a meeting for that client
@@ -216,9 +238,9 @@ header's tooltip.
   exactly one meeting per (client, institution) pair can be the earliest.
   `# Follow-Up` = **total meetings − # Intro**.
 - **Confirmed only** (`meeting_status_label = 'Confirmed'`) and **all-time** — no
-  trailing window, unlike the L12M / L3M / Next 3M columns beside them. These are
-  lifetime relationship counts.
-- Institution identity is `meetings.institution_name`, the same key the **Inst**
+  trailing window, unlike the YTD / L12M / L3M / Next 3M / Inst L12M columns beside
+  them. These are lifetime relationship counts.
+- Institution identity is `meetings.institution_name`, the same key the **Inst L12M**
   column's `unique_institutions_last_365d` uses. `institution_name` and
   `institution_id` are strictly 1:1 in the data (1,557 distinct of each across
   12,595 confirmed meetings; no name with two ids, no id with two names), so the

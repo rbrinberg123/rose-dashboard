@@ -147,12 +147,15 @@ const SECTION_MIN_W = {
   contract: 68 + 45 + 48 + 46,
   // Retainer, Doc — only rendered with the Financials grant
   contractFinancials: 57 + 33,
-  // YTD, L12M, Inst, L3M, Next 3M, Open, Last, Next, # Intro, # F/U — this group
+  // YTD, L12M, L3M, Next 3M, Open, Last, Next, Inst L12M, # Intro, # F/U — this group
   // carries 10px cell padding instead of the 6px base (it reads as cramped at
   // 6px), so each column here is its measured tight width + 8. The two adjacent
   // date columns are both 76: Last and Next hold the same MM/DD/YY, and the
-  // short "Next" header leaves the width to the data.
-  meetings: 44 + 50 + 43 + 44 + 67 + 55 + 76 + 76 + 48 + 45,
+  // short "Next" header leaves the width to the data. "Inst L12M" follows them
+  // at the same 76 — it holds a 1-3 digit count, so the nine-character HEADER
+  // is what sets its width, not the data (it was 43 as the four-character
+  // "Inst").
+  meetings: 44 + 50 + 44 + 67 + 55 + 76 + 76 + 76 + 48 + 45,
 } as const
 
 /**
@@ -1221,16 +1224,6 @@ export function PortfolioTable({
                   </TableHead>
                   <TableHead className="h-8 px-2.5">
                     <SortHeader
-                      label="Inst"
-                      sortKey="unique_institutions_last_365d"
-                      currentKey={sortKey}
-                      currentDir={sortDir}
-                      onSort={handleSort}
-                      align="right"
-                    />
-                  </TableHead>
-                  <TableHead className="h-8 px-2.5">
-                    <SortHeader
                       label="L3M"
                       sortKey="meetings_last_90d"
                       currentKey={sortKey}
@@ -1290,6 +1283,25 @@ export function PortfolioTable({
                       currentKey={sortKey}
                       currentDir={sortDir}
                       onSort={handleSort}
+                    />
+                  </TableHead>
+                  {/* Inst L12M — distinct institutions met in the TRAILING 365
+                      DAYS (v_client_portfolio.unique_institutions_last_365d),
+                      the exact same window as the L12M meeting count. Labelled
+                      with the window because it now sits next to the ALL-TIME
+                      # Intro / # F/U pair, and an unqualified "Inst" beside
+                      them reads as another lifetime figure — it is not. */}
+                  <TableHead
+                    className="h-8 px-2.5"
+                    title="Distinct institutions met in the last 12 months (confirmed meetings) — same trailing window as the L12M column"
+                  >
+                    <SortHeader
+                      label="Inst L12M"
+                      sortKey="unique_institutions_last_365d"
+                      currentKey={sortKey}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      align="right"
                     />
                   </TableHead>
                   {/* All-time relationship split, closing the group. Compact
@@ -1554,11 +1566,6 @@ export function PortfolioTable({
                         {/* Mtgs L12M */}
                         <TableCell className="px-2.5 py-1 align-top text-right tabular-nums">{meetings365}</TableCell>
 
-                        {/* Inst L12M */}
-                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums text-muted-foreground">
-                          {r.unique_institutions_last_365d ?? 0}
-                        </TableCell>
-
                         {/* Mtgs L3M with velocity */}
                         <TableCell className="px-2.5 py-1 align-top text-right tabular-nums">
                           <span className="inline-flex items-center justify-end gap-1">
@@ -1593,6 +1600,13 @@ export function PortfolioTable({
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
+                        </TableCell>
+
+                        {/* Inst L12M — distinct institutions met in the trailing
+                            365 days. Same styling and alignment it had in its
+                            old slot; only the position and label changed. */}
+                        <TableCell className="px-2.5 py-1 align-top text-right tabular-nums text-muted-foreground">
+                          {r.unique_institutions_last_365d ?? 0}
                         </TableCell>
 
                         {/* Intro / Follow-Up — all-time confirmed split. Both
