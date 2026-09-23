@@ -140,9 +140,12 @@ async function fetchMirrorPks(sb: SupabaseClient, entity: EntityConfig): Promise
   const pks: string[] = []
   let from = 0
   for (;;) {
-    const { data, error } = await sb
-      .from(entity.table)
-      .select(entity.pk)
+    // Ownership fence: only Dynamics-origin rows can be "deleted in Dynamics".
+    // A dashboard-authored row never has a live Dynamics id, so without this
+    // filter every one of them would be flagged, every night.
+    let query = sb.from(entity.table).select(entity.pk)
+    if (entity.hasOrigin) query = query.eq("origin", "dynamics")
+    const { data, error } = await query
       .order(entity.pk, { ascending: true })
       .range(from, from + PAGE - 1)
     if (error) throw new Error(`read ${entity.table} pks: ${error.message}`)

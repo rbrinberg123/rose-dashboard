@@ -74,6 +74,8 @@ It writes:
 
 The sweep **never deletes mirror data** — an admin approves each removal at `/admin/reconciliation`. See the recovery recipe in [08 — Runbook](08-runbook.md).
 
+**Dashboard-owned rows are never swept.** On the 8 tables with an `origin` column (`hasOrigin` in `entities.ts`), the sweep reads only `origin='dynamics'` rows, and approve-delete refuses anything else. See [22 — Cutover: the ownership boundary](22-cutover-ownership-boundary.md).
+
 An entity can be excluded from the sweep entirely with `skipDeletionSweep` — see [Opting an entity out of the deletion sweep](#opting-an-entity-out-of-the-deletion-sweep-skipdeletionsweep) below.
 
 ### Field-type helpers (`mappers.ts`)

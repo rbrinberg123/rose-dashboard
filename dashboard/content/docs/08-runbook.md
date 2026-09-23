@@ -70,6 +70,8 @@ The sync never deletes; the nightly **reconciliation** sweep detects it:
 
 The safety guard: if Dynamics returned zero IDs for an entity (a likely outage), that entity is **skipped**, never mass-flagged.
 
+Dashboard-created rows (`origin='dashboard'`) are never flagged. If an approve reports "Not deleted: no Dynamics-origin row…", the row is dashboard-owned or already gone. Use **Keep** to clear it. See [22 — Cutover: the ownership boundary](22-cutover-ownership-boundary.md).
+
 ---
 
 ## Recover a wrongly-deleted mirror row

@@ -61,20 +61,30 @@ export type EntityConfig = {
    * sweep's skipped counter keeps meaning "something went wrong".
    */
   skipDeletionSweep?: boolean
+  /**
+   * The mirror table has the `origin` ('dynamics' | 'dashboard') ownership
+   * column (sql/patches/2026-09-23_origin_ownership_fence.sql). When set, the
+   * deletion sweep only considers origin='dynamics' rows and the approve-delete
+   * refuses to remove anything else — a dashboard-authored row has no Dynamics
+   * counterpart by design and must never be flagged or deleted as "gone from
+   * Dynamics". Unlike skipDeletionSweep this is ROW-level: the entity is still
+   * swept, just not its dashboard-owned rows.
+   */
+  hasOrigin?: boolean
 }
 
 export const ENTITIES: EntityConfig[] = [
-  { name: "accounts", entitySet: "accounts", table: "accounts", pk: "account_id", idField: "accountid", map: mapAccount },
+  { name: "accounts", entitySet: "accounts", table: "accounts", pk: "account_id", idField: "accountid", map: mapAccount, hasOrigin: true },
   { name: "systemusers", entitySet: "systemusers", table: "users", pk: "user_id", idField: "systemuserid", map: mapSystemUser },
-  { name: "meetings", entitySet: "bcs_meetings", table: "meetings", pk: "meeting_id", idField: "bcs_meetingid", map: mapMeeting },
-  { name: "touchpoints", entitySet: "phonecalls", table: "touchpoints", pk: "touchpoint_id", idField: "activityid", map: mapTouchpoint },
-  { name: "client_notes", entitySet: "bcs_clientnotes", table: "client_notes", pk: "note_id", idField: "bcs_clientnoteid", map: mapClientNote },
-  { name: "contracts", entitySet: "bcs_contracts", table: "contracts", pk: "contract_id", idField: "bcs_contractid", map: mapContract },
-  { name: "tasks", entitySet: "tasks", table: "tasks", pk: "task_id", idField: "activityid", map: mapTask },
+  { name: "meetings", entitySet: "bcs_meetings", table: "meetings", pk: "meeting_id", idField: "bcs_meetingid", map: mapMeeting, hasOrigin: true },
+  { name: "touchpoints", entitySet: "phonecalls", table: "touchpoints", pk: "touchpoint_id", idField: "activityid", map: mapTouchpoint, hasOrigin: true },
+  { name: "client_notes", entitySet: "bcs_clientnotes", table: "client_notes", pk: "note_id", idField: "bcs_clientnoteid", map: mapClientNote, hasOrigin: true },
+  { name: "contracts", entitySet: "bcs_contracts", table: "contracts", pk: "contract_id", idField: "bcs_contractid", map: mapContract, hasOrigin: true },
+  { name: "tasks", entitySet: "tasks", table: "tasks", pk: "task_id", idField: "activityid", map: mapTask, hasOrigin: true },
   { name: "new_vacationrequest", entitySet: "new_vacationrequests", table: "new_vacationrequest", pk: "ooo_id", idField: "new_vacationrequestid", map: mapOOO },
-  { name: "events", entitySet: "bcs_events", table: "events", pk: "event_id", idField: "bcs_eventid", map: mapEvent },
+  { name: "events", entitySet: "bcs_events", table: "events", pk: "event_id", idField: "bcs_eventid", map: mapEvent, hasOrigin: true },
   // Contacts opt out of the deletion sweep: it is expected to be the largest
   // entity after meetings, and a full daily ID pull is not worth it for a
   // low-stakes stale row. See EntityConfig.skipDeletionSweep.
-  { name: "contacts", entitySet: "contacts", table: "contacts", pk: "contact_id", idField: "contactid", map: mapContact, skipDeletionSweep: true },
+  { name: "contacts", entitySet: "contacts", table: "contacts", pk: "contact_id", idField: "contactid", map: mapContact, skipDeletionSweep: true, hasOrigin: true },
 ]

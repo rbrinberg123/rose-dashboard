@@ -8,6 +8,7 @@ import { getSupabaseServer } from "@/lib/supabase"
 import { recordAudit } from "@/lib/audit"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import type { ReconcileResult } from "@/lib/sync/reconcile"
+import { ENTITIES } from "@/lib/sync/entities"
 
 const PATH = "/admin/reconciliation"
 
@@ -83,11 +84,28 @@ async function deleteOne(
 
   // Hard-delete the mirror row. table_name / pk_column are populated by the
   // sweep from our own entity config, never from user input.
-  const { error: delErr } = await sb
+  //
+  // Ownership fence: on tables with an `origin` column, only a Dynamics-origin
+  // row can be removed here — an approve must never delete a dashboard-authored
+  // row, even if one somehow reached the queue.
+  const fenced = ENTITIES.some((e) => e.table === cand.table_name && e.hasOrigin)
+  let del = sb
     .from(cand.table_name as string)
-    .delete()
+    .delete({ count: "exact" })
     .eq(cand.pk_column as string, cand.pk_value as string)
+  if (fenced) del = del.eq("origin", "dynamics")
+  const { error: delErr, count: delCount } = await del
   if (delErr) return fail(describeError(delErr))
+  if (fenced && delCount === 0) {
+    // Nothing removed: the row is dashboard-owned or already gone. Leave the
+    // candidate pending (not "deleted") so the admin sees it and can Keep it.
+    console.warn(
+      `[reconciliation] candidate ${id}: no origin='dynamics' row ${cand.table_name}.${cand.pk_column}=${cand.pk_value}; not deleted`,
+    )
+    return fail(
+      "Not deleted: no Dynamics-origin row with this id (it is dashboard-owned or already gone). Use Keep to clear it.",
+    )
+  }
 
   const { error: updErr } = await sb
     .from("deletion_candidates")
