@@ -33,6 +33,8 @@ export type AuditListRow = {
   context: string | null
   /** A compact one-line rendering, built server-side. See `summarise`. */
   summary: string | null
+  /** Who authored the audited record, built server-side. See `originOf`. */
+  origin?: AuditOrigin
 }
 
 /** The full row, for the drawer. */
@@ -86,17 +88,22 @@ export const ENTITY_LABELS: Record<string, string> = {
   deletion_candidates: "Deletion Candidate",
   "accounts.ai_summary": "AI Client Summary",
 
-  // Mirror tables — only ever appear via a reconciliation hard-delete, which is
-  // the one place the app removes synced data.
-  accounts: "Account (mirror row)",
-  meetings: "Meeting (mirror row)",
-  events: "Event (mirror row)",
-  tasks: "Task (mirror row)",
-  touchpoints: "Touchpoint (mirror row)",
-  client_notes: "Client Note (mirror row)",
-  contracts: "Contract (mirror row)",
-  users: "User (mirror row)",
-  new_vacationrequest: "Time Off (mirror row)",
+  // CRM tables — the Dynamics mirror tables. They reach the audit log two ways:
+  // a reconciliation hard-delete of a SYNCED row, and — since 2026-09-23 — the
+  // dashboard's own Add New / test-purge writes (Contacts, Notes, Touches),
+  // which create rows with origin='dashboard' in these same tables. So the
+  // TABLE no longer says who owns the row; the per-entry origin badge does
+  // (see originOf below). Plain names here, deliberately.
+  accounts: "Account",
+  contacts: "Contact",
+  meetings: "Meeting",
+  events: "Event",
+  tasks: "Task",
+  touchpoints: "Touch",
+  client_notes: "Client Note",
+  contracts: "Contract",
+  users: "User",
+  new_vacationrequest: "Time Off",
 }
 
 export function entityLabel(entity: string): string {
@@ -365,6 +372,34 @@ export function summarise(
     first.old === null ? `${label}: ${first.new}` : `${label}: ${first.old} → ${first.new}`
 
   return lines.length > 1 ? `${body}  (+${lines.length - 1} more)` : body
+}
+
+/* ----------------------------------------------------------------- origin */
+
+/**
+ * Who authored the AUDITED RECORD, read from the entry itself (not the table):
+ *
+ *   - the saved snapshot carries origin='dashboard' → a dashboard-authored row
+ *     (Add New Contact / Note / Touch, or a test purge); `test` from is_test.
+ *   - an edit of a dashboard row → its context says "dashboard row" [· test].
+ *   - a reconciliation approve-delete (changes.approved_via) → a SYNCED row;
+ *     the sweep and its approve-delete only ever act on origin='dynamics'.
+ *   - anything else → null: dashboard-owned tables (account teams, client
+ *     status, saved views, permissions, financials) get no badge.
+ */
+export type AuditOrigin = { source: "dashboard" | "dynamics"; test: boolean } | null
+
+export function originOf(changes: unknown, context?: string | null): AuditOrigin {
+  // An EDIT's changes are a field diff with no origin of its own; the edit
+  // path (updateDashboardRow) marks its context "dashboard row" [· test].
+  if (context && /· dashboard row/.test(context)) {
+    return { source: "dashboard", test: /· dashboard row · test/.test(context) }
+  }
+  if (!changes || typeof changes !== "object" || Array.isArray(changes)) return null
+  const c = changes as Record<string, unknown>
+  if (c.origin === "dashboard") return { source: "dashboard", test: c.is_test === true }
+  if (c.approved_via === "deletion-reconciliation") return { source: "dynamics", test: false }
+  return null
 }
 
 /* ----------------------------------------------------------------- action */

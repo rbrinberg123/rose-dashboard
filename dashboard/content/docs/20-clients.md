@@ -149,3 +149,56 @@ At 228 rows none of these changes a plan today; they are there so the page does 
 1. **The accounts field-flatten pass** — promote the ~40 fields still living only in `_raw` (staff initials, `address1_*`, …) to real columns, then add them here. Nothing about this page needs to change structurally when that lands.
 2. **The account-team source-of-truth decision** — Dynamics fields on `accounts`, or the dashboard-owned `account_team_members`. This page displays the former and takes no position.
 3. **Editing.** The drawer is styled and structured to flip to editable at cutover (swap the read-only renderer for an input keyed off each field's `type`), but must not until the dashboard actually becomes the system of record.
+
+---
+
+## Create & edit: Clients is a live dashboard-authored entity (2026-09-23)
+
+**Add New Client** creates a dashboard-origin account (a top-level client with no parent), and the drawer's **Edit** button edits it. Edit appears on dashboard-created clients only; Dynamics clients stay read-only until cutover, and the server refuses to update any `origin='dynamics'` row. Both use one form that covers the client's own fields, grouped like the drawer:
+
+- **Overview:** name, ticker, **Active/Inactive**, client status, sector, industry, HQ country, market cap, exchange, website, email, Ipreo ticker, master company record.
+- **Primary address:** street, city, state/province, postal code, country, and **phone**.
+- **Links:** primary contact (one of this client's contacts) and current event (one of its events). Both can only be set once the client exists.
+- **Engagement dates** entered by hand: original start, onboarding call, teach-in, teach-in date, last data upload, SH report received.
+- **Flags:** the 12 existing Yes/No flags.
+- **Profile & Preferences** (new): secondary exchange, HQ state, reporting frequency, dividend yield, meeting slot, meeting platform, time zone, and four flags (Estimates, Include Admin, Exclude from Distribution, Contact IR Only).
+- **Notes:** additional notes, targeting parameters, onboarding notes, peers, dietary restrictions.
+- **System:** owner.
+
+Dropdowns list the distinct values already on accounts, since option-set metadata, countries and master records aren't synced. Every save is audited (create snapshot, or before → after diff on edit). There's a Test record toggle, on by default, and a **Delete test clients** purge. Delete a test client's dashboard meetings, notes and touches first, because their foreign key to `accounts` blocks the delete.
+
+**Display-only by design:**
+- **Dynamics rollups:** last/next touch, last/next/ongoing event, days since review, last targeting/teaser, current project.
+- **Derived:** region, market-cap band, and Status (Dynamics), which follows Active/Inactive.
+
+**Deferred: the account team.** Account Manager, Secondary, Associate, Feedback, Logistics, Targeting and Teaser are **not** set by this form. They stay display-only while the account-team source of truth (the CRM's staff fields vs `account_team_members`) is decided. One consequence: **a dashboard client is visible only to users whose access isn't scoped by client**, because client-level data scoping (`lib/access/data-scope.ts`) matches on those team fields.
+
+### Behaviour-driving field: Active/Inactive
+`state_label = 'Active'` (statecode 0) decides whether a client appears on **Portfolio** (`v_client_portfolio`) and in `v_client_statistics`, the stats by market cap / region, `v_client_onboarding`, `v_contract_management`, `v_productivity_detail_summary`, `v_client_detail_summary` and `v_client_quarterly_pnl`. It's the Active/Inactive field on the form, and saving sets both the statecode and statuscode pairs. Client Status (Current / Past) gates nothing.
+
+### Newly flattened columns (`sql/patches/2026-09-23g_accounts_full_fields.sql`)
+| Column(s) | Dynamics field | Populated (of 228) |
+|---|---|---|
+| `address1_line1 / _city / _state / _postal_code / _country` | `address1_*` (the PRIMARY address) | 34 / 159 / 8 / 21 / 11 |
+| `address2_line1 / _postal_code / _county` | `address2_*` | 119 / 89 / 88 |
+| `phone` | `telephone1` | 10 |
+| `secondary_exchange_code / _label` | `bcs_secondaryexchange` | 23 |
+| `hq_state_code / _label` | `bcs_state` | 61 |
+| `reporting_frequency_code / _label` | `bcs_frequency` | 45 |
+| `timezone_code` | `bcs_timezone` (Dynamics time-zone index) | 38 |
+| `meeting_slot_minutes` | `bcs_mtgslots` | 34 |
+| `meeting_platform_pref` | `bcs_mtgplatformpref` | 36 |
+| `div_yield` | `bcs_divyield` | 157 |
+| `targeting_parameters` | `bcs_targetingparameters` | 30 |
+| `additional_notes` | `crdfa_additionalnotes` | 55 |
+| `estimates`, `include_admin`, `exclude_from_distribution`, `contact_ir_only` | `bcs_estimates`, `bcs_includeadmin`, `bcs_excludefromdistribution`, `new_contactironly` | 108 / 85 / 76 / 105 |
+
+**The address fix.** The mapper used to read only `address2_*`, and `address2`'s country is typed into its **county** field, so the old `country` column was empty on every client. `v_admin_accounts_all` now shows the **primary (`address1`) address**, falling back to `address2` (and `address2_county` for country) for each of city, state/province, country, and the new street and postal code. The client form edits the `address1` block.
+
+**Deliberately not flattened:**
+- **The staff/team cluster** (`bcs_acctmgr`, `bcs_feedback`, `bcs_assoc`, `bcs_log`, `bcs_tser`, `bcs_targt`, `bcs_secmgr`, `bcs_internalassignment`, the feedback team, the editorial queue): deferred with the account team.
+- **Rollups** (open/last client tasks, last activity and appointment, last SG touch, `bcs_length`).
+- **Dynamics system constants** (do-not-contact defaults, currency, territory, and so on).
+- **Sparse or unclear fields:** `_bcs_industry_value` (9), `bcs_listingtype` (1), `new_do`.
+
+`v_live_outreach` also now reads `div_yield` from the column, with `_raw` as a fallback. The sync (`mapAccount`) writes every new column, so **run the patch before the code deploys** (and after 23f).

@@ -21,8 +21,9 @@
  * note is actually READ — which is why `note_body` is sourced from `_raw` (it
  * keeps its line breaks) and rendered whitespace-preserved and full width.
  *
- * VIEW ONLY. Nothing here is editable and nothing writes back — Dynamics is the
- * system of record.
+ * VIEW ONLY for Dynamics rows. A dashboard-created row (origin='dashboard')
+ * shows an Edit button (RecordEditBar) that opens the entity's form in edit
+ * mode; the server-side update refuses any Dynamics row.
  */
 
 import * as React from "react"
@@ -33,6 +34,8 @@ import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-ava
 import { BRAND_BLUE, STATUS_PILL_LIGHT } from "@/lib/design"
 import { NOTE_SECTIONS, type NoteFieldDef, type NoteRecord } from "@/lib/notes/record"
 import { isPersonName, noteStatusKey } from "@/lib/notes/spec"
+import { TestBadge } from "@/components/test-badge"
+import { RecordEditBar } from "@/components/record-edit-bar"
 import { cn } from "@/lib/utils"
 
 /** Eastern, matching every other date on the page. */
@@ -184,11 +187,14 @@ export function NoteRecordPane({
   loading,
   error,
   onClose,
+  onEdit,
 }: {
   record: NoteRecord | null
   loading: boolean
   error: string | null
   onClose: () => void
+  /** Opens the edit form — shown only for origin='dashboard' records. */
+  onEdit?: () => void
 }) {
   const open = loading || !!record || !!error
   if (!open) return null
@@ -218,6 +224,8 @@ export function NoteRecordPane({
               </h2>
               {record && (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {record.is_test && <TestBadge />}
+                  <RecordEditBar origin={record?.origin} onEdit={onEdit} />
                   {record.review_cycle && (
                     <Pill bg={STATUS_PILL_LIGHT.neutral.bg} text={STATUS_PILL_LIGHT.neutral.text}>
                       {record.review_cycle}

@@ -16,6 +16,10 @@
  *
  * Do NOT add editing without the dashboard actually becoming the system of
  * record. Today Dynamics is, and everything in this app is read-only.
+ * UPDATE 2026-09-23: records the DASHBOARD created (origin='dashboard') ARE
+ * editable — via the entity's Add New form in edit mode and updateDashboardRow
+ * (lib/crm-write.ts), which refuses any Dynamics row server-side. Rows synced
+ * from Dynamics stay read-only until cutover. See docs/22.
  *
  * ── WHAT A TOUCH IS (display name "Touches"; internals stay "touchpoints") ─
  * public.touchpoints is the mirror of the Dynamics `phonecall` entity, relabelled
@@ -47,6 +51,8 @@
 
 /** One touchpoint, flattened for display. Keys are the field definitions' sourceKeys. */
 export type TouchpointRecord = {
+  /** 'dashboard' = editable in the drawer; 'dynamics' = read-only until cutover. */
+  origin?: string | null
   touchpoint_id: string
   /** Drives the Client link; null on the 2% of rows carrying no account. */
   client_account_id: string | null
@@ -85,6 +91,8 @@ export type TouchpointRecord = {
   state_code: number | null
   status_code: number | null
   direction_code: boolean | null
+  /** Dashboard-created test row (drawer TEST badge). */
+  is_test?: boolean
 }
 
 /**

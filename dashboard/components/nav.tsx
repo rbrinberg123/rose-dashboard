@@ -3,7 +3,7 @@
 import * as React from "react"
 import { createPortal } from "react-dom"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   Building2,
   Landmark,
@@ -45,7 +45,7 @@ import {
 import {
   CRM_ENTITY_LABELS,
   QUICK_ADD_ORDER,
-  onAddNew,
+  addNewHref,
   type CrmEntity,
 } from "@/components/crm-add-new"
 import {
@@ -215,14 +215,17 @@ function crmItemsFor(role: ViewAsRole | null, allowedRoutes: readonly string[]):
  * FILLED teal, where the CRM destinations are OUTLINED teal — outlined means "a
  * place to go", filled means "a thing to do".
  *
- * INERT: every item calls `onAddNew`, which today is a "coming soon" toast and
- * nothing else. See components/crm-add-new.tsx.
+ * LIVE (2026-09-23): each item navigates to that entity's page with ?new=1
+ * (addNewHref), which opens the page's own Add New form — the same form, server
+ * action and gates as the page button. See components/crm-add-new.tsx.
  */
 function CrmQuickAdd({ variant }: { variant: "sidebar" | "rail" }) {
   const { open, triggerProps, panelProps } = useFlyout("bottom")
   const menuId = React.useId()
 
-  const pick = (entity: CrmEntity) => onAddNew(entity)
+  const router = useRouter()
+  // Opens that entity's LIVE create form: its page with ?new=1 (addNewHref).
+  const pick = (entity: CrmEntity) => router.push(addNewHref(entity))
 
   return (
     <div className={variant === "rail" ? "flex justify-center" : "flex"} {...triggerProps}>

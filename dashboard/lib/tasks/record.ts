@@ -16,6 +16,10 @@
  *
  * Do NOT add editing without the dashboard actually becoming the system of
  * record. Today Dynamics is, and everything in this app is read-only.
+ * UPDATE 2026-09-23: records the DASHBOARD created (origin='dashboard') ARE
+ * editable — via the entity's Add New form in edit mode and updateDashboardRow
+ * (lib/crm-write.ts), which refuses any Dynamics row server-side. Rows synced
+ * from Dynamics stay read-only until cutover. See docs/22.
  *
  * ── SOURCING NOTES ─────────────────────────────────────────────────────────
  * PRIORITY is the Rose field first, the stock one as fallback — the stock
@@ -29,6 +33,10 @@
 
 /** One task, flattened for display. Keys are the field definitions' sourceKeys. */
 export type TaskRecord = {
+  /** 'dashboard' = editable in the drawer; 'dynamics' = read-only until cutover. */
+  origin?: string | null
+  /** Dashboard-created test row (drawer TEST badge). */
+  is_test?: boolean
   task_id: string
   /** Drives the Client link; null when the task carries no account. */
   client_account_id: string | null
@@ -75,6 +83,8 @@ export type TaskRecord = {
   review_complete: boolean | null
   processed: boolean | null
   feedback_received: boolean | null
+  /** crdfa_feedback_received_date — drives the feedback pipeline (read off the table). */
+  feedback_received_date?: string | null
   notified: boolean | null
 
   // Catalog-only raw priority columns (see the sourcing note above)
@@ -164,7 +174,9 @@ export const TASK_SECTIONS: TaskSectionDef[] = [
       { label: "Draft Complete", sourceKey: "draft_complete", type: "toggle" },
       { label: "Review Complete", sourceKey: "review_complete", type: "toggle" },
       { label: "Processed", sourceKey: "processed", type: "toggle" },
-      { label: "Feedback Received", sourceKey: "feedback_received", type: "toggle" },
+      // The pipeline keys on the DATE (since 2026-09-09); the toggle is the legacy flag.
+      { label: "Feedback Received Date (drives the pipeline)", sourceKey: "feedback_received_date", type: "date" },
+      { label: "Feedback Received (legacy, info only)", sourceKey: "feedback_received", type: "toggle" },
       { label: "Notified", sourceKey: "notified", type: "toggle" },
     ],
   },

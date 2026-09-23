@@ -231,3 +231,26 @@ Each entity supplies a **spec** (`lib/events/spec.ts`, `lib/meetings/spec.ts`) n
 | Saved views table | `event_saved_views` in `sql/02_rose_owned_tables.sql` |
 | SQL patches (deployed) | `sql/patches/2026-09-10_admin_events.sql`, then `…_admin_events_slots.sql` |
 | Nav entry + gate | `CRM_NAV_ITEMS` / `canSeeCrmNav` in `lib/access-control.ts` |
+
+
+---
+
+## Create & edit (dashboard records)
+
+**Add New Event** and the drawer's **Edit** button (dashboard-created records only; Dynamics records stay read-only until cutover) use **one form that covers every field the drawer shows**, grouped the same way. That's the "form field set = drawer field set" principle; see [22 — Cutover](22-cutover-ownership-boundary.md). Created / modified by and on are display-only system fields. No field on this drawer is read from `_raw`, so **no columns needed flattening**.
+
+**Editable:**
+- **General:** client, location, dates, meetings start/end, **TBC**, **Team?**, **account manager**, **logistics coordinator**, **feedback report**, **feedback team**, **lead(s)**, event notes.
+- **Planning:** **event parameters**, # of slots, **urgency**, **launch week**, **memo date**, **last data upload**, **shareholder report received**, **targeting date / URL / notes**, **profile link**, and the flags **Targeting Not Required**, **Memo Not Required**, **Launch**, **Outreach Complete**.
+- **Header:** stage and marketing state.
+
+**Lead(s)** is multi-select and offers the 12 initials Dynamics returns labels for.
+
+### Mining: excludes an event from Live Outreach
+**Mining** (Dynamics `bcs_mining`) was read only from `_raw`, so a dashboard event could never be marked Mining. It's now a real boolean column, **`events.mining`** (`sql/patches/2026-09-23f_events_mining_flag.sql`), backfilled from `_raw` (4 Yes, 4 No, the rest blank) and written by the sync (`mapEvent`). It's shown in the drawer and settable on the create/edit form (General group).
+
+`v_live_outreach` now excludes an event when:
+```sql
+COALESCE(e.mining, NULLIF(e._raw ->> 'bcs_mining', '')::boolean, false) = true
+```
+It reads the column first and falls back to `_raw`. The view was otherwise restated unchanged (same 20 columns). Mining = Yes takes the event off the **Live Outreach page and its daily email**. The patch must run **before** the code deploys, or the events sync fails.

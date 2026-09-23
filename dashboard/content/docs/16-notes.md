@@ -210,3 +210,14 @@ Nothing about filtering, validation, paging or authorisation is written again fo
 | Route gating + nav item | `dashboard/lib/access-control.ts` |
 | Nav icon (`StickyNote`) | `dashboard/components/nav.tsx` |
 | SQL | `sql/patches/2026-09-15_admin_notes.sql` |
+
+
+---
+
+## Create & edit (dashboard records)
+
+**Add New Note** and the drawer's **Edit** button (dashboard-created records only; Dynamics records stay read-only until cutover) use **one form that covers every field the drawer shows**, grouped the same way. That's the "form field set = drawer field set" principle; see [22 — Cutover](22-cutover-ownership-boundary.md). Created / modified by and on are display-only system fields. No field on this drawer is read from `_raw`, so **no columns needed flattening**.
+
+**Editable:** client, date, review cycle, note, status, primary risk driver, action step, action owner, action due, and **owner** (the note's author; defaults to you).
+
+**Display-only:** `notes_text` (Dynamics' collapsed copy of the body, derived on save) and the system fields.

@@ -767,6 +767,8 @@ export const ACCOUNT_ALWAYS_SELECT = [
   "secondary_manager_name",
   "associate_name",
   "logistics_coordinator_name",
+  // TEST badge on dashboard-created test clients (skipped until the 2026-09-23g view patch).
+  "is_test",
 ] as const
 
 /**

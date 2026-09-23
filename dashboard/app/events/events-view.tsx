@@ -14,6 +14,8 @@
  */
 
 import * as React from "react"
+import { TestBadge } from "@/components/test-badge"
+import { EditEventDialog, NewEventButton, PurgeTestEventsButton } from "./new-event-dialog"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Columns3, Download, ExternalLink, Filter, PanelRightOpen, Search, X } from "lucide-react"
@@ -21,7 +23,6 @@ import { Columns3, Download, ExternalLink, Filter, PanelRightOpen, Search, X } f
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { accountTeamMembers } from "@/lib/account-team"
 import { ListTitleCard } from "@/components/page-masthead"
-import { AddNewButton } from "@/components/crm-add-new"
 import { SortHeader } from "@/components/sort-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -328,6 +329,20 @@ export function EventsView({
     setOpenId(null)
   }, [])
 
+  // Edit — offered by the drawer only for origin='dashboard' records (the
+  // server refuses anything else). After a save the list refreshes and the
+  // drawer reopens on the same record so it shows the new values.
+  const [editId, setEditId] = React.useState<string | null>(null)
+  const closeEdit = React.useCallback(() => setEditId(null), [])
+  const afterEdit = React.useCallback(
+    (id: string) => {
+      closeRecord()
+      router.refresh()
+      setTimeout(() => openRecord(id), 0)
+    },
+    [closeRecord, openRecord, router],
+  )
+
   // The effect owns only the async fetch — every setState is in a callback.
   React.useEffect(() => {
     if (!openId) return
@@ -416,7 +431,12 @@ export function EventsView({
           eyebrow="CRM"
           title="Events"
           subtitle="Every marketing event in the CRM — all states, all dates. No row scoping is applied, so this page is super-user only."
-          rightSlot={<AddNewButton entity="event" />}
+          rightSlot={
+            <div className="flex items-center gap-2">
+              <PurgeTestEventsButton />
+              <NewEventButton />
+            </div>
+          }
         />
       </div>
 
@@ -688,11 +708,13 @@ export function EventsView({
       {/* Rendered as a SIBLING of the list, never wrapping it, so opening a
           record cannot remount the table. */}
       <EventRecordPane
+        onEdit={openId ? () => setEditId(openId) : undefined}
         record={record}
         loading={openId !== null && record === null && recordError === null}
         error={recordError}
         onClose={closeRecord}
       />
+      <EditEventDialog id={editId} onClose={closeEdit} onSaved={afterEdit} />
     </>
   )
 }
@@ -775,6 +797,16 @@ function renderCell(
   onOpen: () => void,
 ): React.ReactNode {
   const text = typeof raw === "string" ? raw : raw == null ? null : String(raw)
+
+  // Dashboard-created test record: TEST badge beside the client.
+  if (col.renderer === "ticker" && row.is_test) {
+    return (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <TestBadge />
+        {renderCell(col, { ...row, is_test: false }, raw, onOpen)}
+      </span>
+    )
+  }
 
   switch (col.renderer) {
     case "date":

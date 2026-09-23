@@ -198,11 +198,21 @@ The page and its `actions.ts` contain **no insert, update or delete of any kind*
 | **When** | `occurred_at`, Eastern, **date and time** — an audit entry's minute matters |
 | **Actor** | `actor_email` resolved to a friendly name + avatar. A **view-as** badge appears where the action was taken while impersonating |
 | **Action** | create / update / delete, as a coloured pill |
-| **Entity** | the friendly label — `account_team_members` → "Account Team", `note_saved_views` → "Saved View · Notes", and so on |
+| **Entity** | the friendly label — `account_team_members` → "Account Team", `note_saved_views` → "Saved View · Notes", and so on. CRM (Dynamics-mirror) tables use **plain names** — `client_notes` → "Client Note", `touchpoints` → "Touch", `contacts` → "Contact" — plus an **origin badge** (below) |
 | **Record** | the record id made readable. Account-keyed records resolve to the **client name** and link to Client Detail |
 | **Summary** | a one-line rendering of `changes` — e.g. *"Account Manager: — → Brian Smith"* |
 
-An entity with no registered label falls back to a title-cased version of the raw name, so a new write surface that forgets to register is still legible rather than invisible.
+An entity with no registered label falls back to a title-cased version of the raw name, so a new write surface that forgets to register is still legible rather than invisible. It is also missing from the Entity filter dropdown, which is built from the same list. That's why **Contacts** was unfilterable until it was registered (2026-09-23).
+
+**Origin badge — who authored the audited record.** The CRM tables used to carry a "(mirror row)" suffix, from when a reconciliation hard-delete was the only way they reached the log. Since the dashboard started creating its own rows in those same tables (Add New Contact / Note / Touch, [22 — Cutover](22-cutover-ownership-boundary.md)), the table alone no longer says who owns a row. So the suffix is gone, and each **entry** gets a small badge next to the entity, in the list and in the drawer header:
+
+| Badge | When | How it's known |
+|---|---|---|
+| **Dashboard** (blue) + **TEST** (amber) if it's test data | a row the dashboard created, or a test purge of one | the entry's saved snapshot has `origin: "dashboard"`; TEST when `is_test: true` |
+| **Dynamics** (grey) | a synced row removed by reconciliation approve-delete | `changes.approved_via = "deletion-reconciliation"`; the sweep only ever acts on `origin='dynamics'` rows |
+| *(none)* | dashboard-owned tables: account teams, client status, saved views, permissions, financials | no origin in the entry |
+
+The badge is worked out server-side (`originOf` in `lib/audit-log/labels.ts`) from data each entry already holds. **No SQL or data change was needed.**
 
 **Record resolution** does not keep a list of which entities are account-keyed — a list that would go stale the next time a write surface is added. It asks whether the id *starts with* a uuid that happens to be a known account, which covers `account_status`, `client_todo_notes`, `accounts.ai_summary`, the `<account_id>|<role>` team ids, and a reconciliation delete of an `accounts` mirror row alike.
 
@@ -222,7 +232,7 @@ Reachable from the drawer's **"View full history for this record"** button — s
 
 ### The drawer
 
-Row click opens a slide-in with the full entry: When, Actor (+ the view-as note, spelling out that the actor shown is the **real** person), Action, Entity, Record (with client name), Where, and the complete `changes` as a field-by-field **old → new** table. Creates and deletes show the row snapshot instead.
+Row click opens a slide-in with the full entry: the origin badge beside the action pill, When, Actor (+ the view-as note, spelling out that the actor shown is the **real** person), Action, Entity, Record (with client name), Where, and the complete `changes` as a field-by-field **old → new** table. Creates and deletes show the row snapshot instead.
 
 The diff is **rendered server-side** by `loadAuditRecord`, which resolves every uuid to a person or client name before it reaches the browser — so the page never ships the accounts and users lookups just so a drawer can read well.
 

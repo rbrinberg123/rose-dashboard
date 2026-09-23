@@ -196,6 +196,30 @@ export type AccountRecord = {
    * flatten pass promotes the ones worth a field.
    */
   _raw: Record<string, unknown> | null
+
+  // ---- flattened 2026-09-23g (sql/patches/2026-09-23g_accounts_full_fields.sql) ----
+  /** Primary address (address1_*), falling back to address2 in the view. */
+  street?: string | null
+  postal_code?: string | null
+  phone?: string | null
+  secondary_exchange_label?: string | null
+  hq_state_label?: string | null
+  reporting_frequency_label?: string | null
+  /** Dynamics time-zone index (e.g. 35 = Eastern, 85 = GMT/London). */
+  timezone_code?: number | null
+  meeting_slot_minutes?: number | null
+  meeting_platform_pref?: string | null
+  div_yield?: number | null
+  targeting_parameters?: string | null
+  additional_notes?: string | null
+  estimates?: boolean | null
+  include_admin?: boolean | null
+  exclude_from_distribution?: boolean | null
+  contact_ir_only?: boolean | null
+  /** 'dashboard' = editable in the drawer; 'dynamics' = read-only until cutover. */
+  origin?: string | null
+  /** Dashboard-created test row (drawer TEST badge). */
+  is_test?: boolean
 }
 
 /**
@@ -260,9 +284,14 @@ export const ACCOUNT_SECTIONS: AccountSectionDef[] = [
       { label: "Exchange", sourceKey: "exchange_label", type: "text" },
       { label: "Website", sourceKey: "website_url", type: "link" },
       { label: "Email", sourceKey: "email", type: "text" },
+      // PRIMARY address (Dynamics address1_*), with address2 as the fallback —
+      // see sql/patches/2026-09-23g_accounts_full_fields.sql.
+      { label: "Street", sourceKey: "street", type: "text" },
       { label: "City", sourceKey: "city", type: "text" },
       { label: "State/Province", sourceKey: "state_province", type: "text" },
+      { label: "Postal Code", sourceKey: "postal_code", type: "text" },
       { label: "Country", sourceKey: "country", type: "text" },
+      { label: "Phone", sourceKey: "phone", type: "text" },
       { label: "Ipreo Ticker", sourceKey: "ipreo_ticker", type: "text" },
       { label: "Master Company Record", sourceKey: "company_master_name", type: "text" },
     ],
@@ -334,9 +363,29 @@ export const ACCOUNT_SECTIONS: AccountSectionDef[] = [
     ],
   },
   {
+    // Flattened 2026-09-23g — client-record fields that had no column before.
+    key: "profile",
+    title: "Profile & Preferences",
+    fields: [
+      { label: "Secondary Exchange", sourceKey: "secondary_exchange_label", type: "text" },
+      { label: "HQ State", sourceKey: "hq_state_label", type: "text" },
+      { label: "Reporting Frequency", sourceKey: "reporting_frequency_label", type: "text" },
+      { label: "Dividend Yield (%)", sourceKey: "div_yield", type: "number" },
+      { label: "Meeting Slot (min)", sourceKey: "meeting_slot_minutes", type: "number" },
+      { label: "Meeting Platform", sourceKey: "meeting_platform_pref", type: "text" },
+      { label: "Time Zone (Dynamics code)", sourceKey: "timezone_code", type: "number" },
+      { label: "Estimates", sourceKey: "estimates", type: "toggle" },
+      { label: "Include Admin", sourceKey: "include_admin", type: "toggle" },
+      { label: "Exclude from Distribution", sourceKey: "exclude_from_distribution", type: "toggle" },
+      { label: "Contact IR Only", sourceKey: "contact_ir_only", type: "toggle" },
+    ],
+  },
+  {
     key: "notes",
     title: "Notes",
     fields: [
+      { label: "Additional Notes", sourceKey: "additional_notes", type: "notes" },
+      { label: "Targeting Parameters", sourceKey: "targeting_parameters", type: "notes" },
       // `notes` renders full-width and preserves line breaks. These three are
       // free text in the CRM and routinely run to several lines.
       { label: "Onboarding Notes", sourceKey: "onboarding_notes", type: "notes" },

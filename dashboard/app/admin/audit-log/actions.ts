@@ -22,7 +22,9 @@ import { getEffectiveRole } from "@/lib/effective-identity"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import {
   changeLines,
+  originOf,
   resolveRecord,
+  type AuditOrigin,
   type ChangeLine,
   type NameLookup,
   type ResolveContext,
@@ -43,6 +45,8 @@ export type AuditRecordDetail = {
   recordLabel: string
   /** Set when the record turned out to be account-keyed, for the client link. */
   accountId: string | null
+  /** Who authored the audited record — see originOf. */
+  origin: AuditOrigin
 }
 
 /**
@@ -114,6 +118,7 @@ export async function loadAuditRecord(id: number): Promise<ActionResult<AuditRec
     lines: changeLines(row.changes, ctx),
     recordLabel: resolved.label,
     accountId: resolved.accountId,
+    origin: originOf(row.changes, row.context),
   })
 }
 

@@ -34,6 +34,8 @@ import {
   type AccountRecord,
 } from "@/lib/accounts/record"
 import { isPersonName } from "@/lib/accounts/spec"
+import { TestBadge } from "@/components/test-badge"
+import { RecordEditBar } from "@/components/record-edit-bar"
 import { cn } from "@/lib/utils"
 
 /** Eastern, matching every other date on the page. */
@@ -192,11 +194,14 @@ export function AccountRecordPane({
   loading,
   error,
   onClose,
+  onEdit,
 }: {
   record: AccountRecord | null
   loading: boolean
   error: string | null
   onClose: () => void
+  /** Opens the edit form — shown only for origin='dashboard' clients. */
+  onEdit?: () => void
 }) {
   const open = loading || !!record || !!error
   if (!open) return null
@@ -223,6 +228,8 @@ export function AccountRecordPane({
               </h2>
               {record && (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {record.is_test && <TestBadge />}
+                  <RecordEditBar origin={record.origin} onEdit={onEdit} />
                   {record.ticker_symbol && (
                     <Pill bg={STATUS_PILL_LIGHT.new.bg} text={STATUS_PILL_LIGHT.new.text}>
                       {record.ticker_symbol}

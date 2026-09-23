@@ -25,7 +25,6 @@ import { Columns3, Download, Filter, PanelRightOpen, Search, X } from "lucide-re
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { ListTitleCard } from "@/components/page-masthead"
-import { AddNewButton } from "@/components/crm-add-new"
 import { SortHeader } from "@/components/sort-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -76,6 +75,8 @@ import {
   updateSavedView,
 } from "./actions"
 import { TouchpointRecordPane, touchpointStatusPill } from "./touchpoint-record-pane"
+import { TestBadge } from "@/components/test-badge"
+import { EditTouchDialog, NewTouchButton, PurgeTestTouchesButton } from "./new-touch-dialog"
 
 // Row geometry. ROW_H must match the rendered row height exactly or the spacers
 // drift out of step with the scroll position and the window shows the wrong
@@ -352,6 +353,20 @@ export function TouchpointsView({
     setOpenId(null)
   }, [])
 
+  // Edit — offered by the drawer only for origin='dashboard' records (the
+  // server refuses anything else). After a save the list refreshes and the
+  // drawer reopens on the same record so it shows the new values.
+  const [editId, setEditId] = React.useState<string | null>(null)
+  const closeEdit = React.useCallback(() => setEditId(null), [])
+  const afterEdit = React.useCallback(
+    (id: string) => {
+      closeRecord()
+      router.refresh()
+      setTimeout(() => openRecord(id), 0)
+    },
+    [closeRecord, openRecord, router],
+  )
+
   // The effect owns only the async fetch — every setState is in a callback.
   React.useEffect(() => {
     if (!openId) return
@@ -446,7 +461,12 @@ export function TouchpointsView({
           eyebrow="CRM"
           title="Touches"
           subtitle="Every logged client contact in the CRM — calls, virtual meetings, emails, in-person. No row scoping is applied, so this page is super-user only."
-          rightSlot={<AddNewButton entity="touch" />}
+          rightSlot={
+            <div className="flex items-center gap-2">
+              <PurgeTestTouchesButton />
+              <NewTouchButton />
+            </div>
+          }
         />
       </div>
 
@@ -718,11 +738,13 @@ export function TouchpointsView({
       {/* Rendered as a SIBLING of the list, never wrapping it, so opening a
           record cannot remount the table. */}
       <TouchpointRecordPane
+        onEdit={openId ? () => setEditId(openId) : undefined}
         record={record}
         loading={openId !== null && record === null && recordError === null}
         error={recordError}
         onClose={closeRecord}
       />
+      <EditTouchDialog id={editId} onClose={closeEdit} onSaved={afterEdit} />
     </>
   )
 }
@@ -812,7 +834,7 @@ function renderCell(
       // /client-detail?account_id= destination the rest of the app uses. Falls
       // back to plain text with no account id, and to the name with no ticker.
       if (!row.client_account_id) return text
-      return (
+      const link = (
         <Link
           href={`/client-detail?account_id=${row.client_account_id}`}
           className="block min-w-0 truncate font-medium hover:underline"
@@ -820,6 +842,15 @@ function renderCell(
         >
           {row.client_ticker ? baseTicker(row.client_ticker) : text}
         </Link>
+      )
+      // Dashboard-created test touch: TEST badge beside the client.
+      return row.is_test ? (
+        <span className="flex min-w-0 items-center gap-1.5">
+          <TestBadge />
+          {link}
+        </span>
+      ) : (
+        link
       )
     }
 

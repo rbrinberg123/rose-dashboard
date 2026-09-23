@@ -41,6 +41,7 @@ import { SUBHEADER_BG } from "@/components/table-group-header"
 import { BRAND_BLUE, CANVAS, CARD_CLASS, STATUS_PILL_LIGHT } from "@/lib/design"
 import {
   ACTION_PILL,
+  type AuditOrigin,
   actionLabel,
   contextWithoutViewAs,
   entityLabel,
@@ -51,6 +52,7 @@ import {
   type NameLookup,
 } from "@/lib/audit-log/labels"
 import { cn } from "@/lib/utils"
+import { TestBadge } from "@/components/test-badge"
 import { loadAuditActors, loadAuditRecord, type AuditRecordDetail } from "./actions"
 
 export type AuditFilters = {
@@ -627,8 +629,11 @@ function Row({
         </span>
       </TableCell>
 
-      <TableCell className="truncate px-2 py-0.5 text-[13px]" title={row.entity}>
-        {entityLabel(row.entity)}
+      <TableCell className="px-2 py-0.5 text-[13px]" title={row.entity}>
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="truncate">{entityLabel(row.entity)}</span>
+          <OriginBadge origin={row.origin ?? null} />
+        </span>
       </TableCell>
 
       <TableCell className="truncate px-2 py-0.5 text-[13px]" title={row.record_id ?? undefined}>
@@ -741,6 +746,7 @@ function AuditRecordPane({
                   >
                     {actionLabel(record.action)}
                   </span>
+                  <OriginBadge origin={record.origin} />
                   <span className="text-[11px] text-muted-foreground">
                     {EASTERN_FULL.format(new Date(record.occurred_at))}
                   </span>
@@ -896,5 +902,27 @@ function Field({
         <span className="min-w-0 truncate">{value}</span>
       </div>
     </div>
+  )
+}
+
+/**
+ * Who authored the audited record (see originOf in lib/audit-log/labels.ts):
+ * "Dashboard" (+ TEST for a test record) for rows the dashboard created in a
+ * CRM table, a quieter "Dynamics" for a synced row removed by reconciliation,
+ * nothing for dashboard-owned tables.
+ */
+function OriginBadge({ origin }: { origin: AuditOrigin }) {
+  if (!origin) return null
+  const tone = origin.source === "dashboard" ? STATUS_PILL_LIGHT.new : STATUS_PILL_LIGHT.neutral
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1">
+      <span
+        className="inline-flex items-center rounded-full px-1.5 py-px text-[10px] font-medium"
+        style={{ backgroundColor: tone.bg, color: tone.text }}
+      >
+        {origin.source === "dashboard" ? "Dashboard" : "Dynamics"}
+      </span>
+      {origin.test && <TestBadge />}
+    </span>
   )
 }

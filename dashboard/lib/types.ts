@@ -1404,6 +1404,8 @@ export type ClientTodoTouchDetail = {
  * shareholder_report_received_date are empty on every live row today).
  */
 export type AdminEventRow = {
+  /** Dashboard-created test row (TEST badge) — stamped by the page via markTestRows. */
+  is_test?: boolean | null
   event_id: string
   // the seven list columns
   client_account_name: string | null
@@ -1478,6 +1480,8 @@ export type AdminEventRow = {
 }
 
 export type AdminMeetingRow = {
+  /** Dashboard-created test row (TEST badge) — stamped by the page via markTestRows. */
+  is_test?: boolean | null
   meeting_id: string
   meeting_type_label: string | null
   meeting_status_label: string | null
@@ -1514,6 +1518,8 @@ export type AdminMeetingRow = {
  * sql/patches/2026-09-11_admin_tasks.sql.
  */
 export type AdminTaskRow = {
+  /** Dashboard-created test row (TEST badge) — stamped by the page via markTestRows. */
+  is_test?: boolean | null
   task_id: string
   // the nine default list columns
   client_account_name: string | null
@@ -1612,6 +1618,8 @@ export type AdminTouchpointRow = {
   state_code: number | null
   status_code: number | null
   direction_code: boolean | null
+  /** Dashboard-created test row (TEST badge). Absent until the 2026-09-23d view patch. */
+  is_test?: boolean | null
 }
 
 /**
@@ -1667,6 +1675,8 @@ export type AdminNoteRow = {
   status_label: string | null
   created_on: string | null
   modified_on: string | null
+  /** Dashboard-created test row (TEST badge). Absent until the 2026-09-23c view patch. */
+  is_test?: boolean | null
 }
 
 /**
@@ -1754,6 +1764,8 @@ export type AdminContactRow = {
   status_label: string | null
   created_on: string | null
   modified_on: string | null
+  /** Dashboard-created test row (TEST badge). Absent until the 2026-09-23b view patch. */
+  is_test?: boolean | null
 }
 
 /**
@@ -1796,6 +1808,8 @@ export type AdminContactRow = {
  * reporting figures.
  */
 export type AdminAccountRow = {
+  /** Dashboard-created test row (TEST badge). Absent until the 2026-09-23g view patch. */
+  is_test?: boolean | null
   account_id: string
   // the app-facing client triple — the account's own id/name/ticker under the
   // names every other admin view uses, so the shared ticker renderer works here

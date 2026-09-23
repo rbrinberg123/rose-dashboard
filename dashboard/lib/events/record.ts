@@ -15,6 +15,10 @@
  *
  * Do NOT add editing without the dashboard actually becoming the system of
  * record. Today Dynamics is, and everything in this app is read-only.
+ * UPDATE 2026-09-23: records the DASHBOARD created (origin='dashboard') ARE
+ * editable — via the entity's Add New form in edit mode and updateDashboardRow
+ * (lib/crm-write.ts), which refuses any Dynamics row server-side. Rows synced
+ * from Dynamics stay read-only until cutover. See docs/22.
  *
  * ── TWO SOURCING NOTES ─────────────────────────────────────────────────────
  * MEMO = TEASER. The drawer asks for "Memo Date" and "Memo Not Required".
@@ -29,6 +33,12 @@
 
 /** One event, flattened for display. Keys are the field definitions' sourceKeys. */
 export type EventRecord = {
+  /** bcs_mining (flattened) — true drops the event from Live Outreach. Read off the table. */
+  mining?: boolean | null
+  /** 'dashboard' = editable in the drawer; 'dynamics' = read-only until cutover. */
+  origin?: string | null
+  /** Dashboard-created test row (drawer TEST badge). */
+  is_test?: boolean
   event_id: string
   /** Drives the Client headline link; null when the event has no account. */
   client_account_id: string | null
@@ -123,6 +133,7 @@ export const EVENT_SECTIONS: EventSectionDef[] = [
       { label: "Client", sourceKey: "client_account_name", type: "link" },
       { label: "Location", sourceKey: "event_location", type: "text" },
       { label: "TBC", sourceKey: "tbc", type: "toggle" },
+      { label: "Mining (excluded from Live Outreach)", sourceKey: "mining", type: "toggle" },
       { label: "Dates", sourceKey: "event_dates", type: "text" },
       { label: "Account Manager", sourceKey: "account_manager_name", type: "person" },
       { label: "Logistics Coordinator", sourceKey: "logistics_coordinator_name", type: "person" },

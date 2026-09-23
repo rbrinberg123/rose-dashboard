@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
+import { markTestRows, testRowIds } from "@/lib/crm-write"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import type { AdminMeetingRow } from "@/lib/types"
 import {
@@ -187,10 +188,14 @@ export default async function MeetingsPage({
     process.env.NEXT_PUBLIC_DYNAMICS_URL?.replace(/\/$/, "") ||
     "https://clientcrm.crm.dynamics.com"
 
+  // Dashboard-created TEST rows get a badge. The list view does not carry
+  // is_test, so the (small) set of test ids is read off the table instead.
+  const testIds = await testRowIds("meetings", "meeting_id")
+
   return (
     <PageShell title="Meetings" hideHeader canvas>
       <MeetingsView
-        rows={rows}
+        rows={markTestRows(rows, "meeting_id", testIds)}
         crmBase={crmBase}
         views={views}
         activeViewId={active.id}

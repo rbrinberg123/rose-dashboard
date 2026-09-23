@@ -1,5 +1,7 @@
 "use client"
 
+import * as React from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Plus } from "lucide-react"
 import { toast } from "sonner"
 
@@ -13,6 +15,12 @@ import { cn } from "@/lib/utils"
  * write, and no navigation. Every control routes through the single stub
  * `onAddNew(entity)` below, which shows a "coming soon" toast so a click reads
  * as deliberate rather than broken.
+ *
+ * EXCEPTIONS (2026-09-23): EVERY entry point is now LIVE. All seven CRM page
+ * buttons pass their own `onClick` to AddNewButton (new-<entity>-dialog.tsx in
+ * their app/ folders; Clients = app/accounts/new-client-dialog.tsx), and the
+ * nav quick-add navigates to addNewHref(entity) — the page with ?new=1 — which
+ * opens that same form. `onAddNew` (the toast) is no longer called anywhere.
  *
  * WIRING IT UP LATER is meant to be a one-file change: replace the body of
  * `onAddNew` with a real dispatch (open a drawer, push to /meetings/new, call a
@@ -72,6 +80,48 @@ export const QUICK_ADD_ORDER: readonly CrmEntity[] = [
   "contact",
 ]
 
+/** Each entity's CRM page — where its live create form lives. */
+export const CRM_ENTITY_ROUTES: Record<CrmEntity, string> = {
+  meeting: "/meetings",
+  event: "/events",
+  task: "/tasks",
+  touch: "/touchpoints",
+  note: "/notes",
+  contact: "/contacts",
+  client: "/accounts",
+}
+
+/**
+ * The nav quick-add's target: the entity's page with `?new=1`, which makes
+ * that page's own "Add New" button open its create form on arrival
+ * (useQuickAddRequest). Same form, same server action, same gates.
+ */
+export function addNewHref(entity: CrmEntity): string {
+  return `${CRM_ENTITY_ROUTES[entity]}?new=1`
+}
+
+/**
+ * Read by each page's New<Entity>Button: `requested` is true while the URL
+ * carries `?new=1` (so the form opens — including when you are ALREADY on that
+ * page and pick it from the nav again). `clear()` strips the param, and is
+ * called when the form closes. Derived from the URL rather than copied into
+ * state, so there is no setState-in-effect.
+ */
+export function useQuickAddRequest(): { requested: boolean; clear: () => void } {
+  const params = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const requested = params.get("new") === "1"
+  const clear = React.useCallback(() => {
+    if (params.get("new") !== "1") return
+    const next = new URLSearchParams(params.toString())
+    next.delete("new")
+    const qs = next.toString()
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }, [params, pathname, router])
+  return { requested, clear }
+}
+
 /**
  * THE STUB. Every "Add New" control in the app calls exactly this.
  *
@@ -97,14 +147,19 @@ export function onAddNew(entity: CrmEntity) {
 export function AddNewButton({
   entity,
   className,
+  onClick,
 }: {
   entity: CrmEntity
   className?: string
+  /**
+   * A LIVE create flow, overriding the stub. Every page's button passes one.
+   */
+  onClick?: () => void
 }) {
   return (
     <button
       type="button"
-      onClick={() => onAddNew(entity)}
+      onClick={onClick ?? (() => onAddNew(entity))}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-sm font-semibold text-white shadow-sm",
         "transition-opacity hover:opacity-90",

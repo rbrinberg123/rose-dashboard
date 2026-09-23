@@ -15,8 +15,9 @@
  * read-only renderer below for an input keyed off `type`, add form state, add a
  * save action. The sections, labels and ordering do not move.
  *
- * VIEW ONLY. Nothing here is editable and nothing writes back — Dynamics is the
- * system of record.
+ * VIEW ONLY for Dynamics rows. A dashboard-created row (origin='dashboard')
+ * shows an Edit button (RecordEditBar) that opens the entity's form in edit
+ * mode; the server-side update refuses any Dynamics row.
  */
 
 import * as React from "react"
@@ -32,6 +33,8 @@ import {
   type ContactRecord,
 } from "@/lib/contacts/record"
 import { isPersonName } from "@/lib/contacts/spec"
+import { TestBadge } from "@/components/test-badge"
+import { RecordEditBar } from "@/components/record-edit-bar"
 import { cn } from "@/lib/utils"
 
 /** Eastern, matching every other date on the page. */
@@ -173,11 +176,14 @@ export function ContactRecordPane({
   loading,
   error,
   onClose,
+  onEdit,
 }: {
   record: ContactRecord | null
   loading: boolean
   error: string | null
   onClose: () => void
+  /** Opens the edit form — shown only for origin='dashboard' records. */
+  onEdit?: () => void
 }) {
   const open = loading || !!record || !!error
   if (!open) return null
@@ -204,6 +210,8 @@ export function ContactRecordPane({
               </h2>
               {record && (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {record.is_test && <TestBadge />}
+                  <RecordEditBar origin={record?.origin} onEdit={onEdit} />
                   {record.job_title && (
                     <Pill bg={STATUS_PILL_LIGHT.neutral.bg} text={STATUS_PILL_LIGHT.neutral.text}>
                       {record.job_title}

@@ -141,6 +141,36 @@ export function mapAccount(row: Row): Row {
     onboarding_notes: str(row["bcs_onboardingnotes"]),
     peers: str(row["bcs_peers"]),
 
+    // Flattened 2026-09-23 (sql/patches/2026-09-23g_accounts_full_fields.sql).
+    // address1_* is the Dynamics PRIMARY address; address2 line1/postal/county
+    // are kept because they carry most of this CRM's street data (and address2's
+    // country is typed into its county field).
+    address1_line1: str(row["address1_line1"]),
+    address1_city: str(row["address1_city"]),
+    address1_state: str(row["address1_stateorprovince"]),
+    address1_postal_code: str(row["address1_postalcode"]),
+    address1_country: str(row["address1_country"]),
+    address2_line1: str(row["address2_line1"]),
+    address2_postal_code: str(row["address2_postalcode"]),
+    address2_county: str(row["address2_county"]),
+    phone: str(row["telephone1"]),
+    secondary_exchange_code: num(row["bcs_secondaryexchange"]),
+    secondary_exchange_label: fv(row, "bcs_secondaryexchange"),
+    hq_state_code: num(row["bcs_state"]),
+    hq_state_label: fv(row, "bcs_state"),
+    reporting_frequency_code: num(row["bcs_frequency"]),
+    reporting_frequency_label: fv(row, "bcs_frequency"),
+    timezone_code: num(row["bcs_timezone"]),
+    meeting_slot_minutes: num(row["bcs_mtgslots"]),
+    meeting_platform_pref: str(row["bcs_mtgplatformpref"]),
+    div_yield: num(row["bcs_divyield"]),
+    targeting_parameters: str(row["bcs_targetingparameters"]),
+    additional_notes: str(row["crdfa_additionalnotes"]),
+    estimates: bool(row["bcs_estimates"]),
+    include_admin: bool(row["bcs_includeadmin"]),
+    exclude_from_distribution: bool(row["bcs_excludefromdistribution"]),
+    contact_ir_only: bool(row["new_contactironly"]),
+
     // Provenance, for parity with every other mirror table. Deliberately the
     // ONLY accounts fields added in the 2026-09-16 flatten pass — the ~40
     // unflattened accounts CONTENT fields (the staff-initials cluster,
@@ -222,6 +252,20 @@ export function mapMeeting(row: Row): Row {
     city_id: lookupId(row, "_bcs_city_value"),
     state_region_id: lookupId(row, "_bcs_stateregion_value"),
     event_id: lookupId(row, "_bcs_event_value"),
+
+    // Flattened 2026-09-23 (sql/patches/2026-09-23e_meetings_flatten_full_fields.sql)
+    // — the same sources v_admin_meetings_all used to read out of _raw. The
+    // on-behalf-of / host2 / feedback-received keys are absent from every
+    // payload measured so far, so these are null until Dynamics returns them.
+    city_name: lookupName(row, "_bcs_city_value"),
+    state_region_name: lookupName(row, "_bcs_stateregion_value"),
+    on_behalf_of_id: lookupId(row, "_bcs_onbehalfof_value") ?? lookupId(row, "_createdonbehalfby_value"),
+    on_behalf_of_name:
+      lookupName(row, "_bcs_onbehalfof_value") ?? lookupName(row, "_createdonbehalfby_value"),
+    host2_id: lookupId(row, "_bcs_host2_value"),
+    host2_name: lookupName(row, "_bcs_host2_value"),
+    fb_received_date:
+      (str(row["bcs_feedbackreceiveddate"]) ?? str(row["crdfa_feedbackreceiveddate"]))?.slice(0, 10) ?? null,
 
     calendar_code: num(row["bcs_calendar"]),
     calendar_label: fv(row, "bcs_calendar"),
@@ -697,6 +741,9 @@ export function mapEvent(row: Row): Row {
     update_required_targeting: bool(row["bcs_updaterequiredtargeting"]),
     priority: bool(row["bcs_priority"]),
     team: bool(row["bcs_team"]),
+    // Flattened 2026-09-23 (sql/patches/2026-09-23f_events_mining_flag.sql):
+    // true drops the event from Live Outreach (v_live_outreach).
+    mining: bool(row["bcs_mining"]),
     tbc: bool(row["bcs_tbc"]),
 
     // Free-text notes / urls / params

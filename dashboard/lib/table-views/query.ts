@@ -39,7 +39,7 @@ const EASTERN_YMD = new Intl.DateTimeFormat("en-CA", {
 })
 
 /** How far Eastern is from UTC at `date`, in ms (negative: -5h EST / -4h EDT). */
-function easternOffsetMs(date: Date): number {
+export function easternOffsetMs(date: Date): number {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: NY_TZ,
     hour12: false,

@@ -212,3 +212,16 @@ Nothing about filtering, validation, paging or authorisation is written again fo
 | Route gating + nav item | `dashboard/lib/access-control.ts` |
 | Nav icon (`MessagesSquare`) | `dashboard/components/nav.tsx` |
 | SQL | `sql/patches/2026-09-15_admin_touchpoints.sql` |
+
+
+---
+
+## Create & edit (dashboard records)
+
+**Add New Touch** and the drawer's **Edit** button (dashboard-created records only; Dynamics records stay read-only until cutover) use **one form that covers every field the drawer shows**, grouped the same way. That's the "form field set = drawer field set" principle; see [22 — Cutover](22-cutover-ownership-boundary.md). Created / modified by and on are display-only system fields. No field on this drawer is read from `_raw`, so **no columns needed flattening**.
+
+**Editable:** client, subject, notes, type, date & time, direction, duration, contact type, and **status** (Open / Made / Received, which sets the state/status pair).
+
+**Display-only:**
+- **Owner Team** is a per-client Dynamics team, not a person. It's **filled in automatically** from the team the client's own synced touches use.
+- **Scheduled End** is derived as start + duration.

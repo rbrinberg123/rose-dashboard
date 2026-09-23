@@ -16,6 +16,10 @@
  *
  * Do NOT add editing without the dashboard actually becoming the system of
  * record. Today Dynamics is, and everything in this app is read-only.
+ * UPDATE 2026-09-23: records the DASHBOARD created (origin='dashboard') ARE
+ * editable — via the entity's Add New form in edit mode and updateDashboardRow
+ * (lib/crm-write.ts), which refuses any Dynamics row server-side. Rows synced
+ * from Dynamics stay read-only until cutover. See docs/22.
  *
  * ── WHAT A NOTE IS ─────────────────────────────────────────────────────────
  * public.client_notes mirrors the Dynamics `bcs_clientnote` entity: a monthly
@@ -54,6 +58,8 @@
 
 /** One note, flattened for display. Keys are the field definitions' sourceKeys. */
 export type NoteRecord = {
+  /** 'dashboard' = editable in the drawer; 'dynamics' = read-only until cutover. */
+  origin?: string | null
   note_id: string
   /** Drives the Client link; null on the 25 empty shells. */
   client_account_id: string | null
@@ -89,6 +95,8 @@ export type NoteRecord = {
   created_on: string | null
   modified_on: string | null
   is_recent: boolean | null
+  /** Dashboard-created test row (drawer TEST badge). */
+  is_test?: boolean
 }
 
 /**

@@ -469,3 +469,49 @@ The indirection exists so that turning the drawer into a real editor is a **loca
 | Route gate | `ADMIN_ONLY_ROUTES` in `lib/access-control.ts` |
 | Nav entry (CRM block) | `CRM_NAV_ITEMS` + `canSeeCrmNav` in `lib/access-control.ts`; drawn by `components/nav.tsx` |
 | Nav-gate tests | `lib/nav-crm.test.ts` |
+
+
+---
+
+## Create & edit (dashboard meetings): the full drawer field set
+
+**Add New Meeting** and the drawer's **Edit** button (dashboard-created meetings only; Dynamics meetings stay read-only until cutover) now cover **every field the drawer shows**, grouped like the drawer:
+
+- **Overview:** date & time, type, status, client, event, institution, investor, **city**, **state / region**, **group meeting**, **hosted in HQ**, general notes.
+- **Representatives:** host, **second host**, booked by, **on behalf of**, **feedback** (assignee), **client booked**, **host notes**.
+- **Planning:** **calendar**, **profile**.
+- **Feedback:** **FB in BDA**, **FB Rec'd** (date), **feedback notes**.
+- **Logistics:** **sent**, **confirm**, **driver**, **food order**, **logistics notes**. Shown for every meeting; usually blank for virtual ones.
+- **System** (created/modified by and on) is display-only.
+
+**Dropdowns use values already in the CRM.** Host Notes, Calendar, Profile and FB in BDA offer the distinct code/label pairs already on meetings, and City and State / Region offer the distinct names. No option-set metadata or cities/regions table is available. Each label pairs 1:1 with a code, so both are stored. The lists are cached for 10 minutes.
+
+### Five newly flattened columns (`sql/patches/2026-09-23e_meetings_flatten_full_fields.sql`)
+| Column | Was read from `_raw` | Backfilled |
+|---|---|---|
+| `city_name` | `_bcs_city_value` formatted value | ~3,879 meetings |
+| `state_region_name` | `_bcs_stateregion_value` formatted value | ~3,467 meetings |
+| `on_behalf_of_id` / `on_behalf_of_name` | `_bcs_onbehalfof_value`, else `_createdonbehalfby_value` (user lookups) | 0: the keys are absent / always null in Dynamics |
+| `host2_id` / `host2_name` | `_bcs_host2_value` (user lookup) | 0: key absent in every payload |
+| `fb_received_date` (date) | `bcs_feedbackreceiveddate`, else `crdfa_feedbackreceiveddate` | 0: keys absent in every payload |
+
+- **The view:** `v_admin_meetings_all` now reads these columns instead of `_raw`, with the same 40 columns in the same order and types. `fb_received` is still text, rendered `M/D/YYYY`.
+- **The sync:** `mapMeeting` writes the same columns, so new syncs stay in step. **The patch must run before this code deploys**, or every meetings sync fails.
+- **Drawer fix:** **Created By / Modified By** now come from the `created_by_name` / `modified_by_name` columns (with `_raw` only as a fallback). They were blank on dashboard meetings. City, state, on-behalf-of, second host and FB Rec'd also read their new columns first.
+- **Flow-through:** a dashboard meeting's `_raw` carries only the keys downstream views still read: the **event name** (Scheduler, Planning, Week Ahead) and, new here, the **feedback assignee** (`v_feedback_outstanding`, the Outstanding Feedback page and email).
+
+### Which feedback field closes a meeting's feedback
+
+**Feedback Status** (`feedback_status_code` / `feedback_status_label`, Dynamics `bcs_feedbackstatus`) is the **only** field that closes meeting-level feedback. `v_feedback_outstanding` (the **Feedback Collection** table and the **Outstanding Feedback** email) lists a past, Confirmed, Active meeting while:
+
+```sql
+m.feedback_status_label IS NULL OR m.feedback_status_label = 'Awaiting Additional'
+```
+
+Setting it to **Closed - All in** or **Closed - No Feedback** takes the meeting off both. It's now shown in the drawer and editable on the form (Feedback group, first field), stored as code + label like the other choice fields. No SQL or view change was needed: the column already existed and the view already read it.
+
+The other two feedback fields are **informational only** and never affect closure. The drawer and form now label them that way:
+- **FB in BDA** (`bcs_feedbackbda`) has the same four choices as Feedback Status and agrees with it on ~99.5% of Dynamics meetings. On the form it **follows Feedback Status automatically** unless you've set it to something different by hand.
+- **FB Rec'd** (`fb_received_date`) is a date. It's empty on every Dynamics meeting.
+
+The **task** pipeline (`v_feedback_pipeline`) is separate. It reads the Feedback *task's* received date and status, never a meeting field.

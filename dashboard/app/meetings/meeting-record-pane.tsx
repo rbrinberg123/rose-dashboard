@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from "react"
+import { TestBadge } from "@/components/test-badge"
+import { RecordEditBar } from "@/components/record-edit-bar"
 import Link from "next/link"
 import { ExternalLink, Pencil } from "lucide-react"
 
@@ -225,6 +227,7 @@ export function MeetingRecordPane({
   eventName,
   crmBase,
   onClose,
+  onEdit,
 }: {
   /** The open record, or null when the drawer is closed. */
   record: MeetingRecord | null
@@ -234,6 +237,8 @@ export function MeetingRecordPane({
   eventName: string | null
   crmBase: string | null
   onClose: () => void
+  /** Opens the edit form — shown only for origin='dashboard' records. */
+  onEdit?: () => void
 }) {
   const open = loading || error !== null || record !== null
   const clientHref = record?.client_account_id
@@ -280,6 +285,8 @@ export function MeetingRecordPane({
           <SheetDescription className="truncate">{eventName ?? "—"}</SheetDescription>
 
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {record?.is_test && <TestBadge />}
+            <RecordEditBar origin={record?.origin} onEdit={onEdit} />
             {record?.meeting_type && (
               <Pill bg="#EEF2FB" text="#2D4A8A">
                 {record.meeting_type}

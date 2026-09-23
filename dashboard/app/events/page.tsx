@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
+import { markTestRows, testRowIds } from "@/lib/crm-write"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import type { AdminEventRow } from "@/lib/types"
 import { ROW_CAP, availableColumns, countRows, fetchRows } from "@/lib/table-views/query"
@@ -184,10 +185,14 @@ export default async function EventsPage({
     ? await countRows(sb, EVENTS_SPEC, effectiveConfig, now, available, extra)
     : rows.length
 
+  // Dashboard-created TEST rows get a badge. The list view does not carry
+  // is_test, so the (small) set of test ids is read off the table instead.
+  const testIds = await testRowIds("events", "event_id")
+
   return (
     <PageShell title="Events" hideHeader canvas>
       <EventsView
-        rows={rowsWithTeam}
+        rows={markTestRows(rowsWithTeam, "event_id", testIds)}
         views={views}
         activeViewId={active.id}
         savedConfig={active.config}

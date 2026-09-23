@@ -523,11 +523,17 @@ export const CONTACT_DEFAULT_COLUMNS: string[] = [
   "state_label",
 ]
 
-/** Always fetched: the row identity and the ids the table needs for links. */
+/**
+ * Always fetched: the row identity, the ids the table needs for links, and
+ * is_test for the TEST badge on dashboard-created test contacts. Each key is
+ * skipped when the view lacks it (selectListFor → usable), so the list still
+ * loads before sql/patches/2026-09-23b_contacts_dashboard_writes.sql is run.
+ */
 export const CONTACT_ALWAYS_SELECT = [
   "contact_id",
   "client_account_id",
   "client_ticker",
+  "is_test",
 ] as const
 
 /**

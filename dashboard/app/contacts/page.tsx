@@ -61,7 +61,7 @@ const PATCH = "sql/patches/2026-09-16_admin_contacts.sql"
  *
  * WRITES live in ./actions.ts, which delegates to lib/table-views/saved-views.ts
  * — the shared write path. Read that file's header before touching it. There are
- * no contact writes at all: "Add New Contact" is inert.
+ * "Add New Contact" IS live — createContact in ./actions.ts (origin='dashboard').
  *
  * If you add a data read to this file, put it BELOW the guard.
  */

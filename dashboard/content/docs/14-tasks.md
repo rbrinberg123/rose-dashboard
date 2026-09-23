@@ -174,3 +174,19 @@ Nothing about filtering, validation, paging or authorisation is written again fo
 | Row type | `dashboard/lib/types.ts` (`AdminTaskRow`) |
 | Route gating + nav item | `dashboard/lib/access-control.ts` |
 | SQL | `sql/patches/2026-09-11_admin_tasks.sql` |
+
+
+---
+
+## Create & edit (dashboard records)
+
+**Add New Task** and the drawer's **Edit** button (dashboard-created records only; Dynamics records stay read-only until cutover) use **one form that covers every field the drawer shows**, grouped the same way. That's the "form field set = drawer field set" principle; see [22 — Cutover](22-cutover-ownership-boundary.md). Created / modified by and on are display-only system fields. No field on this drawer is read from `_raw`, so **no columns needed flattening**.
+
+**Editable:** client, subject, description, type & sub-type, priority, status, due, **scheduled start**, **actual start / end**, **% complete**, regarding (client or event), **event**, owner, **claimed by**, **current assignment**, **outreach task status**, and the six **workflow flags** (Drafting, Draft Complete, Review Complete, Processed, Feedback Received, Notified).
+
+**Derived:** State follows status, and Regarding Type follows regarding.
+
+### Feedback Received Date: the field that drives the feedback pipeline
+**Feedback Received Date** (`crdfa_feedback_received_date`, a real synced column) is now in the task drawer and on the create/edit form (Workflow group). It's what `v_feedback_pipeline` uses: a **Feedback** task with **Status = Open** and this date set is in the pipeline's **Open** bucket. Completing the task moves it on to **Pending Review** (while its paired "Feedback Report Sent" task is still open). No flattening or view change was needed.
+
+The older **Feedback Received** checkbox (`bcs_feedback_received`) is now labelled **"(legacy, info only)"**. The pipeline stopped using it on 2026-09-09 because it was unreliable, so ticking it changes nothing downstream.

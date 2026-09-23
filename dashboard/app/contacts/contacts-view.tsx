@@ -22,7 +22,6 @@ import { Columns3, Download, Filter, PanelRightOpen, Search, X } from "lucide-re
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { ListTitleCard } from "@/components/page-masthead"
-import { AddNewButton } from "@/components/crm-add-new"
 import { SortHeader } from "@/components/sort-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -77,6 +76,8 @@ import {
   updateSavedView,
 } from "./actions"
 import { ContactRecordPane, contactStatePill } from "./contact-record-pane"
+import { TestBadge } from "@/components/test-badge"
+import { EditContactDialog, NewContactButton, PurgeTestContactsButton } from "./new-contact-dialog"
 
 // Row geometry. ROW_H must match the rendered row height exactly or the spacers
 // drift out of step with the scroll position and the window shows the wrong
@@ -372,6 +373,20 @@ export function ContactsView({
     setOpenId(null)
   }, [])
 
+  // Edit — offered by the drawer only for origin='dashboard' records (the
+  // server refuses anything else). After a save the list refreshes and the
+  // drawer reopens on the same record so it shows the new values.
+  const [editId, setEditId] = React.useState<string | null>(null)
+  const closeEdit = React.useCallback(() => setEditId(null), [])
+  const afterEdit = React.useCallback(
+    (id: string) => {
+      closeRecord()
+      router.refresh()
+      setTimeout(() => openRecord(id), 0)
+    },
+    [closeRecord, openRecord, router],
+  )
+
   // The effect owns only the async fetch — every setState is in a callback.
   React.useEffect(() => {
     if (!openId) return
@@ -472,7 +487,12 @@ export function ContactsView({
           eyebrow="CRM"
           title="Contacts"
           subtitle="Every contact in the CRM — the people at client companies, with their role, type and flags. No row scoping is applied, so this page is super-user only."
-          rightSlot={<AddNewButton entity="contact" />}
+          rightSlot={
+            <div className="flex items-center gap-2">
+              <PurgeTestContactsButton />
+              <NewContactButton />
+            </div>
+          }
         />
       </div>
 
@@ -746,11 +766,13 @@ export function ContactsView({
       {/* Rendered as a SIBLING of the list, never wrapping it, so opening a
           record cannot remount the table. */}
       <ContactRecordPane
+        onEdit={openId ? () => setEditId(openId) : undefined}
         record={record}
         loading={openId !== null && record === null && recordError === null}
         error={recordError}
         onClose={closeRecord}
       />
+      <EditContactDialog id={editId} onClose={closeEdit} onSaved={afterEdit} />
     </>
   )
 }
@@ -849,6 +871,15 @@ function renderCell(col: ContactColumnDef, row: AdminContactRow, raw: unknown): 
     }
 
     case "people":
+      // Dashboard-created test contact: TEST badge beside the name.
+      if (col.key === "full_name" && row.is_test) {
+        return (
+          <span className="flex min-w-0 items-center gap-1.5">
+            <TestBadge />
+            <span className="truncate font-medium">{text}</span>
+          </span>
+        )
+      }
       // The contact themselves — initials circle plus the name. Unlike the other
       // CRM tables, where the avatar marks a systemuser, here the person IS the
       // row, so the name rides alongside the circle rather than hiding behind it.

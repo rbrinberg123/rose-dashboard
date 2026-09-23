@@ -403,11 +403,16 @@ export const TOUCHPOINT_DEFAULT_COLUMNS: string[] = [
   "created_by_name",
 ]
 
-/** Always fetched: the row identity and the ids the table needs for links. */
+/**
+ * Always fetched: the row identity, the ids the table needs for links, and
+ * is_test for the TEST badge. Each key is skipped when the view lacks it, so the
+ * list still loads before sql/patches/2026-09-23d_touchpoints_dashboard_writes.sql runs.
+ */
 export const TOUCHPOINT_ALWAYS_SELECT = [
   "touchpoint_id",
   "client_account_id",
   "client_ticker",
+  "is_test",
 ] as const
 
 /**

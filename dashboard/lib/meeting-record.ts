@@ -21,6 +21,10 @@
 
 /** One meeting, flattened for display. Keys are the field definitions' sourceKeys. */
 export type MeetingRecord = {
+  /** 'dashboard' = editable in the drawer; 'dynamics' = read-only until cutover. */
+  origin?: string | null
+  /** Dashboard-created test row (drawer TEST badge). */
+  is_test?: boolean
   meeting_id: string
   /** Drives the Client headline link; null when the meeting has no account. */
   client_account_id: string | null
@@ -52,6 +56,8 @@ export type MeetingRecord = {
   profile: string | null
 
   // Feedback
+  /** bcs_feedbackstatus — closes meeting-level feedback (drives Feedback Collection). */
+  feedback_status: string | null
   fb_in_bda: string | null
   fb_received: string | null
   feedback_notes: string | null
@@ -143,8 +149,11 @@ export const MEETING_SECTIONS: MeetingSectionDef[] = [
     key: "feedback",
     title: "Feedback",
     fields: [
-      { label: "FB in BDA", sourceKey: "fb_in_bda", type: "text" },
-      { label: "FB Rec'd", sourceKey: "fb_received", type: "text" },
+      // Feedback Status is the ONE field that closes meeting-level feedback
+      // (v_feedback_outstanding). The other two are informational only.
+      { label: "Feedback Status (closes feedback)", sourceKey: "feedback_status", type: "text" },
+      { label: "FB in BDA (info only)", sourceKey: "fb_in_bda", type: "text" },
+      { label: "FB Rec'd (info only)", sourceKey: "fb_received", type: "text" },
       { label: "Feedback Notes", sourceKey: "feedback_notes", type: "notes" },
     ],
   },

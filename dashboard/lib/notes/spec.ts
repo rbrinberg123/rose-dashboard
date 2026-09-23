@@ -351,8 +351,12 @@ export const NOTE_DEFAULT_COLUMNS: string[] = [
   "owner_name",
 ]
 
-/** Always fetched: the row identity and the ids the table needs for links. */
-export const NOTE_ALWAYS_SELECT = ["note_id", "client_account_id", "client_ticker"] as const
+/**
+ * Always fetched: the row identity, the ids the table needs for links, and
+ * is_test for the TEST badge. Each key is skipped when the view lacks it, so the
+ * list still loads before sql/patches/2026-09-23c_notes_dashboard_writes.sql runs.
+ */
+export const NOTE_ALWAYS_SELECT = ["note_id", "client_account_id", "client_ticker", "is_test"] as const
 
 /**
  * Newest first. Notes are a historical LOG — a monthly review series — so the

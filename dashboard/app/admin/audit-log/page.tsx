@@ -8,6 +8,7 @@ import { easternDayStartIso } from "@/lib/table-views/query"
 import {
   resolveRecord,
   summarise,
+  originOf,
   type AuditListRow,
   type NameLookup,
   type ResolveContext,
@@ -221,6 +222,7 @@ export default async function AuditLogPage({
   const rows: AuditListRow[] = page.map((r) => ({
     ...r,
     summary: summarise(r.entity, r.record_id, changesById.get(r.id), ctx),
+    origin: originOf(changesById.get(r.id), r.context),
   }))
 
   // What the record column shows, resolved once here rather than per render.

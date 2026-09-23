@@ -192,3 +192,18 @@ update public.sync_runs set last_synced_at = null where entity_name = 'contacts'
 3. Ship the code.
 4. Let the sync run, then check `/admin` for `sync_errors` on the `contacts` entity.
 5. Run the client-link comparison query at the bottom of the patch and decide whether to switch the `LATERAL`.
+
+
+---
+
+## Create & edit (dashboard records)
+
+**Add New Contact** and the drawer's **Edit** button (dashboard-created records only; Dynamics records stay read-only until cutover) use **one form that covers every field the drawer shows**, grouped the same way. That's the "form field set = drawer field set" principle; see [22 — Cutover](22-cutover-ownership-boundary.md). Created / modified by and on are display-only system fields. No field on this drawer is read from `_raw`, so **no columns needed flattening**.
+
+**Editable:** name, job title, client, contact type, email, mobile, direct line, city, **street**, **industry**, **Active/Inactive**, the five **flags** (IR Only, PoC, Do Not Call, Distribution List, Ex-Employee), **verified on**, **previous company**, **ticker symbol**, **owner**.
+
+**Display-only:**
+- **Last Activity** subject, type and time: Dynamics maintains these from the contact's activities.
+- **Lead State:** empty on every contact, so there's no known option list.
+
+**Industry** offers only the codes Dynamics returns a label for. An existing unlabelled code is kept as-is on edit.
