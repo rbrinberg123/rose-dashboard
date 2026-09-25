@@ -45,7 +45,42 @@ export default async function OooSummaryPage() {
     )
   }
 
-  const summary = computeOooSummary((data ?? []) as OooRequest[])
+  // PLUS approved DASHBOARD requests (CRM → Time Off), counted from their exact
+  // day rows so AM / PM halves are honoured (see `days` on OooRequest). Pending
+  // and Denied never count. Fails soft: before
+  // sql/patches/2026-09-24_time_off_requests.sql runs, the table is missing and
+  // the summary is simply the Dynamics tally, as before.
+  const dash = await sb
+    .from("time_off_requests")
+    .select(
+      "id, requested_by_id, requested_by_name, start_date, end_date, request_type, description, time_off_days(off_date, portion)",
+    )
+    .eq("status", "Approved")
+  const dashboardRequests: OooRequest[] = dash.error
+    ? []
+    : (
+        (dash.data ?? []) as {
+          id: string
+          requested_by_id: string
+          requested_by_name: string | null
+          start_date: string
+          end_date: string
+          request_type: string
+          description: string | null
+          time_off_days: { off_date: string; portion: string }[] | null
+        }[]
+      ).map((r) => ({
+        ooo_id: r.id,
+        requested_by_id: r.requested_by_id,
+        requested_by_name: r.requested_by_name,
+        start_date: r.start_date,
+        end_date: r.end_date,
+        request_type_label: r.request_type,
+        description_comments: r.description,
+        days: (r.time_off_days ?? []).map((d) => ({ date: d.off_date, portion: d.portion })),
+      }))
+
+  const summary = computeOooSummary([...((data ?? []) as OooRequest[]), ...dashboardRequests])
 
   return (
     <PageShell title="OOO Summary" hideHeader canvas>

@@ -62,6 +62,8 @@ export const ENTITY_LABELS: Record<string, string> = {
   account_team_members: "Account Team",
   account_status: "Client Status",
   client_todo_notes: "Client To-Do Note",
+  time_off_requests: "Time Off Request",
+  time_off_reviewers: "Time Off Reviewer",
 
   // Access control
   role_page_access: "Role → Page Access",

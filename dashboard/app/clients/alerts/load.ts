@@ -1,5 +1,6 @@
 import { getSupabaseServer } from "@/lib/supabase"
-import { getEffectiveIdentity } from "@/lib/effective-identity"
+import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { personIdsReviewedBy } from "@/lib/time-off-requests/reviewers"
 import { loadIdentity } from "@/lib/access/identity"
 import {
   resolveAccountTeamScope,
@@ -90,6 +91,33 @@ export type AlertsData = {
    */
   viewerUnresolved: boolean
   sections: AlertsSection[]
+  /** "Time Off Approvals" — kept OUT of `sections` so no tally counts it. */
+  timeOff: TimeOffApprovals
+}
+
+/** One pending dashboard time-off request the viewer is on the reviewing team for. */
+export type TimeOffApprovalRow = {
+  id: string
+  requester: string | null
+  startDate: string
+  endDate: string
+  requestType: string
+  totalDays: number
+  description: string | null
+  isTest: boolean
+}
+
+export type TimeOffApprovals = {
+  /** False when the viewer reviews nobody — the section is not drawn at all. */
+  isReviewer: boolean
+  rows: TimeOffApprovalRow[]
+  truncated: number
+  error: string | null
+  /**
+   * Why the viewer can SEE but not click Approve / Deny (View as, or not a
+   * super_user yet). Null = the buttons are live. The server re-checks anyway.
+   */
+  actBlockedReason: string | null
 }
 
 /** Empty section shell, so an errored / denied section still renders its card. */
@@ -436,5 +464,85 @@ export async function loadAlerts(): Promise<AlertsData> {
     teamDenied,
     viewerUnresolved: !viewer.resolved,
     sections: [s1, s2, s3, s5],
+    timeOff: await loadTimeOffApprovals(ids, identity.impersonated),
+  }
+}
+
+/**
+ * ── 6. Time Off Approvals — requests the VIEWER reviews ─────────────────────
+ * PENDING dashboard time_off_requests whose requester has the viewer on their
+ * reviewing team (time_off_reviewers). Scoped to the EFFECTIVE viewer like the
+ * rest of this page, so "View as {reviewer}" previews it — but the Approve /
+ * Deny buttons only work for the real super-user outside View as, and the
+ * server action re-checks the reviewing team itself.
+ *
+ * Informational / action-needed: deliberately NOT counted in the Critical tile
+ * or the nav badge (critical-count.ts), which stay feedback-only.
+ */
+async function loadTimeOffApprovals(
+  viewerIds: string[],
+  impersonated: boolean,
+): Promise<TimeOffApprovals> {
+  const none: TimeOffApprovals = {
+    isReviewer: false,
+    rows: [],
+    truncated: 0,
+    error: null,
+    actBlockedReason: null,
+  }
+  if (viewerIds.length === 0) return none
+
+  const people = await personIdsReviewedBy(viewerIds)
+  if (people === null) {
+    // Most likely the patch has not been run yet — say nothing rather than
+    // putting an error card on every viewer's page.
+    return none
+  }
+  // Never list the viewer's own request, even if a team were mis-assigned.
+  const reviewed = people.filter((p) => !viewerIds.includes(p))
+  if (reviewed.length === 0) return none
+
+  const role = await getEffectiveRole()
+  const actBlockedReason = impersonated
+    ? "Exit “View as” to approve or deny."
+    : role !== "super_user"
+      ? "Approving is super-user only for now."
+      : null
+
+  const { data, error } = await getSupabaseServer()
+    .from("time_off_requests")
+    .select("id, requested_by_name, start_date, end_date, request_type, total_days, description, is_test")
+    .eq("status", "Pending")
+    .eq("origin", "dashboard")
+    .in("requested_by_id", reviewed)
+    .order("start_date", { ascending: true })
+    .limit(SECTION_CAP + 1)
+  if (error) return { ...none, isReviewer: true, error: error.message, actBlockedReason }
+
+  const all = (data ?? []) as {
+    id: string
+    requested_by_name: string | null
+    start_date: string
+    end_date: string
+    request_type: string
+    total_days: number
+    description: string | null
+    is_test: boolean
+  }[]
+  return {
+    isReviewer: true,
+    rows: all.slice(0, SECTION_CAP).map((r) => ({
+      id: r.id,
+      requester: r.requested_by_name,
+      startDate: r.start_date,
+      endDate: r.end_date,
+      requestType: r.request_type,
+      totalDays: Number(r.total_days),
+      description: r.description,
+      isTest: r.is_test === true,
+    })),
+    truncated: Math.max(0, all.length - SECTION_CAP),
+    error: null,
+    actBlockedReason,
   }
 }

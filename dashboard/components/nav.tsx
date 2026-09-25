@@ -17,6 +17,7 @@ import {
   StickyNote,
   Contact2,
   Briefcase,
+  TreePalm,
   Settings,
   Menu,
   Plus,
@@ -184,6 +185,8 @@ const CRM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   // different thing — the CRM record, not the analytics view. Two rows sharing
   // one icon would say they are the same page.
   "/accounts": Briefcase,
+  // TreePalm: time away. CalendarDays / CalendarRange are already taken above.
+  "/time-off-requests": TreePalm,
 }
 
 type CrmItem = CrmNavItem & { icon: React.ComponentType<{ className?: string }> }

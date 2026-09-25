@@ -369,3 +369,42 @@ test("the pivot excludes Remote from the away total", () => {
   assert.equal(p.byCategory.Sick, 1)
   assert.equal(p.totalAway, 3, "Remote is not absence")
 })
+
+// --- dashboard requests: exact per-day rows ---------------------------------
+
+test("a dashboard request counts its own day rows, halves included", () => {
+  const { rows, details } = computeOooSummary([
+    req({
+      ooo_id: "dash",
+      start_date: "2026-03-02",
+      end_date: "2026-03-04",
+      // "half" in the comment must NOT trigger the heuristic — the days rule.
+      description_comments: "half marathon",
+      days: [
+        { date: "2026-03-02", portion: "Full" },
+        { date: "2026-03-03", portion: "AM" },
+        { date: "2026-03-04", portion: "Full" },
+      ],
+    }),
+  ])
+  assert.equal(rows[0].days, 2.5)
+  assert.equal(details[0].days, 2.5)
+  assert.equal(details[0].isHalf, true)
+})
+
+test("a dashboard request ignores stray weekend / holiday day rows", () => {
+  const { rows } = computeOooSummary([
+    req({
+      ooo_id: "dash2",
+      start_date: "2026-07-02",
+      end_date: "2026-07-06",
+      days: [
+        { date: "2026-07-02", portion: "PM" }, // Thu — 0.5
+        { date: "2026-07-03", portion: "Full" }, // observed Independence Day — 0
+        { date: "2026-07-04", portion: "Full" }, // Saturday — 0
+        { date: "2026-07-06", portion: "Full" }, // Mon — 1
+      ],
+    }),
+  ])
+  assert.equal(rows[0].days, 1.5)
+})

@@ -138,6 +138,11 @@ export const ADMIN_ONLY_ROUTES = [
   // salary edits, permission grants — so it is at least as sensitive as the
   // most sensitive thing in it. Never delegable through the Roles matrix.
   "/admin/audit-log",
+  // CRM -> Time Off. Every person's time-off requests (Dynamics history +
+  // dashboard requests) with approve / deny. Super-user only for now.
+  "/time-off-requests",
+  // Admin -> Time Off Reviewers. Decides who may approve whose time off.
+  "/admin/time-off-reviewers",
 ] as const
 
 /** True when `pathname` is `route` or a sub-path of it (segment-aware). */
@@ -206,6 +211,9 @@ export const CRM_NAV_ITEMS: readonly CrmNavItem[] = [
   { href: "/touchpoints", label: "Touches" },
   { href: "/notes", label: "Notes" },
   { href: "/contacts", label: "Contacts" },
+  // /time-off is the Logistics calendar (matrix-grantable); this is the CRM
+  // request list with the approval workflow, on its own super-user-only route.
+  { href: "/time-off-requests", label: "Time Off" },
 ]
 
 /**

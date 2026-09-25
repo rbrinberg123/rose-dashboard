@@ -15,6 +15,7 @@ import {
   Users,
   ShieldCheck,
   UsersRound,
+  TreePalm,
   ScrollText,
 } from "lucide-react"
 
@@ -665,6 +666,12 @@ export default async function AdminHubPage() {
               title="Account Teams"
               description="Who holds each of the six account-team roles per client. Setup only — not yet wired to visibility."
               href="/admin/account-teams"
+            />
+            <InternalCard
+              icon={TreePalm}
+              title="Time Off Reviewers"
+              description="Who approves each person's time off — the Reviewing Team on CRM → Time Off. Live."
+              href="/admin/time-off-reviewers"
             />
             <InternalCard
               icon={ScrollText}

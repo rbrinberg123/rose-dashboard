@@ -12,6 +12,7 @@ import {
   type AlertSeverity,
 } from "./alerts-policy"
 import type { AlertsData, AlertsScopeChip, AlertsSection } from "./load"
+import { TimeOffApprovalsSection } from "./time-off-approvals-section"
 
 /**
  * The Alerts page surface. A SERVER component — the page is read-only with no
@@ -351,6 +352,10 @@ export function AlertsView({ data }: { data: AlertsData }) {
       )}
 
       <div className="flex flex-col gap-4">
+        {/* Action-needed, so it leads — but it is not part of `sections` and
+            never feeds the Critical tile or the nav badge. Renders nothing for
+            a viewer who reviews nobody. */}
+        <TimeOffApprovalsSection data={data.timeOff} />
         {data.sections.map((s) => (
           <SectionCard key={s.key} section={s} />
         ))}

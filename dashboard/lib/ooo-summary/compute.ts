@@ -230,6 +230,13 @@ export type OooRequest = {
   end_date: string | null
   request_type_label: string | null
   description_comments: string | null
+  /**
+   * EXACT days, for an approved DASHBOARD request (time_off_days): each date
+   * with its portion, Full = 1 and AM / PM = 0.5. When present it REPLACES the
+   * range walk and the comment heuristic — the requester said precisely which
+   * days and which halves. Absent for Dynamics rows.
+   */
+  days?: readonly { date: string; portion: string }[] | null
 }
 
 /** One output row: person × year × category. */
@@ -296,6 +303,18 @@ export function businessDaysByYear(start: Ymd, end: Ymd): Map<number, number> {
  * year of its last business day and the full days in whichever year they fall.
  */
 function requestDays(req: OooRequest, start: Ymd, end: Ymd): Map<number, number> {
+  if (req.days) {
+    // Dashboard request: its own day rows. Still business days only, so a stray
+    // weekend row can never inflate a total.
+    const out = new Map<number, number>()
+    for (const d of req.days) {
+      const day = dateKey(d.date)
+      if (!day || !isBusinessDay(day)) continue
+      const year = Number(day.slice(0, 4))
+      out.set(year, (out.get(year) ?? 0) + (d.portion === "Full" ? 1 : 0.5))
+    }
+    return out
+  }
   const days = businessDaysList(start, end)
   const half = isHalfDay(req.description_comments)
   const out = new Map<number, number>()
@@ -374,7 +393,9 @@ export function computeOooSummary(requests: readonly OooRequest[]): OooSummaryRe
         end_date: end,
         category,
         days: requestTotal,
-        isHalf: isHalfDay(req.description_comments),
+        isHalf: req.days
+          ? req.days.some((d) => d.portion !== "Full")
+          : isHalfDay(req.description_comments),
         comment: req.description_comments,
         year: Number(start.slice(0, 4)),
       })

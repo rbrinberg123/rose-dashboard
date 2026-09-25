@@ -31,7 +31,7 @@ test("super_user sees the CRM block, with every item", () => {
   assert.equal(canSeeCrmNav("super_user", []), true)
   assert.deepEqual(
     visibleCrmNavItems("super_user", []).map((i) => i.href),
-    ["/accounts", "/meetings", "/events", "/tasks", "/touchpoints", "/notes", "/contacts"],
+    ["/accounts", "/meetings", "/events", "/tasks", "/touchpoints", "/notes", "/contacts", "/time-off-requests"],
   )
 })
 

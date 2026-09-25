@@ -56,6 +56,8 @@ export type CrmEntity =
   | "note"
   | "contact"
   | "client"
+  // Not a Dynamics mirror: a dashboard-owned time-off REQUEST (CRM → Time Off).
+  | "time_off"
 
 /** Singular display name per entity. Exported so the nav quick-add menu in
  *  nav.tsx renders "New Meeting" from the same source as the page buttons. */
@@ -67,6 +69,7 @@ export const CRM_ENTITY_LABELS: Record<CrmEntity, string> = {
   note: "Note",
   contact: "Contact",
   client: "Client",
+  time_off: "Time Off",
 }
 
 /** Menu order — matches the CRM nav rail top-to-bottom. */
@@ -78,6 +81,7 @@ export const QUICK_ADD_ORDER: readonly CrmEntity[] = [
   "touch",
   "note",
   "contact",
+  "time_off",
 ]
 
 /** Each entity's CRM page — where its live create form lives. */
@@ -89,6 +93,8 @@ export const CRM_ENTITY_ROUTES: Record<CrmEntity, string> = {
   note: "/notes",
   contact: "/contacts",
   client: "/accounts",
+  // /time-off is the Logistics calendar; the CRM request list is its own route.
+  time_off: "/time-off-requests",
 }
 
 /**
