@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk"
 import { getSupabaseServer } from "@/lib/supabase"
 import { requireSuperUser } from "@/lib/api-auth"
 import { hasCronBearer } from "@/lib/cron-auth"
+import { AI_BATCH_CONFIG, runThrottled, withBackoff } from "@/lib/ai-batch"
 import {
   ClientSummaryError,
   generateAndCacheClientSummary,
@@ -70,12 +71,10 @@ export const dynamic = "force-dynamic"
 // the cap, the unfinished clients still look stale and are picked up next night.
 export const maxDuration = 300
 
-// Pace under a low Anthropic tier (e.g. tier-1 ~50 req/min). 2 calls at a time
-// plus a short gap between chunks holds us around ~27 req/min — well under the
-// limit — instead of the old ~105-in-60s burst. It runs at 03:00 ET, so slow is
-// fine. Raise CONCURRENCY / lower CHUNK_DELAY_MS only if you move to a higher tier.
-const CONCURRENCY = 2
-const CHUNK_DELAY_MS = 2000
+// Pacing, retry and backoff are SHARED with Client Health — see lib/ai-batch.ts
+// (AI_BATCH_CONFIG). Change the limits there, not here.
+const CONCURRENCY = AI_BATCH_CONFIG.MAX_CONCURRENCY
+const CHUNK_DELAY_MS = AI_BATCH_CONFIG.DELAY_MS_BETWEEN_CHUNKS
 
 // Regenerate an unchanged client only once its summary passes this age (a
 // freshness floor); clients whose data changed are refreshed regardless of age.
@@ -85,46 +84,21 @@ const STALENESS_THRESHOLD_DAYS = 7
 // Supabase count queries, not paid Anthropic calls, so they need no pacing.
 const STALENESS_CHECK_CONCURRENCY = 10
 
-// Per-client retry for transient upstream failures. Rate-limited (429) and
-// overloaded (529) are the ones that actually happen; a 5xx is worth one look
-// too. Anything else (a missing client, a cache-write failure) is a real
-// failure and is reported immediately rather than burning retries.
-const RETRYABLE_UPSTREAM = new Set([408, 409, 429, 500, 502, 503, 529])
-const BACKOFF_MS = [5_000, 15_000, 45_000]
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
 /**
- * Generate one client's summary, backing off exponentially on a transient
- * upstream error. Safe to retry: the Supabase write happens only AFTER a
- * successful generation, so a retried client is simply generated again — it
- * never half-writes.
+ * Generate one client's summary through the SHARED backoff (lib/ai-batch.ts):
+ * transient upstream failures (429/529/5xx) retry with jittered exponential
+ * backoff; anything else is reported immediately. Safe to retry: the Supabase
+ * write happens only AFTER a successful generation.
  */
-async function generateWithBackoff(
+function generateWithBackoff(
   sb: ReturnType<typeof getSupabaseServer>,
   anthropic: Anthropic,
   accountId: string,
 ) {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await generateAndCacheClientSummary(sb, anthropic, accountId)
-    } catch (err) {
-      const upstream =
-        err instanceof ClientSummaryError ? err.upstreamStatus : undefined
-      if (
-        attempt >= BACKOFF_MS.length ||
-        upstream === undefined ||
-        !RETRYABLE_UPSTREAM.has(upstream)
-      ) {
-        throw err
-      }
-      const wait = BACKOFF_MS[attempt]
-      console.warn(
-        `[refresh-all] ${accountId}: upstream ${upstream} — backing off ${wait}ms (retry ${attempt + 1}/${BACKOFF_MS.length})`,
-      )
-      await sleep(wait)
-    }
-  }
+  return withBackoff(() => generateAndCacheClientSummary(sb, anthropic, accountId), {
+    label: `refresh-all ${accountId}`,
+    upstreamStatusOf: (err) => (err instanceof ClientSummaryError ? err.upstreamStatus : undefined),
+  })
 }
 
 /**
@@ -281,36 +255,27 @@ async function handle(request: NextRequest): Promise<NextResponse> {
     )
   }
 
-  for (let i = 0; i < accountIds.length; i += CONCURRENCY) {
-    const chunk = accountIds.slice(i, i + CONCURRENCY)
-    const results = await Promise.allSettled(
-      chunk.map((id) => generateWithBackoff(sb, anthropic, id)),
-    )
-    results.forEach((res, j) => {
-      if (res.status === "fulfilled") {
-        succeeded += 1
-      } else {
-        const reason = res.reason
-        const message =
-          reason instanceof ClientSummaryError || reason instanceof Error
-            ? reason.message
-            : String(reason)
-        failures.push({ account_id: chunk[j], error: message })
-        console.error(`[refresh-all] ${chunk[j]} failed: ${message}`)
+  let done = 0
+  await runThrottled(accountIds, (id) => generateWithBackoff(sb, anthropic, id), {
+    concurrency: CONCURRENCY,
+    delayMs: CHUNK_DELAY_MS,
+    onGroupDone: (results) => {
+      for (const { id, result } of results) {
+        if (result.status === "fulfilled") {
+          succeeded += 1
+        } else {
+          const reason = result.reason
+          const message = reason instanceof Error ? reason.message : String(reason)
+          failures.push({ account_id: id, error: message })
+          console.error(`[refresh-all] ${id} failed: ${message}`)
+        }
       }
-    })
-    // Progress, so a long run is observable in the server log rather than
-    // silent until it returns.
-    const done = Math.min(i + CONCURRENCY, total)
-    console.log(
-      `[refresh-all] ${done}/${total} done — ${succeeded} ok, ${failures.length} failed`,
-    )
-    // Space the chunks out to stay under the per-minute rate limit. Skip the
-    // wait after the final chunk.
-    if (i + CONCURRENCY < accountIds.length) {
-      await sleep(CHUNK_DELAY_MS)
-    }
-  }
+      // Progress, so a long run is observable in the server log rather than
+      // silent until it returns.
+      done += results.length
+      console.log(`[refresh-all] ${done}/${total} done — ${succeeded} ok, ${failures.length} failed`)
+    },
+  })
 
   const elapsedMs = Date.now() - startedAt
   // What is still waiting AFTER this invocation: whatever the filter matched

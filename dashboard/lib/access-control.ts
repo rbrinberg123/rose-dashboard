@@ -148,6 +148,9 @@ export const ADMIN_ONLY_ROUTES = [
   "/admin/contracts",
   // Admin -> Time Off Reviewers. Decides who may approve whose time off.
   "/admin/time-off-reviewers",
+  // Clients -> Client Health. AI retention-risk ratings + notes for every active
+  // client, unscoped, built from inputs that include the retainer.
+  "/client-health",
 ] as const
 
 /** True when `pathname` is `route` or a sub-path of it (segment-aware). */

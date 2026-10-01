@@ -96,6 +96,9 @@ const sections: NavSection[] = [
       // the sectional nav strip, which reads the same `sections` array.
       { href: "/clients/to-do", label: "Outreach Status" },
       { href: "/clients/alerts", label: "Alerts" },
+      // Super-user only (ADMIN_ONLY_ROUTES): canAccessRoute hides it from every
+      // other role, matching the proxy.
+      { href: "/client-health", label: "Client Health" },
     ],
   },
   {

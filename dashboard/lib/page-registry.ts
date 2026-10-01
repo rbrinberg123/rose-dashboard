@@ -63,6 +63,9 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   // the page — never whose alerts they see. Segment-aware matching means the
   // /clients/to-do grant does NOT cover it; it needs its own row.
   { route: "/clients/alerts", label: "Alerts", section: "Clients" },
+  // Super-user-only (ADMIN_ONLY_ROUTES) — listed so the matrix knows the route;
+  // its checkboxes have no effect.
+  { route: "/client-health", label: "Client Health (super-user only)", section: "Clients" },
 
   // ---- Institutions ----
   { route: "/institutions", label: "Institution Summary", section: "Institutions" },
