@@ -4,11 +4,12 @@
 
 **Clients → Client Health** (`/client-health`) gives a retention-risk read on every **active** client, one row each:
 
-| Client | Note | Rating |
-|--------|------|--------|
+| Rating | Client | Note |
+|--------|--------|------|
 
 - **Rating** is one of **1 · Healthy** (green), **2 · Monitor** (amber), **3 · High risk** (red), or **Management / IR Change** (navy). The badge always shows the words, not just a colour.
 - **Note** is a short, management-level explanation, usually 1–3 sentences.
+- **Sorting:** click any header to sort, and click again to reverse it; an arrow marks the active column. The page opens sorted by **Rating, most risk first** (3 → Management / IR Change → 2 → 1), so the accounts needing attention are on top. Client and Note sort alphabetically. Sorting always uses the rating and note you see, so an override counts. Unrated clients and empty notes always sort to the bottom.
 - Both come from an AI model that reads the client's data and **all of its dated client notes**, most recent first, and applies Rose & Company's client-health framework. With no meaningful sign of risk, the rating is **1**.
 - Ratings refresh **automatically every Monday morning**. **Refresh** in the header re-rates everyone right away, and the ↻ icon on a row re-rates just that client. **Last updated** shows when the newest AI rating was made.
 - **Edit** (pencil) lets you override the rating and/or the note. An override is marked **Overridden** (hover to see who and when) and **is kept through every regeneration**. **Revert to AI** clears it.

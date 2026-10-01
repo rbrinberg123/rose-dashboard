@@ -22,9 +22,10 @@ export async function exportClientHealth(rows: HealthExportRow[]): Promise<void>
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet("Client Health")
   ws.columns = [
+    // Same order as the on-screen table: Rating | Client | Note.
+    { header: "Rating", key: "rating", width: 24 },
     { header: "Client", key: "client", width: 36 },
     { header: "Note", key: "note", width: 90 },
-    { header: "Rating", key: "rating", width: 24 },
     { header: "Overridden", key: "overridden", width: 12 },
     { header: "AI Generated", key: "generated", width: 18, style: { numFmt: "mmm d, yyyy" } },
   ]

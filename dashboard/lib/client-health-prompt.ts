@@ -25,6 +25,22 @@ export const HEALTH_RATING_LABEL: Record<HealthRating, string> = {
 }
 
 /**
+ * Risk severity for SORTING (higher = more attention): 3 > Management / IR
+ * Change > 2 > 1. Not the raw string order. Unrated / unknown is null, which
+ * the table always sorts last.
+ */
+const RATING_SEVERITY: Record<HealthRating, number> = {
+  "3": 4,
+  "Management / IR Change": 3,
+  "2": 2,
+  "1": 1,
+}
+
+export function ratingSeverity(v: string | null | undefined): number | null {
+  return isHealthRating(v) ? RATING_SEVERITY[v] : null
+}
+
+/**
  * Marker left in CLIENT_HEALTH_FRAMEWORK until the real framework is pasted in.
  * While it is present the batch route refuses to run (see isFrameworkConfigured)
  * so no paid call is ever made against a placeholder prompt.

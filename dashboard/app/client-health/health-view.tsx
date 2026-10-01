@@ -15,6 +15,7 @@ import { AlertTriangle, Download, Loader2, Pencil, RefreshCw, Search } from "luc
 import { toast } from "sonner"
 
 import { ListTitleCard } from "@/components/page-masthead"
+import { SortHeader } from "@/components/sort-header"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -40,6 +41,7 @@ import {
   HEALTH_RATINGS,
   HEALTH_RATING_LABEL,
   isHealthRating,
+  ratingSeverity,
   type HealthRating,
 } from "@/lib/client-health-prompt"
 import { exportClientHealth } from "@/lib/client-health-excel"
@@ -88,6 +90,7 @@ function RatingBadge({ rating }: { rating: string | null }) {
 }
 
 const POLL_MS = 3000
+type SortKey = "rating" | "client" | "note"
 type Phase = "idle" | "running" | "done" | "error"
 
 /** Shape of GET /api/client-health/refresh?action=status. */
@@ -113,6 +116,8 @@ export function HealthView({
   const router = useRouter()
   const [query, setQuery] = React.useState("")
   const [ratingFilter, setRatingFilter] = React.useState<string>("all")
+  // Default: most risk first, so the accounts needing attention are on top.
+  const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "rating", dir: "desc" })
   const [editing, setEditing] = React.useState<HealthRow | null>(null)
   const [regenBusy, setRegenBusy] = React.useState<string | null>(null)
 
@@ -186,6 +191,35 @@ export function HealthView({
     if (ratingFilter === "overridden") return isOverridden(r)
     return er === ratingFilter
   })
+
+  // Sort by the EFFECTIVE values. Rating sorts by risk severity (3 > Mgmt / IR
+  // Change > 2 > 1), "desc" = most risk first. Empty values (unrated, no note)
+  // always sort last, in either direction. Ties fall back to client name.
+  const byName = (a: HealthRow, b: HealthRow) => a.client_name.localeCompare(b.client_name)
+  shown.sort((a, b) => {
+    const sign = sort.dir === "asc" ? 1 : -1
+    if (sort.key === "client") return sign * byName(a, b)
+    if (sort.key === "note") {
+      const na = effNote(a)
+      const nb = effNote(b)
+      if (!na || !nb) return na ? -1 : nb ? 1 : byName(a, b)
+      return sign * na.localeCompare(nb) || byName(a, b)
+    }
+    const sa = ratingSeverity(effRating(a))
+    const sb = ratingSeverity(effRating(b))
+    if (sa === null || sb === null) return sa !== null ? -1 : sb !== null ? 1 : byName(a, b)
+    return sign * (sa - sb) || byName(a, b)
+  })
+
+  function toggleSort(key: SortKey) {
+    setSort((s) =>
+      s.key === key
+        ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
+        : // Rating starts most-risk-first; text columns start A→Z.
+          { key, dir: key === "rating" ? "desc" : "asc" },
+    )
+  }
+  const sortedAs = (key: SortKey) => (sort.key === key ? sort.dir : false)
 
   async function refreshAll() {
     setRunError(null)
@@ -335,9 +369,20 @@ export function HealthView({
         <table className="w-full text-[13px]">
           <thead className="border-b bg-muted/40 text-left text-[12px] text-muted-foreground">
             <tr>
-              <th className="w-[220px] px-4 py-2 font-medium">Client</th>
-              <th className="px-4 py-2 font-medium">Note</th>
-              <th className="w-[200px] px-4 py-2 font-medium">Rating</th>
+              <th className="w-[200px] px-4 py-2 font-medium">
+                <SortHeader
+                  label="Rating"
+                  isSorted={sortedAs("rating")}
+                  onClick={() => toggleSort("rating")}
+                  title="Sort by risk: 3 → Management / IR Change → 2 → 1"
+                />
+              </th>
+              <th className="w-[220px] px-4 py-2 font-medium">
+                <SortHeader label="Client" isSorted={sortedAs("client")} onClick={() => toggleSort("client")} />
+              </th>
+              <th className="px-4 py-2 font-medium">
+                <SortHeader label="Note" isSorted={sortedAs("note")} onClick={() => toggleSort("note")} />
+              </th>
               <th className="w-[80px] px-2 py-2" />
             </tr>
           </thead>
@@ -346,19 +391,6 @@ export function HealthView({
               const note = effNote(r)
               return (
                 <tr key={r.account_id} className="align-top hover:bg-muted/30">
-                  <td className="px-4 py-2.5 font-medium">
-                    <Link href={`/client-detail?account_id=${r.account_id}`} className="hover:underline">
-                      {r.client_name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {note ? <span>{note}</span> : <span className="text-muted-foreground">—</span>}
-                    {r.ai_error && (
-                      <div className="mt-1 flex items-center gap-1 text-[11px] text-[#C53030]" title={r.ai_error}>
-                        <AlertTriangle className="size-3" /> Last generation failed {fmt(r.ai_error_at)}
-                      </div>
-                    )}
-                  </td>
                   <td className="px-4 py-2.5">
                     <div className="flex flex-col items-start gap-1">
                       <RatingBadge rating={effRating(r)} />
@@ -371,6 +403,19 @@ export function HealthView({
                         </span>
                       )}
                     </div>
+                  </td>
+                  <td className="px-4 py-2.5 font-medium">
+                    <Link href={`/client-detail?account_id=${r.account_id}`} className="hover:underline">
+                      {r.client_name}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {note ? <span>{note}</span> : <span className="text-muted-foreground">—</span>}
+                    {r.ai_error && (
+                      <div className="mt-1 flex items-center gap-1 text-[11px] text-[#C53030]" title={r.ai_error}>
+                        <AlertTriangle className="size-3" /> Last generation failed {fmt(r.ai_error_at)}
+                      </div>
+                    )}
                   </td>
                   <td className="px-2 py-2.5">
                     <div className="flex items-center justify-end gap-1">

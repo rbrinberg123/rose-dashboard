@@ -9,6 +9,7 @@ import {
   isFrameworkConfigured,
   isHealthRating,
   parseHealthOutput,
+  ratingSeverity,
 } from "./client-health-prompt.ts"
 
 test("the four allowed ratings, exactly", () => {
@@ -49,4 +50,13 @@ test("the real framework is in place (route guard is open)", () => {
   assert.equal(isFrameworkConfigured(), true)
   assert.ok(CLIENT_HEALTH_FRAMEWORK.startsWith("You are conducting a client health and retention-risk review for Rose & Company"))
   assert.ok(CLIENT_HEALTH_FRAMEWORK.endsWith("Do not include any text outside the JSON object."))
+})
+
+test("risk severity orders 3 > Management / IR Change > 2 > 1; unrated is null", () => {
+  const sorted = ["1", "Management / IR Change", "2", "3"].sort(
+    (a, b) => (ratingSeverity(b) ?? 0) - (ratingSeverity(a) ?? 0),
+  )
+  assert.deepEqual(sorted, ["3", "Management / IR Change", "2", "1"])
+  assert.equal(ratingSeverity(null), null)
+  assert.equal(ratingSeverity("4"), null)
 })
