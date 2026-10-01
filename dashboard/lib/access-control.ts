@@ -141,6 +141,11 @@ export const ADMIN_ONLY_ROUTES = [
   // CRM -> Time Off. Every person's time-off requests (Dynamics history +
   // dashboard requests) with approve / deny. Super-user only for now.
   "/time-off-requests",
+  // Admin -> Contract Management. Every client contract and retainer, read the
+  // unscoped way from v_admin_contracts_all, with create/edit/delete. NOT
+  // /contract-management, the matrix-grantable reporting page. Admin-section
+  // (reached from the Admin hub), not a CRM nav item.
+  "/admin/contracts",
   // Admin -> Time Off Reviewers. Decides who may approve whose time off.
   "/admin/time-off-reviewers",
 ] as const

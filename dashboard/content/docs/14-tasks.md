@@ -1,6 +1,6 @@
 # 14 — Tasks (all CRM)
 
-> **Status: built, SQL PENDING.** The page is at `/tasks`, reached from the **CRM** block at the bottom of the main nav rail (super-user-only).
+> **Status: built, SQL PENDING.** The page is at `/tasks`, reached from the **CRM** block at the bottom of the main nav rail, inside its collapsible **Actions** submenu (super-user-only).
 >
 > **`sql/patches/2026-09-11_admin_tasks.sql` has not been run yet.** Until it is, the page loads and gates correctly but shows "Could not load saved views" with the patch filename — it fails soft, it does not crash. The patch creates `v_admin_tasks_all`, `v_admin_tasks_filter_options`, `task_saved_views` and six indexes.
 >

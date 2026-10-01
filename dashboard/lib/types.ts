@@ -1680,6 +1680,31 @@ export type AdminNoteRow = {
 }
 
 /**
+ * One row of `v_admin_contracts_all` — Admin → Contract Management (/admin/contracts).
+ * Only the columns the active view selects are present; see lib/contracts/spec.ts.
+ * The drawer's full shape is ContractRecord (lib/contracts/record.ts).
+ */
+export type AdminContractRow = {
+  contract_id: string
+  account_id: string | null
+  client_name: string | null
+  client_ticker: string | null
+  contract_name: string | null
+  scope: string | null
+  contract_status: string | null
+  start_date: string | null
+  term_length_months: number | null
+  term_end: string | null
+  notice_date: string | null
+  auto_renew: boolean | null
+  renewal_date: string | null
+  quarterly_retainer: number | null
+  currency: string | null
+  origin?: string | null
+  is_test?: boolean | null
+}
+
+/**
  * One row of `v_admin_contacts_all` — the CRM → Contacts list (sixth CRM table).
  *
  * Mirrors the Dynamics `contact` entity: the PEOPLE at client companies. This is

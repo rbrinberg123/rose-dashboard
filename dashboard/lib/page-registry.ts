@@ -118,6 +118,8 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   { route: "/meetings", label: "Meetings — all CRM (hidden, super-user only)", section: "Admin" },
   // Same tier (ADMIN_ONLY_ROUTES): CRM -> Time Off and its reviewer mapping.
   { route: "/time-off-requests", label: "Time Off requests — CRM (super-user only)", section: "Admin" },
+  // Same tier: Admin -> Contract Management (not the /contract-management report).
+  { route: "/admin/contracts", label: "Contract Management — Admin (super-user only)", section: "Admin" },
   { route: "/admin/time-off-reviewers", label: "Time Off Reviewers (super-user only)", section: "Admin" },
 ] as const
 

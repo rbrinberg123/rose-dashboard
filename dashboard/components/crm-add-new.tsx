@@ -56,6 +56,7 @@ export type CrmEntity =
   | "note"
   | "contact"
   | "client"
+  | "contract"
   // Not a Dynamics mirror: a dashboard-owned time-off REQUEST (CRM → Time Off).
   | "time_off"
 
@@ -69,6 +70,7 @@ export const CRM_ENTITY_LABELS: Record<CrmEntity, string> = {
   note: "Note",
   contact: "Contact",
   client: "Client",
+  contract: "Contract",
   time_off: "Time Off",
 }
 
@@ -93,6 +95,9 @@ export const CRM_ENTITY_ROUTES: Record<CrmEntity, string> = {
   note: "/notes",
   contact: "/contacts",
   client: "/accounts",
+  // Admin → Contract Management. Reuses the "Add New Contract" button but is
+  // deliberately NOT in QUICK_ADD_ORDER — it is not part of the CRM "+" menu.
+  contract: "/admin/contracts",
   // /time-off is the Logistics calendar; the CRM request list is its own route.
   time_off: "/time-off-requests",
 }

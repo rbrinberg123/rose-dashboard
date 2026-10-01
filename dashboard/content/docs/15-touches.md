@@ -1,6 +1,6 @@
 # 15 — Touches (all CRM)
 
-> **Status: built, SQL PENDING.** The page is at `/touchpoints`, reached from the **CRM** block at the bottom of the main nav rail (super-user-only).
+> **Status: built, SQL PENDING.** The page is at `/touchpoints`, reached from the **CRM** block at the bottom of the main nav rail, inside its collapsible **Actions** submenu (super-user-only).
 >
 > **`sql/patches/2026-09-15_admin_touchpoints.sql` has not been run yet.** Until it is, the page loads and gates correctly but shows "Could not load saved views" with the patch filename — it fails soft, it does not crash. The patch creates `v_admin_touchpoints_all`, `v_admin_touchpoints_filter_options`, `touchpoint_saved_views` and six indexes. The same objects are also in the base files (`sql/01_mirror_tables.sql`, `sql/02_rose_owned_tables.sql`, `sql/03_views.sql`).
 >

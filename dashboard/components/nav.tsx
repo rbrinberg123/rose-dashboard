@@ -24,6 +24,9 @@ import {
   LogOut,
   ChevronsLeft,
   ChevronsRight,
+  ChevronDown,
+  ChevronRight,
+  Layers,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -197,6 +200,36 @@ function crmItemsFor(role: ViewAsRole | null, allowedRoutes: readonly string[]):
     ...item,
     icon: CRM_ICONS[item.href] ?? Database,
   }))
+}
+
+/**
+ * The "Actions" submenu — Tasks, Touches and Notes, drawn as ONE collapsible
+ * group to save vertical space in the CRM block. DRAWING ONLY: the items, their
+ * order and their access gate still come from CRM_NAV_ITEMS / visibleCrmNavItems
+ * in lib/access-control.ts, untouched. The group is placed where its first
+ * visible child would have been, holds only children the viewer can reach, and
+ * vanishes entirely when none survive.
+ */
+const CRM_ACTIONS_LABEL = "Actions"
+const CRM_ACTIONS_HREFS: readonly string[] = ["/tasks", "/touchpoints", "/notes"]
+
+type CrmEntry =
+  | { kind: "item"; item: CrmItem }
+  | { kind: "group"; items: CrmItem[] }
+
+function groupCrmItems(crm: CrmItem[]): CrmEntry[] {
+  const children = CRM_ACTIONS_HREFS.map((href) =>
+    crm.find((item) => item.href === href),
+  ).filter((item): item is CrmItem => item !== undefined)
+  const entries: CrmEntry[] = []
+  for (const item of crm) {
+    if (!CRM_ACTIONS_HREFS.includes(item.href)) {
+      entries.push({ kind: "item", item })
+    } else if (item === children[0]) {
+      entries.push({ kind: "group", items: children })
+    }
+  }
+  return entries
 }
 
 /**
@@ -521,14 +554,23 @@ function NavContents({
       {crm.length > 0 ? (
         <div className="mt-auto pt-2">
           <CrmDivider />
-          {crm.map((item) => (
-            <CrmNavRow
-              key={item.href}
-              item={item}
-              active={isActive(pathname, item.href)}
-              onNavigate={onNavigate}
-            />
-          ))}
+          {groupCrmItems(crm).map((entry) =>
+            entry.kind === "group" ? (
+              <CrmNavGroup
+                key={CRM_ACTIONS_LABEL}
+                items={entry.items}
+                current={pathname}
+                onNavigate={onNavigate}
+              />
+            ) : (
+              <CrmNavRow
+                key={entry.item.href}
+                item={entry.item}
+                active={isActive(pathname, entry.item.href)}
+                onNavigate={onNavigate}
+              />
+            ),
+          )}
         </div>
       ) : null}
     </>
@@ -576,14 +618,17 @@ function CrmNavRow({
   item,
   active,
   onNavigate,
+  nested = false,
 }: {
   item: CrmItem
   active: boolean
   onNavigate?: () => void
+  /** Inside the "Actions" group: indented under its header. */
+  nested?: boolean
 }) {
   const { href, label, icon: Icon } = item
   return (
-    <div className="px-3 py-[5px]">
+    <div className={nested ? "py-[5px] pl-7 pr-3" : "px-3 py-[5px]"}>
       <Link
         href={href}
         onClick={onNavigate}
@@ -616,6 +661,88 @@ function CrmNavRow({
         <span>{label}</span>
       </Link>
     </div>
+  )
+}
+
+/**
+ * The "Actions" group in the EXPANDED sidebar (and the mobile sheet): a header
+ * drawn exactly like a CrmNavRow — but a button, not a link — that shows and
+ * hides its indented children. No other nav group remembers an open/closed
+ * state, so this one doesn't either: it starts open, and re-opens itself
+ * whenever the current page is one of its children, so the active link can
+ * never be hidden. While closed over an active child, the header takes the
+ * active wash so the current page still shows.
+ */
+function CrmNavGroup({
+  items,
+  current,
+  onNavigate,
+}: {
+  items: CrmItem[]
+  current: string
+  onNavigate?: () => void
+}) {
+  const childActive = items.some((item) => isActive(current, item.href))
+  const [open, setOpen] = React.useState(true)
+  const listId = React.useId()
+
+  // Landing on a child route re-opens the group. Adjusted during render (React's
+  // "reset state when a prop changes" pattern) rather than in an effect.
+  const [seenPath, setSeenPath] = React.useState(current)
+  if (seenPath !== current) {
+    setSeenPath(current)
+    if (childActive) setOpen(true)
+  }
+
+  const headerActive = childActive && !open
+  const Chevron = open ? ChevronDown : ChevronRight
+
+  return (
+    <>
+      <div className="px-3 py-[5px]">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-controls={listId}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium uppercase tracking-wider transition-colors",
+            !headerActive && "hover:bg-[var(--crm-hover)]",
+          )}
+          style={{
+            ...({ "--crm-hover": CRM_TEAL_HOVER_TINT } as React.CSSProperties),
+            color: CRM_TEAL,
+            backgroundColor: headerActive ? CRM_TEAL_TINT : undefined,
+          }}
+        >
+          <span
+            aria-hidden="true"
+            className="flex size-[26px] shrink-0 items-center justify-center rounded-md"
+            style={{
+              border: `1.5px solid ${CRM_TEAL}`,
+              opacity: childActive ? 1 : 0.85,
+            }}
+          >
+            <Layers className="size-[15px]" />
+          </span>
+          <span>{CRM_ACTIONS_LABEL}</span>
+          <Chevron className="ml-auto size-4 shrink-0" aria-hidden="true" />
+        </button>
+      </div>
+      {open ? (
+        <div id={listId}>
+          {items.map((item) => (
+            <CrmNavRow
+              key={item.href}
+              item={item}
+              active={isActive(current, item.href)}
+              onNavigate={onNavigate}
+              nested
+            />
+          ))}
+        </div>
+      ) : null}
+    </>
   )
 }
 
@@ -1015,13 +1142,21 @@ function RailContents({
       {crm.length > 0 ? (
         <div className="mt-auto pt-2">
           <RailCrmDivider />
-          {crm.map((item) => (
-            <RailCrmIconLink
-              key={item.href}
-              item={item}
-              active={isActive(pathname, item.href)}
-            />
-          ))}
+          {groupCrmItems(crm).map((entry) =>
+            entry.kind === "group" ? (
+              <RailCrmGroup
+                key={CRM_ACTIONS_LABEL}
+                items={entry.items}
+                current={pathname}
+              />
+            ) : (
+              <RailCrmIconLink
+                key={entry.item.href}
+                item={entry.item}
+                active={isActive(pathname, entry.item.href)}
+              />
+            ),
+          )}
         </div>
       ) : null}
     </>
@@ -1116,6 +1251,92 @@ function RailCrmIconLink({ item, active }: { item: CrmItem; active: boolean }) {
           className="min-w-0 whitespace-nowrap px-3 py-1.5 text-sm text-[#1E2858]"
         >
           {label}
+        </FlyoutPanel>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * The "Actions" group in the COLLAPSED rail. The rail has no room to expand a
+ * list in place, so it does what every other grouped rail row does (RailSection):
+ * one tile whose hover/focus fly-out lists the children. The tile is a button,
+ * not a link — clicking it toggles the fly-out rather than navigating. It is
+ * drawn like a RailCrmIconLink and takes the active wash when the current page
+ * is any of its children.
+ */
+function RailCrmGroup({ items, current }: { items: CrmItem[]; current: string }) {
+  const active = items.some((item) => isActive(current, item.href))
+  const { open, setOpen, triggerProps, panelProps } = useFlyout("bottom")
+  const panelId = React.useId()
+
+  return (
+    <div className="flex justify-center py-[3px]" {...triggerProps}>
+      <button
+        type="button"
+        aria-label={CRM_ACTIONS_LABEL}
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex size-10 flex-col items-center justify-center gap-[1px] rounded-md transition-colors",
+          !active && "hover:bg-[var(--crm-hover)]",
+        )}
+        style={{
+          ...({ "--crm-hover": CRM_TEAL_HOVER_TINT } as React.CSSProperties),
+          border: `1.5px solid ${CRM_TEAL}`,
+          backgroundColor: active ? CRM_TEAL_TINT : undefined,
+          color: CRM_TEAL,
+          opacity: active ? 1 : 0.85,
+        }}
+      >
+        <Layers className="size-[14px]" />
+        <span
+          aria-hidden="true"
+          className="text-[6px] font-semibold uppercase leading-none tracking-[0.04em]"
+        >
+          {CRM_ACTIONS_LABEL}
+        </span>
+      </button>
+      {open ? (
+        <FlyoutPanel id={panelId} panelProps={panelProps}>
+          <div className="px-2 pb-1 pt-0.5 text-[12px] font-medium uppercase tracking-wider text-[#1E2858]">
+            {CRM_ACTIONS_LABEL}
+          </div>
+          <div
+            aria-hidden="true"
+            className="mx-2 mb-1.5 h-0.5 rounded-full"
+            style={{ backgroundImage: RAIL_ACCENT_UNDERLINE }}
+          />
+          <ul className="space-y-0.5">
+            {items.map(({ href, label, icon: Icon }) => {
+              const itemActive = isActive(current, href)
+              return (
+                <li key={href}>
+                  <Link
+                    href={href}
+                    onClick={() => setOpen(false)}
+                    aria-current={itemActive ? "page" : undefined}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md py-1 pl-3 pr-2 text-sm transition-colors",
+                      itemActive
+                        ? "font-medium text-[#1E2858]"
+                        : "text-[#5B6472] hover:bg-[var(--rail-hover)] hover:text-[#1E2858]",
+                    )}
+                    style={{
+                      ...({ "--rail-hover": CRM_TEAL_HOVER_TINT } as React.CSSProperties),
+                      ...(itemActive ? { backgroundColor: CRM_TEAL_TINT } : null),
+                    }}
+                  >
+                    <span aria-hidden="true" className="flex shrink-0" style={{ color: CRM_TEAL }}>
+                      <Icon className="size-3.5" />
+                    </span>
+                    {label}
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
         </FlyoutPanel>
       ) : null}
     </div>

@@ -496,7 +496,7 @@ The three system-plumbing pages — **Sync**, **Reconciliation**, **Database** �
 | Section | Contents |
 |---------|----------|
 | **Live health** | Six status tiles. Three link out: **Sync** → `/admin/sync` · **Reconciliation** → `/admin/reconciliation` · **Database** → `/admin/database`. Three are readouts with no link: **Sync errors**, **Scheduled emails**, **Build**. |
-| **In-app tools** | People-and-content management only: **Users** (`/admin/users`) · **Roles** (`/admin/roles`) · **Account Teams** (`/admin/account-teams`) · **Audit Log** (`/admin/audit-log`) · **Documentation** (`/admin/docs`). It does **not** list Sync, Reconciliation or Database. |
+| **In-app tools** | People-and-content management only: **Users** (`/admin/users`) · **Roles** (`/admin/roles`) · **Account Teams** (`/admin/account-teams`) · **Contract Management** (`/admin/contracts` — every client contract, Dynamics read-only plus dashboard-created create / edit / delete; super-user only via `ADMIN_ONLY_ROUTES`; see [24 — Contract Management](24-contracts.md)) · **Audit Log** (`/admin/audit-log`) · **Documentation** (`/admin/docs`). It does **not** list Sync, Reconciliation or Database. |
 | **Maintenance** | On-demand jobs (Refresh AI summaries). Click-to-run; the crons are unaffected. |
 | **Hidden Pages** | The `HIDDEN_PAGES` array — see below. |
 | **External dashboards** | Vercel, Supabase, Dynamics, GitHub, Status. Off-site links only. |

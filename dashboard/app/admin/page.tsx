@@ -17,6 +17,7 @@ import {
   UsersRound,
   TreePalm,
   ScrollText,
+  FileSignature,
 } from "lucide-react"
 
 import { PageShell } from "@/components/page-shell"
@@ -672,6 +673,12 @@ export default async function AdminHubPage() {
               title="Time Off Reviewers"
               description="Who approves each person's time off — the Reviewing Team on CRM → Time Off. Live."
               href="/admin/time-off-reviewers"
+            />
+            <InternalCard
+              icon={FileSignature}
+              title="Contract Management"
+              description="Every client contract — Dynamics (read-only) plus contracts created here, with term, notice, renewal and retainer. Live."
+              href="/admin/contracts"
             />
             <InternalCard
               icon={ScrollText}

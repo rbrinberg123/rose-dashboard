@@ -196,6 +196,11 @@ The role is the **effective** one, so a super-user in **View as** loses the bloc
 
 To add another CRM entry later, add a `{ href, label }` line to `CRM_NAV_ITEMS` and an icon to `CRM_ICONS` in `components/nav.tsx` — but only for a page that is itself super-user-only; the test asserts that.
 
+**The "Actions" submenu (2026-09-30).** **Tasks**, **Touches** and **Notes** are no longer separate top-level CRM entries; they sit inside one collapsible **Actions** group, in that order, to save vertical space. This is drawing only — `CRM_NAV_ITEMS`, `visibleCrmNavItems` and every route and permission are unchanged, and the group holds only the children the viewer can reach (it vanishes if none survive). Which items belong to the group is `CRM_ACTIONS_HREFS` in `components/nav.tsx`.
+
+- **Expanded sidebar / mobile sheet:** the Actions header is a button, not a link. Clicking it shows or hides the indented children, and the chevron shows which state it's in. It starts open and doesn't remember its state, because no other nav group does. It re-opens automatically on arrival at `/tasks`, `/touchpoints` or `/notes`, and while it's closed over the current page the header gets the active tint.
+- **Collapsed rail:** one outlined **Actions** tile, which opens a hover/focus fly-out listing the three pages, the same way every other grouped rail row works. The tile is tinted active whenever the current page is one of them.
+
 #### Super-user-only routes that the Roles matrix cannot open
 
 `ADMIN_ONLY_ROUTES` in `lib/access-control.ts` is a short list of routes that stay super-user-only **no matter what the Roles matrix says**. `canAccessRoute` checks it after the `super_user` backstop and before the grant lookup, so a `role_page_access` row granting one of them — added by accident or otherwise — has no effect.

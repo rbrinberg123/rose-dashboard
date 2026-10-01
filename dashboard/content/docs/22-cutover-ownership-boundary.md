@@ -305,3 +305,11 @@ Each item in the CRM **"+" quick-add menu** (New Client, Meeting, Event, Task, T
 - **How:** the item goes to the entity's page with `?new=1` (`addNewHref` in `components/crm-add-new.tsx`). The page's `New<Entity>Button` sees it (`useQuickAddRequest`) and opens its form. Closing the form removes the parameter. It also works when you're already on that page.
 - **New Client is live too**, because the Clients create form has shipped. It needs `sql/patches/2026-09-23g_accounts_full_fields.sql` run first.
 - **Gating is unchanged:** the menu only renders for users who can see the CRM nav, the pages redirect non-super-users, and every create action re-checks `super_user` on the server.
+
+## Contracts: dashboard-authored contracts (2026-09-29; moved to Admin 2026-09-30)
+**Admin → Contract Management** (`/admin/contracts`) is a card on the Admin hub. It's not in the CRM nav or the CRM "+" menu. It's live on the same plumbing: origin guard on edit, a guarded single-row **Delete** (`DELETE … WHERE contract_id AND origin='dashboard'`, must hit exactly 1 row), audit, the TEST badge, and purge. The fence was already on `contracts` (Part A/B of this doc's patch, `hasOrigin: true`).
+- **Different from the other seven:** the dashboard writes its **own new columns** (`contract_name`, `account_id`, `start_date`, `term_length_months`, `termination_notice_days`, `contract_status`, `scope`, `currency`, …), not the Dynamics-mirror columns. Term End and Notice Date are **DB-generated**. The list view falls back to the Dynamics twin of each field for display.
+- **Consequence:** dashboard contracts do **not** reach Portfolio / Margin / `v_contract_management` / Client Statistics, which still read the Dynamics columns. Moving those reports over is a separate cutover step.
+- Needs `sql/patches/2026-09-29_contracts_crm.sql` run first.
+
+Full detail is in [24 — Contract Management](24-contracts.md).
