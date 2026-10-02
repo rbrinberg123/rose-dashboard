@@ -440,6 +440,7 @@ export function TasksView({
     <>
       <div className="mb-4">
         <ListTitleCard
+          compact
           eyebrow="CRM"
           title="Tasks"
           subtitle="Every task in the CRM — all types, all states. No row scoping is applied, so this page is super-user only."

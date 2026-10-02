@@ -484,6 +484,7 @@ export function ContactsView({
     <>
       <div className="mb-4">
         <ListTitleCard
+          compact
           eyebrow="CRM"
           title="Contacts"
           subtitle="Every contact in the CRM — the people at client companies, with their role, type and flags. No row scoping is applied, so this page is super-user only."

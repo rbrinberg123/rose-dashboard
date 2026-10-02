@@ -46,9 +46,9 @@
  * 2. THE ACCOUNT TEAM IS DISPLAYED, NOT DECIDED. These five name fields come
  *    straight off `accounts` — the same Dynamics columns the Portfolio and
  *    Events avatar clusters already draw. public.account_team_members is a
- *    SECOND, dashboard-owned team table that is wired to nothing; which of the
- *    two becomes the source of truth is an open question and is not answered by
- *    this page. Read-only either way.
+ *    SECOND, dashboard-owned team table; since 2026-10-02 the LIST's Account
+ *    Team columns (one per role) read it — see lib/accounts/spec.ts — while
+ *    this drawer still shows the Dynamics fields. Read-only either way.
  *
  * 3. THE ENGAGEMENT DATES ARE DYNAMICS' OWN ROLLUPS. last_touchpoint_date,
  *    last_event_date, days_since_last_review and friends are computed in the

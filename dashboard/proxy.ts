@@ -8,6 +8,7 @@ import {
 import { getRealRole } from "@/lib/user-role"
 import { resolveEffective } from "@/lib/impersonation"
 import { getAllowedRoutes } from "@/lib/page-access"
+import { perfTimer } from "@/lib/perf-log"
 import {
   ANONYMOUS_IDENTITY,
   IDENTITY_HEADER,
@@ -68,16 +69,28 @@ function withIdentity(
 }
 
 export async function proxy(request: NextRequest) {
+  const perf = perfTimer(`proxy ${request.nextUrl.pathname}`)
   const { supabase, response } = getSupabaseProxy(request)
 
-  // Calling getUser() validates the JWT against Supabase Auth and also
-  // refreshes the cookie if needed (via the setAll handler in
-  // getSupabaseProxy). Always call it before deciding what to do, even
-  // for public paths, so signed-in users hitting /login still get their
-  // session refreshed.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // getClaims() VERIFIES the session JWT's signature (and expiry) and also
+  // refreshes the cookie if it is about to expire (via the setAll handler in
+  // getSupabaseProxy). Always call it before deciding what to do, even for
+  // public paths, so signed-in users hitting /login still get their session
+  // refreshed.
+  //
+  // PERFORMANCE (2026-10-02): this replaced getUser(), which made a network
+  // round trip to Supabase Auth on EVERY request (~230-310ms measured). This
+  // project signs JWTs with an asymmetric ES256 key, so getClaims() verifies
+  // locally against the cached public key set — Supabase's recommended
+  // server-side check. Trade-off: a session revoked at the Auth server (sign-out
+  // everywhere, deleted user) stays valid until its access token expires (≤1h).
+  // Access itself is unaffected: the role is still read from user_role_grants
+  // on every request below, so removing someone's role takes effect at once.
+  const { data: claimsData } = await supabase.auth.getClaims()
+  const user = claimsData?.claims
+    ? { email: (claimsData.claims.email as string | undefined) ?? undefined }
+    : null
+  perf.step("auth.getClaims")
 
   const { pathname, search } = request.nextUrl
 
@@ -113,14 +126,17 @@ export async function proxy(request: NextRequest) {
   // view_as cookies ONLY when the REAL role is super_user, so they can't be
   // spoofed. (The proxy reads cookies off the request — no next/headers here.)
   const realRole = await getRealRole(user.email)
+  perf.step("role lookup")
   const { effectiveRole: role, person, roleView } = await resolveEffective(
     realRole,
     request.cookies.get(VIEW_AS_USER_COOKIE)?.value,
     request.cookies.get(VIEW_AS_COOKIE)?.value,
   )
+  perf.step("view-as resolve")
   // Load the role's allowed routes ONCE (small query; super_user short-circuits
   // to [] and is allowed everything by the canAccessRoute backstop).
   const allowedRoutes = await getAllowedRoutes(role)
+  perf.step("allowed routes")
   if (!canAccessRoute(role, pathname, allowedRoutes)) {
     const url = request.nextUrl.clone()
     url.search = ""

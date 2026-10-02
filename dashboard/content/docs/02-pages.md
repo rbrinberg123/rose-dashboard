@@ -510,6 +510,8 @@ The three system-plumbing pages — **Sync**, **Reconciliation**, **Database** �
 
 The bottom block of the nav rail, behind a "CRM" divider. Both read unscoped admin views with the service-role key and are in `ADMIN_ONLY_ROUTES` — super-user-only and **not** grantable through the Roles matrix.
 
+**Banner size (2026-10-02).** Every CRM page (Clients, Meetings, Events, Tasks, Touches, Notes, Contacts, Time Off) uses the shared `ListTitleCard` with `compact`, which holds it to the app's **standard banner**: the same height as Calendar / Capacity / Client Statistics (20px padding, 23px title, one 12.5px subtitle line). The eyebrow ("CRM") moves onto the subtitle line as a prefix, and that line stays on one line with the full text on hover. Before this, the eyebrow row plus a 2–3-line subtitle made CRM banners noticeably taller. Pages without `compact` are unchanged.
+
 | Route | Label | Reads | Purpose |
 |-------|-------|-------|---------|
 | `/accounts` | Clients | `v_admin_accounts_all` | **First in the block.** Every client in the CRM — the account **record**, active and inactive, opening on **Active clients** sorted by name. **Not** the Portfolio client table: `/portfolio` is the analytics rollup over active clients only, is matrix-grantable, and is unaffected by this page. The route stays `/accounts` (the Dynamics entity and mirror table are both `account`); only the label says "Clients", the same split as Touches. See [20 — Clients](20-clients.md). Needs `sql/patches/2026-09-17_admin_accounts.sql`. |

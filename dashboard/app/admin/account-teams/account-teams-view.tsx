@@ -157,12 +157,12 @@ export function AccountTeamsView({
       {/* The scope guardrail, stated on the page itself — this is the single
           most important thing for anyone landing here to understand. */}
       <div className="mb-3 rounded-lg border border-amber-300/60 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
-        <span className="font-semibold">Setup only — nothing else reads this yet.</span> Editing a
-        team <em>or the Active/Inactive status</em> here changes this page and nothing more. It does
-        not affect who can see which client, any report, the account-team avatars on Portfolio,
-        Profiles or Events, or which clients appear anywhere — those all still read the CRM fields
-        on the account record. This is groundwork for making account teams and status drive the app
-        later.
+        <span className="font-semibold">Where a team edit applies depends on who owns the client.</span>{" "}
+        For a client <strong>created in the dashboard</strong>, this page IS the account team: an edit
+        here shows everywhere (Clients, Portfolio, Client Detail, the avatars) and decides who sees the
+        client on their scoped pages. For a client <strong>from Dynamics</strong>, the CRM still owns the
+        team — an edit here changes this page only, and the app keeps showing the Dynamics team until
+        cutover. The Active/Inactive status here changes this page only, for every client.
       </div>
 
       {tableMissing && (

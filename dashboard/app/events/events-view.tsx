@@ -428,6 +428,7 @@ export function EventsView({
     <>
       <div className="mb-4">
         <ListTitleCard
+          compact
           eyebrow="CRM"
           title="Events"
           subtitle="Every marketing event in the CRM — all states, all dates. No row scoping is applied, so this page is super-user only."

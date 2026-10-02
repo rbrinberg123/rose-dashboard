@@ -458,6 +458,7 @@ export function TouchpointsView({
     <>
       <div className="mb-4">
         <ListTitleCard
+          compact
           eyebrow="CRM"
           title="Touches"
           subtitle="Every logged client contact in the CRM — calls, virtual meetings, emails, in-person. No row scoping is applied, so this page is super-user only."

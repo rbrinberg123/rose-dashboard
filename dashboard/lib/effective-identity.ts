@@ -32,17 +32,18 @@ import { lookupPerson, resolveEffective } from "@/lib/impersonation"
  * This is the authenticity check itself — it establishes WHO is calling. React's
  * `cache()` is scoped to a single request's dispatcher, so the verified user is
  * never carried into another request. Never make this a module-level cache: it
- * would authenticate every visitor as whoever loaded a page first. The JWT is
- * still validated against Supabase Auth once per request, not trusted from a
- * cookie. See the note in lib/user-role.ts.
+ * would authenticate every visitor as whoever loaded a page first. The JWT's
+ * signature is still VERIFIED once per request, not trusted from a cookie —
+ * via getClaims(), which checks it locally against the project's cached ES256
+ * public key instead of a ~250ms round trip to Supabase Auth (getUser()). Same
+ * trade-off as proxy.ts: Auth-server revocation lags until token expiry (≤1h);
+ * the role below is still read fresh every request. See lib/user-role.ts.
  */
 const readRealIdentity = cache(
   async (): Promise<{ email: string | null; role: Role | null }> => {
     const supabase = await getSupabaseServerAuth()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    const email = user?.email ?? null
+    const { data } = await supabase.auth.getClaims()
+    const email = (data?.claims?.email as string | undefined) ?? null
     return { email, role: await getRealRole(email) }
   },
 )

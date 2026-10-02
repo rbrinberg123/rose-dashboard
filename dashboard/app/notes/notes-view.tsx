@@ -463,6 +463,7 @@ export function NotesView({
     <>
       <div className="mb-4">
         <ListTitleCard
+          compact
           eyebrow="CRM"
           title="Notes"
           subtitle="Every client-review note in the CRM — status, risk driver and agreed actions, one record per client per monthly cycle. No row scoping is applied, so this page is super-user only."

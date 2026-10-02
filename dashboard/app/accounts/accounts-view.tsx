@@ -55,12 +55,18 @@ import { exportToExcel } from "@/lib/table-views/excel"
 import { opsForField as sharedOpsForField } from "@/lib/table-views/types"
 import type { ColumnDef, FilterCondition, SavedView, ViewConfig } from "@/lib/table-views/types"
 import {
+  ACCOUNT_TEAM_CELL_DISPLAY,
+  TEAM_NAME_SEPARATOR,
   ACCOUNTS_SPEC,
   accountCatalogBySection,
   getAccountColumn,
   isPersonName,
   type AccountColumnDef,
 } from "@/lib/accounts/spec"
+import { ACCOUNT_TEAM_ROLE_META } from "@/lib/account-teams/roles"
+
+/** At most this many leading "Client" columns freeze on horizontal scroll. */
+const MAX_FROZEN = 2
 import {
   ACCOUNT_QUICK_FILTER_KEYS,
   hasAccountQuickFilters,
@@ -264,7 +270,29 @@ export function AccountsView({
     [activeConfig.columns],
   )
 
-  const bands = React.useMemo(() => bandsFor(columns), [columns])
+  // FROZEN COLUMNS: the leading run of "Client" columns (Ticker + Client Name in
+  // the default view; at most two) stays pinned on horizontal scroll — the row is
+  // wide once every account-team role has its own column. Same sticky-left
+  // technique as Portfolio's frozen Core columns. Value = the column's `left`.
+  const frozenLefts = React.useMemo(() => {
+    const lefts: number[] = []
+    let left = 0
+    for (const c of columns) {
+      if (c.section !== "Client" || lefts.length >= MAX_FROZEN) break
+      lefts.push(left)
+      left += parseInt(c.width, 10) || 100
+    }
+    return lefts
+  }, [columns])
+  const bands = React.useMemo(() => {
+    const b = bandsFor(columns)
+    // The Client band's label pins with its columns (GroupBand.sticky). Only when
+    // the WHOLE band is frozen, or the label would slide over unfrozen cells.
+    if (b.length > 0 && frozenLefts.length > 0 && b[0].colSpan === frozenLefts.length) {
+      b[0] = { ...b[0], sticky: true }
+    }
+    return b
+  }, [columns, frozenLefts])
   const bandStartSet = React.useMemo(() => bandStarts(columns), [columns])
   const minWidth = React.useMemo(
     () => columns.reduce((sum, c) => sum + (parseInt(c.width, 10) || 100), 0) + 36,
@@ -492,6 +520,7 @@ export function AccountsView({
     <>
       <div className="mb-4">
         <ListTitleCard
+          compact
           eyebrow="CRM"
           title="Clients"
           subtitle="Every client in the CRM — the account record itself, active and inactive, with its team, classification and engagement dates. Distinct from the Portfolio table, which is the analytics view over active clients. No row scoping is applied, so this page is super-user only."
@@ -685,13 +714,20 @@ export function AccountsView({
               {columns.map((col, i) => (
                 <TableHead
                   key={col.key}
-                  className={cn("h-7 px-2", bandStartSet.has(i) && "relative")}
-                  style={{ width: col.width, minWidth: col.width }}
+                  className={cn("h-7", col.renderer === "team" ? "px-1" : "px-2", bandStartSet.has(i) && "relative")}
+                  style={{
+                    width: col.width,
+                    minWidth: col.width,
+                    ...(i < frozenLefts.length
+                      ? { position: "sticky", left: frozenLefts[i], zIndex: 30, backgroundColor: SUBHEADER_BG }
+                      : null),
+                  }}
                 >
                   {bandStartSet.has(i) && <SectionDivider />}
                   <SortHeader
                     label={col.header ?? col.label}
                     title={col.title ?? col.label}
+                    ariaLabel={col.renderer === "team" ? `Sort by ${col.label}` : undefined}
                     isSorted={sort.field === col.key ? sort.dir : false}
                     onClick={() => toggleSort(col.key)}
                   />
@@ -740,6 +776,7 @@ export function AccountsView({
                         key={col.key}
                         col={col}
                         bandStart={bandStartSet.has(ci)}
+                        frozenLeft={ci < frozenLefts.length ? frozenLefts[ci] : undefined}
                         row={r}
                       />
                     ))}
@@ -806,10 +843,13 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 function Cell({
   col,
   bandStart,
+  frozenLeft,
   row,
 }: {
   col: AccountColumnDef
   bandStart: boolean
+  /** Set on a frozen (sticky-left) column: its left offset in px. */
+  frozenLeft?: number
   row: AdminAccountRow
 }) {
   const raw = (row as unknown as Record<string, unknown>)[col.key]
@@ -838,6 +878,10 @@ function Cell({
         width: col.width,
         maxWidth: col.width,
         ...(bandStart ? BODY_SECTION_START_STYLE : null),
+        // Opaque so scrolled cells pass UNDER it; below the sticky header (z-20).
+        ...(frozenLeft !== undefined
+          ? { position: "sticky", left: frozenLeft, zIndex: 10, backgroundColor: "var(--card)" }
+          : null),
       }}
       title={empty ? undefined : (title ?? undefined)}
       data-column={col.key}
@@ -920,6 +964,24 @@ function renderCell(col: AccountColumnDef, row: AdminAccountRow, raw: unknown): 
       ) : (
         text
       )
+
+    case "team": {
+      // One account-team role. The cell value is the assignee's name, or several
+      // joined by TEAM_NAME_SEPARATOR (a line break — never a comma: names contain
+      // commas, e.g. "Scott Grossman, CFA"). ACCOUNT_TEAM_CELL_DISPLAY is the one
+      // switch between initials circles (name on hover) and full names.
+      const names = (text ?? "")
+        .split(TEAM_NAME_SEPARATOR)
+        .map((n) => n.trim())
+        .filter(Boolean)
+      if (ACCOUNT_TEAM_CELL_DISPLAY === "names" || !col.teamRole) return names.join(" · ")
+      const meta = ACCOUNT_TEAM_ROLE_META[col.teamRole]
+      return (
+        <div className="flex justify-center">
+          <TeamAvatars members={names.map((name) => ({ role: meta.label, name, bg: meta.bg, fg: meta.fg }))} />
+        </div>
+      )
+    }
 
     case "statePill": {
       const { bg, text: fg } = accountStatePill(text)

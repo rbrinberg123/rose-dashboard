@@ -8,6 +8,8 @@
 
 ## ⚠️ Setup only — this changes nothing yet
 
+> **Update 2026-10-02b — now the source of truth for DASHBOARD-created clients.** For a client created in the dashboard (`origin = 'dashboard'`), this table **is** its account team. A trigger copies each role onto the client's own lookups, so an edit here shows everywhere (Clients, Portfolio, Client Detail, avatars) and drives row scoping for that client. For **Dynamics** clients the CRM lookups stay authoritative until cutover, and an edit here still changes this page only. The Active/Inactive status (`account_status`) is still read by nothing else. Full rule, including the **format rule** (names may contain commas, so several people in one field are joined with a line break and a single name is never split): [20 — Clients → Account team: the source of truth](20-clients.md#account-team-the-source-of-truth-2026-10-02b).
+
 **`account_team_members` and `account_status` are read and written by exactly one page — `/admin/account-teams` — and by nothing else.** They are deliberately **not** wired into:
 
 - `teamAccountIds` or `resolveClientScope`

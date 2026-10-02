@@ -156,13 +156,72 @@ export function ListTitleCard({
   subtitle,
   rightSlot,
   children,
+  compact = false,
 }: {
   eyebrow?: React.ReactNode
   title: string
   subtitle?: React.ReactNode
   rightSlot?: React.ReactNode
   children?: React.ReactNode
+  /**
+   * STANDARD HEIGHT for pages with an eyebrow and a long subtitle (the CRM
+   * pages). Holds the card to the app's standard banner — title + ONE subtitle
+   * line, as on Calendar / Capacity / Client Statistics — by moving the eyebrow
+   * onto the subtitle line as a prefix and keeping that line to one line (full
+   * text on hover). Nothing is removed; only the stacking changes.
+   */
+  compact?: boolean
 }) {
+  if (compact) {
+    const fullSubtitle = [
+      typeof eyebrow === "string" ? eyebrow : null,
+      typeof subtitle === "string" ? subtitle : null,
+    ]
+      .filter(Boolean)
+      .join(" · ")
+    return (
+      <HeaderCard>
+        <div className="flex flex-col gap-3 pl-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <h1
+              className="truncate font-semibold"
+              style={{ fontSize: 23, lineHeight: 1.15, color: TEXT_PRIMARY }}
+            >
+              {title}
+            </h1>
+            {(eyebrow || subtitle) && (
+              <p
+                className="mt-1 truncate"
+                title={fullSubtitle || undefined}
+                style={{ color: TEXT_MUTED, fontSize: 12.5 }}
+              >
+                {eyebrow && (
+                  <span
+                    className="font-semibold uppercase"
+                    style={{ fontSize: 11, letterSpacing: "0.06em" }}
+                  >
+                    {eyebrow}
+                    {subtitle ? " · " : ""}
+                  </span>
+                )}
+                {subtitle}
+              </p>
+            )}
+          </div>
+          {rightSlot && <div className="shrink-0">{rightSlot}</div>}
+        </div>
+        {children && (
+          <div
+            className="mt-3 border-t pt-3 pl-4"
+            style={{ borderColor: "rgba(16,24,40,0.07)" }}
+          >
+            {children}
+          </div>
+        )}
+      </HeaderCard>
+    )
+  }
+
   return (
     <HeaderCard>
       <div className="flex flex-col gap-3 pl-4 sm:flex-row sm:items-center sm:justify-between">

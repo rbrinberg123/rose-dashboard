@@ -691,6 +691,7 @@ export function MeetingsView({
     <>
       <div className="mb-4">
         <ListTitleCard
+          compact
           eyebrow="Admin · Hidden pages"
           title="Meetings"
           subtitle="Every meeting in the CRM — all statuses, all dates, active and deactivated. No row scoping is applied, so this page is super-user only."

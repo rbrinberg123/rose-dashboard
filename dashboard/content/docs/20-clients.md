@@ -103,7 +103,7 @@ The five team fields the brief asked for — manager / secondary / associate / f
 
 The Client column's **avatar cluster** is the same component, the same four roles, the same colours and the same global initials directory as the Client Portfolio and Events clusters (`lib/account-team.ts` `ACCOUNT_TEAM_ROLES`, `components/account-team-avatars.tsx`). **No new team source was introduced.** Unlike Events — which has to bulk-read `accounts` by `account_id` and merge the team in — here the row *is* the account, so the four name columns are already on it (they are in `ACCOUNT_ALWAYS_SELECT`, so the circles do not appear and disappear with the view's column list).
 
-`public.account_team_members` — the second, dashboard-owned team table — is **not read or written** by this page. Which of the two becomes the source of truth is an open question and is **not** answered here; it is a separate follow-up alongside the flatten pass.
+**Update 2026-10-02b:** see [Account team: the source of truth](#account-team-the-source-of-truth-2026-10-02b). Dashboard-created clients take their team from `account_team_members`; Dynamics clients keep the Dynamics fields above.
 
 ### The five team filters match on the NAME, not the user id
 
@@ -119,10 +119,79 @@ The name was chosen to sit with its siblings and to stay clear of the two other 
 
 **No seed row.** The two built-in views are defined in **code** at `lib/accounts/spec.ts`, like every other entity's presets — so they always exist and no fresh database can miss a seeding step:
 
-- **Active clients** (the default) — `is_active` is true, sorted by name A→Z. `is_active` is computed by the view on every query as `state_code = 0`, so a client deactivated in Dynamics leaves the view on the next sync with no edit anywhere.
-- **All clients** — no filter. This matters more here than on any sibling: roughly **half** the mirror (121 of 228) is inactive, and Portfolio cannot show any of it.
+- **Active clients** (the default) — `is_active` is true, sorted by **Last Touchpoint, most recent first** (blanks last). `is_active` is computed by the view on every query as `state_code = 0`, so a client deactivated in Dynamics leaves the view on the next sync with no edit anywhere.
+- **All clients** — no filter, same columns and sort. This matters more here than on any sibling: roughly **half** the mirror (121 of 228) is inactive, and Portfolio cannot show any of it.
 
-Default visible columns: **Client** (ticker link + account-team avatars) · Status · Client Status · Sector · Region · Cap Band · Last Touch. Everything else is one click away in **Edit columns**.
+Default visible columns are listed in the next section. Everything else is one click away in **Edit columns**. Personal and system saved views keep their own column lists and are unaffected.
+
+### Default view and per-role Account Team (2026-10-02)
+
+**Patch:** `sql/patches/2026-10-02_accounts_default_view.sql` **(run in Supabase)**. Until it's run, the nine new columns show "—" and the sort falls back to client name.
+
+**Default columns, in order:**
+
+| # | Column | Source |
+|---|--------|--------|
+| 1 | Ticker | `ticker_symbol` (frozen) |
+| 2 | Client Name | `client_account_name` (frozen) |
+| 3 | Status | `state_label` (Active / Inactive pill) |
+| 4 | **Account Team**, one column per role | `team_<role>` |
+| 5 | Sector | `sector_label` |
+| 6 | Region | `region_label` |
+| 7 | Cap | `market_cap_label` (the band; the raw $B is in the picker) |
+| 8 | Last Memo | `last_memo_at` |
+| 9 | Last Targeting | `last_targeting_at` |
+| 10 | Last Touchpoint | `last_touchpoint_at` (default sort, most recent first) |
+
+The columns are grouped under header bands: **Client · Status · Account Team · Profile · Last Activity**. Every column sorts when you click its header. **Ticker and Client Name stay pinned** when you scroll sideways. This is the leading "Client" band (at most two columns), using the same sticky-left technique as Portfolio.
+
+**Account Team columns.** Each row takes its team from the source of truth for that client (see the next section): `account_team_members` for dashboard-created clients, the Dynamics lookups for Dynamics clients. The role set and order are that table's own: `ACCOUNT_TEAM_ROLE_KEYS` in `lib/account-teams/roles.ts`, mirrored by its CHECK constraint. The six roles are **Account Manager · Secondary · Feedback · Associate · Memo · Logistics**. The catalog generates one column per key (`TEAM_COLUMNS` in `lib/accounts/spec.ts`), so no role is hard-coded on the page.
+- **No "Planning" role exists** in either team source.
+- **Targeting** isn't a role in `account_team_members`. The Dynamics Targeting lookup is still available in the picker.
+- **Each cell** shows compact initials circles (role colours, same initials directory as everywhere else), with the full name on hover. **"—"** means nobody is assigned.
+- **Abbreviated headers** (2026-10-02) keep the row narrow: **Pri** (Account Manager / primary) · **Sec** (Secondary) · **Fbk** (Feedback) · **Assoc** (Associate) · **Memo** · **Log** (Logistics). The full role name is in the header tooltip, the sort button's `aria-label`, the column picker and the Excel header. A future role with no fixed abbreviation gets the first four letters of its label (`teamHeaderAbbr` in `lib/accounts/spec.ts`). The team columns are 60px wide with tighter header padding. They stay individually sortable under the **Account Team** band.
+- **Multi-person roles:** the table allows several people per role, though no row has more than one today. If it happens, the view joins the names with a **line break** (A→Z), never a comma, and the cell shows one circle per person. See the format rule below.
+- **Sorting and the Excel export** use the full names.
+- **Switching to full names:** set `ACCOUNT_TEAM_CELL_DISPLAY` in `lib/accounts/spec.ts` to `"names"`.
+- **Adding a role** takes three steps: widen the table's CHECK, add one `string_agg` line to the view, and add the key to `ACCOUNT_TEAM_ROLE_KEYS`.
+- **The Dynamics lookups** (`sales_lead_primary_name` …) move to their own picker band, **CRM Team Fields**. The five team **dropdown filters** still match on those Dynamics names.
+
+### Account team: the source of truth (2026-10-02b)
+
+**Patch:** `sql/patches/2026-10-02b_account_team_dashboard_clients.sql` **(run in Supabase)**.
+
+**The bug it fixed.** A team set on a dashboard-created client (on Admin → Account Teams) was saved to `account_team_members` but showed almost nowhere.
+- **Why:** every reader except the Clients-list role columns reads the team from the account row's own lookups (`accounts.sales_lead_primary_id/_name`, `secondary_manager_*`, `associate_*`, `feedback_report_*`, `teaser_*`, `logistics_coordinator_*`). That covers the Clients avatar cluster, record drawer and team filters, plus Portfolio, Client Detail, Profiles, Events and row scoping.
+- **The gap:** the Dynamics sync fills those lookups for Dynamics clients. Nothing filled them for dashboard clients.
+- **Not the cause:** the client create/edit form has no team control by design. The team is set on Admin → Account Teams.
+
+**The rule: one source of truth per origin**, the same ownership fence as every other dashboard write ([22](22-cutover-ownership-boundary.md)):
+
+| Client origin | Canonical account team | How every page sees it |
+|---|---|---|
+| `dashboard` | **`account_team_members`**, edited on Admin → Account Teams | The trigger `account_team_members_project` → `project_account_team()` copies each role onto the client's own lookups on every insert, update or delete. The lookups are a **derived projection** that nothing else writes. |
+| `dynamics` | **The Dynamics lookups** (synced), until cutover | Unchanged. Their `account_team_members` rows are a 2026-09-15 seed copy that has since drifted (20 slots differ, 29 missing on 2026-10-02), so they're shown only on Admin → Account Teams. Dynamics data is never altered. |
+
+**Role to lookup map:** account_manager → `sales_lead_primary_*` · secondary_manager → `secondary_manager_*` · feedback_report → `feedback_report_*` · associate → `associate_*` · memo → `teaser_*` · logistics → `logistics_coordinator_*`. This is the same map the seed and `lib/access/account-team-policy.ts` use.
+
+**Format rule for team fields (2026-10-02c). Names may contain commas.** Two users have a comma in their display name today: **"Scott Grossman, CFA"** and **"# Lewis, Tyler"**.
+- **The client’s own team fields** (`accounts.sales_lead_primary_name` …) are **single-person** fields: one lookup id plus that person’s full name, commas included. That’s how the Dynamics sync writes them and how the 2026-10-02b trigger writes them. **Never split them.**
+- **The Clients-list `team_*` columns** are the only place a field can hold several people. They’re joined with a **line feed (`chr(10)`)**, never `", "`, and each name has any CR/LF replaced by a space first, so every token is delimiter-free. The renderer splits only on that character (`TEAM_NAME_SEPARATOR`, `lib/accounts/spec.ts`). Patch: `sql/patches/2026-10-02c_account_team_name_delimiter.sql`.
+- **The bug this fixed:** both ends used `", "`, so Scott’s name drew as two bubbles in the Pri column ("Scott Grossman" + "CFA"). The stored data was correct throughout; no data was changed.
+
+**Clients list role columns.** The view's `team_*` columns follow the same rule per row: `account_team_members` for dashboard clients, showing every assignee, and the live Dynamics lookup for Dynamics clients. A role with several people projects only its first person (A→Z) onto the single lookup; the list column shows all of them.
+
+**Side effect (deliberate).** Row scoping reads these lookups. A person made, say, Account Manager of a dashboard client now gets that client on their scoped pages, which is the rule Dynamics clients already follow.
+
+**Last Activity.** These dates are computed in the view as the most recent date across **both** origins (Dynamics-synced **and** dashboard-created rows, with no `origin` filter), so a dashboard-created task or touchpoint moves the date straight away. `is_test` rows aren't excluded, matching the other CRM pages, where test data is contained by the ZVZZT client.
+
+| Column | Rule | Matches the CRM's own rollup on |
+|--------|------|------|
+| Last Memo | `max(tasks.actual_end)`, sub-type **Marketing Memo**, not cancelled, linked by `bcs_account_id` | 134 / 145 clients (vs `last_teaser_date`) |
+| Last Targeting | the same rule, sub-type **Targeting** | 104 / 111 (vs `last_targeting_date`) |
+| Last Touchpoint | `max(touchpoints.scheduled_start)` up to now, by `client_account_id` | 135 / 141 (vs `last_touchpoint_date`) |
+
+Most mismatches are cases where our date is **newer** than the CRM's rollup. **Memo means the Marketing Memo task, not client notes**: the latest client note matches the CRM's memo date on only 1 of 107 clients. The Dynamics rollup columns (Last Touch / Last Targeting / Last Teaser, in the Engagement band) are unchanged and still in the picker.
 
 ### Security
 

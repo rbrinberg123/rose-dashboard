@@ -195,6 +195,7 @@ export function TimeOffRequestsView({
     <>
       <div className="mb-4">
         <ListTitleCard
+          compact
           eyebrow="CRM"
           title="Time Off"
           subtitle="Every time-off request — the Dynamics history (read-only) plus requests made here, which go Pending → Approved / Denied by the person's reviewing team. Super-user only for now."

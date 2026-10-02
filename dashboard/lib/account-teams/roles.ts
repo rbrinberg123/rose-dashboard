@@ -8,10 +8,19 @@
  * Portfolio, Profiles and the Events table. It is unchanged and still the only
  * thing those pages read.
  *
- * THIS module (plural directory) describes the NEW owned table, which as of
- * 2026-09-15 is read and written by exactly one page — /admin/account-teams —
- * and by nothing else. It is deliberately NOT wired into `teamAccountIds`,
- * `resolveClientScope`, `lib/access/*`, or any CRM or reporting page.
+ * THIS module (plural directory) describes the NEW owned table. It is WRITTEN
+ * only by /admin/account-teams.
+ *
+ * ── SOURCE OF TRUTH (2026-10-02b) ──────────────────────────────────────────
+ * For DASHBOARD-created clients (accounts.origin = 'dashboard') this table IS
+ * the account team. A database trigger (project_account_team, patch
+ * 2026-10-02b) copies each role onto that client's own lookups
+ * (accounts.sales_lead_primary_id/_name …), so every reader — Portfolio, Client
+ * Detail, the avatars, the Clients drawer and filters, and row scoping — sees
+ * it with no code change. For DYNAMICS clients the CRM lookups stay
+ * authoritative until cutover; their rows here are a drifted 2026-09-15 seed
+ * copy and are shown only on /admin/account-teams. Nothing in app code reads
+ * this module for scoping — scoping reads the account lookups.
  *
  * ── FORWARD INTENT (not implemented) ───────────────────────────────────────
  * This table is intended to become the source of truth for account-team-based

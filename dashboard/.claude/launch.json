@@ -8,7 +8,18 @@
       "port": 3000,
       "autoPort": true,
       "env": {
-        "NODE_OPTIONS": "--max-http-header-size=65536"
+        "NODE_OPTIONS": "--max-http-header-size=65536",
+        "PERF_LOG": "1"
+      }
+    },
+    {
+      "name": "dashboard-prod",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start"],
+      "port": 3000,
+      "env": {
+        "NODE_OPTIONS": "--max-http-header-size=65536",
+        "PERF_LOG": "1"
       }
     }
   ]

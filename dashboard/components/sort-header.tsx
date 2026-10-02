@@ -13,12 +13,15 @@ export function SortHeader({
   onClick,
   align = "left",
   title,
+  ariaLabel,
 }: {
   label: string
   isSorted: false | "asc" | "desc"
   onClick: () => void
   align?: "left" | "right"
   title?: string
+  /** Accessible name when `label` is an abbreviation (e.g. "Sec" → "Secondary Manager"). */
+  ariaLabel?: string
 }) {
   const Icon = isSorted === "asc" ? ArrowUp : isSorted === "desc" ? ArrowDown : ArrowUpDown
   return (
@@ -26,6 +29,7 @@ export function SortHeader({
       type="button"
       onClick={onClick}
       title={title}
+      aria-label={ariaLabel}
       className={cn(
         "inline-flex w-full items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground",
         align === "right" && "justify-end",

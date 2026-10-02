@@ -24,6 +24,11 @@
 
 import type { ColumnDef, EntitySpec, FieldType, ViewSort } from "@/lib/table-views/types"
 import { BUILTIN_PREFIX, type BuiltinView } from "@/lib/table-views/types"
+import {
+  ACCOUNT_TEAM_ROLE_KEYS,
+  ACCOUNT_TEAM_ROLE_META,
+  type AccountTeamRole,
+} from "@/lib/account-teams/roles"
 import { ACCOUNT_SECTIONS, type AccountRecord } from "./record"
 
 /** How a clients cell is painted. Mirrors the contacts renderer vocabulary. */
@@ -36,8 +41,28 @@ export type AccountRenderer =
   | "url" // an external link, shown as a short label
   | "number" // right-aligned tabular figure
   | "bool" // Yes / No / em dash
+  | "team" // one account-team role: initials (name on hover) or full names
 
-export type AccountColumnDef = ColumnDef & { renderer: AccountRenderer }
+/** `teamRole` is set on the per-role Account Team columns only. */
+export type AccountColumnDef = ColumnDef & { renderer: AccountRenderer; teamRole?: AccountTeamRole }
+
+/**
+ * THE ONE SWITCH for how an Account Team role cell paints its people:
+ *   "initials" — compact initials circles, full name on hover (default)
+ *   "names"    — the full names as plain text
+ * Sorting, filtering and the Excel export always use the full names either way.
+ */
+export const ACCOUNT_TEAM_CELL_DISPLAY: "initials" | "names" = "initials"
+
+/**
+ * How a per-role team cell separates SEVERAL people: a line break. NEVER a comma —
+ * display names contain commas ("Scott Grossman, CFA", "# Lewis, Tyler"), and
+ * splitting on ", " drew one person as two bubbles. v_admin_accounts_all joins
+ * assignees with E'\n' and strips any newline from each name, so every token is
+ * delimiter-free (sql/patches/2026-10-02c_account_team_name_delimiter.sql). A
+ * single assignee contains no separator and is never split.
+ */
+export const TEAM_NAME_SEPARATOR = "\n"
 
 /**
  * The bands above the column headers, in picker order. A band is a run of
@@ -47,7 +72,15 @@ export type AccountColumnDef = ColumnDef & { renderer: AccountRenderer }
 export const ACCOUNT_COLUMN_GROUPS = [
   "Client",
   "Profile",
+  // One column per role from public.account_team_members (see TEAM_COLUMNS).
   "Account Team",
+  // Most recent memo / targeting / touchpoint, across BOTH origins (computed in
+  // v_admin_accounts_all — see sql/patches/2026-10-02_accounts_default_view.sql).
+  "Last Activity",
+  // The Dynamics account-team LOOKUPS on the account row (single-valued, synced
+  // from the CRM). Kept for the picker and the quick filters; the default view's
+  // team columns come from account_team_members instead.
+  "CRM Team Fields",
   "Engagement",
   "Flags",
   "Notes",
@@ -244,7 +277,7 @@ const SOURCE: Partial<
     column: "sales_lead_primary_name",
     width: "150px",
     renderer: "people",
-    group: "Account Team",
+    group: "CRM Team Fields",
     header: "Account Mgr",
     title: "bcs_SalesLeadPrimary — the account manager",
   },
@@ -252,21 +285,21 @@ const SOURCE: Partial<
     column: "secondary_manager_name",
     width: "150px",
     renderer: "people",
-    group: "Account Team",
+    group: "CRM Team Fields",
     header: "Secondary",
   },
   associate_name: {
     column: "associate_name",
     width: "150px",
     renderer: "people",
-    group: "Account Team",
+    group: "CRM Team Fields",
     header: "Associate",
   },
   feedback_report_name: {
     column: "feedback_report_name",
     width: "150px",
     renderer: "people",
-    group: "Account Team",
+    group: "CRM Team Fields",
     header: "Feedback",
     title: "bcs_FeedbackReport — who writes this client's feedback report",
   },
@@ -274,28 +307,28 @@ const SOURCE: Partial<
     column: "logistics_coordinator_name",
     width: "150px",
     renderer: "people",
-    group: "Account Team",
+    group: "CRM Team Fields",
     header: "Logistics",
   },
   targeting_name: {
     column: "targeting_name",
     width: "150px",
     renderer: "people",
-    group: "Account Team",
+    group: "CRM Team Fields",
     header: "Targeting",
   },
   teaser_name: {
     column: "teaser_name",
     width: "150px",
     renderer: "people",
-    group: "Account Team",
+    group: "CRM Team Fields",
     header: "Teaser",
   },
   primary_contact_name: {
     column: "primary_contact_name",
     width: "170px",
     renderer: "text",
-    group: "Account Team",
+    group: "CRM Team Fields",
     header: "Primary Contact",
     title: "The client-side primary contact (a contact record, not a Rose person)",
   },
@@ -682,6 +715,105 @@ const LIST_ONLY: AccountColumnDef[] = [
   },
 ]
 
+/** The view column carrying one account-team role, e.g. team_account_manager. */
+export function teamColumnKey(role: AccountTeamRole): string {
+  return `team_${role}`
+}
+
+/**
+ * ACCOUNT TEAM — one column per role, generated from the SOURCE OF TRUTH's own
+ * role list (public.account_team_members → ACCOUNT_TEAM_ROLE_KEYS, mirrored by
+ * the table's CHECK constraint), in its defined order. Nothing here names a
+ * role: add one there (plus its view column) and a column appears here.
+ *
+ * Each cell is the assignee's display name — or several, line-break-joined (TEAM_NAME_SEPARATOR), if a role
+ * ever holds more than one person (the schema allows it; no row does today).
+ * Sorted alphabetically by that text.
+ *
+ * WHICH TEAM (2026-10-02b): a DASHBOARD-created client's team comes from
+ * account_team_members (canonical for those clients); a DYNAMICS client's from
+ * its live Dynamics lookups, which stay authoritative until cutover. The view
+ * decides per row — see sql/patches/2026-10-02b_account_team_dashboard_clients.sql.
+ */
+/**
+ * ABBREVIATED HEADERS for the per-role columns, to keep the row narrow. The full
+ * role name stays in the header tooltip, the column picker, the Excel header and
+ * the sort button's aria-label. A role not listed here (one added later) gets
+ * its label's first word, cut to 4 characters and title-cased.
+ */
+const TEAM_HEADER_ABBR: Partial<Record<AccountTeamRole, string>> = {
+  account_manager: "Pri", // Primary
+  secondary_manager: "Sec",
+  associate: "Assoc",
+  logistics: "Log",
+  feedback_report: "Fbk",
+}
+
+export function teamHeaderAbbr(role: AccountTeamRole): string {
+  const fixed = TEAM_HEADER_ABBR[role]
+  if (fixed) return fixed
+  const word = ACCOUNT_TEAM_ROLE_META[role].label.split(/\s+/)[0] ?? role
+  return word.charAt(0).toUpperCase() + word.slice(1, 4).toLowerCase()
+}
+
+const TEAM_COLUMNS: AccountColumnDef[] = ACCOUNT_TEAM_ROLE_KEYS.map((role) => {
+  const meta = ACCOUNT_TEAM_ROLE_META[role]
+  return {
+    key: teamColumnKey(role),
+    label: meta.label,
+    header: teamHeaderAbbr(role),
+    title: `${meta.label} — from Admin → Account Teams (public.account_team_members). Initials; full name on hover`,
+    section: "Account Team",
+    type: "text",
+    // Narrower than any text column: the cell holds an initials circle or two.
+    width: "60px",
+    renderer: "team",
+    compact: true,
+    teamRole: role,
+  }
+})
+
+/**
+ * LAST ACTIVITY — the most recent of each, across Dynamics AND dashboard rows,
+ * computed in v_admin_accounts_all. Distinct from the CRM's own rollups in
+ * Engagement (Last Touch / Last Targeting / Last Teaser), which only move when
+ * Dynamics recomputes them and never see dashboard-created activity.
+ */
+const LAST_ACTIVITY_COLUMNS: AccountColumnDef[] = [
+  {
+    key: "last_memo_at",
+    label: "Last Memo",
+    header: "Last Memo",
+    title:
+      "Most recent Marketing Memo task end date (Dynamics + dashboard; cancelled tasks ignored). " +
+      "Matches the CRM's Last Teaser rollup except where newer activity exists",
+    section: "Last Activity",
+    type: "date",
+    width: "104px",
+    renderer: "date",
+  },
+  {
+    key: "last_targeting_at",
+    label: "Last Targeting (all sources)",
+    header: "Last Targeting",
+    title: "Most recent Targeting task end date (Dynamics + dashboard; cancelled tasks ignored)",
+    section: "Last Activity",
+    type: "date",
+    width: "110px",
+    renderer: "date",
+  },
+  {
+    key: "last_touchpoint_at",
+    label: "Last Touchpoint",
+    header: "Last Touchpoint",
+    title: "Most recent touchpoint up to today (Dynamics + dashboard)",
+    section: "Last Activity",
+    type: "date",
+    width: "116px",
+    renderer: "date",
+  },
+]
+
 /** The full catalog, in drawer order, then the list-only extras. */
 export const ACCOUNT_CATALOG: AccountColumnDef[] = [
   ...ACCOUNT_SECTIONS.flatMap((section) =>
@@ -704,6 +836,8 @@ export const ACCOUNT_CATALOG: AccountColumnDef[] = [
     }),
   ),
   ...LIST_ONLY,
+  ...TEAM_COLUMNS,
+  ...LAST_ACTIVITY_COLUMNS,
 ]
 
 const BY_KEY = new Map(ACCOUNT_CATALOG.map((c) => [c.key, c]))
@@ -721,32 +855,38 @@ export function accountCatalogBySection(): { section: string; columns: AccountCo
 }
 
 /**
- * The default seven columns:
- *   Client · Status · Client Status · Sector · Region · Cap Band · Last Touch
+ * The default columns (the built-in "Active clients" / "All clients" views).
  *
- * The brief's list — Client (name + ticker link + account-team avatars), Status,
- * Sector, Region, Market Cap, plus a last-activity column — with Client Status
- * added beside Status. Both are called a "status" and they disagree on 33
- * accounts; showing one without the other is how that disagreement stays
- * invisible.
- *
- * "Market Cap" is the BAND rather than the raw $B figure: the band is what the
+ * "Cap" is the BAND rather than the raw $B figure: the band is what the
  * dropdown filters on and what Portfolio groups by, and the raw number is one
- * click away in the column picker.
+ * click away in the column picker. Client Status (the Rose field that disagrees
+ * with Status on 33 accounts) is no longer in the default set, by request; it is
+ * still in the picker.
  *
- * Resulting bands: Client | Status (Status, Client Status) | Profile (Sector,
- * Region, Cap Band) | Engagement (Last Touch). Each is a contiguous run, which
- * is what a band requires.
+ * Resulting bands: Client (Ticker, Client Name) | Status | Account Team (one per
+ * role) | Profile (Sector, Region, Cap Band) | Last Activity (Memo, Targeting,
+ * Touchpoint). Each is a contiguous run, which is what a band requires.
  */
 export const ACCOUNT_DEFAULT_COLUMNS: string[] = [
-  "name",
+  // CHANGED 2026-10-02 (by request): Ticker · Client Name · Status · Account Team
+  // (one column per role) · Sector · Region · Cap · Last Memo · Last Targeting ·
+  // Last Touchpoint. Ticker + Client Name are frozen on horizontal scroll (the
+  // leading "Client" band — see accounts-view.tsx). Every other column stays in
+  // the picker; saved views keep their own column lists.
+  "ticker_symbol",
+  "client_account_name",
   "state_label",
-  "client_status_label",
+  ...TEAM_COLUMNS.map((c) => c.key),
   "sector_label",
   "region_label",
   "market_cap_label",
-  "last_touchpoint_date",
+  "last_memo_at",
+  "last_targeting_at",
+  "last_touchpoint_at",
 ]
+
+/** The built-in views' sort: most recent touchpoint first (blanks last). */
+export const ACCOUNT_DEFAULT_VIEW_SORT: ViewSort = { field: "last_touchpoint_at", dir: "desc" }
 
 /**
  * Always fetched: the row identity, and the columns the Client cell paints with
@@ -772,8 +912,10 @@ export const ACCOUNT_ALWAYS_SELECT = [
 ] as const
 
 /**
- * Alphabetical by client name — what the brief asked for, and the right default
- * for a directory people navigate by name. Ascending, so A is at the top.
+ * The entity's FALLBACK sort — alphabetical by client name — used only when a
+ * view's own sort column is not on the deployed view (e.g. before the
+ * 2026-10-02 patch adds last_touchpoint_at). The built-in views themselves sort
+ * by ACCOUNT_DEFAULT_VIEW_SORT.
  */
 export const ACCOUNT_DEFAULT_SORT: ViewSort = { field: "name", dir: "asc" }
 
@@ -800,7 +942,7 @@ export const ACCOUNT_BUILTIN_VIEWS: BuiltinView[] = [
     config: {
       columns: ACCOUNT_DEFAULT_COLUMNS,
       filters: [{ field: "is_active", op: "isTrue" }],
-      sort: ACCOUNT_DEFAULT_SORT,
+      sort: ACCOUNT_DEFAULT_VIEW_SORT,
     },
   },
   {
@@ -809,7 +951,7 @@ export const ACCOUNT_BUILTIN_VIEWS: BuiltinView[] = [
     config: {
       columns: ACCOUNT_DEFAULT_COLUMNS,
       filters: [],
-      sort: ACCOUNT_DEFAULT_SORT,
+      sort: ACCOUNT_DEFAULT_VIEW_SORT,
     },
   },
 ]

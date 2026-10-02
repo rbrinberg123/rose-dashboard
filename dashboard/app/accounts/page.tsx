@@ -15,6 +15,7 @@ import {
   type AccountQuickFilters,
 } from "@/lib/accounts/filters"
 import { listSavedViews } from "./actions"
+import { perfTimer } from "@/lib/perf-log"
 import { AccountsView } from "./accounts-view"
 
 export const dynamic = "force-dynamic"
@@ -70,9 +71,9 @@ const PATCH = "sql/patches/2026-09-17_admin_accounts.sql"
  *
  * WRITES live in ./actions.ts, which delegates to lib/table-views/saved-views.ts
  * — the shared write path. Read that file's header before touching it. There are
- * no account writes at all: "Add New Client" is inert, and neither of the
- * dashboard-owned accounts-overlay tables (account_status, account_team_members)
- * is read or written from here.
+ * no writes to the dashboard-owned accounts-overlay tables (account_status,
+ * account_team_members). account_team_members IS read — through
+ * v_admin_accounts_all's per-role team_* columns (2026-10-02) — for display only.
  *
  * If you add a data read to this file, put it BELOW the guard.
  */
@@ -81,9 +82,11 @@ export default async function AccountsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
+  const perf = perfTimer("/accounts")
   // ---- GATE (must stay first — nothing above this line may touch data) ----
   const role = await getEffectiveRole()
   if (role !== "super_user") redirect("/no-access")
+  perf.step("gate (role)")
 
   const sp = await searchParams
   const requestedId = typeof sp.view === "string" ? sp.view : null
@@ -121,6 +124,7 @@ export default async function AccountsPage({
     listSavedViews(),
     availableColumns(sb, ACCOUNTS_SPEC),
   ])
+  perf.step("views+columns")
 
   if (!viewsResult.ok) {
     return (
@@ -140,6 +144,7 @@ export default async function AccountsPage({
   const active = resolveActiveView(ACCOUNTS_SPEC, views, requestedId)
   const effectiveConfig = workingOverride ?? active.config
   const identity = await getEffectiveIdentity()
+  perf.step("identity")
 
   const extra = ((q: unknown) => applyAccountQuickFilters(q, quick)) as <Q>(q: Q) => Q
 
@@ -148,6 +153,7 @@ export default async function AccountsPage({
     error: loadError,
     truncated,
   } = await fetchRows<AdminAccountRow>(sb, ACCOUNTS_SPEC, effectiveConfig, now, available, extra)
+  perf.step(`rows (${rows.length})`)
 
   if (loadError) {
     return (
@@ -172,6 +178,7 @@ export default async function AccountsPage({
     ),
   )
   const viewCounts = Object.fromEntries(counts) as Record<string, number | null>
+  perf.step(`view counts (${views.length})`)
 
   // Only needed when the fetch was capped — that is the number the
   // "showing first N of M" notice reports.
