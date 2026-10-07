@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { decideAuthCallback } from "@/lib/auth-callback"
 import { isAllowedSessionEmail } from "@/lib/auth-allowlist"
+import { getRealRole } from "@/lib/user-role"
+import { landingRouteFor } from "@/lib/access-control"
 
 /**
  * Auth callback for BOTH sign-in methods — magic link and Microsoft/Entra SSO.
@@ -12,8 +14,9 @@ import { isAllowedSessionEmail } from "@/lib/auth-allowlist"
  *
  * Once a session exists, the domain guard (`decideAuthCallback`) re-checks the
  * verified email: a non-`@roseandco.com` account is signed out and sent to
- * `/no-access`. On success we bounce to the requested page (default
- * `/portfolio`); a missing code or a failed exchange returns to `/login`.
+ * `/no-access`. On success we bounce to the requested page, else the
+ * role-aware landing page (landingRouteFor in lib/access-control.ts: My Dashboard for those who may open
+ * it, otherwise /portfolio); a missing code or a failed exchange returns to `/login`.
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
@@ -28,11 +31,13 @@ export async function GET(request: NextRequest) {
   const supabase = await getSupabaseServerAuth()
   const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
+  const role = !error && data.user?.email ? await getRealRole(data.user.email) : null
   const decision = decideAuthCallback({
     hasCode: true,
     exchangeError: error?.message ?? null,
     sessionEmailAllowed: isAllowedSessionEmail(data.user?.email),
     next,
+    defaultNext: landingRouteFor(role),
   })
 
   if (decision.action === "reject") {

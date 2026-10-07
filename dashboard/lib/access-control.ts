@@ -96,7 +96,9 @@ export function viewAsLabel(role: ViewAsRole): string {
  * role-less user has somewhere to land instead of a redirect loop.
  * (/login and /auth/* are handled separately by proxy.ts as public paths.)
  */
-export const ALWAYS_ALLOWED_ROUTES = ["/no-access"] as const
+export const ALWAYS_ALLOWED_ROUTES = [
+  "/no-access",
+] as const
 
 /**
  * Routes ONLY a super_user may reach, NO MATTER WHAT THE ROLES MATRIX SAYS.
@@ -151,6 +153,17 @@ export const ADMIN_ONLY_ROUTES = [
   // Clients -> Client Health. AI retention-risk ratings + notes for every active
   // client, unscoped, built from inputs that include the retainer.
   "/client-health",
+  // My Dashboard — the personal home page. SUPER-USER ONLY FOR NOW. THE ONE
+  // FLAG: to open it to everyone, move this entry back to ALWAYS_ALLOWED_ROUTES
+  // (its loader already scopes every feed to the viewer, so that is safe);
+  // landing follows automatically (landingRouteFor, end of this file).
+  "/my-dashboard",
+  // Logistics -> FB Coming Soon. Work in progress: dashboard Feedback reports
+  // still awaiting feedback. THE ONE-LINE VISIBILITY FLAG — to open it to more
+  // roles, delete this entry and tick the route in Admin -> Roles.
+  "/fb-coming-soon",
+  // Admin -> Automations. The catalogue of every automation (lib/automations).
+  "/admin/automations",
 ] as const
 
 /** True when `pathname` is `route` or a sub-path of it (segment-aware). */
@@ -264,4 +277,20 @@ export function visibleCrmNavItems(
 ): CrmNavItem[] {
   if (!canSeeCrmNav(role, allowedRoutes)) return []
   return CRM_NAV_ITEMS.filter((item) => canAccessRoute(role, item.href, allowedRoutes))
+}
+
+/**
+ * Where a person lands after signing in (and when a signed-in user opens
+ * /login): My Dashboard when they may open it, otherwise the app's original
+ * default, Portfolio. Asked through canAccessRoute, so it follows the ONE gate
+ * above: while /my-dashboard is in ADMIN_ONLY_ROUTES only super users land
+ * there; move it back to ALWAYS_ALLOWED_ROUTES and everyone does. Portfolio is
+ * safe for everyone — a role without a Portfolio grant is redirected by
+ * proxy.ts to the first page it CAN reach (or /no-access). landing.test.ts.
+ */
+export const MY_DASHBOARD_ROUTE = "/my-dashboard"
+export const DEFAULT_LANDING_ROUTE = "/portfolio"
+
+export function landingRouteFor(role: Role | null): string {
+  return canAccessRoute(role, MY_DASHBOARD_ROUTE, []) ? MY_DASHBOARD_ROUTE : DEFAULT_LANDING_ROUTE
 }

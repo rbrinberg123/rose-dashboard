@@ -156,6 +156,8 @@ export type DataScopes = {
   feedback: boolean
   /** Field-level Financials grant (see above) — NOT a row scope. */
   financials: boolean
+  /** "Can claim feedback" capability (lib/feedback-claims/) — NOT a row scope. */
+  claim_feedback: boolean
 }
 
 /**
@@ -181,21 +183,57 @@ export async function setUserDataScopes(
   }
 
   const sb = getSupabaseServer()
-  const { error } = await sb.from("user_data_scopes").upsert(
-    {
-      email: normalizedEmail,
-      scope_all: scopes.all,
-      account_mgmt: scopes.account_mgmt,
-      booker: scopes.booker,
-      host: scopes.host,
-      feedback: scopes.feedback,
-      financials: scopes.financials,
-      updated_at: new Date().toISOString(),
-      updated_by: auth.email,
-    },
-    { onConflict: "email" },
-  )
+  const { data: before } = await sb
+    .from("user_data_scopes")
+    .select("*")
+    .eq("email", normalizedEmail)
+    .maybeSingle()
+
+  const row: Record<string, unknown> = {
+    email: normalizedEmail,
+    scope_all: scopes.all,
+    account_mgmt: scopes.account_mgmt,
+    booker: scopes.booker,
+    host: scopes.host,
+    feedback: scopes.feedback,
+    financials: scopes.financials,
+    claim_feedback: scopes.claim_feedback,
+    updated_at: new Date().toISOString(),
+    updated_by: auth.email,
+  }
+  let { error } = await sb.from("user_data_scopes").upsert(row, { onConflict: "email" })
+  // Before sql/patches/2026-10-07_feedback_claims.sql is run the column does
+  // not exist; save everything else rather than failing every scope edit.
+  if (error && /claim_feedback/.test(error.message)) {
+    if (scopes.claim_feedback) {
+      return fail("“Claim feedback” needs the 2026-10-07 feedback-claims SQL patch run first.")
+    }
+    delete row.claim_feedback
+    ;({ error } = await sb.from("user_data_scopes").upsert(row, { onConflict: "email" }))
+  }
   if (error) return fail(describeError(error))
+
+  // Permission changes are audited (the claim capability gates writes).
+  const auditable = (r: Record<string, unknown> | null) =>
+    r
+      ? {
+          scope_all: r.scope_all,
+          account_mgmt: r.account_mgmt,
+          booker: r.booker,
+          host: r.host,
+          feedback: r.feedback,
+          financials: r.financials,
+          claim_feedback: r.claim_feedback ?? false,
+        }
+      : null
+  const prev = auditable(before as Record<string, unknown> | null)
+  const next = auditable(row)!
+  await recordAudit({
+    action: prev ? "update" : "create",
+    entity: "user_data_scopes",
+    recordId: normalizedEmail,
+    changes: prev ? diffRows(prev, next) : next,
+  })
 
   revalidatePath(PATH)
   return ok()

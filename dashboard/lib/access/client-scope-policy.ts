@@ -31,6 +31,12 @@ export type UserScopes = {
    * and decideMeetingMode. See ./financials-policy.ts.
    */
   financials: boolean
+  /**
+   * CAPABILITY "Can claim feedback" — NOT a row scope. Gates the claim action
+   * on Feedback Reports; ignored by every row decision. Super Users are
+   * granted in code. See lib/feedback-claims/.
+   */
+  claimFeedback: boolean
 }
 
 /** A resolved client filter: `null` = no filter (see all), else the allowed set. */
@@ -44,6 +50,7 @@ export type UserDataScopeRow = {
   host?: boolean | null
   feedback?: boolean | null
   financials?: boolean | null
+  claim_feedback?: boolean | null
 }
 
 /**
@@ -60,6 +67,7 @@ export function scopesFromRow(row: UserDataScopeRow | null | undefined): UserSco
     host: !!row?.host,
     feedback: !!row?.feedback,
     financials: !!row?.financials,
+    claimFeedback: !!row?.claim_feedback,
   }
 }
 

@@ -58,6 +58,8 @@ export default async function EventsPage({
     client?: string | string[]
     state?: string | string[]
     mgr?: string | string[]
+    /** Deep link: open this event's drawer on load (FB Coming Soon links here). */
+    open?: string | string[]
   }>
 }) {
   // ---- GATE (must stay first — nothing above this line may touch data) ----
@@ -207,6 +209,7 @@ export default async function EventsPage({
         truncated={truncated}
         rowCap={ROW_CAP}
         matchingRows={matchingRows}
+        initialOpenId={typeof sp.open === "string" && /^[0-9a-f-]{36}$/i.test(sp.open) ? sp.open : null}
       />
     </PageShell>
   )

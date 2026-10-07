@@ -1,6 +1,8 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
+import { getRealRole } from "@/lib/user-role"
+import { landingRouteFor } from "@/lib/access-control"
 import { LoginForm } from "./login-form"
 import { MicrosoftSignInButton } from "./microsoft-button"
 
@@ -9,14 +11,14 @@ export const dynamic = "force-dynamic"
 export const metadata: Metadata = { title: "Sign in" }
 
 export default async function LoginPage() {
-  // If already signed in, skip straight to the dashboard. Avoids
-  // ping-ponging between /login and /portfolio for users with a fresh
-  // session cookie.
+  // If already signed in, skip straight to the role's landing page (My
+  // Dashboard for those who may open it, else Portfolio — landingRouteFor in lib/access-control.ts).
+  // Avoids ping-ponging between /login and the app for a fresh session cookie.
   const supabase = await getSupabaseServerAuth()
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (user) redirect("/portfolio")
+  if (user) redirect(landingRouteFor(await getRealRole(user.email ?? null)))
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/20 px-4 py-12">

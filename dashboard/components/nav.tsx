@@ -27,6 +27,7 @@ import {
   ChevronDown,
   ChevronRight,
   Layers,
+  LayoutDashboard,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -84,6 +85,14 @@ type NavSection = {
 
 const sections: NavSection[] = [
   {
+    // FIRST in the rail: the personal home page. Single clickable item.
+    // Super-user only for now (ADMIN_ONLY_ROUTES), so canAccessRoute hides it
+    // from every other role — matching the proxy.
+    label: "My Dashboard",
+    icon: LayoutDashboard,
+    href: "/my-dashboard",
+  },
+  {
     label: "Clients",
     icon: Building2,
     defaultHref: "/portfolio",
@@ -140,6 +149,9 @@ const sections: NavSection[] = [
       { href: "/feedback-collection", label: "Feedback Collection" },
       { href: "/onboarding", label: "Onboarding" },
       { href: "/time-off", label: "Time Off" },
+      // Work in progress; super-user only via ADMIN_ONLY_ROUTES, so canAccessRoute
+      // hides it from every other role (matching the proxy).
+      { href: "/fb-coming-soon", label: "FB Coming Soon" },
     ],
   },
   {

@@ -18,6 +18,7 @@ import {
   TreePalm,
   ScrollText,
   FileSignature,
+  Workflow,
 } from "lucide-react"
 
 import { PageShell } from "@/components/page-shell"
@@ -679,6 +680,12 @@ export default async function AdminHubPage() {
               title="Contract Management"
               description="Every client contract — Dynamics (read-only) plus contracts created here, with term, notice, renewal and retainer. Live."
               href="/admin/contracts"
+            />
+            <InternalCard
+              icon={Workflow}
+              title="Automations"
+              description="Every automation in the dashboard — scheduled jobs, database triggers and the feedback-report automations — with trigger, effect and scope."
+              href="/admin/automations"
             />
             <InternalCard
               icon={ScrollText}

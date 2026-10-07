@@ -26,12 +26,12 @@ export type CallbackDecision =
 const DEFAULT_NEXT = "/portfolio"
 
 /** Only honor a relative, same-origin `next` — never an absolute/off-site URL. */
-function safeNext(next: string | null | undefined): string {
-  if (typeof next !== "string") return DEFAULT_NEXT
+function safeNext(next: string | null | undefined, fallback: string): string {
+  if (typeof next !== "string") return fallback
   // Must be a path on this app: starts with a single "/", not "//" (which the
   // browser treats as a protocol-relative absolute URL) and not "/\".
   if (!next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) {
-    return DEFAULT_NEXT
+    return fallback
   }
   return next
 }
@@ -42,6 +42,11 @@ export function decideAuthCallback(params: {
   /** Result of the domain guard on the verified session email (route-computed). */
   sessionEmailAllowed?: boolean
   next?: string | null
+  /**
+   * The role-aware landing page (landingRouteFor in lib/access-control.ts) used when
+   * there is no valid `next`. Omitted → the app default, /portfolio.
+   */
+  defaultNext?: string
 }): CallbackDecision {
   if (!params.hasCode) {
     return { action: "error", redirectTo: "/login?error=missing_code" }
@@ -59,5 +64,5 @@ export function decideAuthCallback(params: {
     return { action: "reject", signOut: true, redirectTo: "/no-access" }
   }
 
-  return { action: "continue", redirectTo: safeNext(params.next) }
+  return { action: "continue", redirectTo: safeNext(params.next, params.defaultNext ?? DEFAULT_NEXT) }
 }

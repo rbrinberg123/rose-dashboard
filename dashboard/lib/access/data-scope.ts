@@ -40,6 +40,7 @@ const DENY_SCOPES: UserScopes = {
   host: false,
   feedback: false,
   financials: false,
+  claimFeedback: false,
 }
 
 /**
@@ -62,7 +63,7 @@ export async function getUserScopes(
 
   // Super User → sees everything, no matter what the scopes table says.
   const role = await getRealRole(email)
-  if (role === "super_user") return { ...DENY_SCOPES, all: true, financials: true }
+  if (role === "super_user") return { ...DENY_SCOPES, all: true, financials: true, claimFeedback: true }
 
   return loadScopesForEmail(email.trim().toLowerCase())
 }

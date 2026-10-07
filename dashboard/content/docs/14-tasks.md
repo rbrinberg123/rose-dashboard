@@ -190,3 +190,51 @@ Nothing about filtering, validation, paging or authorisation is written again fo
 **Feedback Received Date** (`crdfa_feedback_received_date`, a real synced column) is now in the task drawer and on the create/edit form (Workflow group). It's what `v_feedback_pipeline` uses: a **Feedback** task with **Status = Open** and this date set is in the pipeline's **Open** bucket. Completing the task moves it on to **Pending Review** (while its paired "Feedback Report Sent" task is still open). No flattening or view change was needed.
 
 The older **Feedback Received** checkbox (`bcs_feedback_received`) is now labelled **"(legacy, info only)"**. The pipeline stopped using it on 2026-09-09 because it was unreliable, so ticking it changes nothing downstream.
+
+## Feedback claiming (Feedback Reports → Claim / Release / Reassign / Close)
+
+### What it does (plain language)
+
+On **Logistics → Feedback Reports** (`/feedback-manager`), a Feedback task can now be **claimed**: a person with the **Claim feedback** permission clicks **Claim** and becomes its owner. The task stays **Open** — it's just theirs now. The owner (or an admin) can **Release** it back to unclaimed; an **admin** (Super User) can **Reassign** it to anyone, or **Assign** an unclaimed one; and the owner (or an admin) can **Close** it at any time, which completes the task and moves the report on to **Pending Review** — exactly as completing it in the CRM does. Every change is recorded in a claim history and the audit log.
+
+The Open section's filter is now **All · Unclaimed · Mine · Claimed by others · Closed**. Claimed rows show the owner with a "since" date; **Closed** lists the tasks closed here (owner, who closed it, when). Buttons update the row instantly and confirm with a toast; if the server refuses, the row snaps back and the toast says why.
+
+**Scope today:** only **dashboard-created** Feedback tasks (`origin = 'dashboard'`) that are **Open** and have a **Feedback Received Date** are claimable. Feedback tasks synced from Dynamics show as before, with no buttons, until cutover. Dashboard events now get their Feedback report automatically, and closing one creates its Pending Review task — see [27 — Feedback reports](27-feedback-reports.md).
+
+> **Run first:** `sql/patches/2026-10-07_feedback_claims.sql`. Until it has run, the page works as before and shows admins a "switched off until the patch is run" note; the Admin → Users "Claim feedback" box refuses to turn on.
+
+### The permission — "Claim feedback"
+
+| Who | Claim | Release | Reassign / Assign | Close |
+|---|---|---|---|---|
+| Has **Claim feedback** (Admin → Users) | an unclaimed task | their own | — | their own |
+| **Super User** (admin) | ✓ (always, no box needed) | any | any | any, claimed or not |
+| Everyone else | — (no button; refused server-side) | — | — | — |
+
+- Stored as `user_data_scopes.claim_feedback` (default **off**), read through `getUserScopes()` → `scopes.claimFeedback`; Super Users are granted in code. Toggled on **Admin → Users** next to Financials; scope-checkbox saves are now **audited** (`entity = user_data_scopes`).
+- It's a per-person capability only (no Roles-matrix row).
+- **"View as"** previews the buttons but disables them; the server refuses every claim action while impersonating.
+
+### The data — dashboard-owned, sync-safe
+
+New columns on `public.tasks`: `claimed_by_id`, `claimed_by_name`, `claimed_at`, `closed_by_id`, `closed_by_name`, `closed_at`. The Dynamics sync **never writes them** — `mapTask` (`lib/sync/mappers.ts`) doesn't emit them, and the sync upsert only sets the columns it sends — so they survive every sync run. That's what lets the same mechanism cover Dynamics-origin tasks at cutover.
+
+On dashboard-origin rows the claim actions also keep the existing **`bcs_claimed_by_id` / `bcs_claimed_by_name`** in step, so every current reader shows the claim with **no view change**: `v_feedback_pipeline` (Feedback Reports' Claimed By, the KPI flow, workload strip), the Alerts page and nav badge, **My Dashboard's "open feedback report I've claimed"**, and the Tasks page. (The Tasks form's own "Claimed by" field still writes only the `bcs_` field; the claim actions treat that as the owner when `claimed_by_id` is empty.)
+
+Claim history: `public.feedback_claim_events` — one append-only row per claim / release / reassign / close (task, from → to owner, the real acting person, when). Each action also writes an `audit_log` entry (`entity = tasks`, `context = feedback-claim:<event>`).
+
+### How Close drives the existing completion workflow
+
+Close sets the task's **native completion fields** — `state_code 1 / state_label 'Completed'`, `status_code 5 / status_label 'Completed'`, `actual_end = now` — the same values Tasks → Edit uses for "Completed" (`TASK_STATUS_OPTIONS`), plus `closed_by_*` / `closed_at`. `v_feedback_pipeline` then does the rest on its own: the Feedback task leaves **Open** and, while its paired *Feedback Report Sent* task is still open, appears in **Pending Review** with `fb_closed_date = actual_end`. Nothing else in the review / send flow changes. Since 2026-10-07b the close also **creates the review task automatically** ("Feedback Report Pending Review – <event>", linked to that exact report), so a dashboard report always lands in Pending Review — see [27 — Feedback reports](27-feedback-reports.md).
+
+### Server-side checks (`app/feedback-manager/actions.ts`)
+
+Every action: refuse "View as" → re-read the task → apply the pure rules (`lib/feedback-claims/policy.ts`, unit-tested) → a **guarded UPDATE** whose WHERE repeats the pool (Feedback, Open, origin) and the owner it read, and must change exactly one row (so two people racing to claim can't both win) → history + audit → refresh Feedback Reports, My Dashboard and Alerts. Errors come back as the app's standard "not authorised / why" result shown in a toast.
+
+**Origin edit-guard:** these actions deliberately do **not** use `lib/crm-write.ts` (`requireCrmWriter` / `updateDashboardRow`) — that is the generic super-user-only "edit a CRM record" gate. Claiming is gated on the **capability**, never on the generic guard. The pool's origin rule lives in the claim policy instead.
+
+### Cutover (Dynamics-origin feedback tasks)
+
+- **Today (pre-cutover):** `FEEDBACK_CLAIMS_INCLUDE_DYNAMICS = false` in `lib/feedback-claims/policy.ts`. Dynamics-origin Feedback tasks are not claimable and nothing writes to them.
+- **At cutover** (direct editing of Dynamics-origin records allowed): set that constant to **`true`**. That is the only code change — Dynamics-origin Feedback tasks enter the pool, and the same actions write the same dashboard-owned columns and, on Close, the same native completion fields.
+- **Cutover checklist:** (1) the task sync must stop overwriting Dynamics rows (otherwise the next sync re-opens a closed task and resets `bcs_claimed_by_*`; the `claimed_*` / `closed_*` columns survive regardless); (2) if the sync keeps running, point `v_feedback_pipeline`'s `claimed_by_*` at `tasks.claimed_by_*` instead of `bcs_claimed_by_*`; (3) optionally backfill `claimed_by_*` from `bcs_claimed_by_*` so existing CRM claims carry over.

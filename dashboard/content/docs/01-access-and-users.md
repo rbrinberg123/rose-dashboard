@@ -40,6 +40,10 @@ Where it applies today:
 
 The **AI client summary** is a separate matter: there is only **one** summary per client and everyone sees the same one, so it now **never mentions retainer, fee, or rate amounts for anybody** — including Super Users. Renewal and term-end **dates** are still there; only money is gone. Summaries written before this change may still quote a figure until they're regenerated on the next refresh.
 
+### Claiming feedback — the "Claim feedback" permission
+
+A separate per-person tick-box on **Admin → Users** (next to Financials), **off** by default. It lets a person **Claim** unclaimed Feedback tasks on Feedback Reports and release their own. Super Users always have it, and can also release, reassign and close any task. It doesn't change which pages or rows anyone sees. Stored as `user_data_scopes.claim_feedback` (patch `sql/patches/2026-10-07_feedback_claims.sql`). Full detail: [14 — Tasks → Feedback claiming](14-tasks.md#feedback-claiming-feedback-reports--claim--release--reassign--close).
+
 ### "View as" — see the app as any person
 
 **Viewing-as is done per person, from Admin → Users.** Each row has a small **"View as"** button; it previews the app as *that specific person*, using **their** real role. Most people have no role yet, so viewing as them correctly shows the "no access" experience — which is a valid, useful test. It is super-user-only and invisible to everyone else.

@@ -8,6 +8,7 @@ import {
 import { getRealRole } from "@/lib/user-role"
 import { resolveEffective } from "@/lib/impersonation"
 import { getAllowedRoutes } from "@/lib/page-access"
+import { landingRouteFor } from "@/lib/access-control"
 import { perfTimer } from "@/lib/perf-log"
 import {
   ANONYMOUS_IDENTITY,
@@ -95,11 +96,11 @@ export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl
 
   // Public paths: render as-is, but if the user is already signed in
-  // and visiting /login, send them to /portfolio.
+  // and visiting /login, send them to their landing page (landingRouteFor in lib/access-control.ts).
   if (isPublic(pathname)) {
     if (user && pathname === "/login") {
       const url = request.nextUrl.clone()
-      url.pathname = "/portfolio"
+      url.pathname = landingRouteFor(await getRealRole(user.email))
       url.search = ""
       return NextResponse.redirect(url)
     }

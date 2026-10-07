@@ -66,6 +66,8 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   // Super-user-only (ADMIN_ONLY_ROUTES) — listed so the matrix knows the route;
   // its checkboxes have no effect.
   { route: "/client-health", label: "Client Health (super-user only)", section: "Clients" },
+  // Super-user only for now (ADMIN_ONLY_ROUTES) — the personal home page.
+  { route: "/my-dashboard", label: "My Dashboard (super-user only)", section: "Clients" },
 
   // ---- Institutions ----
   { route: "/institutions", label: "Institution Summary", section: "Institutions" },
@@ -91,6 +93,8 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   { route: "/feedback", label: "Feedback (redirect → Collection)", section: "Logistics" },
   { route: "/onboarding", label: "Onboarding", section: "Logistics" },
   { route: "/time-off", label: "Time Off", section: "Logistics" },
+  // Super-user-only for now (ADMIN_ONLY_ROUTES) — work in progress.
+  { route: "/fb-coming-soon", label: "FB Coming Soon (WIP, super-user only)", section: "Logistics" },
   { route: "/pipeline", label: "Upcoming Meetings (hidden)", section: "Logistics" },
   { route: "/conference-rooms", label: "Conference Rooms (hidden)", section: "Logistics" },
   { route: "/ooo-summary", label: "OOO Summary (hidden)", section: "Logistics" },
@@ -124,6 +128,7 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   // Same tier: Admin -> Contract Management (not the /contract-management report).
   { route: "/admin/contracts", label: "Contract Management — Admin (super-user only)", section: "Admin" },
   { route: "/admin/time-off-reviewers", label: "Time Off Reviewers (super-user only)", section: "Admin" },
+  { route: "/admin/automations", label: "Automations (super-user only)", section: "Admin" },
 ] as const
 
 // ---- assignable roles (matrix columns) ------------------------------------

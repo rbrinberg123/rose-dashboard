@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { loadFeedbackPipelineRows } from "@/app/feedback/load"
 import { FeedbackPipelineView } from "./feedback-manager-view"
+import { loadClaimsContext } from "./claims-load"
 
 // Feedback Reports — the report pipeline (Open + Pending Review), all-access by
 // design (no row scoping). Feedback Collection is a SEPARATE page/route
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic"
 export const metadata: Metadata = { title: "Feedback Reports" }
 
 export default async function FeedbackReportsPage() {
-  const pipeline = await loadFeedbackPipelineRows()
+  const [pipeline, claims] = await Promise.all([loadFeedbackPipelineRows(), loadClaimsContext()])
 
   if (pipeline.error) {
     return (
@@ -31,7 +32,7 @@ export default async function FeedbackReportsPage() {
   return (
     <PageShell title="Feedback Reports" hideHeader canvas>
       {/* Not embedded → the view renders its own "Feedback Reports" masthead. */}
-      <FeedbackPipelineView rows={pipeline.rows} today={today} />
+      <FeedbackPipelineView rows={pipeline.rows} today={today} claims={claims} />
     </PageShell>
   )
 }

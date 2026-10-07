@@ -42,6 +42,7 @@ const DEFAULT_SCOPES: DataScopes = {
   host: false,
   feedback: false,
   financials: false,
+  claim_feedback: false,
 }
 
 /** Read staged grants; guard the table not existing yet (DDL run manually). */
@@ -71,6 +72,8 @@ type ScopeRow = {
   feedback: boolean
   /** Later addition — absent until the ALTER TABLE is run (see docs). */
   financials?: boolean | null
+  /** Later addition — absent until sql/patches/2026-10-07_feedback_claims.sql is run. */
+  claim_feedback?: boolean | null
 }
 
 /**
@@ -99,6 +102,7 @@ async function loadScopes(
       host: s.host,
       feedback: s.feedback,
       financials: !!s.financials,
+      claim_feedback: !!s.claim_feedback,
     })
   }
   return { scopes, missingTable: false }

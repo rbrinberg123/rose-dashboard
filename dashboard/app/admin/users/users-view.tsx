@@ -567,6 +567,28 @@ export function UsersView({
                         Financials
                       </label>
 
+                      {/* Claim feedback — a CAPABILITY, like Financials not a
+                          row scope: may this person claim Feedback tasks on
+                          Feedback Reports? Super User implies it. */}
+                      <label
+                        title="Claim feedback — may claim unclaimed Feedback tasks on Feedback Reports (and release their own). Independent of the row scopes."
+                        className={cn(
+                          "flex items-center gap-1",
+                          superLock ? "cursor-default" : "cursor-pointer",
+                        )}
+                        style={{ color: TEXT_PRIMARY }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={superLock || rowScopes.claim_feedback}
+                          disabled={superLock || scState === "saving"}
+                          onChange={(e) => handleScopeChange(u, "claim_feedback", e.target.checked)}
+                          className="size-3.5 cursor-pointer accent-[#0E7C56] disabled:cursor-not-allowed"
+                          aria-label={`Claim feedback for ${u.name}`}
+                        />
+                        Claim feedback
+                      </label>
+
                       {superLock ? (
                         <span style={{ color: TEXT_MUTED }}>· implied by Super User</span>
                       ) : null}

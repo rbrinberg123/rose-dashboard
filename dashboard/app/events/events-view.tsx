@@ -173,6 +173,7 @@ export function EventsView({
   truncated,
   rowCap,
   matchingRows,
+  initialOpenId = null,
 }: {
   /** Already narrowed to the active view by the server query. */
   rows: AdminEventRow[]
@@ -188,6 +189,8 @@ export function EventsView({
   truncated: boolean
   rowCap: number
   matchingRows: number | null
+  /** Open this event's drawer on first render (?open=<event_id>). */
+  initialOpenId?: string | null
 }) {
   const router = useRouter()
   const [switching, startSwitch] = React.useTransition()
@@ -197,7 +200,7 @@ export function EventsView({
   const [panel, setPanel] = React.useState<null | "columns" | "filters">(null)
   const [viewError, setViewError] = React.useState<string | null>(null)
 
-  const [openId, setOpenId] = React.useState<string | null>(null)
+  const [openId, setOpenId] = React.useState<string | null>(initialOpenId)
   const [record, setRecord] = React.useState<EventRecord | null>(null)
   const [recordError, setRecordError] = React.useState<string | null>(null)
 

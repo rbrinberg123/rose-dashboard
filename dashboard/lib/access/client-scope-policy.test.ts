@@ -63,6 +63,7 @@ test("save→read round-trip: a persisted Account-Management row is honored by t
     host: true,
     feedback: true,
     financials: false,
+    claimFeedback: false,
   })
   // With a scope assigned, the user sees exactly their scoped account ids.
   const scope = decideClientScope(scopes, ["acc-1", "acc-2", "acc-3"])

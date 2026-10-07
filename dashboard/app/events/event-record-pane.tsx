@@ -26,6 +26,8 @@ import Link from "next/link"
 import { ExternalLink, X } from "lucide-react"
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
+import { FeedbackReportsPanel } from "./feedback-reports-panel"
+import { isAutomationOrigin } from "@/lib/feedback-reports/policy"
 import { BRAND_BLUE, KPI_CARD_CLASS, STATUS_PILL_LIGHT } from "@/lib/design"
 import {
   EVENT_HEADER_FIELDS,
@@ -345,6 +347,11 @@ export function EventRecordPane({
           {/* Capacity first — it is the question people open an event to answer,
               and it sits above General as a compact three-tile row. */}
           {record && <StatRow record={record} />}
+          {/* Feedback reports — the automation's 1–3 report tasks and their
+              meetings (dashboard-origin events; see feedback-reports-panel). */}
+          {record && isAutomationOrigin(record.origin) && (
+            <FeedbackReportsPanel key={record.event_id} eventId={record.event_id} />
+          )}
           {record &&
             EVENT_SECTIONS.map((section) => (
               <section key={section.key} className="mb-6">

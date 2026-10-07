@@ -2,16 +2,23 @@
 
 ## What it does (plain language)
 
-A few jobs run on a schedule without anyone clicking anything. They're defined in `dashboard/vercel.json` and run on **Vercel Cron**. There are eight:
+> **The complete catalogue lives on Admin → Automations** (`/admin/automations`, super-user only), rendered from the code-defined registry **`dashboard/lib/automations/registry.ts`** — every scheduled job, database trigger and event-driven automation, with its trigger, effect, scope, applicability (dashboard now / Dynamics at cutover) and status (Active / Planned). **Adding an automation means adding a registry entry in the same change.** This page keeps the scheduling detail for the cron jobs; the feedback-report automations are documented in [27 — Feedback reports](27-feedback-reports.md).
 
-1. **Sync** — copy new Dynamics changes into Supabase (every 10 minutes, business hours, weekdays).
-2. **Reconcile** — check for records deleted in Dynamics (nightly).
-3. **AI client summaries** — regenerate the nightly client-summary text (nightly). Only *stale* clients, so after a prompt change you rewrite the whole book yourself: click **Refresh all AI summaries** in **Admin → Maintenance** (no command line needed), or run `npm run refresh-summaries`. See _One-time forced regenerate_ below.
-4. **Live Outreach email** — send the outreach digest to the team (weekday mornings).
-5. **Feedback email (Monday)** — the outstanding-feedback digest, Monday.
-6. **Feedback email (Tue–Fri)** — same digest, rest of the week.
-7. **Week Ahead email** — the upcoming Mon–Fri meetings digest, sent Friday afternoon.
-8. **Time Off email** — the weekly team time-off digest (this week + the month ahead), sent Monday morning.
+Three kinds of automation run without anyone clicking anything:
+
+- **Scheduled jobs** — defined in `dashboard/vercel.json`, run by **Vercel Cron**. There are **nine** jobs (ten schedule lines — the feedback email has a Monday and a Tue–Fri line):
+  1. **Sync** — copy new Dynamics changes into Supabase (every 10 minutes, business hours, weekdays).
+  2. **Reconcile** — check for records deleted in Dynamics (nightly).
+  3. **AI client summaries** — regenerate the nightly client-summary text (nightly). Only *stale* clients, so after a prompt change you rewrite the whole book yourself: click **Refresh all AI summaries** in **Admin → Maintenance** (no command line needed), or run `npm run refresh-summaries`. See _One-time forced regenerate_ below.
+  4. **AI Client Health** — re-rate every active client's retention risk (Monday mornings, with watchdog retries).
+  5. **Live Outreach email** — send the outreach digest to the team (weekday mornings).
+  6. **Feedback email** — the outstanding-feedback digest (Monday, and Tue–Fri at a later time).
+  7. **Week Ahead email** — the upcoming Mon–Fri meetings digest, sent Friday afternoon.
+  8. **Time Off email** — the weekly team time-off digest (this week + the month ahead), sent Monday morning.
+- **Database triggers** — run inside Supabase whenever a row changes: the origin lock, the synced-at stamp, the account-team copy onto dashboard clients, the append-only audit log, and the legacy user-roles normaliser.
+- **Event-driven feedback-report automations** (2026-10-07, dashboard-origin events only until cutover) — a new event gets a feedback report automatically; meetings are kept routed to the right report with its due date; closing a report creates its Pending Review task. See [27 — Feedback reports](27-feedback-reports.md).
+
+> Known gap (not fixed here): the Admin hub's email-status tile still tracks only the Feedback and Live Outreach digests. Week Ahead and Time Off are weekly, so they can't simply be added to its "sent today?" check without false alarms.
 
 Vercel schedules everything in **UTC**, but the firm cares about **Eastern time**, which shifts an hour with daylight saving. The email jobs handle this cleverly: each is scheduled to fire **twice** (an hour apart) and a runtime check lets only the correct one through — so the email always lands at the same Eastern wall-clock time year-round, and a safety ledger guarantees it's sent **at most once per day**.
 

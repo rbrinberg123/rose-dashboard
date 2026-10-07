@@ -1,10 +1,21 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 import { AlertTriangle, ChevronRight } from "lucide-react"
 import { ListTitleCard } from "@/components/page-masthead"
 import { CARD_CLASS, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
 import type { FeedbackPipelineRow } from "@/lib/types"
+import type { ActionResult } from "@/lib/actions"
+import type { ClaimsContext, ClosedClaimRow } from "@/lib/feedback-claims/types"
+import {
+  claimFeedbackTask,
+  closeFeedbackReview,
+  closeFeedbackTask,
+  reassignFeedbackTask,
+  releaseFeedbackTask,
+} from "./actions"
 
 // ---------------------------------------------------------------------------
 // Palette + tokens. Row chips reuse the site's STATUS_PILL_LIGHT light tints;
@@ -61,7 +72,13 @@ function agingTone(days: number | null) {
 }
 
 // ---------------------------------------------------------------------------
-type ClaimFilter = "all" | "claimed" | "unclaimed"
+// Open-section filter. "closed" swaps the Open table for the Closed list (tasks
+// closed through the Claim workflow here).
+type ClaimFilter = "all" | "unclaimed" | "mine" | "others" | "closed"
+
+/** Optimistic per-task state while an action is in flight (see runClaimAction). */
+type ClaimOverride = { ownerId: string | null; ownerName: string | null; closed?: boolean }
+const NO_OVERRIDES: Record<string, ClaimOverride> = {}
 type SortKey = "client" | "am" | "event" | "mtg" | "age" | "due" | "taskdate" | "claimed"
 type SortState = { key: SortKey; dir: "asc" | "desc" }
 
@@ -120,16 +137,114 @@ function shortName(name: string): string {
 }
 
 export function FeedbackPipelineView({
-  rows,
+  rows: serverRows,
   today,
   embedded = false,
+  claims,
 }: {
   rows: FeedbackPipelineRow[]
   today: string
   // When embedded in the merged Feedback page, the combined header owns the
   // masthead, so this view drops its own ListTitleCard.
   embedded?: boolean
+  /** Claim / release / reassign / close overlay (lib/feedback-claims). */
+  claims?: ClaimsContext
 }) {
+  const router = useRouter()
+  const [, startTransition] = React.useTransition()
+
+  // OPTIMISTIC overrides, keyed to the rows they were made against: once the
+  // server re-renders with fresh rows (router.refresh), they fall away on their
+  // own — no effect needed.
+  const [ov, setOv] = React.useState<{ base: FeedbackPipelineRow[]; map: Record<string, ClaimOverride> }>({
+    base: serverRows,
+    map: {},
+  })
+  const overrides = React.useMemo(
+    () => (ov.base === serverRows ? ov.map : NO_OVERRIDES),
+    [ov, serverRows],
+  )
+  const setOverride = (taskId: string, value: ClaimOverride | null) =>
+    setOv((cur) => {
+      const map = { ...(cur.base === serverRows ? cur.map : {}) }
+      if (value) map[taskId] = value
+      else delete map[taskId]
+      return { base: serverRows, map }
+    })
+
+  const rows = React.useMemo(
+    () =>
+      serverRows
+        .filter((r) => !overrides[r.task_id]?.closed)
+        .map((r) => {
+          const o = overrides[r.task_id]
+          if (!o) return r
+          return { ...r, claimed: !!o.ownerId, claimed_by_id: o.ownerId, claimed_by_name: o.ownerName }
+        }),
+    [serverRows, overrides],
+  )
+
+  const myIds = React.useMemo(() => new Set(claims?.viewer.myIds ?? []), [claims])
+
+  /** Optimistic update → server action → toast; roll back on failure. */
+  function runClaimAction(
+    row: FeedbackPipelineRow,
+    optimistic: ClaimOverride,
+    call: () => Promise<ActionResult>,
+    success: string,
+  ) {
+    const prev = overrides[row.task_id] ?? null
+    setOverride(row.task_id, optimistic)
+    startTransition(async () => {
+      const res = await call()
+      if (res.ok) {
+        toast.success(success)
+        router.refresh()
+      } else {
+        setOverride(row.task_id, prev)
+        toast.error("Couldn't update the task", { description: res.error })
+      }
+    })
+  }
+
+  const renderActions =
+    claims && !claims.setupMissing
+      ? (r: FeedbackPipelineRow) => (
+          <ClaimActions
+            row={r}
+            claims={claims}
+            myIds={myIds}
+            onClaim={() =>
+              runClaimAction(
+                r,
+                { ownerId: claims.viewer.myIds[0] ?? "me", ownerName: "You" },
+                () => claimFeedbackTask(r.task_id),
+                "Claimed — it's yours.",
+              )
+            }
+            onRelease={() =>
+              runClaimAction(r, { ownerId: null, ownerName: null }, () => releaseFeedbackTask(r.task_id), "Released — back to unclaimed.")
+            }
+            onReassign={(userId, name) =>
+              runClaimAction(
+                r,
+                { ownerId: userId, ownerName: name },
+                () => reassignFeedbackTask(r.task_id, userId),
+                `Assigned to ${name}.`,
+              )
+            }
+            onClose={() =>
+              runClaimAction(
+                r,
+                { ownerId: r.claimed_by_id, ownerName: r.claimed_by_name, closed: true },
+                () => closeFeedbackTask(r.task_id),
+                "Closed — moved on to Pending Review.",
+              )
+            }
+          />
+        )
+      : undefined
+
   const [claimedBy, setClaimedBy] = React.useState<string>(ALL)
   const [accountManager, setAccountManager] = React.useState<string>(ALL)
   const [inProgClaim, setInProgClaim] = React.useState<ClaimFilter>("all")
@@ -233,10 +348,12 @@ export function FeedbackPipelineView({
 
   const inProgressRows = React.useMemo(() => {
     let list = inProgressAll.filter(passesShared)
-    if (inProgClaim === "claimed") list = list.filter((r) => r.claimed)
+    const mine = (r: FeedbackPipelineRow) => !!r.claimed_by_id && myIds.has(r.claimed_by_id)
     if (inProgClaim === "unclaimed") list = list.filter((r) => !r.claimed)
+    if (inProgClaim === "mine") list = list.filter(mine)
+    if (inProgClaim === "others") list = list.filter((r) => r.claimed && !mine(r))
     return sortRows(list, ipSort)
-  }, [inProgressAll, passesShared, inProgClaim, ipSort])
+  }, [inProgressAll, passesShared, inProgClaim, ipSort, myIds])
 
   const pendingRows = React.useMemo(
     () => sortRows(pendingAll.filter(passesShared), prSort),
@@ -313,6 +430,42 @@ export function FeedbackPipelineView({
           sort={prSort}
           onSort={togglePrSort}
           dateHeader="Fb Closed"
+          // Same column count as Open so the two tables stay aligned; Pending
+          // Review rows carry no claim actions.
+          renderActions={
+            renderActions && claims
+              ? (r) => {
+                  const review = claims.reviews[r.task_id]
+                  // Only dashboard-origin review tasks (explicit link), and only
+                  // for the client's account team — the action re-checks both.
+                  if (!review || !review.canClose) return null
+                  return (
+                    <button
+                      type="button"
+                      className={ACTION_BTN}
+                      disabled={claims.viewer.impersonated}
+                      title={
+                        claims.viewer.impersonated
+                          ? "Exit “View as” to close reviews"
+                          : "Complete the Feedback Report Pending Review task"
+                      }
+                      onClick={() => {
+                        if (window.confirm("Mark this feedback report review complete?")) {
+                          runClaimAction(
+                            r,
+                            { ownerId: r.claimed_by_id, ownerName: r.claimed_by_name, closed: true },
+                            () => closeFeedbackReview(review.reviewTaskId),
+                            "Review complete — the report is done.",
+                          )
+                        }
+                      }}
+                    >
+                      Close
+                    </button>
+                  )
+                }
+              : undefined
+          }
         />
       </Section>
 
@@ -331,21 +484,45 @@ export function FeedbackPipelineView({
           />
         )}
         <Section
-          title="Open"
-          caption="Waiting = days since all meeting level feedback has been received and report draft has started. Sorted by longest waiting first."
-          count={inProgressRows.length}
+          title={inProgClaim === "closed" ? "Closed" : "Open"}
+          caption={
+            inProgClaim === "closed"
+              ? "Feedback tasks closed here with Close — each one moved on to Pending Review. Most recent first."
+              : "Waiting = days since all meeting level feedback has been received and report draft has started. Sorted by longest waiting first."
+          }
+          count={inProgClaim === "closed" ? (claims?.closed.length ?? 0) : inProgressRows.length}
           headerRight={
-            <SubToggle value={inProgClaim} onChange={setInProgClaim} />
+            <SubToggle value={inProgClaim} onChange={setInProgClaim} withClaims={!!claims} />
           }
         >
-          <PipelineTable
-            rows={inProgressRows}
-            today={today}
-            sort={ipSort}
-            onSort={toggleIpSort}
-            dateHeader="FB Received"
-            emphasizeUnclaimed
-          />
+          {claims?.setupMissing && claims.viewer.isAdmin && (
+            <div className={`mb-2.5 px-4 py-2.5 text-xs ${CARD_CLASS}`} style={{ color: TONE.amber.text, background: TONE.amber.bg }}>
+              Claiming is built but switched off until <code>sql/patches/2026-10-07_feedback_claims.sql</code> is run in Supabase.
+            </div>
+          )}
+          {inProgClaim === "closed" ? (
+            <ClosedTable rows={claims?.closed ?? []} />
+          ) : (
+            <PipelineTable
+              rows={inProgressRows}
+              today={today}
+              sort={ipSort}
+              onSort={toggleIpSort}
+              dateHeader="FB Received"
+              emphasizeUnclaimed
+              renderActions={renderActions}
+              claimedAt={claims?.meta}
+              emptyText={
+                inProgClaim === "mine"
+                  ? "You haven't claimed any open feedback tasks."
+                  : inProgClaim === "unclaimed"
+                    ? "Nothing is waiting to be claimed."
+                    : inProgClaim === "others"
+                      ? "Nobody else has an open claimed task."
+                      : undefined
+              }
+            />
+          )}
         </Section>
       </div>
     </>
@@ -564,17 +741,17 @@ function Section({
 }
 
 // Shared column widths so the two stacked tables align pixel-for-pixel.
-function ColGroup() {
+function ColGroup({ withActions = false }: { withActions?: boolean }) {
+  // With the claim Actions column, the other columns give up a little width so
+  // both stacked tables still align (both get the same flag).
+  const w = withActions
+    ? ["13%", "15%", "11%", "8%", "8%", "8%", "12%", "12%", "13%"]
+    : ["15%", "19%", "13%", "10%", "10%", "9%", "14%", "10%"]
   return (
     <colgroup>
-      <col style={{ width: "15%" }} />
-      <col style={{ width: "19%" }} />
-      <col style={{ width: "13%" }} />
-      <col style={{ width: "10%" }} />
-      <col style={{ width: "10%" }} />
-      <col style={{ width: "9%" }} />
-      <col style={{ width: "14%" }} />
-      <col style={{ width: "10%" }} />
+      {w.map((width, i) => (
+        <col key={i} style={{ width }} />
+      ))}
     </colgroup>
   )
 }
@@ -590,6 +767,9 @@ function PipelineTable({
   onSort,
   dateHeader,
   emphasizeUnclaimed = false,
+  renderActions,
+  claimedAt,
+  emptyText,
 }: {
   rows: FeedbackPipelineRow[]
   today: string
@@ -599,18 +779,23 @@ function PipelineTable({
   // "Fb Closed" (Pending Review).
   dateHeader: string
   emphasizeUnclaimed?: boolean
+  /** Claim workflow buttons for a row; when set, an Actions column is drawn. */
+  renderActions?: (r: FeedbackPipelineRow) => React.ReactNode
+  /** task_id → claim facts, for the "since" date under the owner. */
+  claimedAt?: ClaimsContext["meta"]
+  emptyText?: string
 }) {
   if (rows.length === 0) {
     return (
       <div className={`px-4 py-8 text-center text-sm text-muted-foreground ${CARD_CLASS}`}>
-        No reports match the current filters.
+        {emptyText ?? "No reports match the current filters."}
       </div>
     )
   }
   return (
     <div className={`overflow-x-auto ${CARD_CLASS}`}>
       <table className="w-full table-fixed text-sm">
-        <ColGroup />
+        <ColGroup withActions={!!renderActions} />
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
             <SortTh k="client" sort={sort} onSort={onSort}>Client</SortTh>
@@ -621,6 +806,7 @@ function PipelineTable({
             <SortTh k="taskdate" sort={sort} onSort={onSort} center>{dateHeader}</SortTh>
             <SortTh k="am" sort={sort} onSort={onSort}>Client Mgr</SortTh>
             <SortTh k="claimed" sort={sort} onSort={onSort}>Claimed By</SortTh>
+            {renderActions && <th className="px-3 py-2 text-left font-medium">Actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -682,7 +868,13 @@ function PipelineTable({
                 {/* Claimed By / Was Claimed By */}
                 <td className="px-3 py-2.5">
                   <ClaimedCell row={r} emphasizeUnclaimed={emphasizeUnclaimed} />
+                  {r.claimed && claimedAt?.[r.task_id]?.claimedAt && (
+                    <div className="mt-0.5 pl-8 text-[11px] tabular-nums text-muted-foreground">
+                      since {fmtDate(claimedAt[r.task_id].claimedAt)}
+                    </div>
+                  )}
                 </td>
+                {renderActions && <td className="px-3 py-2">{renderActions(r)}</td>}
               </tr>
             )
           })}
@@ -771,6 +963,165 @@ function ClaimedCell({
   return <span className="text-muted-foreground">—</span>
 }
 
+// ---------------------------------------------------------------------------
+// Claim workflow — row buttons + the Closed list. The buttons are cosmetic:
+// every action re-checks permission, pool and owner on the server
+// (app/feedback-manager/actions.ts).
+// ---------------------------------------------------------------------------
+const ACTION_BTN =
+  "inline-flex h-7 items-center rounded-md border border-input bg-background px-2 text-xs font-medium " +
+  "text-foreground transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+
+function ClaimActions({
+  row,
+  claims,
+  myIds,
+  onClaim,
+  onRelease,
+  onReassign,
+  onClose,
+}: {
+  row: FeedbackPipelineRow
+  claims: ClaimsContext
+  myIds: Set<string>
+  onClaim: () => void
+  onRelease: () => void
+  onReassign: (userId: string, name: string) => void
+  onClose: () => void
+}) {
+  const [picking, setPicking] = React.useState(false)
+  // Only tasks inside the claimable pool get buttons — today that is
+  // dashboard-origin Feedback tasks; Dynamics-origin rows stay read-only until
+  // the cutover switch opens them.
+  if (row.category !== "in_progress" || !claims.meta[row.task_id]) return null
+
+  const { viewer } = claims
+  const owner = row.claimed ? row.claimed_by_id : null
+  const isMine = !!owner && myIds.has(owner)
+  const disabled = viewer.impersonated
+  const title = disabled ? "Exit “View as” to change claims" : undefined
+
+  const buttons: React.ReactNode[] = []
+  if (!owner && viewer.canClaim) {
+    buttons.push(
+      <button key="claim" type="button" className={ACTION_BTN} disabled={disabled} title={title} onClick={onClaim}>
+        Claim
+      </button>,
+    )
+  }
+  if (owner && (isMine || viewer.isAdmin)) {
+    buttons.push(
+      <button key="release" type="button" className={ACTION_BTN} disabled={disabled} title={title} onClick={onRelease}>
+        Release
+      </button>,
+    )
+  }
+  if (viewer.isAdmin) {
+    buttons.push(
+      <button
+        key="reassign"
+        type="button"
+        className={ACTION_BTN}
+        disabled={disabled}
+        title={title}
+        onClick={() => setPicking((p) => !p)}
+      >
+        {owner ? "Reassign" : "Assign"}
+      </button>,
+    )
+  }
+  if (isMine || viewer.isAdmin) {
+    buttons.push(
+      <button
+        key="close"
+        type="button"
+        className={ACTION_BTN}
+        disabled={disabled}
+        title={title ?? "Complete this Feedback task — it moves on to Pending Review"}
+        onClick={() => {
+          if (window.confirm("Close this feedback task? It will be marked complete and move on to Pending Review.")) onClose()
+        }}
+      >
+        Close
+      </button>,
+    )
+  }
+  if (buttons.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap gap-1">{buttons}</div>
+      {picking && viewer.isAdmin && (
+        <select
+          autoFocus
+          defaultValue=""
+          aria-label="Assign to"
+          className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+          onChange={(e) => {
+            const person = claims.roster.find((p) => p.userId === e.target.value)
+            if (!person) return
+            setPicking(false)
+            onReassign(person.userId, person.name)
+          }}
+        >
+          <option value="" disabled>
+            Assign to…
+          </option>
+          {claims.roster
+            .filter((p) => p.userId !== owner)
+            .map((p) => (
+              <option key={p.userId} value={p.userId}>
+                {p.name}
+              </option>
+            ))}
+        </select>
+      )}
+    </div>
+  )
+}
+
+function ClosedTable({ rows }: { rows: ClosedClaimRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <div className={`px-4 py-8 text-center text-sm text-muted-foreground ${CARD_CLASS}`}>
+        No feedback tasks have been closed here yet.
+      </div>
+    )
+  }
+  return (
+    <div className={`overflow-x-auto ${CARD_CLASS}`}>
+      <table className="w-full table-fixed text-sm">
+        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground">
+          <tr>
+            <th className="px-3 py-2 text-left font-medium">Client</th>
+            <th className="px-3 py-2 text-left font-medium">Event</th>
+            <th className="px-3 py-2 text-left font-medium">Owner</th>
+            <th className="px-3 py-2 text-left font-medium">Closed By</th>
+            <th className="px-3 py-2 text-center font-medium">Closed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.taskId} className="border-b last:border-0">
+              <td className="truncate px-3 py-2.5 font-medium">{r.client ?? "—"}</td>
+              <td className="truncate px-3 py-2.5">{r.event ?? "—"}</td>
+              <td className="px-3 py-2.5">
+                {r.ownerName ? <PersonChip name={r.ownerName} /> : <span className="text-muted-foreground">Unclaimed</span>}
+              </td>
+              <td className="px-3 py-2.5">
+                {r.closedByName ? <PersonChip name={r.closedByName} /> : <span className="text-muted-foreground">—</span>}
+              </td>
+              <td className="whitespace-nowrap px-3 py-2.5 text-center tabular-nums text-muted-foreground">
+                {fmtDate(r.closedAt)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 // Deterministic avatar circle from a person's name.
 const AVATAR_COLORS = ["#1E2858", "#0355A7", "#1C8C9C", "#0E7C56", "#92600B", "#7A3E9D"]
 function initials(name: string): string {
@@ -835,14 +1186,18 @@ function FilterSelect({
 function SubToggle({
   value,
   onChange,
+  withClaims = false,
 }: {
   value: ClaimFilter
   onChange: (v: ClaimFilter) => void
+  withClaims?: boolean
 }) {
   const opts: { v: ClaimFilter; label: string }[] = [
     { v: "all", label: "All" },
-    { v: "claimed", label: "Claimed" },
     { v: "unclaimed", label: "Unclaimed" },
+    { v: "mine", label: "Mine" },
+    { v: "others", label: "Claimed by others" },
+    ...(withClaims ? [{ v: "closed" as const, label: "Closed" }] : []),
   ]
   return (
     <div

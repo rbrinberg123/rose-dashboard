@@ -83,3 +83,16 @@ test("a failed code exchange returns to /login with the encoded error", () => {
   assert.equal(d.action, "error")
   assert.equal(d.redirectTo, "/login?error=invalid%20request")
 })
+
+test("the role-aware landing page is used when there is no valid next", () => {
+  assert.equal(
+    decideAuthCallback({ hasCode: true, sessionEmailAllowed: true, defaultNext: "/my-dashboard" }).redirectTo,
+    "/my-dashboard",
+  )
+  // An explicit, safe next still wins.
+  assert.equal(
+    decideAuthCallback({ hasCode: true, sessionEmailAllowed: true, next: "/time-off", defaultNext: "/my-dashboard" })
+      .redirectTo,
+    "/time-off",
+  )
+})
