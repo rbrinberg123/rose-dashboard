@@ -12,9 +12,10 @@ import {
   countTestRows,
   easternLocalToIso,
   isUuid,
-  loadAccountOptions,
+  loadActiveAccountOptions,
   loadClientEventOptions,
-  loadUserOptions,
+  loadPersonnelOptions,
+  requireActivePersonnel,
   purgeTestRows,
   requireCrmWriter,
   isIsoDate,
@@ -28,7 +29,10 @@ import {
   searchInstitutionOptions,
 } from "@/lib/crm-write"
 import {
+  MEETING_CANCELLED_OPTIONS,
+  MEETING_EVENT_STAGES,
   MEETING_STATUS_OPTIONS,
+  validateMeetingRequired,
   MEETING_TYPE_OPTIONS,
   type ChoiceOption,
   type MeetingChoiceOptions,
@@ -323,16 +327,28 @@ export async function loadMeetingFilterOptions(): Promise<ActionResult<FilterOpt
 // The same shared plumbing as every live CRM entity (lib/crm-write.ts): write
 // gate, re-reads, ownership stamp, guarded edit, audited purge.
 
-export async function loadMeetingClientOptions(): Promise<ActionResult<AccountOption[]>> {
-  return loadAccountOptions()
+/** ACTIVE clients only (shared with the Event form); an edited meeting keeps its own. */
+export async function loadMeetingClientOptions(includeAccountId?: string | null): Promise<ActionResult<AccountOption[]>> {
+  return loadActiveAccountOptions(includeAccountId)
 }
 
-export async function loadMeetingUserOptions(): Promise<ActionResult<UserOption[]>> {
-  return loadUserOptions()
+/**
+ * The five people pickers (Host, Booker, Second Host, On Behalf Of, Feedback):
+ * Rose & Co ACTIVE personnel (lib/crm-write.ts loadPersonnelOptions).
+ * `keepIds` = the people already on the meeting being edited, kept even if
+ * now inactive.
+ */
+export async function loadMeetingUserOptions(keepIds: (string | null)[] = []): Promise<ActionResult<UserOption[]>> {
+  return loadPersonnelOptions(keepIds)
 }
 
-export async function loadMeetingEventOptions(accountId: string) {
-  return loadClientEventOptions(accountId)
+/**
+ * The client's events still taking meetings — Pre-Launch / Live Outreach /
+ * Meetings Ongoing (MEETING_EVENT_STAGES). An edited meeting keeps its current
+ * event listed whatever its stage.
+ */
+export async function loadMeetingEventOptions(accountId: string, keepEventId?: string | null) {
+  return loadClientEventOptions(accountId, { stages: MEETING_EVENT_STAGES, keepEventId })
 }
 
 export async function searchMeetingInstitutions(query: string) {
@@ -398,8 +414,15 @@ export async function loadMeetingChoiceOptions(): Promise<ActionResult<MeetingCh
  */
 async function buildMeetingColumns(
   input: NewMeetingInput,
+  /** Edit only: the meeting's stored event — kept even if its stage moved on. */
+  currentEventId: string | null = null,
+  /** Edit only: people already on the meeting — kept even if now inactive. */
+  currentPeople: ReadonlySet<string> = new Set(),
 ): Promise<ActionResult<{ cols: Record<string, unknown>; raw: Record<string, unknown> }>> {
-  if (!cleanText(input.clientAccountId)) return fail("Pick a client.")
+  // REQUIRED: Client, Type, Institution, Investor — the same rule the form
+  // applies before submit (lib/meetings/create.ts validateMeetingRequired).
+  const missing = Object.values(validateMeetingRequired(input))
+  if (missing.length) return fail(missing.join(" "))
   const clientRes = await resolveAccount(input.clientAccountId)
   if (!clientRes.ok) return fail(clientRes.error)
   const client = clientRes.data!
@@ -415,6 +438,15 @@ async function buildMeetingColumns(
   const evRes = await resolveClientEvent(input.eventId, client.account_id)
   if (!evRes.ok) return fail(evRes.error)
   const event = evRes.data
+  // Event STAGE: a new link must be to an event still taking meetings; an
+  // unchanged link on edit is kept whatever its stage.
+  if (
+    event &&
+    event.event_id !== currentEventId &&
+    !(MEETING_EVENT_STAGES as readonly string[]).includes((event.event_state_label ?? "").trim())
+  ) {
+    return fail(`That event is ${event.event_state_label ?? "in no stage"} — meetings can only be added to Pre-Launch, Live Outreach or Meetings Ongoing events.`)
+  }
 
   // Institution: must be one already on a meeting (not a synced table).
   let institution: { id: string; name: string } | null = null
@@ -431,6 +463,19 @@ async function buildMeetingColumns(
     const name = (data?.[0] as { institution_name?: string } | undefined)?.institution_name
     if (!name) return fail("That institution isn't known.")
     institution = { id: instId, name }
+  }
+
+  // People: active Rose & Co personnel only (an already-assigned person may
+  // stay even if now inactive) — the same rule as the form's pickers.
+  for (const [v, label] of [
+    [input.hostId, "Host"],
+    [input.bookerId, "Booker"],
+    [input.host2Id, "Second Host"],
+    [input.onBehalfOfId, "On Behalf Of"],
+    [input.feedbackId, "Feedback"],
+  ] as const) {
+    const p = await requireActivePersonnel(v, currentPeople, label)
+    if (!p.ok) return fail(p.error)
   }
 
   const hostRes = await resolveUser(input.hostId)
@@ -470,6 +515,10 @@ async function buildMeetingColumns(
   const stateRegion = stateName ? opts.states.find((c) => c.name === stateName) : null
   if (stateName && !stateRegion) return fail("Pick a state / region from the list.")
 
+  const cancelled =
+    input.cancelledCode == null ? null : MEETING_CANCELLED_OPTIONS.find((o) => o.code === input.cancelledCode)
+  if (input.cancelledCode != null && !cancelled) return fail("Unknown Cancelled value.")
+
   const fbRec = cleanText(input.fbReceivedDate)
   if (fbRec && !isIsoDate(fbRec)) return fail("FB Rec'd isn't a valid date.")
 
@@ -505,6 +554,13 @@ async function buildMeetingColumns(
     driver: input.driver === true,
     food_order: cleanText(input.foodOrder),
     logistics_notes: cleanText(input.logisticsNotes),
+    // Cancellation / Rescheduling (2026-10-07h flattened columns).
+    cancelled_code: cancelled?.code ?? null,
+    cancelled_label: cancelled?.label ?? null,
+    cancellation_notes: cleanText(input.cancellationNotes),
+    contact_radar: input.contactRadar === true,
+    rescheduled: input.rescheduled === true,
+    rescheduled_notes: cleanText(input.rescheduledNotes),
   }
 
   return ok({
@@ -617,7 +673,7 @@ export async function loadMeetingForEdit(id: string): Promise<ActionResult<NewMe
     "meetings",
     "meeting_id",
     id,
-    "client_account_id, meeting_type_code, meeting_status_code, meeting_date, event_id, institution_id, institution_name, investor_text, host_id, booker_id, general_notes, city_name, state_region_name, group_meeting, hosted_in_hq, on_behalf_of_id, host2_id, feedback_id, client_booked, host_notes_code, calendar_code, profile_code, feedback_bda_code, feedback_status_code, fb_received_date, feedback_notes, sent, confirm, driver, food_order, logistics_notes",
+    "client_account_id, meeting_type_code, meeting_status_code, meeting_date, event_id, institution_id, institution_name, investor_text, host_id, booker_id, general_notes, city_name, state_region_name, group_meeting, hosted_in_hq, on_behalf_of_id, host2_id, feedback_id, client_booked, host_notes_code, calendar_code, profile_code, feedback_bda_code, feedback_status_code, fb_received_date, feedback_notes, sent, confirm, driver, food_order, logistics_notes, cancelled_code, cancellation_notes, contact_radar, rescheduled, rescheduled_notes",
   )
   if (!res.ok) return fail(res.error)
   const r = res.data
@@ -653,6 +709,11 @@ export async function loadMeetingForEdit(id: string): Promise<ActionResult<NewMe
     driver: r.driver === true,
     foodOrder: asText(r.food_order),
     logisticsNotes: asText(r.logistics_notes),
+    cancelledCode: r.cancelled_code == null ? null : Number(r.cancelled_code),
+    cancellationNotes: asText(r.cancellation_notes),
+    contactRadar: r.contact_radar === true,
+    rescheduled: r.rescheduled === true,
+    rescheduledNotes: asText(r.rescheduled_notes),
     isTest: r.is_test === true,
   })
 }
@@ -664,7 +725,15 @@ export async function updateMeeting(
 ): Promise<ActionResult<{ changed: number }>> {
   const gate = await requireCrmWriter("editing meetings")
   if (!gate.ok) return fail(gate.error)
-  const built = await buildMeetingColumns(input)
+  // The stored event, so an unchanged link to a later-stage event still saves.
+  const { data: cur } = await getSupabaseServer()
+    .from("meetings")
+    .select("event_id, host_id, booker_id, host2_id, on_behalf_of_id, feedback_id")
+    .eq("meeting_id", id)
+    .maybeSingle()
+  const c = (cur ?? {}) as Record<string, string | null>
+  const people = new Set([c.host_id, c.booker_id, c.host2_id, c.on_behalf_of_id, c.feedback_id].filter((v): v is string => !!v))
+  const built = await buildMeetingColumns(input, c.event_id ?? null, people)
   if (!built.ok) return fail(built.error)
   return updateDashboardRow({
     table: "meetings",

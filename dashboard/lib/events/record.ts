@@ -39,6 +39,14 @@ export type EventRecord = {
   origin?: string | null
   /** Dashboard-created test row (drawer TEST badge). */
   is_test?: boolean
+  /** bcs_paused — the lifecycle Pause toggle. Read off the table (the view lacks it). */
+  paused?: boolean | null
+  /**
+   * The CLIENT's current account team, read live off its accounts lookups
+   * (the drawer's account-team icons). Distinct from the event's own role
+   * columns below, which are a snapshot taken when the event was created.
+   */
+  client_team?: { role: string; name: string | null }[]
   event_id: string
   /** Drives the Client headline link; null when the event has no account. */
   client_account_id: string | null
@@ -170,6 +178,8 @@ export const EVENT_SECTIONS: EventSectionDef[] = [
       { label: "Targeting Notes", sourceKey: "targeting_notes", type: "notes" },
       { label: "Launch", sourceKey: "launch", type: "toggle" },
       { label: "Outreach Complete", sourceKey: "outreach_complete", type: "toggle" },
+      // Drawer-only (no SOURCE entry in spec.ts, so not a table column).
+      { label: "Paused", sourceKey: "paused", type: "toggle" },
     ],
   },
 ]

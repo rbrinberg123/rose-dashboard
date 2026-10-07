@@ -114,6 +114,53 @@ export const AUTOMATIONS: readonly Automation[] = [
     where: [],
   },
 
+  // ---------------------------------------------------------- event lifecycle
+  {
+    id: "event-lifecycle-compute",
+    name: "Event stage computed from lifecycle",
+    kind: "Database trigger",
+    trigger:
+      "Any event insert / update (Launch, Outreach Complete, Pause, meetings start…); any meeting added, moved, re-dated, cancelled / reinstated, deactivated or deleted; any Feedback or Feedback Report Sent task created, closed, reopened or deleted.",
+    effect:
+      "Recomputes the event's stage (event_state_label / code): Pause → Complete → Preparing Feedback → Meetings Ongoing → Schedule Closed → Live Outreach → Pre-Launch, first match wins. In the same step derives Marketing (only while Live Outreach; Not Marketing otherwise). Every stage change is written to the audit log.",
+    scope: "origin = 'dashboard' events only (event_lifecycle_in_scope). Dynamics-origin events keep their synced stage.",
+    applicability: "Dashboard now · Dynamics at cutover",
+    status: "Active",
+    where: [
+      "sql/patches/2026-10-07e_event_lifecycle.sql — event_lifecycle_stage, events_compute_stage, meetings_event_stage, tasks_event_stage",
+    ],
+  },
+  {
+    id: "event-last-data-upload",
+    name: "Event Last Data Upload / Memo Date / Targeting Date lookup",
+    kind: "Database trigger",
+    trigger:
+      "Any event insert / update; any task with sub-type Data Upload, Marketing Memo or Targeting created, closed, reopened, re-dated, re-linked or deleted.",
+    effect:
+      "Sets the event's Last Data Upload, Memo Date and Targeting Date to the completion date of the client's most recent Completed task of each sub-type (client-level, latest wins). Not typed by anyone.",
+    scope: "origin = 'dashboard' events only. Dynamics-origin events keep their synced value.",
+    applicability: "Dashboard now · Dynamics at cutover",
+    status: "Active",
+    where: [
+      "sql/patches/2026-10-07g_event_reps_task_dates.sql — event_client_latest_task, tasks_event_task_dates (supersedes 2026-10-07f's tasks_event_data_upload)",
+    ],
+  },
+  {
+    id: "event-lifecycle-daily",
+    name: "Daily event stage recompute",
+    kind: "Scheduled job",
+    trigger: "Vercel Cron daily 10:05 UTC (≈ 6 AM Eastern).",
+    effect:
+      "Re-evaluates every active dashboard-origin event's stage, so the date-driven steps happen with no edit: Meetings Ongoing on the meetings-start day, Preparing Feedback the morning after the last meeting.",
+    scope: "Active, origin = 'dashboard' events. Rewrites only stages that changed.",
+    applicability: "Dashboard now · Dynamics at cutover",
+    status: "Active",
+    where: [
+      "app/api/events/recompute-stages/route.ts",
+      "sql/patches/2026-10-07e_event_lifecycle.sql — events_recompute_all_stages",
+    ],
+  },
+
   // ---------------------------------------------------------- sync + AI jobs
   {
     id: "dynamics-sync",

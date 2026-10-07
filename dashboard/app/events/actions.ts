@@ -28,11 +28,11 @@ import {
   countTestRows,
   easternLocalToIso,
   isIsoDate,
-  loadAccountOptions,
+  isUuid,
   purgeTestRows,
   requireCrmWriter,
   loadUserOptions,
-  resolveUser,
+  loadActiveAccountOptions,
   updateDashboardRow,
   loadDashboardRowForEdit,
   asText,
@@ -40,13 +40,19 @@ import {
   resolveAccount,
 } from "@/lib/crm-write"
 import {
-  EVENT_FEEDBACK_TEAMS,
   EVENT_LEAD_OPTIONS,
   EVENT_MARKETING_OPTIONS,
   EVENT_STATE_OPTIONS,
   EVENT_URGENCY_OPTIONS,
+  EVENT_TASK_DATE_SUBTYPES,
+  validateEventRequired,
+  type EventRepresentative,
+  type EventTaskDateKey,
+  type EventTaskDates,
+  buildEventName,
   type NewEventInput,
 } from "@/lib/events/create"
+import { ACCOUNT_TEAM_KEYS } from "@/lib/account-team"
 import type { AccountOption, UserOption } from "@/lib/types"
 import {
   availableColumns,
@@ -234,19 +240,55 @@ export async function loadEventRecord(eventId: string): Promise<ActionResult<Eve
   // is_test for the drawer TEST badge, read off the table (the view lacks it).
   const { data: flag } = await sb
     .from("events")
-    .select("is_test, origin, mining")
+    .select("is_test, origin, mining, paused")
     .eq("event_id", eventId)
     .maybeSingle()
 
-  return ok({ ...(data as unknown as EventRecord), is_test: flag?.is_test === true, origin: (flag?.origin as string | undefined) ?? null, mining: (flag?.mining as boolean | null | undefined) ?? null })
+  // The client's CURRENT account team, for the drawer's icons — read live off
+  // the account (projected from account_team_members for dashboard clients).
+  const clientId = (data as unknown as EventRecord).client_account_id
+  let clientTeam: EventRecord["client_team"] = []
+  if (clientId) {
+    const { data: acct } = await sb
+      .from("accounts")
+      .select([...ACCOUNT_TEAM_KEYS, "feedback_report_name"].join(", "))
+      .eq("account_id", clientId)
+      .maybeSingle()
+    const a = (acct ?? {}) as unknown as Record<string, string | null>
+    clientTeam = CLIENT_TEAM_FIELDS.map((f) => ({ role: f.role, name: a[f.key] ?? null }))
+  }
+
+  return ok({
+    ...(data as unknown as EventRecord),
+    is_test: flag?.is_test === true,
+    origin: (flag?.origin as string | undefined) ?? null,
+    mining: (flag?.mining as boolean | null | undefined) ?? null,
+    paused: (flag?.paused as boolean | null | undefined) ?? null,
+    client_team: clientTeam,
+  })
 }
+
+/** The account-team roles the drawer shows, in order, with their accounts column. */
+const CLIENT_TEAM_FIELDS = [
+  { role: "Account Manager", key: "sales_lead_primary_name" },
+  { role: "Secondary Manager", key: "secondary_manager_name" },
+  { role: "Associate", key: "associate_name" },
+  { role: "Logistics Coordinator", key: "logistics_coordinator_name" },
+  { role: "Feedback Report", key: "feedback_report_name" },
+] as const
 
 /* ------------------------------------------------------------- event writes */
 // The same shared plumbing as every live CRM entity (lib/crm-write.ts): write
 // gate, re-reads, ownership stamp, guarded edit, audited purge.
 
-export async function loadEventClientOptions(): Promise<ActionResult<AccountOption[]>> {
-  return loadAccountOptions()
+/**
+ * The form's client picker: ACTIVE clients only — accounts.state_label =
+ * 'Active', the same rule Portfolio and the views use. `includeAccountId`
+ * keeps an edited event's own client listed even if it has since gone
+ * inactive.
+ */
+export async function loadEventClientOptions(includeAccountId?: string | null): Promise<ActionResult<AccountOption[]>> {
+  return loadActiveAccountOptions(includeAccountId)
 }
 
 /** People for the Account Manager / Logistics Coordinator / Feedback Report pickers. */
@@ -254,20 +296,174 @@ export async function loadEventUserOptions(): Promise<ActionResult<UserOption[]>
   return loadUserOptions()
 }
 
+/**
+ * The client's three LOOKED-UP dates — Last Data Upload, Memo Date, Targeting
+ * Date: each the completion time of its most recent Completed task of that
+ * sub-type (EVENT_TASK_DATE_SUBTYPES, linked by bcs_account_id). Client-level —
+ * the latest wins whichever event it was for. null = none. Same rule as
+ * event_client_latest_task() in SQL, which keeps the stored columns fresh.
+ */
+async function latestTaskDates(accountId: string): Promise<ActionResult<EventTaskDates>> {
+  const keys = Object.keys(EVENT_TASK_DATE_SUBTYPES) as EventTaskDateKey[]
+  const results = await Promise.all(
+    keys.map((k) =>
+      getSupabaseServer()
+        .from("tasks")
+        .select("actual_end")
+        .eq("bcs_account_id", accountId)
+        .eq("bcs_task_subtype_label", EVENT_TASK_DATE_SUBTYPES[k])
+        .eq("state_label", "Completed")
+        .not("actual_end", "is", null)
+        .order("actual_end", { ascending: false })
+        .limit(1),
+    ),
+  )
+  const out = {} as EventTaskDates
+  for (let i = 0; i < keys.length; i++) {
+    const { data, error } = results[i]
+    if (error) return fail(describeError(error))
+    out[keys[i]] = ((data ?? [])[0]?.actual_end as string | undefined) ?? null
+  }
+  return ok(out)
+}
+
+/** The form's read-only task-derived dates, for the picked client. */
+export async function loadClientTaskDates(accountId: string): Promise<ActionResult<EventTaskDates>> {
+  const role = await getEffectiveRole()
+  if (role !== "super_user") return fail("Not authorised.")
+  if (!isUuid(accountId)) return fail("Unknown client.")
+  return latestTaskDates(accountId)
+}
+
+/* ------------------------------------------------- company representatives */
+
+export type EventContactOption = { contact_id: string; full_name: string | null; job_title: string | null; parent_customer_name: string | null }
+
+/**
+ * Contacts for the "Add existing contact" picker: by default the event
+ * client's own contacts (contacts.parent_customer_id = the client); `all`
+ * widens to every active contact. Active contacts only.
+ */
+export async function loadEventContactOptions(input: {
+  clientAccountId: string | null
+  all: boolean
+}): Promise<ActionResult<EventContactOption[]>> {
+  const role = await getEffectiveRole()
+  if (role !== "super_user") return fail("Not authorised.")
+  let q = getSupabaseServer()
+    .from("contacts")
+    .select("contact_id, full_name, job_title, parent_customer_name")
+    .eq("state_label", "Active")
+  if (!input.all) {
+    if (!input.clientAccountId || !isUuid(input.clientAccountId)) return ok([])
+    q = q.eq("parent_customer_id", input.clientAccountId)
+  }
+  const { data, error } = await q.order("full_name", { ascending: true }).limit(5000)
+  if (error) return fail(describeError(error))
+  return ok((data ?? []) as EventContactOption[])
+}
+
+/** "Job title · Company" — the picker / list's second line. */
+function contactDetail(c: { job_title: string | null; parent_customer_name: string | null }): string | null {
+  return [c.job_title, c.parent_customer_name].map((s) => (s ?? "").trim()).filter(Boolean).join(" · ") || null
+}
+
+/** An event's representatives, joined to their contact records. */
+async function loadRepresentatives(eventId: string): Promise<ActionResult<EventRepresentative[]>> {
+  const sb = getSupabaseServer()
+  const { data: links, error } = await sb.from("event_contacts").select("contact_id, added_at").eq("event_id", eventId).order("added_at")
+  if (error) {
+    // Before sql/patches/2026-10-07g runs, the table doesn't exist — no reps.
+    if (/event_contacts|does not exist/.test(error.message)) return ok([])
+    return fail(describeError(error))
+  }
+  const ids = (links ?? []).map((l) => l.contact_id as string)
+  if (ids.length === 0) return ok([])
+  const { data: contacts, error: cErr } = await sb
+    .from("contacts")
+    .select("contact_id, full_name, job_title, parent_customer_name")
+    .in("contact_id", ids)
+  if (cErr) return fail(describeError(cErr))
+  const byId = new Map(((contacts ?? []) as EventContactOption[]).map((c) => [c.contact_id, c]))
+  return ok(
+    ids.map((id) => {
+      const c = byId.get(id)
+      return { contactId: id, name: c?.full_name ?? "(deleted contact)", detail: c ? contactDetail(c) : null }
+    }),
+  )
+}
+
+/** The drawer's Company Representatives list (any origin; empty for Dynamics). */
+export async function loadEventRepresentatives(eventId: string): Promise<ActionResult<EventRepresentative[]>> {
+  const role = await getEffectiveRole()
+  if (role !== "super_user") return fail("Not authorised.")
+  if (!isUuid(eventId)) return fail("Unknown event.")
+  return loadRepresentatives(eventId)
+}
+
+/**
+ * Make the event's representatives exactly `wanted` (adds + removes, audited).
+ * Contact ids are re-read so a tampered request can only attach real contacts.
+ * Caller has already passed requireCrmWriter for this dashboard event.
+ */
+async function saveRepresentatives(
+  eventId: string,
+  wanted: EventRepresentative[],
+  actor: { userId: string | null; name: string | null },
+  context: string,
+): Promise<ActionResult<{ added: number; removed: number }>> {
+  const sb = getSupabaseServer()
+  const want = [...new Set((wanted ?? []).map((r) => r.contactId))]
+  if (want.some((id) => !isUuid(id))) return fail("Unknown contact.")
+  if (want.length > 100) return fail("Too many representatives.")
+  if (want.length) {
+    const { data: found, error } = await sb.from("contacts").select("contact_id").in("contact_id", want)
+    if (error) return fail(describeError(error))
+    if ((found ?? []).length !== want.length) return fail("A selected contact no longer exists.")
+  }
+
+  const { data: current, error: curErr } = await sb.from("event_contacts").select("contact_id").eq("event_id", eventId)
+  if (curErr) {
+    if (/event_contacts|does not exist/.test(curErr.message)) {
+      return want.length ? fail("Company representatives need the 2026-10-07g SQL patch run first.") : ok({ added: 0, removed: 0 })
+    }
+    return fail(describeError(curErr))
+  }
+  const have = new Set((current ?? []).map((r) => r.contact_id as string))
+  const toAdd = want.filter((id) => !have.has(id))
+  const toRemove = [...have].filter((id) => !want.includes(id))
+
+  if (toAdd.length) {
+    const { error } = await sb.from("event_contacts").insert(
+      toAdd.map((contact_id) => ({ event_id: eventId, contact_id, added_by_id: actor.userId, added_by_name: actor.name })),
+    )
+    if (error) return fail(describeError(error))
+  }
+  if (toRemove.length) {
+    const { error } = await sb.from("event_contacts").delete().eq("event_id", eventId).in("contact_id", toRemove)
+    if (error) return fail(describeError(error))
+  }
+  if (toAdd.length || toRemove.length) {
+    await recordAudit({
+      action: "update",
+      entity: "event_contacts",
+      recordId: eventId,
+      changes: { added: toAdd, removed: toRemove },
+      context,
+    })
+  }
+  return ok({ added: toAdd.length, removed: toRemove.length })
+}
+
 /** Validate + build the FLATTENED event columns — shared by create and edit. */
 async function buildEventColumns(input: NewEventInput): Promise<ActionResult<Record<string, unknown>>> {
-  if (!cleanText(input.clientAccountId)) return fail("Pick a client.")
+  // REQUIRED: Client, Location, # of Slots, Urgency — the same rule the form
+  // applies before submit (lib/events/create.ts validateEventRequired).
+  const missing = Object.values(validateEventRequired(input))
+  if (missing.length) return fail(missing.join(" "))
   const clientRes = await resolveAccount(input.clientAccountId)
   if (!clientRes.ok) return fail(clientRes.error)
   const client = clientRes.data!
-
-  const name = cleanText(input.name)
-  if (!name) return fail("Enter the event name.")
-
-  const state = EVENT_STATE_OPTIONS.find((s) => s.code === input.stateCode)
-  if (!state) return fail("Pick a stage.")
-  const marketing = EVENT_MARKETING_OPTIONS.find((m) => m.code === input.marketingCode)
-  if (!marketing) return fail("Pick a marketing state.")
 
   const startDay = cleanText(input.meetingsStart)
   const endDay = cleanText(input.meetingsEnd)
@@ -284,27 +480,11 @@ async function buildEventColumns(input: NewEventInput): Promise<ActionResult<Rec
   const days: Record<string, string | null> = {}
   for (const [k, label] of [
     ["launchWeek", "Launch Week"],
-    ["memoDate", "Memo Date"],
-    ["lastDataUpload", "Last Data Upload"],
-    ["shareholderReportReceived", "Shareholder Report Received"],
-    ["targetingDate", "Targeting Date"],
   ] as const) {
     const v = cleanText(input[k])
     if (v && !isIsoDate(v)) return fail(`${label} isn't a valid date.`)
     days[k] = v ? easternLocalToIso(`${v}T00:00`) : null
   }
-
-  const people: Record<string, { user_id: string; display_name: string | null } | null> = {}
-  for (const k of ["accountManagerId", "logisticsCoordinatorId", "feedbackReportId"] as const) {
-    const r = await resolveUser(input[k])
-    if (!r.ok) return fail(r.error)
-    people[k] = r.data
-  }
-
-  const team = cleanText(input.feedbackTeamId)
-    ? EVENT_FEEDBACK_TEAMS.find((t) => t.id === input.feedbackTeamId)
-    : null
-  if (cleanText(input.feedbackTeamId) && !team) return fail("Unknown feedback team.")
 
   const pickedLeads = new Set(input.leadCodes ?? [])
   const leads = EVENT_LEAD_OPTIONS.filter((o) => pickedLeads.has(o.code))
@@ -320,44 +500,49 @@ async function buildEventColumns(input: NewEventInput): Promise<ActionResult<Rec
     .select("ticker_symbol")
     .eq("account_id", client.account_id)
     .maybeSingle()
+  const ticker = (acct as { ticker_symbol?: string | null } | null)?.ticker_symbol ?? null
 
+  // The name is REBUILT here from the raw fields on every save — never taken
+  // from the browser. A client with no ticker falls back to its name.
+  const name = buildEventName(cleanText(ticker) ?? client.name, input.location, input.dates)
+
+  // Last Data Upload / Memo Date / Targeting Date are LOOKED UP (the client's
+  // latest completed task of each sub-type), never typed. The database keeps
+  // them fresh as tasks change (sql/patches/2026-10-07g_event_reps_task_dates.sql).
+  const taskDates = await latestTaskDates(client.account_id)
+  if (!taskDates.ok) return fail(taskDates.error)
+
+  // NO stage and NO marketing state here: event_state_* are computed by the
+  // database (events_compute_stage, sql/patches/2026-10-07e/f) from launch /
+  // outreach_complete / paused below + meetings + feedback tasks, and
+  // marketing_state_* is derived from that stage in the same trigger.
+  // Shareholder Report Received is no longer written (column kept for history).
+  // NO people either: createEvent snapshots the client's team once, at create;
+  // an edit never rewrites them.
   return ok({
     name,
     client_account_id: client.account_id,
     client_account_name: client.name,
-    client_ticker: (acct as { ticker_symbol?: string | null } | null)?.ticker_symbol ?? null,
+    client_ticker: ticker,
     dates: cleanText(input.dates),
     event_location: cleanText(input.location),
     event_start_actual: startDay ? easternLocalToIso(`${startDay}T00:00`) : null,
     event_end_actual: endDay ? easternLocalToIso(`${endDay}T00:00`) : null,
     of_slots: slots,
-    event_state_code: state.code,
-    event_state_label: state.label,
-    marketing_state_code: marketing.code,
-    marketing_state_label: marketing.label,
     event_notes: cleanText(input.notes),
 
     tbc: input.tbc === true,
     mining: input.mining === true,
     team: input.team === true,
-    sales_lead_primary_id: people.accountManagerId?.user_id ?? null,
-    sales_lead_primary_name: people.accountManagerId?.display_name ?? null,
-    logistics_coordinator_id: people.logisticsCoordinatorId?.user_id ?? null,
-    logistics_coordinator_name: people.logisticsCoordinatorId?.display_name ?? null,
-    feedback_report_id: people.feedbackReportId?.user_id ?? null,
-    feedback_report_name: people.feedbackReportId?.display_name ?? null,
-    feedback_team_id: team?.id ?? null,
-    feedback_team_name: team?.name ?? null,
     leads_codes: leads.length ? leads.map((l) => l.code).join(",") : null,
     leads_labels: leads.length ? leads.map((l) => l.label).join("; ") : null,
     event_parameters: cleanText(input.eventParameters),
     urgency_code: urgency?.code ?? null,
     urgency_label: urgency?.label ?? null,
     proposed_launch_date: days.launchWeek,
-    teaser_date: days.memoDate,
-    last_data_upload: days.lastDataUpload,
-    shareholder_report_received_date: days.shareholderReportReceived,
-    targeting_date: days.targetingDate,
+    teaser_date: taskDates.data!.memoDate,
+    last_data_upload: taskDates.data!.lastDataUpload,
+    targeting_date: taskDates.data!.targetingDate,
     targeting_not_required: input.targetingNotRequired === true,
     teaser_not_required: input.memoNotRequired === true,
     targeting_url: cleanText(input.targetingUrl),
@@ -365,6 +550,7 @@ async function buildEventColumns(input: NewEventInput): Promise<ActionResult<Rec
     targeting_notes: cleanText(input.targetingNotes),
     launch: input.launch === true,
     outreach_complete: input.outreachComplete === true,
+    paused: input.paused === true,
   })
 }
 
@@ -388,12 +574,43 @@ export async function createEvent(input: NewEventInput): Promise<ActionResult<{ 
   const built = await buildEventColumns(input)
   if (!built.ok) return fail(built.error)
 
+  // ACCOUNT-TEAM SNAPSHOT: the event's three people columns are copied from the
+  // client's CURRENT account team (its accounts lookups) — once, here. Edits
+  // never rewrite them, so they record who was on the team at creation, and
+  // every downstream reader of the event columns is unchanged. Feedback Team is
+  // left blank.
+  const { data: team, error: teamErr } = await getSupabaseServer()
+    .from("accounts")
+    .select(
+      "sales_lead_primary_id, sales_lead_primary_name, logistics_coordinator_id, logistics_coordinator_name, feedback_report_id, feedback_report_name",
+    )
+    .eq("account_id", built.data.client_account_id as string)
+    .maybeSingle()
+  if (teamErr) return fail(describeError(teamErr))
+  const t = (team ?? {}) as Record<string, string | null>
+
   const now = new Date().toISOString()
   const row = {
     event_id: randomUUID(),
     ...DASHBOARD_ROW_BASE,
     is_test: input.isTest === true,
     ...built.data,
+    sales_lead_primary_id: t.sales_lead_primary_id ?? null,
+    sales_lead_primary_name: t.sales_lead_primary_name ?? null,
+    logistics_coordinator_id: t.logistics_coordinator_id ?? null,
+    logistics_coordinator_name: t.logistics_coordinator_name ?? null,
+    feedback_report_id: t.feedback_report_id ?? null,
+    feedback_report_name: t.feedback_report_name ?? null,
+    feedback_team_id: null,
+    feedback_team_name: null,
+    // Pre-Launch is the starting stage. The database's events_compute_stage
+    // trigger overwrites both columns on insert from the toggles, so a form
+    // that already ticks Launch lands on Live Outreach.
+    event_state_code: EVENT_STATE_OPTIONS[0].code,
+    event_state_label: EVENT_STATE_OPTIONS[0].label,
+    // …and Not Marketing, which the same trigger derives from the stage.
+    marketing_state_code: EVENT_MARKETING_OPTIONS[1].code,
+    marketing_state_label: EVENT_MARKETING_OPTIONS[1].label,
     owner_id: gate.userId,
     owner_name: gate.name,
     created_by_id: gate.userId,
@@ -421,6 +638,15 @@ export async function createEvent(input: NewEventInput): Promise<ActionResult<{ 
     context: "/events · Add New Event",
   })
 
+  // Company representatives — saved after the event exists (FK).
+  const reps = await saveRepresentatives(
+    row.event_id,
+    input.representatives ?? [],
+    { userId: gate.userId, name: gate.name },
+    "/events · Add New Event · representatives",
+  )
+  if (!reps.ok) return fail(`The event was created, but its representatives were not saved: ${reps.error}`)
+
   revalidatePath("/events")
   return ok({ eventId: row.event_id })
 }
@@ -431,15 +657,15 @@ export async function loadEventForEdit(id: string): Promise<ActionResult<NewEven
     "events",
     "event_id",
     id,
-    "client_account_id, name, event_state_code, marketing_state_code, dates, event_location, event_start_actual, event_end_actual, of_slots, event_notes, tbc, team, mining, sales_lead_primary_id, logistics_coordinator_id, feedback_report_id, feedback_team_id, leads_codes, event_parameters, urgency_code, proposed_launch_date, teaser_date, last_data_upload, shareholder_report_received_date, targeting_date, targeting_not_required, teaser_not_required, targeting_url, profile_link, targeting_notes, launch, outreach_complete",
+    "client_account_id, dates, event_location, event_start_actual, event_end_actual, of_slots, event_notes, tbc, team, mining, leads_codes, event_parameters, urgency_code, proposed_launch_date, targeting_not_required, teaser_not_required, targeting_url, profile_link, targeting_notes, launch, outreach_complete, paused",
   )
   if (!res.ok) return fail(res.error)
   const r = res.data
+  const reps = await loadRepresentatives(id)
+  if (!reps.ok) return fail(reps.error)
   return ok({
+    representatives: reps.data!,
     clientAccountId: (r.client_account_id as string | null) ?? null,
-    name: asText(r.name),
-    stateCode: Number(r.event_state_code ?? EVENT_STATE_OPTIONS[0].code),
-    marketingCode: Number(r.marketing_state_code ?? EVENT_MARKETING_OPTIONS[0].code),
     dates: asText(r.dates),
     location: asText(r.event_location),
     meetingsStart: isoToEasternDate(r.event_start_actual),
@@ -449,18 +675,10 @@ export async function loadEventForEdit(id: string): Promise<ActionResult<NewEven
     tbc: r.tbc === true,
     mining: r.mining === true,
     team: r.team === true,
-    accountManagerId: (r.sales_lead_primary_id as string | null) ?? null,
-    logisticsCoordinatorId: (r.logistics_coordinator_id as string | null) ?? null,
-    feedbackReportId: (r.feedback_report_id as string | null) ?? null,
-    feedbackTeamId: (r.feedback_team_id as string | null) ?? null,
     leadCodes: asText(r.leads_codes).split(",").filter(Boolean),
     eventParameters: asText(r.event_parameters),
     urgencyCode: r.urgency_code == null ? null : Number(r.urgency_code),
     launchWeek: isoToEasternDate(r.proposed_launch_date),
-    memoDate: isoToEasternDate(r.teaser_date),
-    lastDataUpload: isoToEasternDate(r.last_data_upload),
-    shareholderReportReceived: isoToEasternDate(r.shareholder_report_received_date),
-    targetingDate: isoToEasternDate(r.targeting_date),
     targetingNotRequired: r.targeting_not_required === true,
     memoNotRequired: r.teaser_not_required === true,
     targetingUrl: asText(r.targeting_url),
@@ -468,6 +686,7 @@ export async function loadEventForEdit(id: string): Promise<ActionResult<NewEven
     targetingNotes: asText(r.targeting_notes),
     launch: r.launch === true,
     outreachComplete: r.outreach_complete === true,
+    paused: r.paused === true,
     isTest: r.is_test === true,
   })
 }
@@ -478,7 +697,7 @@ export async function updateEvent(id: string, input: NewEventInput): Promise<Act
   if (!gate.ok) return fail(gate.error)
   const built = await buildEventColumns(input)
   if (!built.ok) return fail(built.error)
-  return updateDashboardRow({
+  const updated = await updateDashboardRow({
     table: "events",
     pk: "event_id",
     id,
@@ -487,6 +706,17 @@ export async function updateEvent(id: string, input: NewEventInput): Promise<Act
     context: "/events · Edit event",
     verb: "editing events",
   })
+  // updateDashboardRow refused a Dynamics / missing row → never touch its reps.
+  if (!updated.ok) return updated
+  const reps = await saveRepresentatives(
+    id,
+    input.representatives ?? [],
+    { userId: gate.userId, name: gate.name },
+    "/events · Edit event · representatives",
+  )
+  if (!reps.ok) return fail(`Changes saved, but representatives were not: ${reps.error}`)
+  revalidatePath("/events")
+  return ok({ changed: (updated.data?.changed ?? 0) + reps.data!.added + reps.data!.removed })
 }
 
 export async function countTestEvents(): Promise<ActionResult<number>> {

@@ -25,10 +25,39 @@ export const MEETING_STATUS_OPTIONS = [
   { code: 755860003, label: "Cancelled" },
 ] as const
 
+/**
+ * The event STAGES a meeting may be linked to from the form — events still
+ * taking meetings. Later stages (Schedule Closed, Preparing Feedback,
+ * Complete) and Pause are hidden. Filters the stored event_state_label. An
+ * edited meeting keeps its current event even if that event has moved on.
+ */
+export const MEETING_EVENT_STAGES = ["Pre-Launch", "Live Outreach", "Meetings Ongoing"] as const
+
+export type MeetingFieldErrors = Partial<Record<"clientAccountId" | "typeCode" | "institutionId" | "investor", string>>
+
+/**
+ * REQUIRED fields — Client, Type, Institution, Investor. Pure: the form calls
+ * it to block submit and mark the fields; createMeeting / updateMeeting call it
+ * again server-side. Empty object = valid.
+ */
+export function validateMeetingRequired(
+  input: Pick<NewMeetingInput, "clientAccountId" | "typeCode" | "institutionId" | "investor">,
+): MeetingFieldErrors {
+  const errors: MeetingFieldErrors = {}
+  if (!(input.clientAccountId ?? "").trim()) errors.clientAccountId = "Pick a client."
+  if (input.typeCode == null || !MEETING_TYPE_OPTIONS.some((t) => t.code === input.typeCode)) {
+    errors.typeCode = "Pick Live or Virtual."
+  }
+  if (!(input.institutionId ?? "").trim()) errors.institutionId = "Pick an institution."
+  if (!(input.investor ?? "").trim()) errors.investor = "Enter the investor."
+  return errors
+}
+
 export type NewMeetingInput = {
   /** accounts.account_id — REQUIRED (FK). */
   clientAccountId: string | null
-  typeCode: number
+  /** REQUIRED — starts blank in the form so it is a deliberate choice. */
+  typeCode: number | null
   statusCode: number
   /** Eastern wall clock "YYYY-MM-DDTHH:mm". */
   start: string
@@ -76,8 +105,25 @@ export type NewMeetingInput = {
   driver: boolean
   foodOrder?: string
   logisticsNotes?: string
+  // Cancellation (2026-10-07h flattened columns)
+  /** cancelled_code — MEETING_CANCELLED_OPTIONS code, or null. */
+  cancelledCode?: number | null
+  cancellationNotes?: string
+  /** contact_radar — Yes/No. */
+  contactRadar: boolean
+  // Rescheduling
+  /** rescheduled — Yes/No ("Rescheduled Meeting"). */
+  rescheduled: boolean
+  rescheduledNotes?: string
   isTest: boolean
 }
+
+/** bcs_cancelled — a CHOICE, not a flag (codes confirmed against the mirror 2026-10-07). */
+export const MEETING_CANCELLED_OPTIONS = [
+  { code: 755860000, label: "All Cancelled" },
+  { code: 755860001, label: "iPlanner Cancelled" },
+  { code: 755860002, label: "Outlook Cancelled" },
+] as const
 
 /** One choice option (code + label) as the form's dropdowns use them. */
 export type ChoiceOption = { code: number; label: string }

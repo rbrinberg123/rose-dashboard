@@ -33,28 +33,79 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  EVENT_FEEDBACK_TEAMS,
   EVENT_LEAD_OPTIONS,
-  EVENT_MARKETING_OPTIONS,
-  EVENT_STATE_OPTIONS,
   EVENT_URGENCY_OPTIONS,
   NEW_EVENT_TEST_DEFAULT,
+  buildEventName,
+  derivedMarketingLabel,
+  validateEventRequired,
+  type EventFieldErrors,
+  type EventTaskDateKey,
+  type EventTaskDates,
   type NewEventInput,
 } from "@/lib/events/create"
-import type { AccountOption, UserOption } from "@/lib/types"
-import { UserCombobox } from "@/components/user-combobox"
-import { FormSection, SelectField, TextField, YesNo } from "@/components/crm-form-kit"
-import { countTestEvents, createEvent, loadEventClientOptions, loadEventUserOptions, purgeTestEvents } from "./actions"
+import type { AccountOption } from "@/lib/types"
+import { FieldError, FormSection, SelectField, TextField, YesNo } from "@/components/crm-form-kit"
+import { RepresentativesPicker } from "./representatives-picker"
+import {
+  countTestEvents,
+  createEvent,
+  loadClientTaskDates,
+  loadEventClientOptions,
+  purgeTestEvents,
+} from "./actions"
 import { loadEventForEdit, updateEvent } from "./actions"
 
-const SELECT_CLASS = "h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+const EASTERN_DAY = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  month: "numeric",
+  day: "numeric",
+  year: "numeric",
+})
+
+/** The red "required" asterisk after a label. */
+function Req() {
+  return (
+    <span className="text-destructive" aria-label="required">
+      *
+    </span>
+  )
+}
+
+/** A greyed, read-only field — for values the system derives, not the user. */
+function ReadOnlyField({
+  id,
+  label,
+  value,
+  placeholder,
+  title,
+}: {
+  id: string
+  label: string
+  value: string
+  placeholder?: string
+  title?: string
+}) {
+  return (
+    <div className="grid gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        value={value}
+        placeholder={placeholder}
+        readOnly
+        tabIndex={-1}
+        aria-readonly="true"
+        title={title}
+        className="cursor-default bg-muted text-muted-foreground focus-visible:ring-0"
+      />
+    </div>
+  )
+}
 
 function emptyForm(): NewEventInput {
   return {
     clientAccountId: null,
-    name: "",
-    stateCode: EVENT_STATE_OPTIONS[0].code, // Pre-Launch
-    marketingCode: EVENT_MARKETING_OPTIONS[0].code, // Marketing
     dates: "",
     location: "",
     meetingsStart: "",
@@ -64,18 +115,10 @@ function emptyForm(): NewEventInput {
     tbc: false,
     mining: false,
     team: false,
-    accountManagerId: null,
-    logisticsCoordinatorId: null,
-    feedbackReportId: null,
-    feedbackTeamId: null,
     leadCodes: [],
     eventParameters: "",
     urgencyCode: null,
     launchWeek: "",
-    memoDate: "",
-    lastDataUpload: "",
-    shareholderReportReceived: "",
-    targetingDate: "",
     targetingNotRequired: false,
     memoNotRequired: false,
     targetingUrl: "",
@@ -83,13 +126,10 @@ function emptyForm(): NewEventInput {
     targetingNotes: "",
     launch: false,
     outreachComplete: false,
+    paused: false,
+    representatives: [],
     isTest: NEW_EVENT_TEST_DEFAULT,
   }
-}
-
-/** Dynamics' naming: "TICKER -  Place - dates". */
-function suggestName(ticker: string | null, location: string, dates: string): string {
-  return [ticker ?? "", location.trim(), dates.trim()].filter(Boolean).join(" - ")
 }
 
 /**
@@ -113,37 +153,59 @@ function EventFormDialog({
 }) {
   const router = useRouter()
   const [form, setForm] = React.useState<NewEventInput>(() => initial ?? emptyForm())
-  // The name follows client / location / dates until the user types their own.
-  const [nameEdited, setNameEdited] = React.useState(initial != null)
   const [clients, setClients] = React.useState<AccountOption[] | null>(null)
-  const [users, setUsers] = React.useState<UserOption[] | null>(null)
   const set = (p: Partial<NewEventInput>) => setForm((f) => ({ ...f, ...p }))
   const [error, setError] = React.useState<string | null>(null)
   const [pending, startTransition] = React.useTransition()
 
   React.useEffect(() => {
     if (!open || clients) return
-    loadEventClientOptions().then((r) => (r.ok ? setClients(r.data) : setError(r.error)))
-    loadEventUserOptions().then((r) => (r.ok ? setUsers(r.data) : setError(r.error)))
-  }, [open, clients])
+    // Active clients only; an edited event keeps its own client listed.
+    loadEventClientOptions(initial?.clientAccountId ?? null).then((r) =>
+      r.ok ? setClients(r.data) : setError(r.error),
+    )
+  }, [open, clients, initial])
 
-  /** Update fields; re-suggest the name unless the user has edited it. */
-  function patch(p: Partial<NewEventInput>) {
-    setForm((f) => {
-      const next = { ...f, ...p }
-      if (!nameEdited) {
-        const ticker = clients?.find((c) => c.account_id === next.clientAccountId)?.ticker_symbol ?? null
-        next.name = suggestName(ticker, next.location ?? "", next.dates ?? "")
-      }
-      return next
+  // The name is GENERATED (lib/events/create.ts buildEventName) and read-only
+  // here; the server rebuilds it from the same raw fields on save.
+  const pickedClient = clients?.find((c) => c.account_id === form.clientAccountId) ?? null
+  const generatedName = pickedClient
+    ? buildEventName(pickedClient.ticker_symbol?.trim() || pickedClient.name, form.location, form.dates)
+    : ""
+
+  // Last Data Upload / Memo Date / Targeting Date are LOOKED UP for the picked
+  // client (its latest completed task of each sub-type) and shown read-only;
+  // the server re-reads them on save.
+  const [taskDates, setTaskDates] = React.useState<{ clientId: string; dates: EventTaskDates } | null>(null)
+  React.useEffect(() => {
+    const clientId = form.clientAccountId
+    if (!open || !clientId) return
+    let live = true
+    loadClientTaskDates(clientId).then((r) => {
+      if (live && r.ok) setTaskDates({ clientId, dates: r.data! })
     })
+    return () => {
+      live = false
+    }
+  }, [open, form.clientAccountId])
+  function taskDateText(key: EventTaskDateKey, none: string): string {
+    if (!form.clientAccountId) return ""
+    if (taskDates?.clientId !== form.clientAccountId) return "Looking up…"
+    const iso = taskDates.dates[key]
+    return iso ? EASTERN_DAY.format(new Date(iso)) : none
   }
+
+  // REQUIRED fields: shown once the user has tried to submit, then live.
+  const [showErrors, setShowErrors] = React.useState(false)
+  const fieldErrors: EventFieldErrors = showErrors ? validateEventRequired(form) : {}
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    if (!form.clientAccountId) return setError("Pick a client.")
-    if (!form.name.trim()) return setError("Enter the event name.")
+    setShowErrors(true)
+    if (Object.keys(validateEventRequired(form)).length) {
+      return setError("Fill in the required fields marked below.")
+    }
     startTransition(async () => {
       const r = editId ? await updateEvent(editId, form) : await createEvent(form)
       if (!r.ok) {
@@ -157,14 +219,14 @@ function EventFormDialog({
     })
   }
 
-  const isLiveOutreach =
-    EVENT_STATE_OPTIONS.find((s) => s.code === form.stateCode)?.label === "Live Outreach"
-
   return (
     <>
       <Dialog open={open} onOpenChange={(o) => !pending && setOpen(o)}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        {/* Large, multi-column: most of the screen on desktop, one scrolling
+            column on small screens. Header and footer stay put; only the
+            field area scrolls. */}
+        <DialogContent className="flex max-h-[92vh] w-[96vw] flex-col gap-0 p-0 sm:max-w-[1280px]">
+          <DialogHeader className="border-b px-5 py-4">
             <DialogTitle>{editId ? "Edit event" : "Add new event"}</DialogTitle>
             <DialogDescription>
               {editId ? (
@@ -178,256 +240,254 @@ function EventFormDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={onSubmit} className="grid max-h-[70vh] gap-3 overflow-y-auto pr-1">
-            <div className="grid gap-1.5">
-              <Label>Client</Label>
-              <ClientCombobox
-                options={clients ?? []}
-                value={form.clientAccountId}
-                onChange={(v) => patch({ clientAccountId: v })}
-                placeholder={clients ? "Select a client" : "Loading clients…"}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="ne-location">Location</Label>
-                <Input
-                  id="ne-location"
-                  placeholder="e.g. NYC, Virtual"
-                  value={form.location ?? ""}
-                  onChange={(e) => patch({ location: e.target.value })}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="ne-dates">Dates</Label>
-                <Input
-                  id="ne-dates"
-                  placeholder="e.g. 10/6, 10/7"
-                  value={form.dates ?? ""}
-                  onChange={(e) => patch({ dates: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label htmlFor="ne-name">Event name</Label>
-              <Input
-                id="ne-name"
-                value={form.name}
-                onChange={(e) => {
-                  setNameEdited(true)
-                  setForm((f) => ({ ...f, name: e.target.value }))
-                }}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="ne-state">Stage</Label>
-                <select
-                  id="ne-state"
-                  value={form.stateCode}
-                  onChange={(e) => setForm((f) => ({ ...f, stateCode: Number(e.target.value) }))}
-                  className={SELECT_CLASS}
-                >
-                  {EVENT_STATE_OPTIONS.map((o) => (
-                    <option key={o.code} value={o.code}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="ne-marketing">Marketing</Label>
-                <select
-                  id="ne-marketing"
-                  value={form.marketingCode}
-                  onChange={(e) => setForm((f) => ({ ...f, marketingCode: Number(e.target.value) }))}
-                  className={SELECT_CLASS}
-                >
-                  {EVENT_MARKETING_OPTIONS.map((o) => (
-                    <option key={o.code} value={o.code}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            {isLiveOutreach && (
-              <div className="text-xs text-[#92600B]">
-                “Live Outreach” puts this event on the Live Outreach page and in its daily email.
-              </div>
-            )}
-
-            <div className="grid grid-cols-3 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="ne-start">Meetings start</Label>
-                <Input
-                  id="ne-start"
-                  type="date"
-                  value={form.meetingsStart ?? ""}
-                  onChange={(e) => setForm((f) => ({ ...f, meetingsStart: e.target.value }))}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="ne-end">Meetings end</Label>
-                <Input
-                  id="ne-end"
-                  type="date"
-                  value={form.meetingsEnd ?? ""}
-                  onChange={(e) => setForm((f) => ({ ...f, meetingsEnd: e.target.value }))}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="ne-slots">Slots</Label>
-                <Input
-                  id="ne-slots"
-                  type="number"
-                  min={0}
-                  value={form.slots ?? ""}
-                  onChange={(e) => setForm((f) => ({ ...f, slots: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            <FormSection title="General">
-              <div className="grid grid-cols-2 gap-3">
+          <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+            <div className="grid min-h-0 flex-1 gap-x-6 gap-y-4 overflow-y-auto px-5 py-4 lg:grid-cols-3">
+              {/* ---- Column 1: the event itself ---- */}
+              <div className="grid content-start gap-3">
                 <div className="grid gap-1.5">
-                  <Label>Account Manager</Label>
-                  <UserCombobox
-                    options={users ?? []}
-                    value={form.accountManagerId ?? null}
-                    onChange={(v) => set({ accountManagerId: v })}
-                    placeholder="—"
+                  <Label>
+                    Client <Req />
+                  </Label>
+                  <ClientCombobox
+                    options={clients ?? []}
+                    value={form.clientAccountId}
+                    onChange={(v) => set({ clientAccountId: v })}
+                    placeholder={clients ? "Select a client" : "Loading clients…"}
+                    invalid={!!fieldErrors.clientAccountId}
                   />
+                  <FieldError message={fieldErrors.clientAccountId} />
                 </div>
-                <div className="grid gap-1.5">
-                  <Label>Logistics Coordinator</Label>
-                  <UserCombobox
-                    options={users ?? []}
-                    value={form.logisticsCoordinatorId ?? null}
-                    onChange={(v) => set({ logisticsCoordinatorId: v })}
-                    placeholder="—"
-                  />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label>Feedback Report</Label>
-                  <UserCombobox
-                    options={users ?? []}
-                    value={form.feedbackReportId ?? null}
-                    onChange={(v) => set({ feedbackReportId: v })}
-                    placeholder="—"
-                  />
-                </div>
-                <SelectField
-                  id="ne-fbteam"
-                  label="Feedback Team"
-                  value={form.feedbackTeamId ?? ""}
-                  onChange={(v) => set({ feedbackTeamId: v || null })}
-                  options={EVENT_FEEDBACK_TEAMS.map((t) => ({ value: t.id, label: t.name }))}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label>Lead(s)</Label>
-                <div className="flex flex-wrap gap-3 text-sm">
-                  {EVENT_LEAD_OPTIONS.map((o) => (
-                    <YesNo
-                      key={o.code}
-                      label={o.label}
-                      checked={form.leadCodes.includes(o.code)}
-                      onChange={(on) =>
-                        set({
-                          leadCodes: on
-                            ? [...new Set([...form.leadCodes, o.code])]
-                            : form.leadCodes.filter((c) => c !== o.code),
-                        })
-                      }
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid content-start gap-1.5">
+                    <Label htmlFor="ne-location">
+                      Location <Req />
+                    </Label>
+                    <Input
+                      id="ne-location"
+                      placeholder="e.g. NYC, Virtual"
+                      value={form.location ?? ""}
+                      onChange={(e) => set({ location: e.target.value })}
+                      aria-invalid={fieldErrors.location ? true : undefined}
                     />
-                  ))}
+                    <FieldError message={fieldErrors.location} />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="ne-dates">Dates</Label>
+                    <Input
+                      id="ne-dates"
+                      placeholder="e.g. 10/6, 10/7"
+                      value={form.dates ?? ""}
+                      onChange={(e) => set({ dates: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <ReadOnlyField
+                  id="ne-name"
+                  label="Event name"
+                  value={generatedName}
+                  placeholder="Generated from client, location and dates"
+                  title="Generated automatically: TICKER - Location - Dates"
+                />
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="ne-start">Meetings start</Label>
+                    <Input
+                      id="ne-start"
+                      type="date"
+                      value={form.meetingsStart ?? ""}
+                      onChange={(e) => setForm((f) => ({ ...f, meetingsStart: e.target.value }))}
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="ne-end">Meetings end</Label>
+                    <Input
+                      id="ne-end"
+                      type="date"
+                      value={form.meetingsEnd ?? ""}
+                      onChange={(e) => setForm((f) => ({ ...f, meetingsEnd: e.target.value }))}
+                    />
+                  </div>
+                  <div className="grid content-start gap-1.5">
+                    <Label htmlFor="ne-slots">
+                      # of Slots <Req />
+                    </Label>
+                    <Input
+                      id="ne-slots"
+                      type="number"
+                      min={0}
+                      value={form.slots ?? ""}
+                      onChange={(e) => setForm((f) => ({ ...f, slots: e.target.value }))}
+                      aria-invalid={fieldErrors.slots ? true : undefined}
+                    />
+                    <FieldError message={fieldErrors.slots} />
+                  </div>
+                </div>
+
+                <div className="grid gap-1.5">
+                  <Label htmlFor="ne-notes">Event notes</Label>
+                  <Textarea
+                    id="ne-notes"
+                    rows={5}
+                    value={form.notes ?? ""}
+                    onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                  />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                <YesNo label="TBC" checked={form.tbc} onChange={(v) => set({ tbc: v })} />
-                <YesNo label="Team?" checked={form.team} onChange={(v) => set({ team: v })} />
-                <YesNo
-                  label="Mining — excluded from Live Outreach"
-                  checked={form.mining}
-                  onChange={(v) => set({ mining: v })}
-                />
-              </div>
-            </FormSection>
 
-            <FormSection title="Planning">
-              <div className="grid grid-cols-2 gap-3">
-                <TextField
-                  id="ne-params"
-                  label="Event Parameters"
-                  value={form.eventParameters}
-                  onChange={(v) => set({ eventParameters: v })}
-                />
-                <SelectField
-                  id="ne-urgency"
-                  label="Urgency"
-                  value={form.urgencyCode ?? ""}
-                  onChange={(v) => set({ urgencyCode: v ? Number(v) : null })}
-                  options={EVENT_URGENCY_OPTIONS.map((o) => ({ value: o.code, label: o.label }))}
-                />
-                <TextField id="ne-launchWeek" label="Launch Week" type="date" value={form.launchWeek} onChange={(v) => set({ launchWeek: v })} />
-                <TextField id="ne-memoDate" label="Memo Date" type="date" value={form.memoDate} onChange={(v) => set({ memoDate: v })} />
-                <TextField id="ne-lastDataUpload" label="Last Data Upload" type="date" value={form.lastDataUpload} onChange={(v) => set({ lastDataUpload: v })} />
-                <TextField id="ne-shareholderReportReceived" label="Shareholder Report Received" type="date" value={form.shareholderReportReceived} onChange={(v) => set({ shareholderReportReceived: v })} />
-                <TextField id="ne-targetingDate" label="Targeting Date" type="date" value={form.targetingDate} onChange={(v) => set({ targetingDate: v })} />
-                <TextField id="ne-turl" label="Targeting URL" value={form.targetingUrl} onChange={(v) => set({ targetingUrl: v })} />
-                <TextField id="ne-plink" label="Profile Link" value={form.profileLink} onChange={(v) => set({ profileLink: v })} />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="ne-tnotes">Targeting Notes</Label>
-                <Textarea
-                  id="ne-tnotes"
-                  rows={2}
-                  value={form.targetingNotes ?? ""}
-                  onChange={(e) => set({ targetingNotes: e.target.value })}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <YesNo label="Targeting Not Required" checked={form.targetingNotRequired} onChange={(v) => set({ targetingNotRequired: v })} />
-                <YesNo label="Memo Not Required" checked={form.memoNotRequired} onChange={(v) => set({ memoNotRequired: v })} />
-                <YesNo label="Launch" checked={form.launch} onChange={(v) => set({ launch: v })} />
-                <YesNo label="Outreach Complete" checked={form.outreachComplete} onChange={(v) => set({ outreachComplete: v })} />
-              </div>
-            </FormSection>
+              {/* ---- Column 2: lifecycle + general ---- */}
+              <div className="grid content-start gap-4">
+                <FormSection title="Lifecycle">
+                  <p className="text-xs text-muted-foreground">
+                    The stage is computed — not picked. Launch → Live Outreach; Outreach Complete → Schedule Closed,
+                    then Meetings Ongoing, Preparing Feedback and Complete follow the meetings and feedback reports.
+                    Pause overrides everything until it is cleared.
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <YesNo label="Launch" checked={form.launch} onChange={(v) => set({ launch: v })} />
+                    <YesNo label="Outreach Complete" checked={form.outreachComplete} onChange={(v) => set({ outreachComplete: v })} />
+                    <YesNo label="Pause" checked={form.paused} onChange={(v) => set({ paused: v })} />
+                  </div>
+                  <ReadOnlyField
+                    id="ne-marketing"
+                    label="Marketing"
+                    value={derivedMarketingLabel(form.launch, form.outreachComplete, form.paused)}
+                    title="Derived from the stage: Marketing only while the event is in Live Outreach"
+                  />
+                </FormSection>
 
-            <div className="grid gap-1.5">
-              <Label htmlFor="ne-notes">Event notes</Label>
-              <Textarea
-                id="ne-notes"
-                rows={3}
-                value={form.notes ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-              />
+                <FormSection title="General">
+                  {!editId && (
+                    <p className="text-xs text-muted-foreground">
+                      Account Manager, Logistics Coordinator and Feedback Report are copied from the client’s
+                      account team when the event is created.
+                    </p>
+                  )}
+                  <div className="grid gap-1.5">
+                    <Label>Lead(s)</Label>
+                    <div className="flex flex-wrap gap-3 text-sm">
+                      {EVENT_LEAD_OPTIONS.map((o) => (
+                        <YesNo
+                          key={o.code}
+                          label={o.label}
+                          checked={form.leadCodes.includes(o.code)}
+                          onChange={(on) =>
+                            set({
+                              leadCodes: on
+                                ? [...new Set([...form.leadCodes, o.code])]
+                                : form.leadCodes.filter((c) => c !== o.code),
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <YesNo label="TBC" checked={form.tbc} onChange={(v) => set({ tbc: v })} />
+                    <YesNo label="Team?" checked={form.team} onChange={(v) => set({ team: v })} />
+                    <YesNo
+                      label="Mining — excluded from Live Outreach"
+                      checked={form.mining}
+                      onChange={(v) => set({ mining: v })}
+                    />
+                  </div>
+                </FormSection>
+              </div>
+
+              {/* ---- Column 3: planning ---- */}
+              <div className="grid content-start gap-4">
+                <FormSection title="Planning">
+                  <div className="grid grid-cols-2 gap-3">
+                    <TextField
+                      id="ne-params"
+                      label="Event Parameters"
+                      value={form.eventParameters}
+                      onChange={(v) => set({ eventParameters: v })}
+                    />
+                    <SelectField
+                      id="ne-urgency"
+                      label={
+                        <>
+                          Urgency <Req />
+                        </>
+                      }
+                      value={form.urgencyCode ?? ""}
+                      onChange={(v) => set({ urgencyCode: v ? Number(v) : null })}
+                      options={EVENT_URGENCY_OPTIONS.map((o) => ({ value: o.code, label: o.label }))}
+                      error={fieldErrors.urgencyCode}
+                    />
+                    <TextField id="ne-launchWeek" label="Launch Week" type="date" value={form.launchWeek} onChange={(v) => set({ launchWeek: v })} />
+                    <ReadOnlyField
+                      id="ne-memoDate"
+                      label="Memo Date"
+                      value={taskDateText("memoDate", "No memo on record")}
+                      title="The client's most recent completed Marketing Memo task — looked up, not typed"
+                    />
+                    <ReadOnlyField
+                      id="ne-lastDataUpload"
+                      label="Last Data Upload"
+                      value={taskDateText("lastDataUpload", "No data upload on record")}
+                      title="The client's most recent completed Data Upload task — looked up, not typed"
+                    />
+                    <ReadOnlyField
+                      id="ne-targetingDate"
+                      label="Targeting Date"
+                      value={taskDateText("targetingDate", "No targeting on record")}
+                      title="The client's most recent completed Targeting task — looked up, not typed"
+                    />
+                    <TextField id="ne-turl" label="Targeting URL" value={form.targetingUrl} onChange={(v) => set({ targetingUrl: v })} />
+                    <TextField id="ne-plink" label="Profile Link" value={form.profileLink} onChange={(v) => set({ profileLink: v })} />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="ne-tnotes">Targeting Notes</Label>
+                    <Textarea
+                      id="ne-tnotes"
+                      rows={3}
+                      value={form.targetingNotes ?? ""}
+                      onChange={(e) => set({ targetingNotes: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <YesNo label="Targeting Not Required" checked={form.targetingNotRequired} onChange={(v) => set({ targetingNotRequired: v })} />
+                    <YesNo label="Memo Not Required" checked={form.memoNotRequired} onChange={(v) => set({ memoNotRequired: v })} />
+                  </div>
+                </FormSection>
+
+                {!editId && (
+                  <label className="flex items-start gap-2 rounded-md border border-[#F3E2BF] bg-[#FCF4E6] px-3 py-2 text-sm">
+                    <Checkbox
+                      checked={form.isTest}
+                      onCheckedChange={(c) => setForm((f) => ({ ...f, isTest: c === true }))}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="font-medium">Test record</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Marked TEST and removed by “Delete test events”. It is NOT hidden anywhere — use the ZZ - Test
+                        Client (ZVZZT) while we’re testing.
+                      </span>
+                    </span>
+                  </label>
+                )}
+              </div>
+
+              {/* ---- Full width, at the bottom: company representatives ---- */}
+              <div className="lg:col-span-3">
+                <FormSection title="Company representatives">
+                  <RepresentativesPicker
+                    clientAccountId={form.clientAccountId}
+                    value={form.representatives}
+                    onChange={(representatives) => set({ representatives })}
+                  />
+                </FormSection>
+              </div>
             </div>
 
-            {!editId && (
-              <label className="flex items-start gap-2 rounded-md border border-[#F3E2BF] bg-[#FCF4E6] px-3 py-2 text-sm">
-                <Checkbox
-                  checked={form.isTest}
-                  onCheckedChange={(c) => setForm((f) => ({ ...f, isTest: c === true }))}
-                  className="mt-0.5"
-                />
-                <span>
-                  <span className="font-medium">Test record</span>
-                  <span className="block text-xs text-muted-foreground">
-                    Marked TEST and removed by “Delete test events”. It is NOT hidden anywhere — use the ZZ - Test
-                    Client (ZVZZT) while we’re testing.
-                  </span>
-                </span>
-              </label>
-            )}
+            {error &&<div className="border-t px-5 py-2 text-sm text-destructive">{error}</div>}
 
-            {error && <div className="text-sm text-destructive">{error}</div>}
-
-            <DialogFooter>
+            <DialogFooter className="mx-0 mb-0">
               <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
                 Cancel
               </Button>

@@ -232,6 +232,12 @@ export function mapMeeting(row: Row): Row {
     general_notes: str(row["bcs_generalnotes"]),
     feedback_notes: str(row["bcs_feedbacknotes"]),
     cancellation_notes: str(row["bcs_cancellationnotes"]),
+    // Flattened 2026-10-07h (were _raw-only) — the Edit Meeting form's
+    // Cancellation / Rescheduling sections. bcs_cancelled is a CHOICE.
+    cancelled_code: num(row["bcs_cancelled"]),
+    cancelled_label: fv(row, "bcs_cancelled"),
+    contact_radar: bool(row["bcs_contactradar"]),
+    rescheduled_notes: str(row["bcs_reschedulednotes"]),
 
     // Logistics fields (bcs_Sent / bcs_Confirm / bcs_FoodOrder / bcs_Driver /
     // bcs_Notes). sent/confirm/driver are Dynamics Yes/No booleans (verified

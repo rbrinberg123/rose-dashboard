@@ -80,6 +80,14 @@ export function TaskDrawerHost({ children }: { children: React.ReactNode }) {
 }
 
 /** A dashboard row that opens its task in the drawer instead of navigating. */
+/**
+ * The nearest TaskDrawerHost's opener — for callers that render their own
+ * trigger (e.g. the Feedback Reports row shortcut). null outside a host.
+ */
+export function useOpenTask(): ((taskId: string) => void) | null {
+  return React.useContext(OpenTaskContext)
+}
+
 export function OpenTaskRow({ taskId, children }: { taskId: string; children: React.ReactNode }) {
   const open = React.useContext(OpenTaskContext)
   return (

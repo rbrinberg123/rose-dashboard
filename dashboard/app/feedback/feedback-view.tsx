@@ -1,18 +1,37 @@
 "use client"
 
 import * as React from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
+import { toast } from "sonner"
 import {
+  CalendarCheck,
   ChevronDown,
   ChevronRight,
+  ClipboardList,
   Flame,
+  Loader2,
   MapPin,
+  Pencil,
   Users,
   Video,
 } from "lucide-react"
 import { StatCard } from "@/components/stat-card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CARD_CLASS } from "@/lib/design"
 import type { FeedbackOutstandingRow } from "@/lib/types"
+import {
+  MEETING_FEEDBACK_STATUS_OPTIONS,
+  isClosedFeedbackStatus,
+  type FeedbackCollectionExtras,
+  type FeedbackRowExtra,
+} from "@/lib/feedback-collection/policy"
+import { setMeetingFeedback } from "@/app/feedback-collection/actions"
+import { loadMeetingRecord } from "@/app/meetings/actions"
+import { MeetingRecordPane } from "@/app/meetings/meeting-record-pane"
+import { TaskDrawerHost, useOpenTask } from "@/app/my-dashboard/task-drawer"
+import type { MeetingRecord } from "@/lib/meeting-record"
 
 // Brand + status palette. One source of truth for the coral (no feedback),
 // amber (awaiting additional), and red (30+ days stale) accents used across the
@@ -50,10 +69,15 @@ const TABLE_COLS = [
   "64px", // Days
 ]
 
-function TableCols() {
+function TableCols({ withShortcuts = false, withControl = false }: { withShortcuts?: boolean; withControl?: boolean }) {
+  const cols = [...TABLE_COLS]
+  // The status control (pill + edit affordance) needs a little more room.
+  if (withControl) cols[5] = "150px"
+  // The open-meeting / open-task shortcuts sit just before Status.
+  if (withShortcuts) cols.splice(5, 0, "64px")
   return (
     <colgroup>
-      {TABLE_COLS.map((w, i) => (
+      {cols.map((w, i) => (
         <col key={i} style={{ width: w }} />
       ))}
     </colgroup>
@@ -139,10 +163,99 @@ function buildGroups(view: ViewKey, sort: SortKey, rows: FeedbackOutstandingRow[
 }
 
 export function FeedbackView({
-  rows,
+  rows: serverRows,
+  extras,
 }: {
   rows: FeedbackOutstandingRow[]
+  /**
+   * Per-row shortcuts + the feedback-status control (Feedback Collection page).
+   * Computed server-side; absent = the plain read-only table.
+   */
+  extras?: FeedbackCollectionExtras
 }) {
+  const router = useRouter()
+
+  // OPTIMISTIC feedback changes, keyed to the rows they were made against: a
+  // Closed status hides the row at once; the server re-render (router.refresh)
+  // then drops it for real, and these fall away on their own.
+  const [ov, setOv] = React.useState<{ base: FeedbackOutstandingRow[]; map: Record<string, RowOverride> }>({
+    base: serverRows,
+    map: {},
+  })
+  const overrides = ov.base === serverRows ? ov.map : NO_OVERRIDES
+  const setOverride = (id: string, value: RowOverride | null) =>
+    setOv((cur) => {
+      const map = { ...(cur.base === serverRows ? cur.map : {}) }
+      if (value) map[id] = value
+      else delete map[id]
+      return { base: serverRows, map }
+    })
+  const rows = React.useMemo(
+    () =>
+      serverRows
+        .filter((r) => !isClosedFeedbackStatus(overrides[r.meeting_id]?.label))
+        .map((r) => {
+          const o = overrides[r.meeting_id]
+          return o ? { ...r, feedback_status_label: o.label } : r
+        }),
+    [serverRows, overrides],
+  )
+
+  /** Save status + date: optimistic, then the server action, then toast. */
+  async function saveFeedback(row: FeedbackOutstandingRow, statusCode: number, receivedDay: string | null): Promise<boolean> {
+    const status = MEETING_FEEDBACK_STATUS_OPTIONS.find((o) => o.code === statusCode)
+    if (!status) return false
+    const prev = overrides[row.meeting_id] ?? null
+    setOverride(row.meeting_id, { label: status.label, fbReceived: receivedDay })
+    const res = await setMeetingFeedback({ meetingId: row.meeting_id, statusCode, receivedDay })
+    if (!res.ok) {
+      setOverride(row.meeting_id, prev)
+      toast.error("Couldn't update feedback", { description: res.error })
+      return false
+    }
+    toast.success(
+      isClosedFeedbackStatus(status.label) ? `Feedback ${status.label} — removed from the list.` : "Marked Awaiting Additional.",
+    )
+    router.refresh()
+    return true
+  }
+
+  // The MEETING drawer (the Meetings page's record pane), as an overlay.
+  const [openMeetingId, setOpenMeetingId] = React.useState<string | null>(null)
+  const [meetingRecord, setMeetingRecord] = React.useState<MeetingRecord | null>(null)
+  const [meetingError, setMeetingError] = React.useState<string | null>(null)
+  const openMeeting = React.useCallback((id: string) => {
+    setMeetingRecord(null)
+    setMeetingError(null)
+    setOpenMeetingId(id)
+  }, [])
+  const closeMeeting = React.useCallback(() => {
+    setOpenMeetingId(null)
+    setMeetingRecord(null)
+    setMeetingError(null)
+  }, [])
+  React.useEffect(() => {
+    if (!openMeetingId) return
+    let cancelled = false
+    loadMeetingRecord(openMeetingId).then((res) => {
+      if (cancelled) return
+      if (res.ok) setMeetingRecord(res.data ?? null)
+      else setMeetingError(res.error)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [openMeetingId])
+
+  const rowTools: RowTools | undefined = extras
+    ? {
+        extras,
+        overrides,
+        onOpenMeeting: openMeeting,
+        onSave: saveFeedback,
+        showShortcuts: extras.canOpenMeetings || extras.canOpenTasks,
+      }
+    : undefined
   // Deep-link support: /feedback?client=<account_id> lands on that client in the
   // By-client view with its card expanded and scrolled into view — used by the
   // Client Marketing Status page's Feedback Collection pill. The link carries the
@@ -240,7 +353,7 @@ export function FeedbackView({
   }
 
   return (
-    <>
+    <TaskDrawerHost>
       {/* Section header — the merged page owns the top masthead (and the email
           send controls, which now live in the hero), so Collection gets a normal
           section header: title + outstanding badge. */}
@@ -384,12 +497,37 @@ export function FeedbackView({
                   ? DEEPLINK_ANCHOR
                   : undefined
               }
+              tools={rowTools}
             />
           ))}
         </div>
       )}
-    </>
+
+      {/* The Meetings record pane, over the page (view-only here). */}
+      {extras && (
+        <MeetingRecordPane
+          record={meetingRecord}
+          loading={openMeetingId !== null && meetingRecord === null && meetingError === null}
+          error={meetingError}
+          eventName={null}
+          crmBase={extras.crmBase}
+          onClose={closeMeeting}
+        />
+      )}
+    </TaskDrawerHost>
   )
+}
+
+type RowOverride = { label: string; fbReceived: string | null }
+const NO_OVERRIDES: Record<string, RowOverride> = {}
+
+/** What a group table needs to draw the shortcut + status-control columns. */
+type RowTools = {
+  extras: FeedbackCollectionExtras
+  overrides: Record<string, RowOverride>
+  onOpenMeeting: (id: string) => void
+  onSave: (row: FeedbackOutstandingRow, statusCode: number, receivedDay: string | null) => Promise<boolean>
+  showShortcuts: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -402,6 +540,7 @@ function GroupCard({
   expanded,
   onToggle,
   anchorId,
+  tools,
 }: {
   group: Group
   view: ViewKey
@@ -409,6 +548,8 @@ function GroupCard({
   onToggle: () => void
   /** Set on the deep-link target card: adds the scroll anchor id + a highlight ring. */
   anchorId?: string
+  /** Shortcuts + status control (Feedback Collection); absent = read-only. */
+  tools?: RowTools
 }) {
   return (
     <div
@@ -463,7 +604,7 @@ function GroupCard({
       {expanded && (
         <div className="overflow-x-auto border-t">
           <table className="w-full table-fixed text-sm">
-            <TableCols />
+            <TableCols withShortcuts={!!tools?.showShortcuts} withControl={!!tools} />
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 text-left font-medium">Date</th>
@@ -478,6 +619,11 @@ function GroupCard({
                 )}
                 <th className="px-3 py-2 text-left font-medium">Investor</th>
                 <th className="px-3 py-2 text-center font-medium">Flags</th>
+                {tools?.showShortcuts && (
+                  <th className="px-1 py-2">
+                    <span className="sr-only">Open meeting or task</span>
+                  </th>
+                )}
                 <th className="px-3 py-2 text-left font-medium">Status</th>
                 <th className="px-3 py-2 text-right font-medium">Days</th>
               </tr>
@@ -515,8 +661,26 @@ function GroupCard({
                   <td className="px-3 py-2.5 text-center">
                     <FlagsCell row={r} />
                   </td>
+                  {tools?.showShortcuts && (
+                    <td className="px-1 py-2">
+                      <RowShortcuts
+                        meetingId={tools.extras.canOpenMeetings ? r.meeting_id : null}
+                        taskId={tools.extras.canOpenTasks ? (tools.extras.byMeeting[r.meeting_id]?.reportTaskId ?? null) : null}
+                        onOpenMeeting={tools.onOpenMeeting}
+                      />
+                    </td>
+                  )}
                   <td className="px-3 py-2.5">
-                    <StatusPill row={r} />
+                    {tools?.extras.byMeeting[r.meeting_id]?.canSet ? (
+                      <FeedbackStatusControl
+                        row={r}
+                        extra={tools.extras.byMeeting[r.meeting_id]}
+                        fbReceived={tools.overrides[r.meeting_id]?.fbReceived}
+                        onSave={tools.onSave}
+                      />
+                    ) : (
+                      <StatusPill row={r} />
+                    )}
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <DaysCell days={r.days_since} />
@@ -528,6 +692,159 @@ function GroupCard({
         </div>
       )}
     </div>
+  )
+}
+
+const SHORTCUT_BTN =
+  "inline-flex size-7 items-center justify-center rounded-md text-[#5B6472] transition-colors hover:bg-[#EEF2FB] hover:text-[#2D4A8A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2D4A8A]/30 disabled:pointer-events-none disabled:opacity-30"
+
+/**
+ * Open the row's MEETING (Meetings record pane) or its meeting TASK — the
+ * feedback report task the meeting is mapped to (feedback_report_meetings) —
+ * in the existing drawers, over the page. A missing id = disabled icon.
+ */
+function RowShortcuts({
+  meetingId,
+  taskId,
+  onOpenMeeting,
+}: {
+  meetingId: string | null
+  taskId: string | null
+  onOpenMeeting: (id: string) => void
+}) {
+  const openTask = useOpenTask()
+  return (
+    <div className="flex items-center gap-0.5">
+      <button
+        type="button"
+        className={SHORTCUT_BTN}
+        disabled={!meetingId}
+        title={meetingId ? "Open meeting" : "Meeting can't be opened here"}
+        aria-label="Open meeting"
+        onClick={() => meetingId && onOpenMeeting(meetingId)}
+      >
+        <CalendarCheck className="size-4" />
+      </button>
+      <button
+        type="button"
+        className={SHORTCUT_BTN}
+        disabled={!taskId || !openTask}
+        title={taskId ? "Open feedback report task" : "No feedback report task for this meeting"}
+        aria-label="Open task"
+        onClick={() => taskId && openTask?.(taskId)}
+      >
+        <ClipboardList className="size-4" />
+      </button>
+    </div>
+  )
+}
+
+const TODAY_ET = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
+
+/**
+ * The FEEDBACK STATUS control — shown only where the server said this viewer
+ * may set it (the meeting's feedback representative, or an admin; dashboard
+ * meetings only). The pill opens a small popover: the three stored statuses +
+ * an FB Received date (defaults to today when a Closed status is picked).
+ * setMeetingFeedback re-checks everything server-side.
+ */
+function FeedbackStatusControl({
+  row,
+  extra,
+  fbReceived,
+  onSave,
+}: {
+  row: FeedbackOutstandingRow
+  extra: FeedbackRowExtra
+  /** Optimistic received date, if just saved. */
+  fbReceived: string | null | undefined
+  onSave: (row: FeedbackOutstandingRow, statusCode: number, receivedDay: string | null) => Promise<boolean>
+}) {
+  const current = MEETING_FEEDBACK_STATUS_OPTIONS.find((o) => o.label === row.feedback_status_label) ?? null
+  const [open, setOpen] = React.useState(false)
+  const [code, setCode] = React.useState<number | null>(current?.code ?? null)
+  const [day, setDay] = React.useState<string>((fbReceived !== undefined ? fbReceived : extra.fbReceivedDate) ?? "")
+  const [saving, setSaving] = React.useState(false)
+
+  function pick(c: number) {
+    setCode(c)
+    const label = MEETING_FEEDBACK_STATUS_OPTIONS.find((o) => o.code === c)?.label
+    if (isClosedFeedbackStatus(label) && !day) setDay(TODAY_ET())
+  }
+
+  async function save() {
+    if (code === null) return
+    setSaving(true)
+    const done = await onSave(row, code, day || null)
+    setSaving(false)
+    if (done) setOpen(false)
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        if (o) {
+          setCode(current?.code ?? null)
+          setDay((fbReceived !== undefined ? fbReceived : extra.fbReceivedDate) ?? "")
+        }
+        setOpen(o)
+      }}
+    >
+      <PopoverTrigger
+        render={
+          <button
+            type="button"
+            className="group inline-flex cursor-pointer items-center gap-1 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2D4A8A]/30"
+            title="Set feedback status"
+          />
+        }
+      >
+        <StatusPill row={row} />
+        <Pencil className="size-3 text-muted-foreground opacity-60 group-hover:opacity-100" />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-[#5B6472]">Feedback status</div>
+        <div className="grid gap-1" role="radiogroup" aria-label="Feedback status">
+          {MEETING_FEEDBACK_STATUS_OPTIONS.map((o) => {
+            const active = code === o.code
+            return (
+              <button
+                key={o.code}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => pick(o.code)}
+                className={
+                  "rounded-md border px-2 py-1 text-left text-xs transition-colors " +
+                  (active
+                    ? "border-[#2D4A8A] bg-[#EEF2FB] font-medium text-[#2D4A8A]"
+                    : "border-border hover:bg-slate-50")
+                }
+              >
+                {o.label}
+              </button>
+            )
+          })}
+        </div>
+        <label className="grid gap-1 text-xs">
+          <span className="text-muted-foreground">FB Received date</span>
+          <Input type="date" value={day} max={TODAY_ET()} onChange={(e) => setDay(e.target.value)} className="h-8" />
+        </label>
+        <p className="text-[11px] text-muted-foreground">
+          A Closed status removes the meeting from this list. Awaiting Additional keeps it open.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="button" size="sm" onClick={save} disabled={saving || code === null}>
+            {saving ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            Save
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 

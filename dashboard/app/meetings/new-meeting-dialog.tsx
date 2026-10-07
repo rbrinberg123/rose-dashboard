@@ -13,7 +13,21 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Loader2, X } from "lucide-react"
+import {
+  Building2,
+  CalendarClock,
+  CalendarX,
+  ClipboardList,
+  Flag,
+  Loader2,
+  MapPin,
+  MessageSquare,
+  Repeat,
+  StickyNote,
+  Truck,
+  Users,
+  X,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { AddNewButton, useQuickAddRequest } from "@/components/crm-add-new"
@@ -34,14 +48,17 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  MEETING_CANCELLED_OPTIONS,
   MEETING_STATUS_OPTIONS,
   MEETING_TYPE_OPTIONS,
   NEW_MEETING_TEST_DEFAULT,
+  validateMeetingRequired,
   type MeetingChoiceOptions,
+  type MeetingFieldErrors,
   type NewMeetingInput,
 } from "@/lib/meetings/create"
 import type { AccountOption, UserOption } from "@/lib/types"
-import { FormSection, SelectField, TextField, YesNo } from "@/components/crm-form-kit"
+import { FieldError, FormSection, SelectField, TextField, YesNo } from "@/components/crm-form-kit"
 import {
   countTestMeetings,
   createMeeting,
@@ -73,10 +90,19 @@ function nowEasternLocal(): string {
   return `${g("year")}-${g("month")}-${g("day")}T${g("hour")}:${g("minute")}`
 }
 
+/** The red "required" asterisk after a label. */
+function Req() {
+  return (
+    <span className="text-destructive" aria-label="required">
+      *
+    </span>
+  )
+}
+
 function emptyForm(): NewMeetingInput {
   return {
     clientAccountId: null,
-    typeCode: MEETING_TYPE_OPTIONS[0].code, // Virtual
+    typeCode: null, // REQUIRED — a deliberate Live / Virtual choice
     statusCode: MEETING_STATUS_OPTIONS[0].code, // Confirmed
     start: nowEasternLocal(),
     eventId: "",
@@ -106,6 +132,11 @@ function emptyForm(): NewMeetingInput {
     driver: false,
     foodOrder: "",
     logisticsNotes: "",
+    cancelledCode: null,
+    cancellationNotes: "",
+    contactRadar: false,
+    rescheduled: false,
+    rescheduledNotes: "",
     isTest: NEW_MEETING_TEST_DEFAULT,
   }
 }
@@ -143,22 +174,36 @@ function MeetingFormDialog({
 
   React.useEffect(() => {
     if (!open || clients) return
-    loadMeetingClientOptions().then((r) => (r.ok ? setClients(r.data) : setError(r.error)))
-    loadMeetingUserOptions().then((r) => (r.ok ? setUsers(r.data) : setError(r.error)))
+    // Active clients only; an edited meeting keeps its own client listed.
+    loadMeetingClientOptions(initial?.clientAccountId ?? null).then((r) =>
+      r.ok ? setClients(r.data) : setError(r.error),
+    )
+    // Rose & Co active personnel; people already on this meeting stay listed
+    // (marked "(inactive)") so an edit never loses them.
+    loadMeetingUserOptions([
+      initial?.hostId ?? null,
+      initial?.bookerId ?? null,
+      initial?.host2Id ?? null,
+      initial?.onBehalfOfId ?? null,
+      initial?.feedbackId ?? null,
+    ]).then((r) => (r.ok ? setUsers(r.data) : setError(r.error)))
     loadMeetingChoiceOptions().then((r) => (r.ok ? setChoices(r.data) : setError(r.error)))
-  }, [open, clients])
+  }, [open, clients, initial])
 
-  // The client's events, for the optional Event link.
+  // The client's events still taking meetings (Pre-Launch / Live Outreach /
+  // Meetings Ongoing), for the optional Event link. An edited meeting keeps its
+  // current event listed whatever its stage.
   React.useEffect(() => {
     if (!form.clientAccountId) return
     let live = true
-    loadMeetingEventOptions(form.clientAccountId).then((r) => {
+    const keep = form.clientAccountId === initial?.clientAccountId ? (initial?.eventId ?? null) : null
+    loadMeetingEventOptions(form.clientAccountId, keep).then((r) => {
       if (live) setEvents(r.ok ? r.data : [])
     })
     return () => {
       live = false
     }
-  }, [form.clientAccountId])
+  }, [form.clientAccountId, initial])
 
   // Institution search, debounced.
   React.useEffect(() => {
@@ -175,10 +220,17 @@ function MeetingFormDialog({
     }
   }, [instQuery])
 
+  // REQUIRED fields: shown once the user has tried to submit, then live.
+  const [showErrors, setShowErrors] = React.useState(false)
+  const fieldErrors: MeetingFieldErrors = showErrors ? validateMeetingRequired(form) : {}
+
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    if (!form.clientAccountId) return setError("Pick a client.")
+    setShowErrors(true)
+    if (Object.keys(validateMeetingRequired(form)).length) {
+      return setError("Fill in the required fields marked below.")
+    }
     if (!form.start) return setError("Enter the date and time.")
     startTransition(async () => {
       const r = editId ? await updateMeeting(editId, form) : await createMeeting(form)
@@ -196,8 +248,11 @@ function MeetingFormDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={(o) => !pending && setOpen(o)}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        {/* Large, multi-column (same treatment as the event form): most of the
+            screen on desktop, one scrolling column on small screens. Header and
+            footer stay put; only the field area scrolls. */}
+        <DialogContent className="flex max-h-[92vh] w-[96vw] flex-col gap-0 p-0 sm:max-w-[1280px]">
+          <DialogHeader className="border-b px-5 py-3">
             <DialogTitle>{editId ? "Edit meeting" : "Add new meeting"}</DialogTitle>
             <DialogDescription>
               {editId ? (
@@ -211,332 +266,401 @@ function MeetingFormDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={onSubmit} className="grid max-h-[70vh] gap-3 overflow-y-auto pr-1">
-            <div className="grid gap-1.5">
-              <Label>Client</Label>
-              <ClientCombobox
-                options={clients ?? []}
-                value={form.clientAccountId}
-                onChange={(v) => setForm((f) => ({ ...f, clientAccountId: v, eventId: "" }))}
-                placeholder={clients ? "Select a client" : "Loading clients…"}
-              />
-            </div>
+          <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+            <div className="grid min-h-0 flex-1 gap-x-4 gap-y-2.5 overflow-y-auto px-4 py-3 lg:grid-cols-3">
+              {/* ---- Column 1: the meeting itself ---- */}
+              <div className="grid content-start gap-2.5">
+                <FormSection panel icon={CalendarClock} title="Meeting">
+                  <div className="grid gap-1.5">
+                    <Label>
+                      Client <Req />
+                    </Label>
+                    <ClientCombobox
+                      options={clients ?? []}
+                      value={form.clientAccountId}
+                      onChange={(v) => setForm((f) => ({ ...f, clientAccountId: v, eventId: "" }))}
+                      placeholder={clients ? "Select a client" : "Loading clients…"}
+                      invalid={!!fieldErrors.clientAccountId}
+                    />
+                    <FieldError message={fieldErrors.clientAccountId} />
+                  </div>
 
-            <div className="grid grid-cols-3 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="nm-type">Type</Label>
-                <select
-                  id="nm-type"
-                  value={form.typeCode}
-                  onChange={(e) => setForm((f) => ({ ...f, typeCode: Number(e.target.value) }))}
-                  className={SELECT_CLASS}
-                >
-                  {MEETING_TYPE_OPTIONS.map((o) => (
-                    <option key={o.code} value={o.code}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="nm-status">Status</Label>
-                <select
-                  id="nm-status"
-                  value={form.statusCode}
-                  onChange={(e) => setForm((f) => ({ ...f, statusCode: Number(e.target.value) }))}
-                  className={SELECT_CLASS}
-                >
-                  {MEETING_STATUS_OPTIONS.map((o) => (
-                    <option key={o.code} value={o.code}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="nm-start">Date &amp; time (ET)</Label>
-                <Input
-                  id="nm-start"
-                  type="datetime-local"
-                  value={form.start}
-                  onChange={(e) => setForm((f) => ({ ...f, start: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label htmlFor="nm-event">Event (optional)</Label>
-              <select
-                id="nm-event"
-                value={form.eventId ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, eventId: e.target.value }))}
-                className={SELECT_CLASS}
-                disabled={!form.clientAccountId}
-              >
-                <option value="">— none —</option>
-                {events.map((ev) => (
-                  <option key={ev.event_id} value={ev.event_id}>
-                    {ev.name ?? ev.event_id}
-                    {ev.event_state_label ? ` (${ev.event_state_label})` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label htmlFor="nm-inst">Institution</Label>
-              {form.institutionId ? (
-                <div className="flex h-8 items-center justify-between rounded-lg border border-input px-2.5 text-sm">
-                  <span className="truncate">{form.institutionName}</span>
-                  <button
-                    type="button"
-                    aria-label="Clear institution"
-                    onClick={() => setForm((f) => ({ ...f, institutionId: null, institutionName: null }))}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <div className="grid gap-1">
-                  <Input
-                    id="nm-inst"
-                    placeholder="Search institutions already in the CRM…"
-                    value={instQuery}
-                    onChange={(e) => setInstQuery(e.target.value)}
-                  />
-                  {instQuery.trim().length >= 2 && instResults.length > 0 && (
-                    <div className="max-h-40 overflow-y-auto rounded-md border border-input">
-                      {instResults.map((i) => (
-                        <button
-                          key={i.institution_id}
-                          type="button"
-                          onClick={() => {
-                            setForm((f) => ({
-                              ...f,
-                              institutionId: i.institution_id,
-                              institutionName: i.institution_name,
-                            }))
-                            setInstQuery("")
-                            setInstResults([])
-                          }}
-                          className="block w-full truncate px-2.5 py-1 text-left text-sm hover:bg-accent"
-                        >
-                          {i.institution_name}
-                        </button>
-                      ))}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="grid content-start gap-1.5">
+                      <Label htmlFor="nm-type">
+                        Type <Req />
+                      </Label>
+                      <select
+                        id="nm-type"
+                        value={form.typeCode ?? ""}
+                        onChange={(e) => setForm((f) => ({ ...f, typeCode: e.target.value ? Number(e.target.value) : null }))}
+                        aria-invalid={fieldErrors.typeCode ? true : undefined}
+                        className={`${SELECT_CLASS} aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20`}
+                      >
+                        <option value="">Select…</option>
+                        {MEETING_TYPE_OPTIONS.map((o) => (
+                          <option key={o.code} value={o.code}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      <FieldError message={fieldErrors.typeCode} />
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
+                    <div className="grid content-start gap-1.5">
+                      <Label htmlFor="nm-status">Status</Label>
+                      <select
+                        id="nm-status"
+                        value={form.statusCode}
+                        onChange={(e) => setForm((f) => ({ ...f, statusCode: Number(e.target.value) }))}
+                        className={SELECT_CLASS}
+                      >
+                        {MEETING_STATUS_OPTIONS.map((o) => (
+                          <option key={o.code} value={o.code}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="grid content-start gap-1.5">
+                      <Label htmlFor="nm-start">Date &amp; time (ET)</Label>
+                      <Input
+                        id="nm-start"
+                        type="datetime-local"
+                        value={form.start}
+                        onChange={(e) => setForm((f) => ({ ...f, start: e.target.value }))}
+                      />
+                    </div>
+                  </div>
 
-            <div className="grid gap-1.5">
-              <Label htmlFor="nm-investor">Investor</Label>
-              <Input
-                id="nm-investor"
-                value={form.investor ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, investor: e.target.value }))}
-              />
-            </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="nm-event">Event (optional)</Label>
+                    <select
+                      id="nm-event"
+                      value={form.eventId ?? ""}
+                      onChange={(e) => setForm((f) => ({ ...f, eventId: e.target.value }))}
+                      className={SELECT_CLASS}
+                      disabled={!form.clientAccountId}
+                    >
+                      <option value="">— none —</option>
+                      {events.map((ev) => (
+                        <option key={ev.event_id} value={ev.event_id}>
+                          {ev.name ?? ev.event_id}
+                          {ev.event_state_label ? ` (${ev.event_state_label})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-muted-foreground">
+                      Only this client’s Pre-Launch, Live Outreach and Meetings Ongoing events.
+                    </p>
+                  </div>
+                </FormSection>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1.5">
-                <Label>Host</Label>
-                <UserCombobox
-                  options={users ?? []}
-                  value={form.hostId ?? null}
-                  onChange={(v) => setForm((f) => ({ ...f, hostId: v }))}
-                  placeholder="Pick the host"
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label>Booker</Label>
-                <UserCombobox
-                  options={users ?? []}
-                  value={form.bookerId ?? null}
-                  onChange={(v) => setForm((f) => ({ ...f, bookerId: v }))}
-                  placeholder="Pick the booker"
-                />
-              </div>
-            </div>
+                <FormSection panel icon={Building2} title="Institution & investor">
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="nm-inst">
+                      Institution <Req />
+                    </Label>
+                    {form.institutionId ? (
+                      <div className="flex h-8 min-w-0 items-center justify-between gap-2 rounded-lg border border-input px-2.5 text-sm">
+                        <span className="min-w-0 truncate" title={form.institutionName ?? undefined}>{form.institutionName}</span>
+                        <button
+                          type="button"
+                          aria-label="Clear institution"
+                          onClick={() => setForm((f) => ({ ...f, institutionId: null, institutionName: null }))}
+                          className="shrink-0 text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid gap-1">
+                        <Input
+                          id="nm-inst"
+                          placeholder="Search institutions already in the CRM…"
+                          value={instQuery}
+                          onChange={(e) => setInstQuery(e.target.value)}
+                          aria-invalid={fieldErrors.institutionId ? true : undefined}
+                        />
+                        {instQuery.trim().length >= 2 && instResults.length > 0 && (
+                          <div className="max-h-40 overflow-y-auto rounded-md border border-input">
+                            {instResults.map((i) => (
+                              <button
+                                key={i.institution_id}
+                                type="button"
+                                onClick={() => {
+                                  setForm((f) => ({
+                                    ...f,
+                                    institutionId: i.institution_id,
+                                    institutionName: i.institution_name,
+                                  }))
+                                  setInstQuery("")
+                                  setInstResults([])
+                                }}
+                                className="block w-full truncate px-2.5 py-1 text-left text-sm hover:bg-accent"
+                              >
+                                {i.institution_name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <FieldError message={fieldErrors.institutionId} />
+                  </div>
 
-            <div className="grid gap-1.5">
-              <Label htmlFor="nm-notes">General notes</Label>
-              <Textarea
-                id="nm-notes"
-                rows={3}
-                value={form.generalNotes ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, generalNotes: e.target.value }))}
-              />
-            </div>
-
-            <FormSection title="Overview — place & flags">
-              <div className="grid grid-cols-2 gap-3">
-                <SelectField
-                  id="nm-cityName"
-                  label="City"
-                  value={form.cityName ?? ""}
-                  onChange={(v) => set({ cityName: v || null })}
-                  options={(choices?.cities ?? []).map((o) => ({ value: o.name, label: o.name }))}
-                />
-                <SelectField
-                  id="nm-stateRegionName"
-                  label="State / Region"
-                  value={form.stateRegionName ?? ""}
-                  onChange={(v) => set({ stateRegionName: v || null })}
-                  options={(choices?.states ?? []).map((o) => ({ value: o.name, label: o.name }))}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <YesNo label="Group Meeting" checked={form.groupMeeting} onChange={(v) => set({ groupMeeting: v })} />
-                <YesNo label="Hosted in HQ" checked={form.hostedInHq} onChange={(v) => set({ hostedInHq: v })} />
-              </div>
-            </FormSection>
-
-            <FormSection title="Representatives">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-1.5">
-                  <Label>Second Host</Label>
-                  <UserCombobox
-                    options={users ?? []}
-                    value={form.host2Id ?? null}
-                    onChange={(v) => set({ host2Id: v })}
-                    placeholder="—"
+                  <TextField
+                    id="nm-investor"
+                    label={
+                      <>
+                        Investor <Req />
+                      </>
+                    }
+                    value={form.investor}
+                    onChange={(v) => set({ investor: v })}
+                    error={fieldErrors.investor}
                   />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label>On Behalf Of</Label>
-                  <UserCombobox
-                    options={users ?? []}
-                    value={form.onBehalfOfId ?? null}
-                    onChange={(v) => set({ onBehalfOfId: v })}
-                    placeholder="—"
+                </FormSection>
+
+                <FormSection panel icon={MapPin} title="Location">
+                  <div className="grid grid-cols-2 gap-2">
+                    <SelectField
+                      id="nm-cityName"
+                      label="City"
+                      value={form.cityName ?? ""}
+                      onChange={(v) => set({ cityName: v || null })}
+                      options={(choices?.cities ?? []).map((o) => ({ value: o.name, label: o.name }))}
+                    />
+                    <SelectField
+                      id="nm-stateRegionName"
+                      label="State / Region"
+                      value={form.stateRegionName ?? ""}
+                      onChange={(v) => set({ stateRegionName: v || null })}
+                      options={(choices?.states ?? []).map((o) => ({ value: o.name, label: o.name }))}
+                    />
+                  </div>
+                </FormSection>
+
+                <FormSection panel icon={StickyNote} title="Notes">
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="nm-notes">General notes</Label>
+                    <Textarea
+                      id="nm-notes"
+                      rows={2}
+                      value={form.generalNotes ?? ""}
+                      onChange={(e) => setForm((f) => ({ ...f, generalNotes: e.target.value }))}
+                    />
+                  </div>
+                </FormSection>
+              </div>
+
+              {/* ---- Column 2: flags, representatives, planning, logistics ---- */}
+              <div className="grid content-start gap-2.5">
+                <FormSection panel icon={Flag} title="Flags">
+                  <div className="grid grid-cols-2 gap-2">
+                    <YesNo label="Group Meeting" checked={form.groupMeeting} onChange={(v) => set({ groupMeeting: v })} />
+                    <YesNo label="Hosted in HQ" checked={form.hostedInHq} onChange={(v) => set({ hostedInHq: v })} />
+                  </div>
+                </FormSection>
+
+                <FormSection panel icon={Users} title="Representatives">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="grid gap-1.5">
+                      <Label>Host</Label>
+                      <UserCombobox
+                        options={users ?? []}
+                        value={form.hostId ?? null}
+                        onChange={(v) => setForm((f) => ({ ...f, hostId: v }))}
+                        placeholder="Pick the host"
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label>Booker</Label>
+                      <UserCombobox
+                        options={users ?? []}
+                        value={form.bookerId ?? null}
+                        onChange={(v) => setForm((f) => ({ ...f, bookerId: v }))}
+                        placeholder="Pick the booker"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="grid gap-1.5">
+                      <Label>Second Host</Label>
+                      <UserCombobox
+                        options={users ?? []}
+                        value={form.host2Id ?? null}
+                        onChange={(v) => set({ host2Id: v })}
+                        placeholder="—"
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label>On Behalf Of</Label>
+                      <UserCombobox
+                        options={users ?? []}
+                        value={form.onBehalfOfId ?? null}
+                        onChange={(v) => set({ onBehalfOfId: v })}
+                        placeholder="—"
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label>Feedback</Label>
+                      <UserCombobox
+                        options={users ?? []}
+                        value={form.feedbackId ?? null}
+                        onChange={(v) => set({ feedbackId: v })}
+                        placeholder="—"
+                      />
+                    </div>
+                    <SelectField
+                      id="nm-hostNotesCode"
+                      label="Host Notes"
+                      value={form.hostNotesCode ?? ""}
+                      onChange={(v) => set({ hostNotesCode: v ? Number(v) : null })}
+                      options={(choices?.hostNotes ?? []).map((o) => ({ value: o.code, label: o.label }))}
+                    />
+                  </div>
+                  <YesNo label="Client Booked" checked={form.clientBooked} onChange={(v) => set({ clientBooked: v })} />
+                </FormSection>
+
+                <FormSection panel icon={ClipboardList} title="Planning">
+                  <div className="grid grid-cols-2 gap-2">
+                    <SelectField
+                      id="nm-calendarCode"
+                      label="Calendar"
+                      value={form.calendarCode ?? ""}
+                      onChange={(v) => set({ calendarCode: v ? Number(v) : null })}
+                      options={(choices?.calendar ?? []).map((o) => ({ value: o.code, label: o.label }))}
+                    />
+                    <SelectField
+                      id="nm-profileCode"
+                      label="Profile"
+                      value={form.profileCode ?? ""}
+                      onChange={(v) => set({ profileCode: v ? Number(v) : null })}
+                      options={(choices?.profile ?? []).map((o) => ({ value: o.code, label: o.label }))}
+                    />
+                  </div>
+                </FormSection>
+
+                <FormSection panel quiet icon={Truck} title="Logistics · usually Live meetings">
+                  <div className="grid grid-cols-3 gap-2">
+                    <YesNo label="Sent" checked={form.sent} onChange={(v) => set({ sent: v })} />
+                    <YesNo label="Confirm" checked={form.confirm} onChange={(v) => set({ confirm: v })} />
+                    <YesNo label="Driver" checked={form.driver} onChange={(v) => set({ driver: v })} />
+                  </div>
+                  <TextField id="nm-food" label="Food Order" value={form.foodOrder} onChange={(v) => set({ foodOrder: v })} />
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="nm-lognotes">Logistics Notes</Label>
+                    <Textarea
+                      id="nm-lognotes"
+                      rows={2}
+                      value={form.logisticsNotes ?? ""}
+                      onChange={(e) => set({ logisticsNotes: e.target.value })}
+                    />
+                  </div>
+                </FormSection>
+              </div>
+
+              {/* ---- Column 3: feedback, cancellation, rescheduling ---- */}
+              <div className="grid content-start gap-2.5">
+                <FormSection panel icon={MessageSquare} title="Feedback">
+                  <SelectField
+                    id="nm-feedbackStatusCode"
+                    label="Feedback Status — closes feedback (drives Feedback Collection)"
+                    value={form.feedbackStatusCode ?? ""}
+                    onChange={(v) => {
+                      const code = v ? Number(v) : null
+                      // FB in BDA follows Feedback Status (they agree on ~99.5% of
+                      // meetings) unless it was set to something else by hand.
+                      setForm((f) => ({
+                        ...f,
+                        feedbackStatusCode: code,
+                        ...(f.feedbackBdaCode == null || f.feedbackBdaCode === f.feedbackStatusCode
+                          ? { feedbackBdaCode: code }
+                          : null),
+                      }))
+                    }}
+                    options={(choices?.feedbackStatus ?? []).map((o) => ({ value: o.code, label: o.label }))}
                   />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label>Feedback</Label>
-                  <UserCombobox
-                    options={users ?? []}
-                    value={form.feedbackId ?? null}
-                    onChange={(v) => set({ feedbackId: v })}
-                    placeholder="—"
+                  {/* FB in BDA (info only) is hidden from the form; its column is kept,
+                      and it still follows Feedback Status as before. */}
+                  <TextField
+                    id="nm-fbrec"
+                    label="FB Rec'd (info only)"
+                    type="date"
+                    value={form.fbReceivedDate}
+                    onChange={(v) => set({ fbReceivedDate: v })}
                   />
-                </div>
-                <SelectField
-                  id="nm-hostNotesCode"
-                  label="Host Notes"
-                  value={form.hostNotesCode ?? ""}
-                  onChange={(v) => set({ hostNotesCode: v ? Number(v) : null })}
-                  options={(choices?.hostNotes ?? []).map((o) => ({ value: o.code, label: o.label }))}
-                />
-              </div>
-                <YesNo label="Client Booked" checked={form.clientBooked} onChange={(v) => set({ clientBooked: v })} />
-            </FormSection>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="nm-fbnotes">Feedback Notes</Label>
+                    <Textarea
+                      id="nm-fbnotes"
+                      rows={2}
+                      value={form.feedbackNotes ?? ""}
+                      onChange={(e) => set({ feedbackNotes: e.target.value })}
+                    />
+                  </div>
+                </FormSection>
 
-            <FormSection title="Planning">
-              <div className="grid grid-cols-2 gap-3">
-                <SelectField
-                  id="nm-calendarCode"
-                  label="Calendar"
-                  value={form.calendarCode ?? ""}
-                  onChange={(v) => set({ calendarCode: v ? Number(v) : null })}
-                  options={(choices?.calendar ?? []).map((o) => ({ value: o.code, label: o.label }))}
-                />
-                <SelectField
-                  id="nm-profileCode"
-                  label="Profile"
-                  value={form.profileCode ?? ""}
-                  onChange={(v) => set({ profileCode: v ? Number(v) : null })}
-                  options={(choices?.profile ?? []).map((o) => ({ value: o.code, label: o.label }))}
-                />
-              </div>
-            </FormSection>
+                <FormSection panel quiet icon={CalendarX} title="Cancellation">
+                  <div className="grid grid-cols-2 items-end gap-2">
+                    <SelectField
+                      id="nm-cancelledCode"
+                      label="Cancelled"
+                      value={form.cancelledCode ?? ""}
+                      onChange={(v) => set({ cancelledCode: v ? Number(v) : null })}
+                      options={MEETING_CANCELLED_OPTIONS.map((o) => ({ value: o.code, label: o.label }))}
+                    />
+                    <div className="flex h-8 items-center">
+                      <YesNo label="Contact Radar" checked={form.contactRadar} onChange={(v) => set({ contactRadar: v })} />
+                    </div>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="nm-cancelnotes">Cancellation Notes</Label>
+                    <Textarea
+                      id="nm-cancelnotes"
+                      rows={2}
+                      value={form.cancellationNotes ?? ""}
+                      onChange={(e) => set({ cancellationNotes: e.target.value })}
+                    />
+                  </div>
+                </FormSection>
 
-            <FormSection title="Feedback">
-              <SelectField
-                id="nm-feedbackStatusCode"
-                label="Feedback Status — closes feedback (drives Feedback Collection)"
-                value={form.feedbackStatusCode ?? ""}
-                onChange={(v) => {
-                  const code = v ? Number(v) : null
-                  // FB in BDA follows Feedback Status (they agree on ~99.5% of
-                  // meetings) unless it was set to something else by hand.
-                  setForm((f) => ({
-                    ...f,
-                    feedbackStatusCode: code,
-                    ...(f.feedbackBdaCode == null || f.feedbackBdaCode === f.feedbackStatusCode
-                      ? { feedbackBdaCode: code }
-                      : null),
-                  }))
-                }}
-                options={(choices?.feedbackStatus ?? []).map((o) => ({ value: o.code, label: o.label }))}
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <SelectField
-                  id="nm-feedbackBdaCode"
-                  label="FB in BDA (info only)"
-                  value={form.feedbackBdaCode ?? ""}
-                  onChange={(v) => set({ feedbackBdaCode: v ? Number(v) : null })}
-                  options={(choices?.feedbackBda ?? []).map((o) => ({ value: o.code, label: o.label }))}
-                />
-                <TextField
-                  id="nm-fbrec"
-                  label="FB Rec'd (info only)"
-                  type="date"
-                  value={form.fbReceivedDate}
-                  onChange={(v) => set({ fbReceivedDate: v })}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="nm-fbnotes">Feedback Notes</Label>
-                <Textarea
-                  id="nm-fbnotes"
-                  rows={2}
-                  value={form.feedbackNotes ?? ""}
-                  onChange={(e) => set({ feedbackNotes: e.target.value })}
-                />
-              </div>
-            </FormSection>
+                <FormSection panel quiet icon={Repeat} title="Rescheduling">
+                  <YesNo label="Rescheduled Meeting" checked={form.rescheduled} onChange={(v) => set({ rescheduled: v })} />
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="nm-reschednotes">Rescheduled Notes</Label>
+                    <Textarea
+                      id="nm-reschednotes"
+                      rows={2}
+                      placeholder="e.g. moved from 7/8"
+                      value={form.rescheduledNotes ?? ""}
+                      onChange={(e) => set({ rescheduledNotes: e.target.value })}
+                    />
+                  </div>
+                </FormSection>
 
-            <FormSection title="Logistics · usually Live meetings">
-              <div className="grid grid-cols-3 gap-2">
-                <YesNo label="Sent" checked={form.sent} onChange={(v) => set({ sent: v })} />
-                <YesNo label="Confirm" checked={form.confirm} onChange={(v) => set({ confirm: v })} />
-                <YesNo label="Driver" checked={form.driver} onChange={(v) => set({ driver: v })} />
+                {!editId && (
+                  <label className="flex items-start gap-2 rounded-md border border-[#F3E2BF] bg-[#FCF4E6] px-3 py-2 text-sm">
+                    <Checkbox
+                      checked={form.isTest}
+                      onCheckedChange={(c) => setForm((f) => ({ ...f, isTest: c === true }))}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="font-medium">Test record</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Marked TEST and removed by “Delete test meetings”. It is NOT hidden anywhere — use the ZZ - Test
+                        Client (ZVZZT) while we’re testing.
+                      </span>
+                    </span>
+                  </label>
+                )}
               </div>
-              <TextField id="nm-food" label="Food Order" value={form.foodOrder} onChange={(v) => set({ foodOrder: v })} />
-              <div className="grid gap-1.5">
-                <Label htmlFor="nm-lognotes">Logistics Notes</Label>
-                <Textarea
-                  id="nm-lognotes"
-                  rows={2}
-                  value={form.logisticsNotes ?? ""}
-                  onChange={(e) => set({ logisticsNotes: e.target.value })}
-                />
-              </div>
-            </FormSection>
+            </div>
 
-            {!editId && (
-              <label className="flex items-start gap-2 rounded-md border border-[#F3E2BF] bg-[#FCF4E6] px-3 py-2 text-sm">
-                <Checkbox
-                  checked={form.isTest}
-                  onCheckedChange={(c) => setForm((f) => ({ ...f, isTest: c === true }))}
-                  className="mt-0.5"
-                />
-                <span>
-                  <span className="font-medium">Test record</span>
-                  <span className="block text-xs text-muted-foreground">
-                    Marked TEST and removed by “Delete test meetings”. It is NOT hidden anywhere — use the ZZ - Test
-                    Client (ZVZZT) while we’re testing.
-                  </span>
-                </span>
-              </label>
-            )}
+            {error && <div className="border-t px-5 py-2 text-sm text-destructive">{error}</div>}
 
-            {error && <div className="text-sm text-destructive">{error}</div>}
-
-            <DialogFooter>
+            <DialogFooter className="mx-0 mb-0">
               <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
                 Cancel
               </Button>

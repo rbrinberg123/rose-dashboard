@@ -3,7 +3,11 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { AlertTriangle, ChevronRight } from "lucide-react"
+import { AlertTriangle, CalendarDays, ChevronRight, ClipboardList } from "lucide-react"
+import { loadEventRecord } from "@/app/events/actions"
+import { EventRecordPane } from "@/app/events/event-record-pane"
+import { TaskDrawerHost, useOpenTask } from "@/app/my-dashboard/task-drawer"
+import type { EventRecord } from "@/lib/events/record"
 import { ListTitleCard } from "@/components/page-masthead"
 import { CARD_CLASS, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
 import type { FeedbackPipelineRow } from "@/lib/types"
@@ -141,6 +145,7 @@ export function FeedbackPipelineView({
   today,
   embedded = false,
   claims,
+  canOpen,
 }: {
   rows: FeedbackPipelineRow[]
   today: string
@@ -149,6 +154,12 @@ export function FeedbackPipelineView({
   embedded?: boolean
   /** Claim / release / reassign / close overlay (lib/feedback-claims). */
   claims?: ClaimsContext
+  /**
+   * Which row shortcuts the viewer gets: open the event (Events drawer) / the
+   * feedback task (Tasks drawer). Decided server-side from the viewer's page
+   * access; the drawers' loaders re-check (super user) on the server.
+   */
+  canOpen?: { events: boolean; tasks: boolean }
 }) {
   const router = useRouter()
   const [, startTransition] = React.useTransition()
@@ -360,11 +371,51 @@ export function FeedbackPipelineView({
     [pendingAll, passesShared, prSort],
   )
 
+  // ROW SHORTCUTS — open the row's event / feedback task in the EXISTING
+  // drawers, as overlays: the Events record pane (wired as FB Coming Soon wires
+  // it) and My Dashboard's TaskDrawerHost (TaskRecordPane + its Edit dialog).
+  // The list underneath is untouched, so closing returns to the same place.
+  const [openEventId, setOpenEventId] = React.useState<string | null>(null)
+  const [eventRecord, setEventRecord] = React.useState<EventRecord | null>(null)
+  const [eventError, setEventError] = React.useState<string | null>(null)
+  const openEvent = React.useCallback((id: string) => {
+    setEventRecord(null)
+    setEventError(null)
+    setOpenEventId(id)
+  }, [])
+  const closeEvent = React.useCallback(() => {
+    setOpenEventId(null)
+    setEventRecord(null)
+    setEventError(null)
+  }, [])
+  React.useEffect(() => {
+    if (!openEventId) return
+    let cancelled = false
+    loadEventRecord(openEventId).then((res) => {
+      if (cancelled) return
+      if (res.ok) setEventRecord(res.data ?? null)
+      else setEventError(res.error)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [openEventId])
+  const renderOpen =
+    canOpen && (canOpen.events || canOpen.tasks)
+      ? (r: FeedbackPipelineRow) => (
+          <RowShortcuts
+            eventId={canOpen.events ? r.event_id : null}
+            taskId={canOpen.tasks ? r.task_id : null}
+            onOpenEvent={openEvent}
+          />
+        )
+      : undefined
+
   const toggleIpSort = React.useCallback((k: SortKey) => setIpSort((s) => nextSort(s, k)), [])
   const togglePrSort = React.useCallback((k: SortKey) => setPrSort((s) => nextSort(s, k)), [])
 
   return (
-    <>
+    <TaskDrawerHost>
       {!embedded && (
         <div className="mb-4">
           <ListTitleCard
@@ -430,6 +481,7 @@ export function FeedbackPipelineView({
           sort={prSort}
           onSort={togglePrSort}
           dateHeader="Fb Closed"
+          renderOpen={renderOpen}
           // Same column count as Open so the two tables stay aligned; Pending
           // Review rows carry no claim actions.
           renderActions={
@@ -510,6 +562,7 @@ export function FeedbackPipelineView({
               onSort={toggleIpSort}
               dateHeader="FB Received"
               emphasizeUnclaimed
+              renderOpen={renderOpen}
               renderActions={renderActions}
               claimedAt={claims?.meta}
               emptyText={
@@ -525,7 +578,16 @@ export function FeedbackPipelineView({
           )}
         </Section>
       </div>
-    </>
+
+      {/* The Events drawer, as an overlay (view-only here, like FB Coming Soon;
+          a dashboard event carries its Feedback reports panel). */}
+      <EventRecordPane
+        record={eventRecord}
+        loading={openEventId !== null && eventRecord === null && eventError === null}
+        error={eventError}
+        onClose={closeEvent}
+      />
+    </TaskDrawerHost>
   )
 }
 
@@ -741,18 +803,65 @@ function Section({
 }
 
 // Shared column widths so the two stacked tables align pixel-for-pixel.
-function ColGroup({ withActions = false }: { withActions?: boolean }) {
+function ColGroup({ withActions = false, withOpen = false }: { withActions?: boolean; withOpen?: boolean }) {
   // With the claim Actions column, the other columns give up a little width so
-  // both stacked tables still align (both get the same flag).
+  // both stacked tables still align (both get the same flags).
   const w = withActions
     ? ["13%", "15%", "11%", "8%", "8%", "8%", "12%", "12%", "13%"]
     : ["15%", "19%", "13%", "10%", "10%", "9%", "14%", "10%"]
+  // The row-shortcut column is a fixed sliver just BEFORE Actions (or last,
+  // with no Actions column); the percentages share what is left.
+  if (withOpen) w.splice(withActions ? w.length - 1 : w.length, 0, "64px")
   return (
     <colgroup>
       {w.map((width, i) => (
         <col key={i} style={{ width }} />
       ))}
     </colgroup>
+  )
+}
+
+const SHORTCUT_BTN =
+  "inline-flex size-7 items-center justify-center rounded-md text-[#5B6472] transition-colors hover:bg-[#EEF2FB] hover:text-[#2D4A8A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2D4A8A]/30 disabled:pointer-events-none disabled:opacity-30"
+
+/**
+ * The row's two shortcuts — open its event / its feedback task in the existing
+ * drawers, over the page. A missing id renders the icon disabled (never an
+ * error). The task opener comes from the surrounding TaskDrawerHost.
+ */
+function RowShortcuts({
+  eventId,
+  taskId,
+  onOpenEvent,
+}: {
+  eventId: string | null
+  taskId: string | null
+  onOpenEvent: (id: string) => void
+}) {
+  const openTask = useOpenTask()
+  return (
+    <div className="flex items-center gap-0.5">
+      <button
+        type="button"
+        className={SHORTCUT_BTN}
+        disabled={!eventId}
+        title={eventId ? "Open event" : "No event linked"}
+        aria-label="Open event"
+        onClick={() => eventId && onOpenEvent(eventId)}
+      >
+        <CalendarDays className="size-4" />
+      </button>
+      <button
+        type="button"
+        className={SHORTCUT_BTN}
+        disabled={!taskId || !openTask}
+        title={taskId ? "Open task" : "No task linked"}
+        aria-label="Open task"
+        onClick={() => taskId && openTask?.(taskId)}
+      >
+        <ClipboardList className="size-4" />
+      </button>
+    </div>
   )
 }
 
@@ -767,6 +876,7 @@ function PipelineTable({
   onSort,
   dateHeader,
   emphasizeUnclaimed = false,
+  renderOpen,
   renderActions,
   claimedAt,
   emptyText,
@@ -779,6 +889,8 @@ function PipelineTable({
   // "Fb Closed" (Pending Review).
   dateHeader: string
   emphasizeUnclaimed?: boolean
+  /** Open-event / open-task shortcuts; when set, a column is drawn before Actions. */
+  renderOpen?: (r: FeedbackPipelineRow) => React.ReactNode
   /** Claim workflow buttons for a row; when set, an Actions column is drawn. */
   renderActions?: (r: FeedbackPipelineRow) => React.ReactNode
   /** task_id → claim facts, for the "since" date under the owner. */
@@ -795,7 +907,7 @@ function PipelineTable({
   return (
     <div className={`overflow-x-auto ${CARD_CLASS}`}>
       <table className="w-full table-fixed text-sm">
-        <ColGroup withActions={!!renderActions} />
+        <ColGroup withActions={!!renderActions} withOpen={!!renderOpen} />
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
             <SortTh k="client" sort={sort} onSort={onSort}>Client</SortTh>
@@ -806,6 +918,11 @@ function PipelineTable({
             <SortTh k="taskdate" sort={sort} onSort={onSort} center>{dateHeader}</SortTh>
             <SortTh k="am" sort={sort} onSort={onSort}>Client Mgr</SortTh>
             <SortTh k="claimed" sort={sort} onSort={onSort}>Claimed By</SortTh>
+            {renderOpen && (
+              <th className="px-1 py-2">
+                <span className="sr-only">Open event or task</span>
+              </th>
+            )}
             {renderActions && <th className="px-3 py-2 text-left font-medium">Actions</th>}
           </tr>
         </thead>
@@ -874,6 +991,7 @@ function PipelineTable({
                     </div>
                   )}
                 </td>
+                {renderOpen && <td className="px-1 py-2">{renderOpen(r)}</td>}
                 {renderActions && <td className="px-3 py-2">{renderActions(r)}</td>}
               </tr>
             )

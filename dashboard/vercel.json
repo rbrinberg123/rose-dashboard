@@ -2,6 +2,7 @@
   "crons": [
     { "path": "/api/sync-dynamics", "schedule": "*/10 11-22 * * 1-5" },
     { "path": "/api/reconcile-dynamics", "schedule": "0 5 * * *" },
+    { "path": "/api/events/recompute-stages", "schedule": "5 10 * * *" },
     { "path": "/api/client-summary/refresh-all", "schedule": "0 8 * * *" },
     { "path": "/api/client-health/refresh", "schedule": "0 9 * * 1" },
     { "path": "/api/client-health/refresh", "schedule": "30 9,10,11 * * 1" },

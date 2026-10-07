@@ -25,6 +25,7 @@ import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import type { AccountOption, UserOption } from "@/lib/types"
 import { easternOffsetMs } from "@/lib/table-views/query"
+import { classifyUser } from "@/lib/access/identity-index"
 
 /**
  * The WRITE gate. Stricter than the read gates: the effective role must be
@@ -68,6 +69,26 @@ export async function loadAccountOptions(): Promise<ActionResult<AccountOption[]
     .select("account_id, name, ticker_symbol")
     .order("name", { ascending: true })
     .limit(5000)
+  if (error) return fail(describeError(error))
+  return ok((data ?? []) as AccountOption[])
+}
+
+/**
+ * ACTIVE clients only — accounts.state_label = 'Active', the same rule
+ * Portfolio and the views use. `includeAccountId` keeps an edited record's own
+ * client listed even if it has since gone inactive. Used by the Event and
+ * Meeting forms' client pickers. Read gate only.
+ */
+export async function loadActiveAccountOptions(
+  includeAccountId?: string | null,
+): Promise<ActionResult<AccountOption[]>> {
+  const role = await getEffectiveRole()
+  if (role !== "super_user") return fail("Not authorised.")
+
+  const keep = includeAccountId && isUuid(includeAccountId) ? includeAccountId : null
+  let q = getSupabaseServer().from("accounts").select("account_id, name, ticker_symbol")
+  q = keep ? q.or(`state_label.eq.Active,account_id.eq.${keep}`) : q.eq("state_label", "Active")
+  const { data, error } = await q.order("name", { ascending: true }).limit(5000)
   if (error) return fail(describeError(error))
   return ok((data ?? []) as AccountOption[])
 }
@@ -175,19 +196,104 @@ export async function loadUserOptions(): Promise<ActionResult<UserOption[]>> {
   return ok((data ?? []) as UserOption[])
 }
 
-/** One client's marketing events (newest first) — for event pickers. */
+type PersonnelRow = { user_id: string; display_name: string | null; email: string | null; is_active: boolean | null }
+
+/** A Rose & Co person: a `human` row of the identity rule, and active in Dynamics. */
+function isActivePersonnel(r: PersonnelRow): boolean {
+  return r.is_active === true && classifyUser(r).classification === "human"
+}
+
+/**
+ * ROSE & CO ACTIVE PERSONNEL — the people pickers on the Meeting form (Host,
+ * Booker, Second Host, On Behalf Of, Feedback). Source: public.users, the
+ * Dynamics systemuser mirror these fields reference, filtered to
+ * `is_active` (= NOT isdisabled) AND the identity rule's `human`
+ * classification (lib/access/identity-index.ts classifyUser: @roseandco.com,
+ * not a hashed / shared-mailbox / #-app account). That drops ~240 active
+ * service + external rows the plain is_active list carried.
+ *
+ * `keepIds` — people already assigned on the record being edited — are always
+ * listed, even if now inactive (labelled "(inactive)"), so the value is not lost.
+ */
+export async function loadPersonnelOptions(keepIds: readonly (string | null | undefined)[] = []): Promise<ActionResult<UserOption[]>> {
+  const role = await getEffectiveRole()
+  if (role !== "super_user") return fail("Not authorised.")
+  const { data, error } = await getSupabaseServer()
+    .from("users")
+    .select("user_id, display_name, email, is_active")
+    .order("display_name", { ascending: true })
+    .limit(5000)
+  if (error) return fail(describeError(error))
+  const keep = new Set(keepIds.filter((v): v is string => !!v))
+  const rows = (data ?? []) as PersonnelRow[]
+  // Same-name duplicate records are ONE person (the identity rule unions
+  // them), so each person is listed once — preferring an already-assigned id.
+  const byName = new Map<string, PersonnelRow>()
+  for (const r of rows) {
+    if (!isActivePersonnel(r)) continue
+    const k = (r.display_name ?? "").trim().toLowerCase()
+    const prev = byName.get(k)
+    if (!prev || (keep.has(r.user_id) && !keep.has(prev.user_id))) byName.set(k, r)
+  }
+  const listed = new Set([...byName.values()].map((r) => r.user_id))
+  const out: UserOption[] = []
+  for (const r of rows) {
+    if (listed.has(r.user_id)) out.push({ user_id: r.user_id, display_name: r.display_name })
+    else if (keep.has(r.user_id)) {
+      // Assigned but not in the active list (inactive, a service mailbox, or the
+      // twin of a listed person) — keep it visible so the value is not lost.
+      out.push({ user_id: r.user_id, display_name: `${r.display_name ?? "Unknown"}${r.is_active ? "" : " (inactive)"}` })
+    }
+  }
+  return ok(out)
+}
+
+/**
+ * Server-side check for a people field: `userId` must be active Rose & Co
+ * personnel — unless it is in `allowIds` (the value already stored on the
+ * record), so an inactive person already assigned can stay. Empty = ok.
+ */
+export async function requireActivePersonnel(
+  userId: string | null | undefined,
+  allowIds: ReadonlySet<string>,
+  label: string,
+): Promise<ActionResult> {
+  const id = cleanText(userId)
+  if (!id || allowIds.has(id)) return ok()
+  if (!isUuid(id)) return fail(`Unknown ${label}.`)
+  const { data, error } = await getSupabaseServer()
+    .from("users")
+    .select("user_id, display_name, email, is_active")
+    .eq("user_id", id)
+    .maybeSingle()
+  if (error) return fail(describeError(error))
+  if (!data || !isActivePersonnel(data as PersonnelRow)) return fail(`${label} must be active Rose & Co personnel.`)
+  return ok()
+}
+
+/**
+ * One client's marketing events (newest first) — for event pickers.
+ * `opts.stages` limits to those stored event_state_label values (the Meeting
+ * form); `opts.keepEventId` keeps an edited record's current event listed even
+ * if its stage is outside that list. No opts = every event (unchanged).
+ */
 export async function loadClientEventOptions(
   accountId: string,
+  opts?: { stages?: readonly string[]; keepEventId?: string | null },
 ): Promise<ActionResult<{ event_id: string; name: string | null; event_state_label: string | null }[]>> {
   const role = await getEffectiveRole()
   if (role !== "super_user") return fail("Not authorised.")
   if (!isUuid(accountId)) return ok([])
-  const { data, error } = await getSupabaseServer()
+  let q = getSupabaseServer()
     .from("events")
     .select("event_id, name, event_state_label")
     .eq("client_account_id", accountId)
-    .order("created_on", { ascending: false })
-    .limit(200)
+  if (opts?.stages) {
+    const inList = opts.stages.map((s) => `"${s}"`).join(",")
+    const keep = opts.keepEventId && isUuid(opts.keepEventId) ? opts.keepEventId : null
+    q = keep ? q.or(`event_state_label.in.(${inList}),event_id.eq.${keep}`) : q.in("event_state_label", [...opts.stages])
+  }
+  const { data, error } = await q.order("created_on", { ascending: false }).limit(200)
   if (error) return fail(describeError(error))
   return ok((data ?? []) as { event_id: string; name: string | null; event_state_label: string | null }[])
 }
@@ -245,20 +351,20 @@ export async function resolveUser(
 export async function resolveClientEvent(
   eventId: string | null | undefined,
   accountId: string,
-): Promise<ActionResult<{ event_id: string; name: string | null } | null>> {
+): Promise<ActionResult<{ event_id: string; name: string | null; event_state_label: string | null } | null>> {
   const id = cleanText(eventId)
   if (!id) return ok(null)
   if (!isUuid(id)) return fail("Unknown event.")
   const { data, error } = await getSupabaseServer()
     .from("events")
-    .select("event_id, name, client_account_id")
+    .select("event_id, name, client_account_id, event_state_label")
     .eq("event_id", id)
     .maybeSingle()
   if (error) return fail(describeError(error))
   if (!data) return fail("That event no longer exists.")
-  const ev = data as { event_id: string; name: string | null; client_account_id: string | null }
+  const ev = data as { event_id: string; name: string | null; client_account_id: string | null; event_state_label: string | null }
   if (ev.client_account_id !== accountId) return fail("That event belongs to a different client.")
-  return ok({ event_id: ev.event_id, name: ev.name })
+  return ok({ event_id: ev.event_id, name: ev.name, event_state_label: ev.event_state_label })
 }
 
 /* ----------------------------------------------------- list TEST badges */

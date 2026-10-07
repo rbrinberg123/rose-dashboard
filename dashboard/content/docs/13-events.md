@@ -110,7 +110,7 @@ Slides in from the right, rendered as a **sibling** of the list so opening a rec
 
 Unlike the Meetings drawer this needs no `_raw` at all. `public.events` is a fully flattened mirror, so every field the drawer wants is a real column.
 
-**Header:** Event Title, Event State (coloured pill), Marketing State.
+**Header:** Event Title (dashboard events carry a grey **Auto** lock — the name is generated), Event State (coloured pill), Marketing State, then the **lifecycle stepper** (see [Computed lifecycle](#computed-lifecycle-dashboard-origin-events)). Below the stat row, an **Account team** strip shows the client's current team as initials avatars by role.
 
 ### The capacity stat row
 
@@ -141,7 +141,7 @@ Two display rules:
 
 **Account Manager, Logistics Coordinator and Feedback Report render as circle avatars** — the shared `AccountTeamAvatars`, the same object as the clusters on Portfolio, Profiles and the Meetings table.
 
-**Company Representatives and Company Preferences are deliberately absent in v1.** Both are related contact records and contacts are not confirmed synced. Adding them means one more section in `lib/events/record.ts` — no change to the drawer, the catalog or the table.
+**Company Representatives** (2026-10-07): dashboard-added representatives (see [Company representatives](#company-representatives)) are listed in the drawer below the account team. Dynamics-side representatives and **Company Preferences** are still absent — nothing synced carries them.
 
 ### Field-sourcing notes
 
@@ -237,14 +237,79 @@ Each entity supplies a **spec** (`lib/events/spec.ts`, `lib/meetings/spec.ts`) n
 
 ## Create & edit (dashboard records)
 
-**Add New Event** and the drawer's **Edit** button (dashboard-created records only; Dynamics records stay read-only until cutover) use **one form that covers every field the drawer shows**, grouped the same way. That's the "form field set = drawer field set" principle; see [22 — Cutover](22-cutover-ownership-boundary.md). Created / modified by and on are display-only system fields. No field on this drawer is read from `_raw`, so **no columns needed flattening**.
+**Add New Event** and the drawer's **Edit** button open a large three-column dialog (event · lifecycle + general · planning; one scrolling column on small screens). They (dashboard-created records only; Dynamics records stay read-only until cutover) use **one form that covers every field the drawer shows**, grouped the same way. That's the "form field set = drawer field set" principle; see [22 — Cutover](22-cutover-ownership-boundary.md). Created / modified by and on are display-only system fields. No field on this drawer is read from `_raw`, so **no columns needed flattening**.
 
 **Editable:**
-- **General:** client, location, dates, meetings start/end, **TBC**, **Team?**, **account manager**, **logistics coordinator**, **feedback report**, **feedback team**, **lead(s)**, event notes.
-- **Planning:** **event parameters**, # of slots, **urgency**, **launch week**, **memo date**, **last data upload**, **shareholder report received**, **targeting date / URL / notes**, **profile link**, and the flags **Targeting Not Required**, **Memo Not Required**, **Launch**, **Outreach Complete**.
-- **Header:** stage and marketing state.
+- **General:** client *, location *, dates, meetings start/end, **# of slots ***, **TBC**, **Team?**, **lead(s)**, event notes. (* = required — see below.)
+- **Planning:** **event parameters**, **urgency ***, **launch week**, **targeting URL / notes**, **profile link**, and the flags **Targeting Not Required**, **Memo Not Required**.
+- **Lifecycle:** the three toggles **Launch**, **Outreach Complete**, **Pause** — they drive the computed stage (below).
+
+**Not editable (2026-10-07):**
+- **Stage** — computed, never picked. See [Computed lifecycle](#computed-lifecycle-dashboard-origin-events).
+- **Event name** — generated, shown greyed / read-only. See [Event name](#event-name).
+- **Marketing / Not Marketing** — derived from the computed stage in the same trigger (`events_compute_stage`, patch 2026-10-07f): **Marketing only while the stage is Live Outreach**, Not Marketing for every other stage. Shown greyed in the form (it previews the result from the three toggles, which alone decide Live Outreach).
+- **Last Data Upload / Memo Date / Targeting Date** — looked up, shown greyed: each is the completion date of the client's most recent **Completed** task of one sub-type — **"Data Upload"** (not "Schedule Upload"), **"Marketing Memo"** (subjects say Teaser / Marketing Memo; stored in `teaser_date`), **"Targeting"** — linked by `tasks.bcs_account_id`. Client-level — the latest wins whichever event it was for; "No … on record" when there is none. Set on save and kept fresh by the `tasks_event_task_dates` trigger (patch 2026-10-07g) whenever such a task changes.
+- **Shareholder Report Received** — removed from the form. The column and its historical data are kept and still shown in the drawer.
+- **Account Manager / Logistics Coordinator / Feedback Report / Feedback Team** — the four dropdowns are gone. See [Account team on new events](#account-team-on-new-events). The columns stay in the database for history.
+
+**Client picker:** only **active** clients (`accounts.state_label = 'Active'`, the same rule Portfolio and the views use) — `loadEventClientOptions`. When editing an older event whose client has since gone inactive, that one client is still listed.
+
+**Required:** **Client, Location, # of Slots, Urgency** (`validateEventRequired`, `lib/events/create.ts`). The form marks them with a red *, blocks submit and shows a message under each missing field (live after the first attempt); `createEvent` / `updateEvent` run the same check server-side. Slots must be a whole number 0–1000.
 
 **Lead(s)** is multi-select and offers the 12 initials Dynamics returns labels for.
+
+### Company representatives
+At the bottom of the form, **Add existing contact** attaches one or more existing Contacts as the event's company representatives, shown as a removable list. The picker defaults to the **event client's own contacts** (`contacts.parent_customer_id`), searched by name; **Search all contacts** widens it to every active contact (by name or company). The list is saved with the event into **`public.event_contacts`** (event_id, contact_id, added_by, added_at — patch 2026-10-07g), a **dashboard-owned** junction the sync never writes: nothing in Dynamics' synced data links events to contacts. Writes go through `createEvent` / `updateEvent` (requireCrmWriter, dashboard events only), contact ids are re-read server-side, and every add/remove is audited (`entity = event_contacts`). Rows cascade away with their event or contact. The drawer lists them under **Company representatives**.
+
+### Event name
+`TICKER - Location - Dates` — single spaces, blank parts dropped (`buildEventName`, `lib/events/create.ts`). **TICKER** is the client's ticker (its name if it has none); **Dates** is the free-text Dates field exactly as typed (not meetings start/end). Example: `TCRM - Virtual - 12/1, 12/2, 12/3`. It is the clean form of Dynamics' own convention (Dynamics names often carry a double space or a trailing space; dashboard names don't).
+
+The form shows it live, greyed and read-only. **The server rebuilds it from the raw fields on every save** (`buildEventColumns`), so the browser never sets a name and editing ticker / location / dates updates it. Dynamics events keep their stored name.
+
+### Account team on new events
+On **create** of a dashboard event, the event's people columns are **snapshotted** from the client's current account team — its `accounts` lookups (which, for dashboard-created clients, are projected from `account_team_members`):
+
+| Event columns | Copied from |
+|---|---|
+| `sales_lead_primary_id/_name` (Account Manager) | `accounts.sales_lead_primary_id/_name` |
+| `logistics_coordinator_id/_name` | `accounts.logistics_coordinator_id/_name` |
+| `feedback_report_id/_name` | `accounts.feedback_report_id/_name` |
+| `feedback_team_id/_name` | **left blank** — there is no account-team role for it |
+
+Edits never rewrite them: they record who was on the team when the event was created, and every downstream reader of those columns is unchanged. The drawer's **Account team** strip shows the client's team **live** (Account Manager, Secondary, Associate, Logistics, Feedback Report) as initials avatars.
+
+## Computed lifecycle (dashboard-origin events)
+
+For `origin = 'dashboard'` events the stage is **computed by the database** and written into the existing `event_state_label` / `event_state_code`, so every filter, view, page and email that reads the stage keeps working unchanged. **Dynamics-origin events are not computed** — they show their synced stage until cutover (switch: `event_lifecycle_in_scope()`).
+
+Evaluated top-down — the first match wins:
+
+| Stage (stored label) | Condition |
+|---|---|
+| **Pause** | Pause ticked. Overrides everything. |
+| **Complete** | Launch + Outreach Complete + meetings over + feedback closed |
+| **Preparing Feedback** | Launch + Outreach Complete + meetings over |
+| **Meetings Ongoing** | Launch + Outreach Complete + today (Eastern) ≥ meetings start |
+| **Schedule Closed** | Launch + Outreach Complete |
+| **Live Outreach** | Launch |
+| **Pre-Launch** | otherwise — the stage every new event starts in |
+
+- **Meetings over** — the event has at least one eligible meeting (`feedback_meeting_is_eligible`: not Cancelled, Active) and **every** eligible meeting's Eastern date is before today. Past-dated Confirmed, Pending and TBR all count; cancelled / deactivated are excluded; an undated meeting is not over. **Zero eligible meetings = not over**, so the event stays in Meetings Ongoing rather than jumping ahead. Meetings Ongoing therefore lasts past the end date until the last meeting has happened.
+- **Feedback closed** — both task types for the event (linked by `bcs_event_id`, else `regarding_id`): at least one **Feedback** report task exists, no **Feedback** or **Feedback Report Sent** task is Open, and every Completed report has its review task (`review_of_task_id`) and that review task is closed.
+- **Reversible** — un-ticking Launch or Outreach Complete walks the stage back. Un-pausing resumes whatever the rule now gives (no "previous stage" is stored). Ticking Outreach Complete after meetings have started lands straight on Meetings Ongoing.
+- **Pause** is stored as `Pause`, so a paused event drops off the Live Outreach page / email and the marketing calendar, which filter on the label — as before.
+- No new columns: `launch`, `outreach_complete` and `paused` already existed (`paused` = Dynamics `bcs_paused`).
+
+**When it's recomputed** (`sql/patches/2026-10-07e_event_lifecycle.sql`):
+- `events_compute_stage` — BEFORE every insert / update of a dashboard event (toggles, dates, any edit). The app no longer writes the stage at all, except Pre-Launch as the insert default.
+- `meetings_event_stage` — a meeting added, deleted, moved between events, re-dated, cancelled / reinstated or deactivated.
+- `tasks_event_stage` — a Feedback / Feedback Report Sent task created, closed, reopened, re-linked or deleted.
+- **Daily sweep** — `/api/events/recompute-stages` (Vercel Cron 10:05 UTC ≈ 6 AM ET) calls `events_recompute_all_stages()` over active dashboard events, so the date-driven steps (Meetings Ongoing on the start day, Preparing Feedback the morning after the last meeting) happen with no edit.
+- Every stage change on a dashboard event writes an `audit_log` row (`context = 'automation:event-lifecycle'`).
+
+Both automations are in the registry (Admin → Automations): `event-lifecycle-compute`, `event-lifecycle-daily`.
+
+**Drawer stepper:** the top of the drawer shows Pre-Launch → Live Outreach → Schedule Closed → Meetings Ongoing → Preparing Feedback → Complete in the **events table's own stage colours** (`eventStatePill`): done steps checked, the current step ringed, steps ahead grey. When paused, a red **Pause** banner (with **Resume…** → the edit form) sits above the track, and the step the toggles reach shows a pause glyph. Dynamics events show their stored stage on the same track, labelled "Stage from Dynamics". Step order lives in `lib/events/lifecycle.ts`; the rule itself lives only in SQL.
 
 ### Mining: excludes an event from Live Outreach
 **Mining** (Dynamics `bcs_mining`) was read only from `_raw`, so a dashboard event could never be marked Mining. It's now a real boolean column, **`events.mining`** (`sql/patches/2026-09-23f_events_mining_flag.sql`), backfilled from `_raw` (4 Yes, 4 No, the rest blank) and written by the sync (`mapEvent`). It's shown in the drawer and settable on the create/edit form (General group).

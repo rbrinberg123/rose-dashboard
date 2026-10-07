@@ -18,9 +18,16 @@ test("Active entries say where they live; Planned entries name no code", () => {
 test("the catalogue holds the existing automations plus the feedback-report ones", () => {
   const active = AUTOMATIONS.filter((a) => a.status === "Active")
   const planned = AUTOMATIONS.filter((a) => a.status === "Planned")
-  assert.equal(active.length, 16) // 13 existing + 3 feedback-report automations
+  assert.equal(active.length, 19) // 13 existing + 3 feedback-report + 3 event-lifecycle automations
   assert.equal(planned.length, 2)
-  for (const id of ["feedback-report-auto-create", "feedback-report-meeting-routing", "feedback-report-close-review"]) {
+  for (const id of [
+    "feedback-report-auto-create",
+    "feedback-report-meeting-routing",
+    "feedback-report-close-review",
+    "event-lifecycle-compute",
+    "event-lifecycle-daily",
+    "event-last-data-upload",
+  ]) {
     assert.ok(active.some((a) => a.id === id), `${id} missing`)
   }
 })
