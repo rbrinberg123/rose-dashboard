@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 
 import {
   buildHealthSystemPrompt,
+  buildOverrideContextBlock,
   CLIENT_HEALTH_FRAMEWORK,
   HEALTH_OUTPUT_SCHEMA,
   HEALTH_RATINGS,
@@ -52,11 +53,40 @@ test("the real framework is in place (route guard is open)", () => {
   assert.ok(CLIENT_HEALTH_FRAMEWORK.endsWith("Do not include any text outside the JSON object."))
 })
 
-test("risk severity orders 3 > Management / IR Change > 2 > 1; unrated is null", () => {
+test("risk severity orders 3 > 2 > Management / IR Change > 1 (firm order); unrated is null", () => {
   const sorted = ["1", "Management / IR Change", "2", "3"].sort(
     (a, b) => (ratingSeverity(b) ?? 0) - (ratingSeverity(a) ?? 0),
   )
-  assert.deepEqual(sorted, ["3", "Management / IR Change", "2", "1"])
+  assert.deepEqual(sorted, ["3", "2", "Management / IR Change", "1"])
   assert.equal(ratingSeverity(null), null)
   assert.equal(ratingSeverity("4"), null)
+})
+
+test("override context block carries the override as strong human evidence", () => {
+  const b = buildOverrideContextBlock({
+    overriddenAt: "2026-09-01T14:00:00Z",
+    reviewer: "Pat Reviewer",
+    rating: "1",
+    note: "CEO reaffirmed renewal on our call.",
+    reaffirmedAt: "2026-09-01T14:00:00Z",
+  })
+  assert.match(b, /Override \(dated 2026-09-01, by Pat Reviewer\): rating = 1; note = 'CEO reaffirmed renewal on our call\.'/)
+  assert.match(b, /weight it heavily/)
+  assert.match(b, /Still return your own best current rating and note\./)
+  assert.doesNotMatch(b, /reaffirmed this override/)
+  // The system prompt (cached, shared) never carries a per-client override.
+  assert.doesNotMatch(buildHealthSystemPrompt(), /A human reviewer has overridden/)
+})
+
+test("override block: note-only override and later reaffirmation", () => {
+  const b = buildOverrideContextBlock({
+    overriddenAt: "2026-09-01T14:00:00Z",
+    reviewer: null,
+    rating: null,
+    note: "Board change is the only issue.",
+    reaffirmedAt: "2026-10-05T09:00:00Z",
+  })
+  assert.match(b, /rating = \(not overridden/)
+  assert.match(b, /by a super-user/)
+  assert.match(b, /A human reaffirmed this override on 2026-10-05\./)
 })

@@ -25,14 +25,15 @@ export const HEALTH_RATING_LABEL: Record<HealthRating, string> = {
 }
 
 /**
- * Risk severity for SORTING (higher = more attention): 3 > Management / IR
- * Change > 2 > 1. Not the raw string order. Unrated / unknown is null, which
- * the table always sorts last.
+ * Risk severity for SORTING (higher = more attention): 3 High risk > 2 Monitor
+ * > Management / IR Change > 1 Healthy — the firm standard order, the same as
+ * FIRM_CATEGORY_ORDER in client-health-order.ts. Not the raw string order.
+ * Unrated / unknown is null, which the table always sorts last.
  */
 const RATING_SEVERITY: Record<HealthRating, number> = {
   "3": 4,
-  "Management / IR Change": 3,
-  "2": 2,
+  "2": 3,
+  "Management / IR Change": 2,
   "1": 1,
 }
 
@@ -320,6 +321,38 @@ export const CLIENT_HEALTH_OUTPUT_INSTRUCTION =
 /** The full system prompt sent to the model. */
 export function buildHealthSystemPrompt(): string {
   return `${CLIENT_HEALTH_FRAMEWORK}\n\n${CLIENT_HEALTH_OUTPUT_INSTRUCTION}`
+}
+
+/**
+ * Override-context block — appended to the per-client USER message (after the
+ * client data), only when a super-user override is active. It is deliberately
+ * NOT part of the system prompt: that prompt is identical for every client and
+ * prompt-cached, and a per-client block there would break the cache. The JSON
+ * output contract above is unchanged (and enforced by HEALTH_OUTPUT_SCHEMA).
+ */
+export function buildOverrideContextBlock(o: {
+  overriddenAt: string | null
+  reviewer: string | null
+  rating: string | null
+  note: string | null
+  /** override_reviewed_at, when a human reaffirmed the override after it was set. */
+  reaffirmedAt: string | null
+}): string {
+  const d = (iso: string | null) => (iso ? iso.slice(0, 10) : "unknown date")
+  const rating = o.rating ?? "(not overridden — the reviewer left the rating to you)"
+  const note = o.note ? `'${o.note}'` : "(no note)"
+  const reaffirmed =
+    o.reaffirmedAt && o.overriddenAt && o.reaffirmedAt.slice(0, 10) > o.overriddenAt.slice(0, 10)
+      ? ` A human reaffirmed this override on ${d(o.reaffirmedAt)}.`
+      : ""
+  return (
+    "## Human override\n" +
+    `A human reviewer has overridden this client's rating. Override (dated ${d(o.overriddenAt)}, by ${o.reviewer ?? "a super-user"}): ` +
+    `rating = ${rating}; note = ${note}.${reaffirmed} ` +
+    "Treat this as strong, recent, human evidence and weight it heavily when forming your assessment. " +
+    "Only diverge from it if clearly newer information materially contradicts it, and if you do, briefly state why in your note. " +
+    "Still return your own best current rating and note."
+  )
 }
 
 /** False until the real framework has been pasted over the placeholder. */

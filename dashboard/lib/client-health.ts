@@ -6,8 +6,11 @@ import {
   buildHealthSystemPrompt,
   HEALTH_OUTPUT_SCHEMA,
   parseHealthOutput,
+  buildOverrideContextBlock,
   type HealthRating,
 } from "@/lib/client-health-prompt"
+import { decideReview, isOverrideMode } from "@/lib/client-health-review"
+import { categoryChanged } from "@/lib/client-health-order"
 
 /**
  * Client Health — per-client aggregation, classification and storage.
@@ -19,6 +22,10 @@ import {
  * STORAGE RULE: a regeneration writes ONLY the ai_* columns (plus run_id and the
  * ai_error pair) of public.client_health_assessments. The upsert never names an
  * override_* column, so a super-user override survives every regeneration.
+ * An active override is fed to the model as strong human context, and a
+ * PREFER override may get a "Needs review" flag RAISED (review_* columns —
+ * see updateReviewFlag); a regeneration never clears a flag. If the new rating
+ * moves a client to a different firm-order category, its manual_rank is cleared.
  *
  * SUPER-USER ONLY. The input includes the retainer, which is fine because the
  * page (/client-health) is in ADMIN_ONLY_ROUTES. Do not surface ai_note anywhere
@@ -418,6 +425,142 @@ export async function buildClientHealthContext(
 
 // ---- classification ------------------------------------------------------------
 
+// ---- override context + "Needs review" ----------------------------------------
+
+/** The override + review columns a regeneration reads (never writes override_*),
+ *  plus the previous AI rating + manual_rank for the firm-order category reset. */
+const OVERRIDE_STATE_COLS =
+  "ai_rating, manual_rank, override_rating, override_note, overridden_by, overridden_at, override_mode, review_suggested, review_reason, override_reviewed_at, review_baseline_ai_rating"
+
+type OverrideState = {
+  ai_rating: string | null
+  manual_rank: number | null
+  override_rating: string | null
+  override_note: string | null
+  overridden_by: string | null
+  overridden_at: string | null
+  override_mode: string | null
+  review_suggested: boolean | null
+  review_reason: string | null
+  override_reviewed_at: string | null
+  review_baseline_ai_rating: string | null
+}
+
+/**
+ * Material new evidence for a client since `sinceIso` (the review baseline):
+ * client notes CREATED after it (created, not note_date, so a back-dated note
+ * entered late still counts), and contract rows created or edited after it.
+ * Test rows are excluded. Shared by the regeneration (flagging) and the page
+ * (the "what's new" line on a flagged row).
+ */
+export async function newEvidenceSince(
+  sb: SupabaseClient,
+  accountId: string,
+  sinceIso: string,
+): Promise<{ notes: number; contracts: number }> {
+  const [notesRes, contractsRes] = await Promise.all([
+    sb
+      .from("client_notes")
+      .select("*", { count: "exact", head: true })
+      .eq("client_account_id", accountId)
+      .eq("is_test", false)
+      .gt("created_on", sinceIso),
+    sb
+      .from("contracts")
+      .select("*", { count: "exact", head: true })
+      .eq("client_account_id", accountId)
+      .eq("is_test", false)
+      .or(`created_on.gt.${sinceIso},modified_on.gt.${sinceIso}`),
+  ])
+  const err = notesRes.error ?? contractsRes.error
+  if (err) throw new Error(err.message)
+  return { notes: notesRes.count ?? 0, contracts: contractsRes.count ?? 0 }
+}
+
+/** The active override's context block for the model, or "" when none. */
+async function overrideContextFor(sb: SupabaseClient, o: OverrideState | null): Promise<string> {
+  if (!o || (o.override_rating === null && o.override_note === null)) return ""
+  let reviewer: string | null = null
+  if (o.overridden_by) {
+    const { data } = await sb
+      .from("users")
+      .select("display_name, email")
+      .eq("user_id", o.overridden_by)
+      .maybeSingle()
+    reviewer = (data?.display_name as string | null)?.trim() || (data?.email as string | null) || null
+  }
+  return buildOverrideContextBlock({
+    overriddenAt: o.overridden_at,
+    reviewer,
+    rating: o.override_rating,
+    note: o.override_note,
+    reaffirmedAt: o.override_reviewed_at,
+  })
+}
+
+/**
+ * After a successful regeneration: raise (or upgrade) the "Needs review" flag
+ * for a PREFER override when the fresh AI view diverges or new evidence has
+ * arrived since the baseline (rules: lib/client-health-review.ts). Never clears
+ * a flag and never touches override_*.
+ *
+ * The UPDATE is guarded on the baseline and mode it was decided against, so a
+ * human Keep / Pin / Revert that lands while this run is in flight wins.
+ * Best-effort: a failure is logged, never thrown — the AI rating is already
+ * stored, and the next run re-evaluates against the same baseline.
+ */
+async function updateReviewFlag(
+  sb: SupabaseClient,
+  accountId: string,
+  o: OverrideState | null,
+  freshAiRating: string,
+): Promise<void> {
+  if (!o) return
+  const hasOverride = o.override_rating !== null || o.override_note !== null
+  const mode = isOverrideMode(o.override_mode) ? o.override_mode : "prefer"
+  if (!hasOverride || mode === "pin") return
+  try {
+    const since = o.override_reviewed_at ?? o.overridden_at
+    let newEvidence = false
+    if (since) {
+      const ev = await newEvidenceSince(sb, accountId, since)
+      newEvidence = ev.notes + ev.contracts > 0
+    }
+    const decision = decideReview({
+      hasOverride,
+      overrideRating: o.override_rating,
+      mode,
+      baselineAiRating: o.review_baseline_ai_rating,
+      freshAiRating,
+      newEvidence,
+      current: {
+        suggested: o.review_suggested === true,
+        reason: o.review_reason === "divergence" || o.review_reason === "new_evidence" ? o.review_reason : null,
+      },
+    })
+    if (!decision) return
+
+    const patch = decision.upgrade
+      ? { review_reason: decision.reason }
+      : { review_suggested: true, review_reason: decision.reason, review_flagged_at: new Date().toISOString() }
+    let q = sb
+      .from(HEALTH_TABLE)
+      .update(patch)
+      .eq("account_id", accountId)
+      .eq("override_mode", "prefer")
+      .eq("review_suggested", decision.upgrade)
+    q = o.override_reviewed_at === null ? q.is("override_reviewed_at", null) : q.eq("override_reviewed_at", o.override_reviewed_at)
+    const { error } = await q
+    if (error) throw new Error(error.message)
+  } catch (err) {
+    console.warn(
+      `[client-health] review flag not evaluated for ${accountId}: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+}
+
+// ---- model call ------------------------------------------------------------------
+
 async function callModel(anthropic: Anthropic, context: string): Promise<string> {
   try {
     const message = await anthropic.messages.create({
@@ -483,7 +626,17 @@ export async function generateAndStoreClientHealth(
   accountId: string,
   runId: string,
 ): Promise<ClientHealthResult> {
-  const { clientName, context } = await buildClientHealthContext(sb, accountId)
+  const [{ clientName, context: baseContext }, stateRes] = await Promise.all([
+    buildClientHealthContext(sb, accountId),
+    sb.from(HEALTH_TABLE).select(OVERRIDE_STATE_COLS).eq("account_id", accountId).maybeSingle(),
+  ])
+  if (stateRes.error) {
+    throw new ClientHealthError(`Failed to read ${HEALTH_TABLE}: ${stateRes.error.message}`, 500)
+  }
+  const overrideState = (stateRes.data ?? null) as OverrideState | null
+  // An active override (either mode) goes to the model as strong human context.
+  const overrideBlock = await overrideContextFor(sb, overrideState)
+  const context = overrideBlock ? `${baseContext}\n\n${overrideBlock}` : baseContext
 
   let parsed = parseHealthOutput(await callModel(anthropic, context))
   if (!parsed) parsed = parseHealthOutput(await callModel(anthropic, context))
@@ -495,9 +648,17 @@ export async function generateAndStoreClientHealth(
   }
 
   const generatedAt = new Date().toISOString()
+  // Firm order: if the new rating moves the client to a different category
+  // (effective = override else AI), clear its manual_rank so it drops to the
+  // bottom of the new category, awaiting placement (lib/client-health-order.ts).
+  const prevEffective = overrideState ? (overrideState.override_rating ?? overrideState.ai_rating) : null
+  const nextEffective = overrideState?.override_rating ?? parsed.rating
+  const resetRank =
+    overrideState?.manual_rank != null && categoryChanged(prevEffective, nextEffective)
   // ai_* ONLY — never an override_* column (see the header).
   const { error } = await sb.from(HEALTH_TABLE).upsert(
     {
+      ...(resetRank ? { manual_rank: null } : {}),
       account_id: accountId,
       ai_rating: parsed.rating,
       ai_note: parsed.note,
@@ -513,6 +674,8 @@ export async function generateAndStoreClientHealth(
   if (error) {
     throw new ClientHealthError(`Classified but failed to store: ${error.message}`, 500)
   }
+
+  await updateReviewFlag(sb, accountId, overrideState, parsed.rating)
 
   return { accountId, clientName, rating: parsed.rating, note: parsed.note, generatedAt }
 }

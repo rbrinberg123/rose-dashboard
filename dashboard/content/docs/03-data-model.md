@@ -222,7 +222,7 @@ Admin-entered, defined in `sql/02_rose_owned_tables.sql`. The sync never writes 
 
 These feed the margin / cost model (`v_meeting_costs`, `v_client_quarterly_pnl`).
 
-**`client_health_assessments`** (`sql/patches/2026-10-01_client_health.sql`) is another dashboard-owned table, outside that file: one row per active client holding the AI retention-risk rating (`ai_*`, written by the weekly batch) and an optional super-user override (`override_*`). See [25 — Client Health](25-client-health.md).
+**`client_health_assessments`** (`sql/patches/2026-10-01_client_health.sql`) is another dashboard-owned table, outside that file: one row per active client holding the AI retention-risk rating (`ai_*`, written by the weekly batch) and an optional super-user override (`override_*`, with a Prefer / Pin `override_mode`), plus the "Needs review" flag and review baseline (`review_*`, `override_reviewed_at`; `sql/patches/2026-10-07c_client_health_override_lifecycle.sql`), and the shared firm-order `manual_rank` (`sql/patches/2026-10-07d_client_health_manual_rank.sql`). See [25 — Client Health](25-client-health.md).
 
 ### Ops tables (sync & app bookkeeping)
 

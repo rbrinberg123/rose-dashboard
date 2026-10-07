@@ -3,16 +3,17 @@ import { redirect } from "next/navigation"
 
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
-import { getEffectiveRole } from "@/lib/effective-identity"
+import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { isFrameworkConfigured } from "@/lib/client-health-prompt"
-import { HEALTH_TABLE } from "@/lib/client-health"
+import { HEALTH_TABLE, newEvidenceSince } from "@/lib/client-health"
 import { HealthView, type HealthRow } from "./health-view"
 
 export const dynamic = "force-dynamic"
 
 export const metadata: Metadata = { title: "Client Health" }
 
-const PATCH = "sql/patches/2026-10-01_client_health.sql"
+const PATCH =
+  "sql/patches/2026-10-01_client_health.sql + 2026-10-07c_client_health_override_lifecycle.sql + 2026-10-07d_client_health_manual_rank.sql"
 
 /**
  * Clients → Client Health. One row per ACTIVE client (v_client_detail_summary,
@@ -31,13 +32,17 @@ export default async function ClientHealthPage() {
   const role = await getEffectiveRole()
   if (role !== "super_user") redirect("/no-access")
 
+  // Firm-order dragging is a WRITE: same rule as every action here — not while
+  // in "View as" (reorderHealthCategory re-checks server-side).
+  const canReorder = !(await getEffectiveIdentity()).impersonated
+
   const sb = getSupabaseServer()
   const [clientsRes, healthRes] = await Promise.all([
     sb.from("v_client_detail_summary").select("account_id, client_name").order("client_name", { ascending: true }),
     sb
       .from(HEALTH_TABLE)
       .select(
-        "account_id, ai_rating, ai_note, ai_model, ai_generated_at, run_id, ai_error, ai_error_at, override_rating, override_note, overridden_by, overridden_at",
+        "account_id, ai_rating, ai_note, ai_model, ai_generated_at, run_id, ai_error, ai_error_at, override_rating, override_note, overridden_by, overridden_at, override_mode, review_suggested, review_reason, review_flagged_at, override_reviewed_at, manual_rank",
       ),
   ])
 
@@ -67,6 +72,23 @@ export default async function ClientHealthPage() {
     }
   }
 
+  // "What's new" for each open review flag — new notes / contract changes since
+  // the review baseline. Fail-soft: a failed count just hides the detail line.
+  const evidence = new Map<string, { notes: number; contracts: number }>()
+  await Promise.all(
+    [...health.values()]
+      .filter((h) => h.review_suggested === true)
+      .map(async (h) => {
+        const since = (h.override_reviewed_at ?? h.overridden_at) as string | null
+        if (!since) return
+        try {
+          evidence.set(h.account_id as string, await newEvidenceSince(sb, h.account_id as string, since))
+        } catch {
+          // detail line omitted
+        }
+      }),
+  )
+
   const rows: HealthRow[] = ((clientsRes.data ?? []) as { account_id: string; client_name: string }[]).map((c) => {
     const h = health.get(c.account_id)
     const str = (k: string) => ((h?.[k] as string | null | undefined) ?? null)
@@ -82,6 +104,16 @@ export default async function ClientHealthPage() {
       override_note: str("override_note"),
       overridden_at: str("overridden_at"),
       overridden_by_name: str("overridden_by") ? (names.get(str("overridden_by")!) ?? null) : null,
+      override_mode: str("override_mode") === "pin" ? "pin" : "prefer",
+      review_suggested: h?.review_suggested === true,
+      review_reason:
+        str("review_reason") === "divergence" || str("review_reason") === "new_evidence"
+          ? (str("review_reason") as "divergence" | "new_evidence")
+          : null,
+      review_flagged_at: str("review_flagged_at"),
+      override_reviewed_at: str("override_reviewed_at"),
+      evidence: evidence.get(c.account_id) ?? null,
+      manual_rank: typeof h?.manual_rank === "number" ? (h.manual_rank as number) : null,
     }
   })
 
@@ -100,6 +132,7 @@ export default async function ClientHealthPage() {
         frameworkReady={isFrameworkConfigured()}
         tableError={healthRes.error?.message ?? null}
         patchPath={PATCH}
+        canReorder={canReorder}
       />
     </PageShell>
   )
