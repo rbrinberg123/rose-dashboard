@@ -18,6 +18,7 @@ import {
   TreePalm,
   ScrollText,
   FileSignature,
+  CalendarRange,
 } from "lucide-react"
 
 import { PageShell } from "@/components/page-shell"
@@ -679,6 +680,12 @@ export default async function AdminHubPage() {
               title="Contract Management"
               description="Every client contract — Dynamics (read-only) plus contracts created here, with term, notice, renewal and retainer. Live."
               href="/admin/contracts"
+            />
+            <InternalCard
+              icon={CalendarRange}
+              title="Events Planner"
+              description="Turn a CRM event into a minute-by-minute itinerary — meetings, travel, hotels and meals. Super users only."
+              href="/admin/events"
             />
             <InternalCard
               icon={ScrollText}

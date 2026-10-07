@@ -151,6 +151,10 @@ export const ADMIN_ONLY_ROUTES = [
   // Clients -> Client Health. AI retention-risk ratings + notes for every active
   // client, unscoped, built from inputs that include the retainer.
   "/client-health",
+  // Admin -> Events Planner. Itinerary builder (ep_* tables) over CRM events,
+  // meetings and contacts. Super-user only for now; when specific roles get
+  // access, move it out of this list and grant it in Admin -> Roles.
+  "/admin/events",
 ] as const
 
 /** True when `pathname` is `route` or a sub-path of it (segment-aware). */

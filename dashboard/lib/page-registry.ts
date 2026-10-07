@@ -124,6 +124,7 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   // Same tier: Admin -> Contract Management (not the /contract-management report).
   { route: "/admin/contracts", label: "Contract Management — Admin (super-user only)", section: "Admin" },
   { route: "/admin/time-off-reviewers", label: "Time Off Reviewers (super-user only)", section: "Admin" },
+  { route: "/admin/events", label: "Events Planner (super-user only)", section: "Admin" },
 ] as const
 
 // ---- assignable roles (matrix columns) ------------------------------------
