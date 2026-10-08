@@ -651,19 +651,34 @@ export async function createEvent(input: NewEventInput): Promise<ActionResult<{ 
   return ok({ eventId: row.event_id })
 }
 
-/** A DASHBOARD event, as form input — Dynamics rows are refused. */
-export async function loadEventForEdit(id: string): Promise<ActionResult<NewEventInput>> {
+/**
+ * A DASHBOARD event, as form input — Dynamics rows are refused. Also returns
+ * its STORED stage (and the stored toggles) for the form's read-only
+ * lifecycle stepper — never recomputed here.
+ */
+export async function loadEventForEdit(id: string): Promise<
+  ActionResult<{
+    input: NewEventInput
+    stage: { event_state_label: string | null; launch: boolean; outreach_complete: boolean; origin: string }
+  }>
+> {
   const res = await loadDashboardRowForEdit(
     "events",
     "event_id",
     id,
-    "client_account_id, dates, event_location, event_start_actual, event_end_actual, of_slots, event_notes, tbc, team, mining, leads_codes, event_parameters, urgency_code, proposed_launch_date, targeting_not_required, teaser_not_required, targeting_url, profile_link, targeting_notes, launch, outreach_complete, paused",
+    "client_account_id, dates, event_location, event_start_actual, event_end_actual, of_slots, event_notes, tbc, team, mining, leads_codes, event_parameters, urgency_code, proposed_launch_date, targeting_not_required, teaser_not_required, targeting_url, profile_link, targeting_notes, launch, outreach_complete, paused, event_state_label",
   )
   if (!res.ok) return fail(res.error)
   const r = res.data
   const reps = await loadRepresentatives(id)
   if (!reps.ok) return fail(reps.error)
-  return ok({
+  const stage = {
+    event_state_label: (r.event_state_label as string | null) ?? null,
+    launch: r.launch === true,
+    outreach_complete: r.outreach_complete === true,
+    origin: "dashboard", // loadDashboardRowForEdit refuses every other origin
+  }
+  return ok({ stage, input: {
     representatives: reps.data!,
     clientAccountId: (r.client_account_id as string | null) ?? null,
     dates: asText(r.dates),
@@ -688,7 +703,7 @@ export async function loadEventForEdit(id: string): Promise<ActionResult<NewEven
     outreachComplete: r.outreach_complete === true,
     paused: r.paused === true,
     isTest: r.is_test === true,
-  })
+  } })
 }
 
 /** Edit a DASHBOARD event. The origin guard lives in updateDashboardRow. */

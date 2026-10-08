@@ -13,7 +13,7 @@ import type {
   ClientDetailTouchpointRow,
   MarketingCalendarRow,
 } from "@/lib/types"
-import { getEffectiveIdentity } from "@/lib/effective-identity"
+import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { resolveClientScope } from "@/lib/access/data-scope"
 import { canSeeFinancials } from "@/lib/access/financials"
 import {
@@ -23,6 +23,7 @@ import {
 import { NoClientsAssigned, ClientNotInScope } from "@/components/scoped-empty"
 import { loadConfirmedMeetingsByEvent } from "@/lib/event-meetings"
 import { ClientDetailView } from "./client-detail-view"
+import { loadClientCrmLists } from "./crm-lists"
 
 export const dynamic = "force-dynamic"
 
@@ -41,9 +42,10 @@ export default async function ClientDetailPage({
   // Field-level Financials grant — independent of the row scope, so the two
   // resolve TOGETHER rather than sequentially. Both still fail closed on their
   // own terms; concurrency changes neither decision.
-  const [scope, showFinancials] = await Promise.all([
+  const [scope, showFinancials, role] = await Promise.all([
     resolveClientScope(identity),
     canSeeFinancials(identity),
+    getEffectiveRole(),
   ])
   if (scope && scope.size === 0) {
     return (
@@ -220,9 +222,15 @@ export default async function ClientDetailPage({
   // off these dates. Fail-soft: any error just leaves the maps empty.
   // Full confirmed-meeting rows per event, for the click-through drawer. Fields
   // mirror Planning / Live Outreach: institution_name + investor_text (bcs_investor).
-  const confirmedMeetingsByEvent = await loadConfirmedMeetingsByEvent(
-    marketingEvents.map((e) => e.event_id),
-  )
+  // Runs alongside the Events / Tasks block + Key Contacts — super users only, as
+  // the three CRM pages and their record drawers are (see crm-lists.ts) — so
+  // that block adds no extra round trip.
+  const [confirmedMeetingsByEvent, crmLists] = await Promise.all([
+    loadConfirmedMeetingsByEvent(marketingEvents.map((e) => e.event_id)),
+    role === "super_user"
+      ? loadClientCrmLists(sb, selected.account_id)
+      : Promise.resolve(null),
+  ])
   // The chip count and the bucketing dates are both derived from that same set,
   // so there is only ever one read behind all three.
   const confirmedByEvent: Record<string, number> = {}
@@ -267,6 +275,7 @@ export default async function ClientDetailPage({
         confirmedByEvent={confirmedByEvent}
         meetingDatesByEvent={meetingDatesByEvent}
         confirmedMeetingsByEvent={confirmedMeetingsByEvent}
+        crmLists={crmLists}
       />
     </PageShell>
   )

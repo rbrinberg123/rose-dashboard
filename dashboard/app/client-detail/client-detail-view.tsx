@@ -42,6 +42,13 @@ import {
 } from "@/components/ui/sheet"
 import { StatCard } from "@/components/stat-card"
 import { EventMeetingsPane } from "@/components/event-meetings-pane"
+import { ClientCrmListsBlock, useRecordDrawer } from "./crm-lists-block"
+import { loadMeetingRecord } from "@/app/meetings/actions"
+import { MeetingRecordPane } from "@/app/meetings/meeting-record-pane"
+import type { MeetingRecord } from "@/lib/meeting-record"
+import { BUILTIN_PREFIX } from "@/lib/table-views/types"
+import { KeyContactsStrip } from "./key-contacts-strip"
+import type { ClientCrmLists } from "./crm-lists"
 import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
 import { type PillVariant } from "@/lib/gradients"
 import {
@@ -578,8 +585,11 @@ export function ClientDetailView({
   confirmedByEvent,
   meetingDatesByEvent,
   confirmedMeetingsByEvent,
+  crmLists,
   showFinancials,
 }: {
+  /** Events / Tasks / Contacts block — null (not shown) unless super user. */
+  crmLists: ClientCrmLists | null
   allClients: ClientDetailSummaryRow[]
   selected: ClientDetailSummaryRow
   /**
@@ -850,6 +860,12 @@ export function ClientDetailView({
 
   // ---------- Touchpoints: collapse to the single most recent, expand to 25 ----------
   const TP_CAP = 25
+  // Last 25 Meetings → the Meetings page's meeting card, over the page.
+  // Offered with the other CRM shortcuts (crmLists ≠ null = super user — the
+  // card's loader and /meetings are super-user only).
+  const canOpenCrm = crmLists !== null
+  const meetingDrawer = useRecordDrawer<MeetingRecord>(loadMeetingRecord)
+
   const [tpExpanded, setTpExpanded] = React.useState(false)
   const tpTotal = touchpoints.length
   const tpVisible = tpExpanded
@@ -1006,6 +1022,7 @@ export function ClientDetailView({
           AI summary (and the divider above it) appear only once one is generated.
           The card hides entirely when there's neither a team nor a summary. */}
       {(accountTeamMembers.length > 0 ||
+        crmLists ||
         (aiSummary && aiSummary.trim()) ||
         hasMarketingEvents) && (
         <div className={`mb-6 p-5 ${CARD_CLASS}`}>
@@ -1047,6 +1064,18 @@ export function ClientDetailView({
                   </span>
                 </React.Fragment>
               ))}
+            </div>
+          )}
+
+          {/* Key Contacts — directly under Account Team (super users only, like
+              the contact card it opens; see crm-lists.ts). */}
+          {crmLists && (
+            <div className={accountTeamMembers.length > 0 ? "mt-3" : undefined}>
+              <KeyContactsStrip
+                key={selected.account_id}
+                accountId={selected.account_id}
+                contacts={crmLists.contacts.rows}
+              />
             </div>
           )}
 
@@ -1342,6 +1371,20 @@ export function ClientDetailView({
         )}
         </div>
       </div>
+
+      {/* Events · Tasks — between Touchpoints & Notes and Meeting
+          History. Keyed per client so Show more / open drawers reset on switch. */}
+      {crmLists && (
+        <>
+          <div className="my-6 flex items-center gap-3">
+            <span className="shrink-0 text-base font-medium" style={{ color: NAVY_DEEP }}>
+              Events &amp; Tasks
+            </span>
+            <span className="h-px flex-1 bg-border" aria-hidden="true" />
+          </div>
+          <ClientCrmListsBlock key={selected.account_id} accountId={selected.account_id} lists={crmLists} />
+        </>
+      )}
 
       {/* Section 3: Section divider */}
       <div className="my-6 flex items-center gap-3">
@@ -1692,9 +1735,22 @@ export function ClientDetailView({
 
       {/* Section 8: Last 25 Meetings */}
       <div className={`p-5 ${CARD_CLASS}`}>
-        <CardTitle icon={CalendarDays} color="#0355A7" className="mb-3">
-          Last 25 Meetings
-        </CardTitle>
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <CardTitle icon={CalendarDays} color="#0355A7">
+            Last 25 Meetings
+          </CardTitle>
+          {canOpenCrm && (
+            <Link
+              // view= the built-in "All meetings" view (lib/meetings/spec.ts) —
+              // no date filter, so the page does not fall back to its
+              // "Upcoming" default; client= is then the ONLY filter.
+              href={`/meetings?view=${encodeURIComponent(`${BUILTIN_PREFIX}all`)}&client=${encodeURIComponent(selected.account_id)}`}
+              className="shrink-0 text-xs font-semibold text-[#0355A7] hover:underline"
+            >
+              View all meetings →
+            </Link>
+          )}
+        </div>
         {recentMeetings.length === 0 ? (
           <div className="py-6 text-center text-sm text-muted-foreground">
             No recent confirmed meetings.
@@ -1734,8 +1790,23 @@ export function ClientDetailView({
                     <span className="text-muted-foreground">Pending</span>
                   )
                 }
+                // Click anywhere on the row (except its institution / host
+                // links) to open the meeting card. No id → a plain row.
+                const openable = canOpenCrm && !!m.meeting_id
                 return (
-                  <tr key={m.meeting_id} className="border-b last:border-b-0">
+                  <tr
+                    key={m.meeting_id}
+                    className={`border-b last:border-b-0 ${openable ? "cursor-pointer transition-colors hover:bg-[#F7F9FC]" : ""}`}
+                    title={openable ? "Open meeting" : undefined}
+                    onClick={
+                      openable
+                        ? (e) => {
+                            if ((e.target as HTMLElement).closest("a")) return
+                            meetingDrawer.open(m.meeting_id)
+                          }
+                        : undefined
+                    }
+                  >
                     <td className="px-2 py-2 tabular-nums">
                       <span className="inline-flex items-center gap-1.5">
                         {formatLongDate(m.meeting_date)}
@@ -1791,6 +1862,18 @@ export function ClientDetailView({
           </table>
         )}
       </div>
+
+      {/* The meeting card for a clicked Last 25 Meetings row — view-only. */}
+      {canOpenCrm && (
+        <MeetingRecordPane
+          record={meetingDrawer.record}
+          loading={meetingDrawer.loading}
+          error={meetingDrawer.error}
+          eventName={null}
+          crmBase={null}
+          onClose={meetingDrawer.close}
+        />
+      )}
     </>
   )
 }

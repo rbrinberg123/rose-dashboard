@@ -48,7 +48,11 @@ export type FeedbackReportMeeting = {
   meetingId: string
   date: string | null
   institution: string | null
+  investor: string | null
   status: string | null
+  /** The meeting's OWN feedback status (meetings.feedback_status_label) + FB Received date. */
+  feedbackStatus: string | null
+  feedbackReceivedDate: string | null
   eligible: boolean
   reportTaskId: string | null
   autoRouted: boolean
@@ -87,7 +91,7 @@ export async function loadEventFeedbackReports(eventId: string): Promise<ActionR
       .order("feedback_report_seq"),
     sb
       .from("meetings")
-      .select("meeting_id, meeting_date, institution_name, meeting_status_label, state_label")
+      .select("meeting_id, meeting_date, institution_name, investor_text, meeting_status_label, state_label, feedback_status_label, fb_received_date")
       .eq("event_id", eventId)
       .order("meeting_date", { ascending: true, nullsFirst: false }),
     sb.from("feedback_report_meetings").select("meeting_id, report_task_id, auto_routed").eq("event_id", eventId),
@@ -130,6 +134,9 @@ export async function loadEventFeedbackReports(eventId: string): Promise<ActionR
       meeting_id: string
       meeting_date: string | null
       institution_name: string | null
+      investor_text: string | null
+      feedback_status_label: string | null
+      fb_received_date: string | null
       meeting_status_label: string | null
       state_label: string | null
     }[]
@@ -137,6 +144,9 @@ export async function loadEventFeedbackReports(eventId: string): Promise<ActionR
     meetingId: m.meeting_id,
     date: m.meeting_date,
     institution: m.institution_name,
+    investor: m.investor_text,
+    feedbackStatus: m.feedback_status_label,
+    feedbackReceivedDate: m.fb_received_date,
     status: m.meeting_status_label,
     eligible: isEligibleMeeting(m.meeting_status_label, m.state_label),
     reportTaskId: map.get(m.meeting_id)?.report_task_id ?? null,

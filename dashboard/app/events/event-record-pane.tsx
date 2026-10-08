@@ -185,7 +185,14 @@ function Stat({
  * the step the toggles reach is marked with a pause glyph. Resuming = clearing
  * Pause in the edit form.
  */
-function LifecycleStepper({ record, onEdit }: { record: EventRecord; onEdit?: () => void }) {
+export function LifecycleStepper({
+  record,
+  onEdit,
+}: {
+  /** Only the stored stage + toggles — the edit form passes just these. */
+  record: Pick<EventRecord, "event_state_label" | "launch" | "outreach_complete" | "origin">
+  onEdit?: () => void
+}) {
   const stage = record.event_state_label
   const paused = isPausedStage(stage)
   const computed = record.origin === "dashboard"

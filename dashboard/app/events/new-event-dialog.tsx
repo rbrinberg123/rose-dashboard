@@ -45,6 +45,7 @@ import {
   type NewEventInput,
 } from "@/lib/events/create"
 import type { AccountOption } from "@/lib/types"
+import { cn } from "@/lib/utils"
 import { FieldError, FormSection, SelectField, TextField, YesNo } from "@/components/crm-form-kit"
 import { RepresentativesPicker } from "./representatives-picker"
 import {
@@ -55,6 +56,11 @@ import {
   purgeTestEvents,
 } from "./actions"
 import { loadEventForEdit, updateEvent } from "./actions"
+import { LifecycleStepper } from "./event-record-pane"
+import { MeetingsReportsPanel } from "./meetings-reports-panel"
+
+/** The stored stage the edit form's stepper shows (read from the row, never recomputed). */
+type StoredStage = React.ComponentProps<typeof LifecycleStepper>["record"]
 
 const EASTERN_DAY = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",
@@ -143,12 +149,15 @@ function EventFormDialog({
   setOpen,
   initial,
   editId,
+  stage = null,
   onSaved,
 }: {
   open: boolean
   setOpen: (o: boolean) => void
   initial: NewEventInput | null
   editId: string | null
+  /** Edit only: the event's stored stage, for the read-only stepper. */
+  stage?: StoredStage | null
   onSaved: () => void
 }) {
   const router = useRouter()
@@ -225,7 +234,14 @@ function EventFormDialog({
         {/* Large, multi-column: most of the screen on desktop, one scrolling
             column on small screens. Header and footer stay put; only the
             field area scrolls. */}
-        <DialogContent className="flex max-h-[92vh] w-[96vw] flex-col gap-0 p-0 sm:max-w-[1280px]">
+        <DialogContent
+          className={cn(
+            "flex max-h-[92vh] w-[96vw] flex-col gap-0 p-0",
+            // Edit adds a 4th column (Meetings & Reports): a little wider, each
+            // column a little narrower.
+            editId ? "sm:max-w-[1480px]" : "sm:max-w-[1280px]",
+          )}
+        >
           <DialogHeader className="border-b px-5 py-4">
             <DialogTitle>{editId ? "Edit event" : "Add new event"}</DialogTitle>
             <DialogDescription>
@@ -241,7 +257,28 @@ function EventFormDialog({
           </DialogHeader>
 
           <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
-            <div className="grid min-h-0 flex-1 gap-x-6 gap-y-4 overflow-y-auto px-5 py-4 lg:grid-cols-3">
+            <div
+              className={cn(
+                "grid min-h-0 flex-1 gap-y-4 overflow-y-auto px-5 py-4",
+                editId ? "gap-x-5 md:grid-cols-2 xl:grid-cols-4" : "gap-x-6 lg:grid-cols-3",
+              )}
+            >
+              {/* ---- Lifecycle, full width: the drawer's own stepper, READ-ONLY,
+                  showing the STORED stage — it does not preview the toggles
+                  below (the database computes the stage on save). Create mode
+                  gets a one-line hint instead. ---- */}
+              {editId ? (
+                stage && (
+                  <div className="col-span-full [&>div]:mt-0">
+                    <LifecycleStepper record={stage} />
+                  </div>
+                )
+              ) : (
+                <p className="text-xs text-muted-foreground col-span-full">
+                  Starts in Pre-Launch — the stage advances automatically as you launch, close outreach, and meetings occur.
+                </p>
+              )}
+
               {/* ---- Column 1: the event itself ---- */}
               <div className="grid content-start gap-3">
                 <div className="grid gap-1.5">
@@ -473,8 +510,19 @@ function EventFormDialog({
                 )}
               </div>
 
+              {/* ---- Column 4 (edit only): Meetings & Reports — meetings by
+                  feedback report, per-meeting feedback flag, and the same
+                  split / move controls as the drawer (same server actions).
+                  Capped height, scrolls on its own; its writes are immediate
+                  and separate from this form's save. ---- */}
+              {editId && (
+                <div className="grid content-start">
+                  <MeetingsReportsPanel eventId={editId} />
+                </div>
+              )}
+
               {/* ---- Full width, at the bottom: company representatives ---- */}
-              <div className="lg:col-span-3">
+              <div className="col-span-full">
                 <FormSection title="Company representatives">
                   <RepresentativesPicker
                     clientAccountId={form.clientAccountId}
@@ -557,14 +605,14 @@ export function EditEventDialog({
   onClose: () => void
   onSaved: (id: string) => void
 }) {
-  const [loaded, setLoaded] = React.useState<{ id: string; input: NewEventInput } | null>(null)
+  const [loaded, setLoaded] = React.useState<{ id: string; input: NewEventInput; stage: StoredStage } | null>(null)
 
   React.useEffect(() => {
     if (!id) return
     let live = true
     loadEventForEdit(id).then((r) => {
       if (!live) return
-      if (r.ok) setLoaded({ id, input: r.data })
+      if (r.ok) setLoaded({ id, input: r.data.input, stage: r.data.stage })
       else {
         toast.error("This record can't be edited", { description: r.error })
         onClose()
@@ -589,6 +637,7 @@ export function EditEventDialog({
       }}
       initial={current.input}
       editId={current.id}
+      stage={current.stage}
       onSaved={() => {
         setLoaded(null)
         onSaved(current.id)

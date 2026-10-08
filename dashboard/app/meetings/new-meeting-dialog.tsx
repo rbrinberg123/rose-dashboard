@@ -171,6 +171,28 @@ function MeetingFormDialog({
   const [instResults, setInstResults] = React.useState<Institution[]>([])
   const [error, setError] = React.useState<string | null>(null)
   const [pending, startTransition] = React.useTransition()
+  const [eventsFor, setEventsFor] = React.useState<string | null>(null)
+
+  // The client's events still taking meetings (Pre-Launch / Live Outreach /
+  // Meetings Ongoing), for the optional Event link. An edited meeting keeps its
+  // current event listed whatever its stage. Declared FIRST so its request
+  // goes out first — server actions run one at a time, and the choice-options
+  // load below can take seconds.
+  React.useEffect(() => {
+    if (!form.clientAccountId) return
+    let live = true
+    const account = form.clientAccountId
+    const keep = account === initial?.clientAccountId ? (initial?.eventId ?? null) : null
+    loadMeetingEventOptions(account, keep).then((r) => {
+      if (!live) return
+      setEvents(r.ok ? r.data : [])
+      setEventsFor(account)
+      if (!r.ok) setError(r.error)
+    })
+    return () => {
+      live = false
+    }
+  }, [form.clientAccountId, initial])
 
   React.useEffect(() => {
     if (!open || clients) return
@@ -189,21 +211,6 @@ function MeetingFormDialog({
     ]).then((r) => (r.ok ? setUsers(r.data) : setError(r.error)))
     loadMeetingChoiceOptions().then((r) => (r.ok ? setChoices(r.data) : setError(r.error)))
   }, [open, clients, initial])
-
-  // The client's events still taking meetings (Pre-Launch / Live Outreach /
-  // Meetings Ongoing), for the optional Event link. An edited meeting keeps its
-  // current event listed whatever its stage.
-  React.useEffect(() => {
-    if (!form.clientAccountId) return
-    let live = true
-    const keep = form.clientAccountId === initial?.clientAccountId ? (initial?.eventId ?? null) : null
-    loadMeetingEventOptions(form.clientAccountId, keep).then((r) => {
-      if (live) setEvents(r.ok ? r.data : [])
-    })
-    return () => {
-      live = false
-    }
-  }, [form.clientAccountId, initial])
 
   // Institution search, debounced.
   React.useEffect(() => {
@@ -342,6 +349,13 @@ function MeetingFormDialog({
                       disabled={!form.clientAccountId}
                     >
                       <option value="">— none —</option>
+                      {/* The chosen event is never dropped from the list, even
+                          while the options are still loading. */}
+                      {form.eventId && !events.some((ev) => ev.event_id === form.eventId) && (
+                        <option value={form.eventId}>
+                          {eventsFor === form.clientAccountId ? "Current event" : "Loading events…"}
+                        </option>
+                      )}
                       {events.map((ev) => (
                         <option key={ev.event_id} value={ev.event_id}>
                           {ev.name ?? ev.event_id}
