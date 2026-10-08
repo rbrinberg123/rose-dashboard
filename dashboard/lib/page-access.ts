@@ -1,6 +1,6 @@
 import { getSupabaseServer } from "@/lib/supabase"
 import { PAGE_REGISTRY } from "@/lib/page-registry"
-import type { Role } from "@/lib/access-control"
+import { isHiddenRoute, type Role } from "@/lib/access-control"
 
 /**
  * Load the routes a role is allowed to reach, from public.role_page_access
@@ -30,7 +30,9 @@ export async function getAllowedRoutes(role: Role | null): Promise<string[]> {
     const granted = new Set((data as { route: string }[]).map((r) => r.route))
     // Order by the registry so allowed[0] is a sensible page to land on, and
     // drop any stale route no longer in the registry.
-    return PAGE_REGISTRY.filter((p) => granted.has(p.route)).map((p) => p.route)
+    // Hidden (retired) pages are never offered — a grant for one is inert while
+    // it is hidden, so it must not become someone's landing page.
+    return PAGE_REGISTRY.filter((p) => granted.has(p.route) && !isHiddenRoute(p.route)).map((p) => p.route)
   } catch {
     return []
   }

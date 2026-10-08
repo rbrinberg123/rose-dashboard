@@ -405,7 +405,9 @@ export function FeedbackPipelineView({
       ? (r: FeedbackPipelineRow) => (
           <RowShortcuts
             eventId={canOpen.events ? r.event_id : null}
-            taskId={canOpen.tasks ? r.task_id : null}
+            // Pending Review opens the paired Report Sent task (the one to act on);
+            // Open rows (and a pre-patch view) open the Feedback task.
+            taskId={canOpen.tasks ? (r.review_task_id ?? r.task_id) : null}
             onOpenEvent={openEvent}
           />
         )

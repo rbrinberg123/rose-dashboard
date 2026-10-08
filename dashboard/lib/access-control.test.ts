@@ -3,8 +3,10 @@ import assert from "node:assert/strict"
 
 import {
   ALWAYS_ALLOWED_ROUTES,
+  HIDDEN_PAGE_REGISTRY,
   VIEW_AS_ROLE_OPTIONS,
   canAccessRoute,
+  isHiddenRoute,
   isViewAsRole,
   viewAsLabel,
   type Role,
@@ -126,4 +128,20 @@ test("Associate is gated exactly like the other non-super roles", () => {
 test("no role at all is still denied, Associate or not", () => {
   assert.equal(canAccessRoute(null, "/portfolio", ["/portfolio"]), false)
   assert.equal(canAccessRoute(null, "/no-access", []), true)
+})
+
+test("a HIDDEN (retired) page: super user only, even with a matrix grant", () => {
+  for (const p of HIDDEN_PAGE_REGISTRY.filter((x) => x.hidden)) {
+    assert.equal(isHiddenRoute(p.route), true)
+    assert.equal(canAccessRoute("super_user", p.route, []), true, `super user opens ${p.route}`)
+    assert.equal(canAccessRoute("user", p.route, [p.route]), false, `granted user refused ${p.route}`)
+    assert.equal(canAccessRoute("user", p.route + "/x", [p.route]), false, `sub-path refused ${p.route}`)
+  }
+})
+
+test("Alerts is retired; neighbouring routes are unaffected", () => {
+  assert.equal(isHiddenRoute("/clients/alerts"), true)
+  assert.equal(isHiddenRoute("/clients/to-do"), false)
+  assert.equal(isHiddenRoute("/my-dashboard"), false)
+  assert.equal(canAccessRoute("user", "/clients/to-do", ["/clients/to-do"]), true)
 })

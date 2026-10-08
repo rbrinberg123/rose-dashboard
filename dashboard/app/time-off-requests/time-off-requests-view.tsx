@@ -43,7 +43,7 @@ import {
   type TimeOffRecord,
 } from "@/lib/time-off-requests/model"
 import { cn } from "@/lib/utils"
-import { deleteTimeOffRequest, loadTimeOffRecord } from "./actions"
+import { deleteTimeOffRequest, loadTimeOffApprovalRecord, loadTimeOffRecord } from "./actions"
 import { ReviewControls } from "./review-controls"
 import { EditTimeOffDialog, NewTimeOffButton, PurgeTestTimeOffButton } from "./time-off-form-dialog"
 
@@ -446,15 +446,22 @@ function dayLong(ymd: string): string {
   })
 }
 
-/** The drawer: one request, its days, and the actions the viewer may take. */
-function TimeOffPane({
+/**
+ * The drawer: one request, its days, and the actions the viewer may take.
+ * Also hosted by My Dashboard's Time Off Approvals card with `approval` set —
+ * then it reads through loadTimeOffApprovalRecord (any reviewer of the
+ * requester, not only super users).
+ */
+export function TimeOffPane({
   id,
   source,
   onClose,
+  approval = false,
 }: {
   id: string
   source: TimeOffListRow["source"]
   onClose: () => void
+  approval?: boolean
 }) {
   const router = useRouter()
   const [record, setRecord] = React.useState<TimeOffRecord | null>(null)
@@ -465,7 +472,7 @@ function TimeOffPane({
 
   React.useEffect(() => {
     let live = true
-    loadTimeOffRecord(id, source).then((r) => {
+    ;(approval ? loadTimeOffApprovalRecord(id) : loadTimeOffRecord(id, source)).then((r) => {
       if (!live) return
       if (r.ok) setRecord(r.data)
       else setError(r.error)
@@ -473,7 +480,7 @@ function TimeOffPane({
     return () => {
       live = false
     }
-  }, [id, source, reload])
+  }, [id, source, reload, approval])
 
   const closeEdit = React.useCallback(() => setEditing(false), [])
 

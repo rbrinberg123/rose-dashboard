@@ -8,9 +8,10 @@ import { TeamInitialsProvider } from "@/components/team-initials-context"
 import { Toaster } from "@/components/ui/sonner"
 import { loadTeamInitialsMap } from "@/lib/team-initials-directory"
 import { loadCriticalAlertCount } from "@/app/clients/alerts/critical-count"
+import { loadMyDashboardCriticalCount } from "@/app/my-dashboard/critical-count"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { getRealRole } from "@/lib/user-role"
-import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, viewAsLabel } from "@/lib/access-control"
+import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, isHiddenRoute, viewAsLabel } from "@/lib/access-control"
 import { resolveEffective } from "@/lib/impersonation"
 import { getAllowedRoutes } from "@/lib/page-access"
 import { SIDEBAR_COLLAPSED_COOKIE, isSidebarCollapsed } from "@/lib/sidebar"
@@ -115,9 +116,17 @@ export default async function RootLayout({
   // email directly — resolving identity inside it would undo the whole point of
   // the proxy header above, which exists to avoid a ~180 ms auth call per page.
   const effectiveEmail = person?.email ?? userEmail
-  const [teamInitials, alertCount] = userEmail
-    ? await Promise.all([loadTeamInitialsMap(), loadCriticalAlertCount(effectiveEmail)])
-    : [{}, 0]
+  // The My Dashboard badge (critical rows on that page) rides in the same batch,
+  // for anyone with a role (the page sends role-less users to /no-access).
+  // Fail-soft: the badge must never be able to break a page.
+  const [teamInitials, alertCount, myDashboardCount] = userEmail
+    ? await Promise.all([
+        loadTeamInitialsMap(),
+        // Alerts is retired (hidden, no nav entry) — skip its badge query while hidden.
+        isHiddenRoute("/clients/alerts") ? 0 : loadCriticalAlertCount(effectiveEmail),
+        role ? loadMyDashboardCriticalCount(effectiveEmail).catch(() => 0) : 0,
+      ])
+    : [{}, 0, 0]
 
   // Banner label: PERSON mode names the person + their real role ("No role" when
   // they have none); ROLE mode names the abstract role. Only super-users ever
@@ -143,6 +152,7 @@ export default async function RootLayout({
               allowedRoutes={allowedRoutes}
               defaultCollapsed={sidebarCollapsed}
               alertCount={alertCount}
+              myDashboardCount={myDashboardCount}
             />
             <main className="flex-1 overflow-x-hidden">
               {/* Sectional nav strip — the ONE mount point. It renders itself

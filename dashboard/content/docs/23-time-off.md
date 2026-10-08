@@ -29,7 +29,7 @@ Not to be confused with **Logistics → Time Off** (`/time-off`), the who's-out 
 | Open the page / admin page | super_user | proxy (`ADMIN_ONLY_ROUTES`), the page itself, and every server action |
 | Create a request | super_user, not in "View as" | `createTimeOffRequest` → `requireCrmWriter` |
 | **Edit / delete** a dashboard request (any status) | **super_user only**, not in "View as" | `updateTimeOffRequest` / `deleteTimeOffRequest` → `requireCrmWriter` |
-| Approve / deny | super_user, not in "View as", **on the requester's reviewing team right now**, not the requester, request still Pending | `reviewTimeOffRequest` |
+| Approve / deny | **any signed-in user with a role** (since 2026-10-08; was super-user only), not in "View as", **on the requester's reviewing team right now** — the designated approver; being a super user alone grants nothing — not the requester, request still Pending. Reachable from CRM → Time Off (super users) and from My Dashboard's Time Off Approvals drawer (any reviewer) | `reviewTimeOffRequest` |
 | Change reviewing teams | super_user, not in "View as" | `app/admin/time-off-reviewers/actions.ts` |
 | Dynamics rows | nobody — read-only history | the actions only accept `origin = 'dashboard'` rows |
 

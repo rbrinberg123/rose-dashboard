@@ -51,7 +51,9 @@ export type PageEntry = {
  */
 export const PAGE_REGISTRY: readonly PageEntry[] = [
   // ---- Clients ----
-  { route: "/", label: "Home (Client Statistics)", section: "Clients" },
+  // The app root now redirects to My Dashboard (always allowed — app/page.tsx);
+  // its checkbox has no effect. Client Statistics is /client-statistics below.
+  { route: "/", label: "Home (→ My Dashboard)", section: "Clients" },
   { route: "/client-statistics", label: "Client Statistics", section: "Clients" },
   { route: "/portfolio", label: "Client Portfolio", section: "Clients" },
   { route: "/client-detail", label: "Client Detail", section: "Clients" },
@@ -62,12 +64,10 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   // (see app/clients/alerts/load.ts), so this grant only decides who may OPEN
   // the page — never whose alerts they see. Segment-aware matching means the
   // /clients/to-do grant does NOT cover it; it needs its own row.
-  { route: "/clients/alerts", label: "Alerts", section: "Clients" },
+  { route: "/clients/alerts", label: "Alerts (retired, hidden — Admin → Hidden Pages)", section: "Clients" },
   // Super-user-only (ADMIN_ONLY_ROUTES) — listed so the matrix knows the route;
   // its checkboxes have no effect.
   { route: "/client-health", label: "Client Health (super-user only)", section: "Clients" },
-  // Super-user only for now (ADMIN_ONLY_ROUTES) — the personal home page.
-  { route: "/my-dashboard", label: "My Dashboard (super-user only)", section: "Clients" },
 
   // ---- Institutions ----
   { route: "/institutions", label: "Institution Summary", section: "Institutions" },

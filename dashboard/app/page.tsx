@@ -1,65 +1,26 @@
-import type { Metadata } from "next"
-import { PageShell } from "@/components/page-shell"
-import { getSupabaseServer } from "@/lib/supabase"
-import type { ClientStatisticsRow, ClientStatsBucketRow } from "@/lib/types"
-import { ClientStatisticsView } from "./client-statistics/client-statistics-view"
+import { redirect } from "next/navigation"
+
+import { homeRouteFor } from "@/lib/access-control"
+import { getEffectiveRole } from "@/lib/effective-identity"
+import { getAllowedRoutes } from "@/lib/page-access"
 
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = { title: "Client Statistics" }
-
+/**
+ * The app root ("/") — the default homepage. Renders nothing: every signed-in
+ * user is sent to their home, which is MY DASHBOARD for anyone who may open it
+ * (today, every user with a role), the same place sign-in lands them. Fallback
+ * (homeRouteFor in lib/access-control.ts): Portfolio, the previous default, else
+ * the first page the role can open, else /no-access — never a blocked screen.
+ *
+ * Uses the EFFECTIVE role, so "View as" lands on the impersonated person's home.
+ * Signed-out visitors never reach here (proxy.ts sends them to /login).
+ *
+ * Client Statistics, which this route used to render, is unchanged at
+ * /client-statistics (nav: Clients → Statistics). 2026-10-08.
+ */
 export default async function Home() {
-  const sb = getSupabaseServer()
-
-  const [statsRes, marketCapRes, regionRes, sectorRes, managerRes, statusRes, daysLeftRes] =
-    await Promise.all([
-      sb.from("v_client_statistics").select("*").single(),
-      sb.from("v_client_stats_by_market_cap").select("*").order("display_order"),
-      sb.from("v_client_stats_by_region").select("*").order("display_order"),
-      sb.from("v_client_stats_by_sector").select("*"),
-      sb.from("v_client_stats_by_manager").select("*"),
-      sb.from("v_client_stats_by_status").select("*").order("display_order"),
-      sb.from("v_client_stats_by_days_left").select("*").order("display_order"),
-    ])
-
-  const firstError =
-    statsRes.error ??
-    marketCapRes.error ??
-    regionRes.error ??
-    sectorRes.error ??
-    managerRes.error ??
-    statusRes.error ??
-    daysLeftRes.error
-  if (firstError) {
-    return (
-      <PageShell title="Client Statistics" description="Top-line numbers across the client book">
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
-          <div className="font-medium text-destructive">Could not load Client Statistics views</div>
-          <div className="mt-1 text-muted-foreground">{firstError.message}</div>
-        </div>
-      </PageShell>
-    )
-  }
-
-  const row = statsRes.data as ClientStatisticsRow
-  const marketCap = (marketCapRes.data ?? []) as ClientStatsBucketRow[]
-  const region = (regionRes.data ?? []) as ClientStatsBucketRow[]
-  const sector = (sectorRes.data ?? []) as ClientStatsBucketRow[]
-  const manager = (managerRes.data ?? []) as ClientStatsBucketRow[]
-  const status = (statusRes.data ?? []) as ClientStatsBucketRow[]
-  const daysLeft = (daysLeftRes.data ?? []) as ClientStatsBucketRow[]
-
-  return (
-    <PageShell title="Client Statistics" description="Top-line numbers across the client book" hideHeader canvas>
-      <ClientStatisticsView
-        row={row}
-        marketCap={marketCap}
-        region={region}
-        sector={sector}
-        manager={manager}
-        status={status}
-        daysLeft={daysLeft}
-      />
-    </PageShell>
-  )
+  const role = await getEffectiveRole()
+  const allowed = await getAllowedRoutes(role)
+  redirect(homeRouteFor(role, allowed))
 }

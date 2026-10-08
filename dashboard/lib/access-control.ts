@@ -98,6 +98,16 @@ export function viewAsLabel(role: ViewAsRole): string {
  */
 export const ALWAYS_ALLOWED_ROUTES = [
   "/no-access",
+  // The app root — EXACT "/" only (matchesRoute never treats "/" as a prefix).
+  // It renders nothing: app/page.tsx redirects every signed-in user to their
+  // home (homeRouteFor → My Dashboard). Always allowed so the proxy lets the
+  // redirect run instead of bouncing to a grant-ordered page (2026-10-08).
+  "/",
+  // My Dashboard — the personal home page, open to every signed-in user
+  // (2026-10-08). Safe because loadMyDashboard() scopes every feed to the
+  // viewer server-side; the page itself sends a role-less user to /no-access.
+  // To make it super-user only again, move this to ADMIN_ONLY_ROUTES.
+  "/my-dashboard",
 ] as const
 
 /**
@@ -153,11 +163,6 @@ export const ADMIN_ONLY_ROUTES = [
   // Clients -> Client Health. AI retention-risk ratings + notes for every active
   // client, unscoped, built from inputs that include the retainer.
   "/client-health",
-  // My Dashboard — the personal home page. SUPER-USER ONLY FOR NOW. THE ONE
-  // FLAG: to open it to everyone, move this entry back to ALWAYS_ALLOWED_ROUTES
-  // (its loader already scopes every feed to the viewer, so that is safe);
-  // landing follows automatically (landingRouteFor, end of this file).
-  "/my-dashboard",
   // Logistics -> FB Coming Soon. Work in progress: dashboard Feedback reports
   // still awaiting feedback. THE ONE-LINE VISIBILITY FLAG — to open it to more
   // roles, delete this entry and tick the route in Admin -> Roles.
@@ -171,6 +176,51 @@ function matchesRoute(pathname: string, route: string): boolean {
   return pathname === route || pathname.startsWith(route + "/")
 }
 
+/* ---------------------------------------------------------------------------
+ * HIDDEN (retired) PAGES — take a page out of everyday use WITHOUT deleting it.
+ *
+ * While an entry has `hidden: true`:
+ *   - NAV    — its link is removed from the sidebar, rail fly-outs and section
+ *              strip for EVERYONE, super users included (visibleSections in
+ *              components/nav.tsx).
+ *   - ROUTE  — only super users may open it (canAccessRoute below, enforced by
+ *              proxy.ts and the page itself); a Roles-matrix grant no longer
+ *              opens it, and getAllowedRoutes (lib/page-access.ts) never offers
+ *              it as a landing page.
+ *   - ADMIN  — listed under Admin → Hidden Pages with a link super users can open.
+ *
+ * TO RE-ENABLE: set `hidden: false` (or delete the entry). Nav, route access and
+ * the matrix grants come back exactly as they were — the page, its loaders and
+ * its views are untouched while hidden.
+ *
+ * (Different from the "parked" pages also shown in Admin → Hidden Pages —
+ * Upcoming Meetings, Relationships, …: those were simply never linked from the
+ * nav and stay matrix-gated as usual. See HIDDEN_PAGES in app/admin/page.tsx.)
+ * ------------------------------------------------------------------------ */
+export type HiddenPage = {
+  /** The page route, exactly as in lib/page-registry.ts. */
+  route: string
+  label: string
+  /** true = retired (off the nav, super-user only). false = live as normal. */
+  hidden: boolean
+  /** Why it is hidden — shown in Admin → Hidden Pages. */
+  note: string
+}
+
+export const HIDDEN_PAGE_REGISTRY: readonly HiddenPage[] = [
+  {
+    route: "/clients/alerts",
+    label: "Alerts",
+    hidden: true,
+    note: "Retired 2026-10-08 — superseded by My Dashboard (same feeds, flags and badge).",
+  },
+]
+
+/** Is `pathname` (or a page under it) a currently hidden route? */
+export function isHiddenRoute(pathname: string): boolean {
+  return HIDDEN_PAGE_REGISTRY.some((p) => p.hidden && matchesRoute(pathname, p.route))
+}
+
 /**
  * Can a `role` reach `pathname`, given `allowedRoutes` — the routes granted to
  * that role in `role_page_access` (load once per request via
@@ -180,7 +230,8 @@ function matchesRoute(pathname: string, route: string): boolean {
  * Order of checks (backstops first):
  *   1. Always-allowed infra routes → yes, for anyone signed in.
  *   2. super_user → yes, everything (never gated by the matrix).
- *   3. ADMIN_ONLY_ROUTES → no, for everyone who got past step 2.
+ *   3. ADMIN_ONLY_ROUTES, or a HIDDEN page (HIDDEN_PAGE_REGISTRY) → no, for
+ *      everyone who got past step 2.
  *   4. No role → no.
  *   5. Otherwise → yes iff the matrix grants a matching route (segment-aware,
  *      so a granted "/client-detail" also allows "/client-detail/123").
@@ -196,6 +247,8 @@ export function canAccessRoute(
   // ADMIN_ONLY_ROUTES). Deny before the grant lookup, so a stray role_page_access
   // row cannot open one.
   if (ADMIN_ONLY_ROUTES.some((r) => matchesRoute(pathname, r))) return false
+  // Hidden (retired) pages: super-user only while hidden, whatever the matrix says.
+  if (isHiddenRoute(pathname)) return false
   if (!role) return false
   return allowedRoutes.some((r) => matchesRoute(pathname, r))
 }
@@ -283,8 +336,9 @@ export function visibleCrmNavItems(
  * Where a person lands after signing in (and when a signed-in user opens
  * /login): My Dashboard when they may open it, otherwise the app's original
  * default, Portfolio. Asked through canAccessRoute, so it follows the ONE gate
- * above: while /my-dashboard is in ADMIN_ONLY_ROUTES only super users land
- * there; move it back to ALWAYS_ALLOWED_ROUTES and everyone does. Portfolio is
+ * above: /my-dashboard is in ALWAYS_ALLOWED_ROUTES, so every user WITH A ROLE
+ * lands there (a role-less user still goes the Portfolio → /no-access way;
+ * move the route to ADMIN_ONLY_ROUTES and only super users land there). Portfolio is
  * safe for everyone — a role without a Portfolio grant is redirected by
  * proxy.ts to the first page it CAN reach (or /no-access). landing.test.ts.
  */
@@ -292,5 +346,21 @@ export const MY_DASHBOARD_ROUTE = "/my-dashboard"
 export const DEFAULT_LANDING_ROUTE = "/portfolio"
 
 export function landingRouteFor(role: Role | null): string {
-  return canAccessRoute(role, MY_DASHBOARD_ROUTE, []) ? MY_DASHBOARD_ROUTE : DEFAULT_LANDING_ROUTE
+  return role && canAccessRoute(role, MY_DASHBOARD_ROUTE, []) ? MY_DASHBOARD_ROUTE : DEFAULT_LANDING_ROUTE
+}
+
+/**
+ * Where the APP ROOT ("/") sends a signed-in user (app/page.tsx) — the same
+ * landing as after sign-in, made loop-proof with the role's real grants:
+ *   1. My Dashboard, when the role may open it (today: every role);
+ *   2. else the previous default, Portfolio, when the role may open it;
+ *   3. else the first page the role CAN open (never "/" itself);
+ *   4. else /no-access (a role-less user always ends here).
+ * Never a blocked or blank screen, and never back to "/".
+ */
+export function homeRouteFor(role: Role | null, allowedRoutes: readonly string[]): string {
+  if (!role) return "/no-access"
+  if (canAccessRoute(role, MY_DASHBOARD_ROUTE, allowedRoutes)) return MY_DASHBOARD_ROUTE
+  if (canAccessRoute(role, DEFAULT_LANDING_ROUTE, allowedRoutes)) return DEFAULT_LANDING_ROUTE
+  return allowedRoutes.find((r) => r !== "/") ?? "/no-access"
 }

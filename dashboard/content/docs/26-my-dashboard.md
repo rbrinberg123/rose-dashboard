@@ -4,27 +4,50 @@
 
 **My Dashboard** (`/my-dashboard`) is the personal home page: one screen with everything on *your* plate across the clients you're on the account team for. It's the first item in the sidebar and where you land after signing in.
 
-**Super users only, for now** (2026-10-07): `/my-dashboard` is in `ADMIN_ONLY_ROUTES` — the same one-flag gate as FB Coming Soon — so it's hidden from the nav and blocked server-side for everyone else. **Landing:** super users land on My Dashboard after signing in; everyone else lands on **Portfolio**, the app's original default (`landingRouteFor` in `lib/access-control.ts`, used by the auth callback, `/login` and `proxy.ts`). **To open it to everyone:** move the route back to `ALWAYS_ALLOWED_ROUTES` — landing follows automatically.
+**Open to every signed-in user** (2026-10-08; was super-user only from 2026-10-07). `/my-dashboard` is in `ALWAYS_ALLOWED_ROUTES` (`lib/access-control.ts`), so it shows in everyone's nav and needs no Roles-matrix grant (it's no longer listed in the matrix). An account with **no role yet** is still sent to `/no-access` (the page checks). **Default homepage (2026-10-08):** every user with a role lands on My Dashboard after signing in, from `/login` when already signed in, **and at the app root `/`** (`app/page.tsx` → `homeRouteFor()`: My Dashboard, else Portfolio, else the first page the role can open, else `/no-access`; Client Statistics stays at `/client-statistics`); a role-less user goes the old Portfolio → `/no-access` way (`landingRouteFor`, used by the auth callback, `/login` and `proxy.ts`). **To make it super-user only again:** move the route to `ADMIN_ONLY_ROUTES` — nav and landing follow automatically.
+
+**Per-feed permissions.** No feed depends on the viewer's role: every query runs server-side with the service-role key and is filtered to the viewer's own ids or account teams (table below), so a normal user's dashboard is fully populated without any extra grant, and never shows anyone else's items. Role only affects **where a row goes when clicked**:
+
+- **Task drawer** is offered only to viewers who can open CRM → Tasks (super users today — `loadTaskRecord` is super-user only and CRM → Tasks is unscoped); everyone else clicks through to the row's link. **Meeting drawer** (Hosting rows) opens for **every** viewer through `loadHostedMeetingRecord` (`app/meetings/actions.ts`), which returns a meeting only if the viewer **hosts** it — the Hosting card's own scope — and refuses anything else; its Edit button stays super-user only.
+- **Time-off drawer** (Time Off Approvals rows) opens for **every** viewer through `loadTimeOffApprovalRecord` (`app/time-off-requests/actions.ts`) — only for a request whose requester you review — and is the same drawer as CRM → Time Off, with **Approve / Deny** (`ReviewControls` → `reviewTimeOffRequest`). **Inline Approve / Deny (2026-10-08):** each row also carries **Approve** (one click + an inline **Confirm**) and **Deny** (never instant — opens an inline prompt that **requires a reason**, saved as the review comment). Both are optimistic (row disappears at once; restored with an error toast if refused), call the same `reviewTimeOffRequest`, and on success refresh the page so the card, the "critical" pill and the nav badge recount. Buttons are hidden in "View as"; the server enforces who may act (reviewing team, not the requester, not in View as) and refuses anyone else with "Not authorised". Clicking the row itself still opens the full drawer (`TimeOffApprovalRow` in `time-off-drawer.tsx`).
+- **Row links and "All →"** appear only for pages the viewer may open (per the Roles matrix); otherwise a row falls back to the client's Client Detail, or is plain text if that isn't granted either.
 
 It is **strictly personal**. Two people opening it at the same moment see different dashboards. There is no "see everything" mode, **not even for Super Users**: a Super User who isn't on any account team sees an empty book. To look at someone else's dashboard, use **View as {person}** (Admin → Users), which the page honours in full.
 
-**Task items open in place (2026-10-07).** Items backed by a CRM **task** — every **Open Tasks** row (Mine and Team), and the My To-Do **Report** (your claimed feedback report) and **Review** items (the linked *Feedback Report Pending Review* task when the automation created one, otherwise the report task) — open the **CRM task drawer right on the dashboard** (`app/my-dashboard/task-drawer.tsx`, the same `TaskRecordPane` + `EditTaskDialog` as CRM → Tasks). Edit / close out (Edit → Status *Completed*) use the drawer's existing actions and the existing guard: Edit is offered only for dashboard-origin tasks and refused server-side otherwise, so **Dynamics tasks open read-only until cutover**. After a save the dashboard refreshes, so a completed task drops off. The drawer is offered only to people who can open CRM → Tasks (`loadTaskRecord` is super-user only — not loosened); everyone else keeps the normal link. Collect (a meeting), Host (a meeting), Profiles and Approve (a time-off request) items keep their existing links.
+**Workflow cards (2026-10-08).** The single merged *My To-Do* focus card is gone. Every Alerts-style workflow is now **its own compact card** (approved mockup `my-dashboard-v5.html`), clustered in three columns under light group labels — **Feedback · My Work · Clients & Operations**.
 
-Otherwise the page is read-only. Every line links to the underlying record (or the closest page that shows it) with a small **open ↗**; links only appear for pages *you* are allowed to open, and otherwise fall back to the client's **Client Detail** page.
+**Records open in place.** Rows backed by a CRM **task** (Other Open Tasks, both Report cards) open the **task drawer** on the dashboard (`task-drawer.tsx` — the same `TaskRecordPane` + `EditTaskDialog` as CRM → Tasks). **Hosting** rows open the **meeting drawer** (`meeting-drawer.tsx` — the same `MeetingRecordPane` + `EditMeetingDialog` as CRM → Meetings). Edit / close out use the drawers' existing actions and guards: Edit is offered only for dashboard-origin records and refused server-side otherwise, so **Dynamics records open read-only until cutover**. After a save the dashboard refreshes. The task drawer is offered only to people who can open CRM → Tasks; the meeting drawer opens for everyone, scoped to meetings they host (see Per-feed permissions). All other rows are links; links only appear for pages *you* can open, otherwise falling back to the client's **Client Detail**.
 
 Top to bottom:
 
-1. **Greeting** with today's date, and a red **Needs you now** pill on the right — shown only when something is urgent (overdue items, a meeting you host today/tomorrow, time-off approvals waiting on you).
-2. **My Book** strip — every active client you're on the team for, grouped by your role (Primary · Secondary · Feedback · Associate · Memo · Logistics). Each ticker opens that client's Client Detail; **Open all in Portfolio →** goes to Portfolio.
-3. **Five KPI tiles** (the shared floating `StatCard`, inside the page masthead) — Overdue · My To-Do · Open Tasks · Contracts ≤90d · Host · Next 7d. Only Overdue takes a colour (red, when non-zero); clicking a tile jumps to its card.
-4. **The card grid** — a fixed three-column layout (not masonry), so cards never move around:
-   - **Left:** My To-Do (the highlighted focus card)
-   - **Middle:** Open Tasks, then Contracts Expiring Soon
-   - **Right:** Onboarding (always at the top), Active Marketing, Time Off Approvals
+1. **Greeting** with today's date, and a red **Needs you now** pill on the right, e.g. "**4 critical** · 1 to host today/tomorrow · 2 overdue". The headline is the **critical count — the same number as the red flags and the nav badge** (it is the badge's own function, `loadMyDashboardCriticalCount`, called by `page.tsx`); approvals are inside it, so they are not listed separately. Then meetings you host today/tomorrow. "N overdue" (your own items 1+ days past due) is a muted secondary figure only, never the headline. Shown only when something is critical or hosting is imminent (2026-10-08).
+2. **My Book** strip — active clients where you are **Primary, Secondary, Associate or Logistics** (`CORE_TEAM_ROLES` in `load.ts`), grouped by that role. Feedback and Memo assignments are left out of the strip and its count — the cards still use the full six-role book. Each ticker opens that client's Client Detail; **Open all in Portfolio →** goes to Portfolio.
+3. **Six KPI tiles** (the shared floating `StatCard`, inside the page masthead) — Overdue · To collect · Pending review · Host · 7d · Contracts ≤90d · Approvals. Clicking a tile jumps to its card.
+4. **"My To-Dos & Activity"** — a section heading (with a one-line subtext) over **the workflow cards**: a fixed three-column grid (not masonry), one cluster per column:
 
-   **Styling:** built from the app's own components — the `ListTitleCard` masthead, floating `StatCard` KPIs, `CARD_CLASS` surfaces and the Alerts type scale (14 / 12.5 / 11.5) — so fonts and surfaces match the rest of the app. No decorative colour: red = overdue and amber = due soon are the only colours; chips, tickers, progress bars and onboarding dots are neutral (onboarding uses filled vs hollow dots).
+   | Feedback | My Work | Clients & Operations |
+   |---|---|---|
+   | Feedback to Collect | Other Open Tasks | Time Off Approvals |
+   | Reports · Pending Review | Hosting · Next 7 Days | Active Marketing |
+   | Reports · Open / Claimed | Profiles to Review | Contracts Expiring |
+   | | Onboarding | |
 
-   On a medium-width screen it becomes two columns with the right-hand cards in a row beneath; on a phone, one column.
+   On narrower screens (below `lg`) the three columns stack into one, in the same order.
+
+**Card behaviour.** Each card has a header with its title, a **count** and **All →** (to the matching full page/queue; hidden if you can't open it). It shows at most **5 rows**, with "+ N more · View all →" beneath when there are more — except **Contracts Expiring** (up to 8) and **Active Marketing**, which always lists every event. Meeting rows are labelled **ticker × firm** (e.g. "ABX × Fidelity") to save space. A clean one-line empty state when there's nothing.
+
+**Colour.** No decorative colour: red = overdue and amber = due soon are the only colours. A card's **count** and its **KPI tile** use the same rule (`cardTone()` in the view): red if any row is overdue, otherwise amber if any is due soon, otherwise neutral. The Overdue tile is red whenever non-zero. Chips, tickers, progress bars and onboarding dots are neutral (onboarding uses filled vs hollow dots).
+
+**Critical flag.** A bold filled red "!" circle at the left of a row, clearly bigger than the status dot, on:
+
+- rows **severely overdue** — **7+ days past due** (`isCritical()` / `CRITICAL_OVERDUE_DAYS` in `policy.ts`) — on Feedback to Collect, both Report cards, Other Open Tasks and Profiles to Review (an escalation on top of the plain red overdue text);
+- **every pending Time Off Approval** — it blocks the requester (2026-10-08). The card count and the Approvals KPI are red whenever any are waiting.
+
+**Nav badge.** The My Dashboard item in the sidebar carries a red count badge (bubble on the collapsed rail, pill when labels show; "9+" above nine; hidden at 0) = the total number of critical-flagged rows for the current (effective) viewer. Counted by `loadMyDashboardCriticalCount()` (`app/my-dashboard/critical-count.ts`) in the root layout on every page — head-only SQL counts using the page's own resolvers, task filter and team rule, with the flag rule as date cutoffs (`criticalDueBefore` / `criticalMeetingBefore`, proven equal to `isCritical` in `policy.test.ts`). After an approve / deny the page refreshes, so the row drops off and the badge recounts. Fail-soft: an error counts 0. The Pending Review part counts only core-team clients, like the card.
+
+**Typography, three tiers.** "My To-Dos & Activity" is the largest heading (20px bold); the column headers (Feedback · My Work · Clients & Operations) are black 16px bold with a thin rule; card titles are black 14px bold.
+
+**Styling:** built from the app's own components — the `ListTitleCard` masthead, floating `StatCard` KPIs, `CARD_CLASS` surfaces — so fonts and surfaces match the rest of the app.
 
 ---
 
@@ -34,85 +57,69 @@ Top to bottom:
 |---|---|---|
 | **Me** | Your sign-in email resolved to your Dynamics user id(s) — duplicate CRM records are unioned. If your email can't be matched, every "me" feed is **denied** (a yellow notice says so) rather than shown as "nothing outstanding". | `viewerUserIds()` in `app/clients/alerts/load.ts` |
 | **My clients** | Accounts where you hold **any of the six** team roles: Account Manager (Primary), Secondary, Feedback Report, Associate, Memo, Logistics. | `resolveAccountTeamScope()` in `lib/access/account-team-scope.ts` |
-| **My Book** | My clients that are **Active** (`accounts.state_label = 'Active'`). All cards except the feedback to-dos use the book. | `app/my-dashboard/load.ts` |
+| **My Book** | My clients that are **Active** (`accounts.state_label = 'Active'`). All cards except the feedback cards use the book. | `app/my-dashboard/load.ts` |
 | **Account manager** | The **Primary** role = `accounts.sales_lead_primary_id`. | `TEAM_ROLES` in `lib/access/account-team-policy.ts` |
 
 **Source of truth for the team.** Team membership is read from the live account lookups on `public.accounts`. For **dashboard-created** clients those lookups are written from `account_team_members` by a database trigger, so the dashboard-owned team *is* the source there; for **Dynamics** clients the CRM lookups are authoritative until cutover (see [17 — Account Teams](17-account-teams.md)). This is the same resolver the Alerts page and its nav badge use, so the three never disagree.
 
-**Security.** The app reads with the service-role key (RLS does not apply), so `loadMyDashboard()` is the only gate on what's returned. Every query is filtered server-side to *your* ids or *your* account ids before it runs; a denied scope skips the query entirely instead of running it unfiltered. The route is in `ALWAYS_ALLOWED_ROUTES` (`lib/access-control.ts`) — that is safe only because of this row scoping.
+**Security.** The app reads with the service-role key (RLS does not apply), so `loadMyDashboard()` is the only gate on what's returned. Every query is filtered server-side to *your* ids or *your* account ids before it runs; a denied scope skips the query entirely instead of running it unfiltered.
 
 ---
 
-## The feeds
+## The cards — source, scope, link
 
-### My To-Do
+**Due-date rule** (`dueTone()` in `app/my-dashboard/policy.ts`): before today → **red**; today through today + 7 days → **amber**; later or no date → neutral.
 
-Only things **you personally** are on the hook for. Each item has a type chip and a coloured left edge for its urgency bucket.
+### Feedback
 
-**Urgency rule** (`urgencyFor()` in `app/my-dashboard/policy.ts`) — an item sorts by **its own date**:
+**Why it is on your card (2026-10-08).** Each feedback row's secondary line ends with the **inclusion reason**, worded exactly as on the Alerts page because it comes from the same logic: **Reports · Pending Review** and **Reports · Open / Claimed** — `teamLabel()` (exported from `app/clients/alerts/load.ts`), e.g. "You: Secondary" (Pending Review falls back to "Acct mgr: …" like Alerts); **Feedback to Collect** — "Owner: {name}" (the view's feedback owner, host fallback). Pending Review's detail is "Reviewer: …" or "Unclaimed" (Alerts' wording). Muted, truncated, full text on hover; rows with no reason simply omit it.
 
-- before today → **Overdue** (red)
-- today through today + 7 days → **This week** (amber)
-- later than that, or no date → **Later / no date** (grey)
-
-So a dated item (a PTO request for next week, a meeting you host) floats up into *This week* as it approaches; only genuinely dateless items stay in *Later*.
-
-| Item | Chip | Source | Scope | Date used | Links to |
+| Card | Source | Scope | Date / colour | Row opens | All → |
 |---|---|---|---|---|---|
-| Feedback to collect | Collect | `v_feedback_outstanding` | `host_id` ∈ me (in this view `host_id` is the feedback-responsible person, falling back to the host) | **Meeting day + 10** — the firm's 10-day rule. It's already due, so it is never in *Later*: within 10 days → This week, after → Overdue | `/feedback-collection?client=…` |
-| Feedback report pending review | Review | `v_feedback_pipeline`, `category = 'pending_review'` | client ∈ **all** my team accounts (same as Alerts) | report `due_date` | `/feedback-manager` |
-| Open report I've claimed | Report | `v_feedback_pipeline`, `category = 'in_progress'` | `claimed_by_id` ∈ me | report `due_date` | `/feedback-manager` |
-| Profiles to review | Profiles | `v_profiles_upcoming`, `profile_label = 'Created/Under Review'` | clients where I'm **account manager** | earliest upcoming meeting for that client (one line per client, with a count) | `/profiles` |
-| Host a meeting (next 7 days) | Host | `meetings` — Confirmed, Active, today .. +7 days | `host_id` ∈ me | meeting day | `/meetings?client=…` (super users) |
-| Approve time off | Approve | `time_off_requests` — `status = 'Pending'`, `origin = 'dashboard'` | requesters whose reviewing team includes me (`personIdsReviewedBy()`, `time_off_reviewers`) | request start date | `/time-off-requests`, else `/time-off` |
+| **Feedback to Collect** | `v_feedback_outstanding` | `host_id` ∈ me (in this view `host_id` is the feedback-responsible collector, falling back to the host) | due = **meeting day + 10** (the firm's 10-day rule) | `/feedback-collection?client=…` | `/feedback-collection` |
+| **Reports · Pending Review** | `v_feedback_pipeline`, `category = 'pending_review'` (Feedback closed, paired *Feedback Report Sent* task still open) | client where I hold a **CORE** team role — **Primary, Secondary, Associate or Logistics** (`coreTeamAccountIds()` / `CORE_TEAM_ROLES`); Feedback Report and Memo roles do **not** qualify (2026-10-08). Active and inactive clients, as before | report `due_date` | task drawer on the paired open **Feedback Report Sent** task — the view's `review_task_id` (patch `2026-10-08_feedback_pipeline_review_task_id.sql`), for Dynamics and dashboard pairs alike; falls back to the Feedback task only until that patch is run | `/feedback-manager` |
+| **Reports · Open / Claimed** | `v_feedback_pipeline`, `category = 'in_progress'` | `claimed_by_id` ∈ me | report `due_date` | task drawer (the claimed report task) | `/feedback-manager` |
 
-**"Claimed by me"** uses the pipeline view's `claimed_by_id` (`tasks.bcs_claimed_by_id`). A **Claim** on Feedback Reports keeps that field in step with the dashboard-owned claim (`tasks.claimed_by_id`), so a task you claim there appears here, and **Close** (task → Completed) drops it off. See [14 — Tasks → Feedback claiming](14-tasks.md#feedback-claiming-feedback-reports--claim--release--reassign--close).
+**"Claimed by me"** uses the pipeline view's `claimed_by_id` (`tasks.bcs_claimed_by_id`). A **Claim** on Feedback Reports keeps that field in step with the dashboard-owned claim (`tasks.claimed_by_id`), so a task you claim there appears here, and **Close** (task → Completed) drops it off. If the claim column is missing on a database, the card shows **empty, not an error**. See [14 — Tasks → Feedback claiming](14-tasks.md#feedback-claiming-feedback-reports--claim--release--reassign--close).
 
-### Open Tasks
+### My Work
 
-`v_admin_tasks_all`, `state_label = 'Open'`, in two clearly different groups:
+| Card | Source | Scope | Date / colour | Row opens | All → |
+|---|---|---|---|---|---|
+| **Other Open Tasks** | `v_admin_tasks_all`, `state_label = 'Open'`, **excluding feedback-type tasks** | **Mine** = `owner_id` ∈ me; **Team** = a book client's task owned by someone on **that client's** team (shows assignee + role) | task due date; dot + date red/amber | task drawer | `/tasks` |
+| **Hosting · Next 7 Days** | `meetings` — Confirmed, Active, today … +7 days | `host_id` ∈ me | amber for today/tomorrow only | meeting drawer | `/meetings` |
+| **Profiles to Review** | `v_profiles_upcoming`, `profile_label = 'Created/Under Review'` | clients where I'm **account manager** (Primary) | one row per client, dated by its earliest upcoming meeting (date only) | `/profiles` | `/profiles` |
+| **Onboarding** | `v_client_onboarding` | book clients | nine checklist steps as filled/hollow dots, "n of 9 steps", day N | `/onboarding` | `/onboarding` |
 
-- **Mine** (navy chip + navy edge) — `owner_id` ∈ me.
-- **Team** (grey chip) — tasks on a **book** client owned by someone else on **that client's** team; shows the assignee and their role(s) on that client.
+**Feedback-task exclusion.** Other Open Tasks drops every task whose subtype is `Feedback` or `Feedback Report Sent` (`FEEDBACK_SUBTYPES` in `load.ts`) — those are exactly the tasks the Feedback cards are built from (including the automation's *Feedback Report Pending Review* tasks, which carry the *Feedback Report Sent* subtype). Tasks with no subtype are kept. So no task appears both in Other Open Tasks and a Feedback card. Rows are sorted **overdue first** (oldest due first, dateless last), with a **Mine** / **Team** chip.
 
-Due dates are red when past and amber within 7 days. Links go to `/tasks?client=…` for super users (the Tasks page is super-user only), otherwise to Client Detail.
+### Clients & Operations
 
-**Removed (2026-10-07) — Clients at Risk.** An earlier version listed book clients rated 2 / 3 / Management-IR from `client_health_assessments`. The card, its KPI tile and the query were taken out by request; this page no longer reads Client Health at all.
-
-### Active Marketing
-
-`v_live_outreach` for book clients. The view itself applies the Live Outreach inclusion rules — `event_state_label = 'Live Outreach'`, Active, and the **Mining exclusion** — so nothing is re-filtered here. Shows confirmed meetings (`confirmed_meeting_count`) vs required (`of_slots`) as a bar, plus open slots (`slots_remaining`) and the event dates. Links to `/live-outreach#event-<id>`.
-
-### Contracts Expiring Soon
-
-`v_admin_contracts_all` (both Dynamics and dashboard origins) for book clients, excluding terminated (`termination_date` set) and test rows. Listed when the **notice date** — or, once that has passed, the **term end** — falls within the next **90 days** (`contractKeyDay()`). The badge is days left (amber ≤ 30, otherwise neutral). **No money column is read.** Links: `/admin/contracts?client=…` for super users, otherwise `/contract-management`, otherwise Client Detail.
-
-### Onboarding
-
-`v_client_onboarding` for book clients (the view already limits to clients currently onboarding). One block per client with the nine checklist steps as dots — filled = done, hollow = not yet — and an "n/9 done · day N" summary. Links to `/onboarding`.
-
-### Time Off Approvals
-
-**Approvals only** — the time-off requests waiting on *my* approval/review: requester, dates, request type and day count. Source and scope are exactly the My To-Do "Approve" item (one query feeds both): `time_off_requests` with `status = 'Pending'`, `origin = 'dashboard'`, from requesters whose reviewing team includes me (`personIdsReviewedBy()`). The date is amber when the request starts within 7 days and red if it has already started. There is no per-request deep link, so each row opens `/time-off-requests` (super users) or `/time-off`. Empty state: "No time-off requests are waiting on your approval."
-
-(An earlier version showed who on my account teams was out; that was removed 2026-10-07 by request.)
+| Card | Source | Scope | Shows | Row opens | All → |
+|---|---|---|---|---|---|
+| **Active Marketing** | `v_live_outreach` (the view applies Live Outreach inclusion: `event_state_label = 'Live Outreach'`, Active, **Mining exclusion**) | book clients | booked (`confirmed_meeting_count`) vs required (`of_slots`) bar, open slots, event dates — **full list, no 5-row cap** | `/live-outreach#event-<id>` | `/live-outreach` |
+| **Contracts Expiring** | `v_admin_contracts_all` — **both origins**, read-only; terminated and test rows excluded; **no money column read** | book clients | contracts whose **term end (expiration date) is within the next 90 days** (`contractDaysToExpiry()`), soonest first, **up to 8 rows** then "+ N more · View all →". Each row reads **"Expires Dec 1, 2026"** — red within 7 days, amber within 30 (`contractTone()`); the sub-line labels the notice date ("Notice by …", only while still ahead) and auto-renew. Same count as the Contracts ≤90d KPI. | `/admin/contracts?client=…` (super users), else `/contract-management` | same |
+| **Time Off Approvals** | `time_off_requests` — `status = 'Pending'`, `origin = 'dashboard'` | requesters whose reviewing team includes me (`personIdsReviewedBy()`) | dates, days, type; **always critical** (red flag) | **opens the approve / deny drawer in place** | `/time-off-requests`, else `/time-off` |
 
 ---
 
 ## Performance
 
-Two round-trip stages. **Stage 1** (parallel): your identity, your team scope, your role, and one bulk read of `accounts` (~230 rows), which yields every team member's id and name without per-row lookups. **Stage 2**: all 11 feed queries in **one** `Promise.all`, each filtered to your ids or your book and capped at 60 rows. Each card fails soft — a broken source shows an error strip in that card only.
+Two round-trip stages. **Stage 1** (parallel): your identity, your team scope, your role, and one bulk read of `accounts` (~230 rows), which yields every team member's id and name without per-row lookups. **Stage 2**: all 11 feed queries in **one** `Promise.all`, each filtered to your ids or your book and capped at 60 rows (plus one small follow-up to find the review task linked to each pending-review report). Each card fails soft — a broken source shows an error strip in that card only.
 
 ## Files
 
 | File | What |
 |---|---|
 | `app/my-dashboard/page.tsx` | Route + gating note |
-| `app/my-dashboard/load.ts` | The loader — all scoping and queries |
-| `app/my-dashboard/policy.ts` (+ `policy.test.ts`) | Pure rules: urgency buckets, contract window, feedback due day |
-| `app/my-dashboard/my-dashboard-view.tsx` | The layout (server component) |
-| `lib/access-control.ts` | `/my-dashboard` in `ALWAYS_ALLOWED_ROUTES` |
+| `app/my-dashboard/load.ts` | The loader — all scoping and queries; one feed per card; `FEEDBACK_SUBTYPES` |
+| `app/my-dashboard/policy.ts` (+ `policy.test.ts`) | Pure rules: due colours, contract window, feedback due day |
+| `app/my-dashboard/my-dashboard-view.tsx` | The layout (server component): KPI strip, group labels, the ten cards |
+| `app/my-dashboard/task-drawer.tsx` | Task drawer host (Reports + Other Open Tasks rows) |
+| `app/my-dashboard/meeting-drawer.tsx` | Meeting drawer host (Hosting rows) |
+| `app/my-dashboard/time-off-drawer.tsx` | Time-off drawer host (Approve / Deny) for Time Off Approvals rows |
+| `app/my-dashboard/critical-count.ts` | The nav badge count (critical rows), run by `app/layout.tsx` |
+| `lib/access-control.ts` | `/my-dashboard` in `ALWAYS_ALLOWED_ROUTES` (every signed-in user with a role) |
 | `components/nav.tsx` | "My Dashboard" — first item in the rail |
-| `lib/auth-callback.ts`, `app/login/page.tsx`, `proxy.ts` | Post-sign-in landing is now `/my-dashboard` (was `/portfolio`) |
 
-No SQL — every feed reads an existing view or table.
+No SQL — every card reads an existing view or table.

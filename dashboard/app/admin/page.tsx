@@ -26,6 +26,7 @@ import { ListTitleCard } from "@/components/page-masthead"
 import { getSupabaseServer } from "@/lib/supabase"
 import { formatRelative, formatDate } from "@/lib/format"
 import { KPI_CARD_CLASS, CARD_CLASS, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
+import { HIDDEN_PAGE_REGISTRY } from "@/lib/access-control"
 import { RefreshSummariesCard } from "./refresh-summaries-card"
 
 export const dynamic = "force-dynamic"
@@ -715,9 +716,38 @@ export default async function AdminHubPage() {
         <section>
           <SectionTitle>Hidden Pages</SectionTitle>
           <p className="-mt-2 mb-3 text-xs" style={{ color: TEXT_MUTED }}>
-            Parked pages — off the main nav, kept reachable here.
+            Parked pages — off the main nav, kept reachable here. <strong>Retired</strong> pages are also
+            super-user only while hidden; to restore one, set <code>hidden: false</code> on its entry in{" "}
+            <code>HIDDEN_PAGE_REGISTRY</code> (lib/access-control.ts).
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {/* Retired pages (HIDDEN_PAGE_REGISTRY): status + why, link opens it. */}
+            {HIDDEN_PAGE_REGISTRY.map((p) => (
+              <Link
+                key={p.route}
+                href={p.route}
+                className={`group flex items-center gap-3 p-4 ${CARD_CLASS} transition hover:-translate-y-0.5`}
+              >
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#EEF2FB] text-[#1E2858]">
+                  <EyeOff className="size-[18px]" />
+                </span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 font-medium" style={{ color: TEXT_PRIMARY }}>
+                    <span className="truncate">{p.label}</span>
+                    <span
+                      className="shrink-0 rounded-full px-1.5 text-[10.5px] font-semibold"
+                      style={{ background: p.hidden ? "#F1F3F7" : "#E7F5EE", color: p.hidden ? "#5B6472" : "#0E7C56" }}
+                    >
+                      {p.hidden ? "Retired · hidden" : "Live"}
+                    </span>
+                    <ArrowRight className="size-3.5 shrink-0 opacity-0 transition group-hover:opacity-100" />
+                  </div>
+                  <div className="truncate text-xs" style={{ color: TEXT_MUTED }} title={p.note}>
+                    {p.note}
+                  </div>
+                </div>
+              </Link>
+            ))}
             {HIDDEN_PAGES.map((p) => (
               <Link
                 key={p.href}

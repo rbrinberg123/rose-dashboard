@@ -1,7 +1,8 @@
 "use server"
 
 import { getSupabaseServer } from "@/lib/supabase"
-import { getEffectiveRole } from "@/lib/effective-identity"
+import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { viewerUserIds } from "@/app/clients/alerts/load"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
@@ -156,6 +157,40 @@ export async function loadMeetingRecord(
   const role = await getEffectiveRole()
   if (role !== "super_user") return fail("Not authorised.")
 
+  return readMeetingRecord(meetingId)
+}
+
+/**
+ * The meeting drawer for My Dashboard's Hosting card, for ANY signed-in user —
+ * but only for a meeting the viewer HOSTS (host_id ∈ the effective viewer's
+ * CRM ids), the exact scope of that card. Anything else is refused, so this
+ * can never be used to read someone else's meeting. Super users pass too.
+ */
+export async function loadHostedMeetingRecord(
+  meetingId: string,
+): Promise<ActionResult<MeetingRecord>> {
+  // ---- GATE (must stay first) ----
+  if (!meetingId) return fail("No meeting id.")
+  const role = await getEffectiveRole()
+  if (role !== "super_user") {
+    if (!role) return fail("Not authorised.")
+    const identity = await getEffectiveIdentity()
+    const viewer = await viewerUserIds(identity.email)
+    if (viewer.ids.length === 0) return fail("Not authorised.")
+    const { data, error } = await getSupabaseServer()
+      .from("meetings")
+      .select("meeting_id")
+      .eq("meeting_id", meetingId)
+      .in("host_id", viewer.ids)
+      .maybeSingle()
+    if (error) return fail(describeError(error))
+    if (!data) return fail("Not authorised.")
+  }
+  return readMeetingRecord(meetingId)
+}
+
+/** UNGATED body shared by the two loaders above — never export it. */
+async function readMeetingRecord(meetingId: string): Promise<ActionResult<MeetingRecord>> {
   if (!meetingId) return fail("No meeting id.")
 
   const sb = getSupabaseServer()

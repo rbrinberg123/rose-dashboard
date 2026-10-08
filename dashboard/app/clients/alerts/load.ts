@@ -179,8 +179,10 @@ function meta(...parts: (string | null | undefined)[]): string[] {
   return parts.filter((p): p is string => typeof p === "string" && p.trim() !== "")
 }
 
-/** "You: Feedback, Memo" — which of the six roles the viewer holds on this account. */
-function teamLabel(team: AccountTeamScope, accountId: string | null): string | null {
+/** "You: Feedback, Memo" — which of the six roles the viewer holds on this account.
+ *  EXPORTED for My Dashboard's feedback cards, so their inclusion-reason line
+ *  reads exactly like this page's. */
+export function teamLabel(team: AccountTeamScope, accountId: string | null): string | null {
   if (team.mode !== "filter" || !accountId) return null
   const roles = team.rolesByAccount.get(accountId)
   if (!roles || roles.length === 0) return null

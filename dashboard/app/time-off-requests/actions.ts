@@ -11,9 +11,16 @@
  *                   grants nothing: a requester can never edit or delete a
  *                   request, their own included. Only the super_user check
  *                   opens these, and that stays true when access is broadened.
- *   approve / deny  super_user, not in "View as", AND the REAL actor is on the
- *                   requester's reviewing team right now (time_off_reviewers),
- *                   AND is not the requester, AND the request is still Pending.
+ *   approve / deny  ANY signed-in user with a role, not in "View as", who is
+ *                   on the requester's reviewing team right now
+ *                   (time_off_reviewers) — the DESIGNATED approver — AND is not
+ *                   the requester, AND the request is still Pending.
+ *                   (Was super-user only until 2026-10-08, when My Dashboard
+ *                   opened approvals to every reviewer. Being a super_user
+ *                   alone still grants nothing here: team membership decides.)
+ *   drawer read     super_user (loadTimeOffRecord), OR — for one dashboard
+ *                   request — a reviewer of its requester
+ *                   (loadTimeOffApprovalRecord, My Dashboard).
  *   Dynamics rows   read-only, always (they are synced history).
  *
  * The tables are read and written with the service-role key (RLS bypassed), so
@@ -257,7 +264,7 @@ async function reviewState(row: {
   if (row.status !== "Pending") return { canReview: false, reason: null }
   const [role, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
   if (identity.impersonated) return { canReview: false, reason: "Exit “View as” to approve or deny." }
-  if (role !== "super_user") return { canReview: false, reason: "Approving is super-user only for now." }
+  if (!role) return { canReview: false, reason: "Not authorised." }
   if (!row.requested_by_id) return { canReview: false, reason: "This request has no requester." }
   const actorIds = [...new Set([...(await idsForEmail(identity.email)), identity.userId ?? ""])].filter(Boolean)
   if (actorIds.length === 0) return { canReview: false, reason: "Your sign-in isn't matched to a CRM user." }
@@ -279,7 +286,44 @@ export async function loadTimeOffRecord(
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
   if (role !== "super_user") return fail("Not authorised.")
+  return readTimeOffRecord(id, source)
+}
+
+/**
+ * One DASHBOARD request for My Dashboard's approval drawer, for any signed-in
+ * user — but only when the viewer is on the requester's reviewing team (the
+ * Time Off Approvals card's own scope). Super users pass as on the CRM page.
+ * Anything else is refused, so this cannot read someone else's request.
+ */
+export async function loadTimeOffApprovalRecord(id: string): Promise<ActionResult<TimeOffRecord>> {
+  // ---- GATE (must stay first) ----
+  const role = await getEffectiveRole()
+  if (!role) return fail("Not authorised.")
   if (!isUuid(id)) return fail("Unknown request.")
+  if (role !== "super_user") {
+    const identity = await getEffectiveIdentity()
+    const viewerIds = await idsForEmail(identity.email)
+    if (viewerIds.length === 0) return fail("Not authorised.")
+    const { data, error } = await getSupabaseServer()
+      .from(TABLE)
+      .select("requested_by_id")
+      .eq("id", id)
+      .eq("origin", "dashboard")
+      .maybeSingle()
+    if (error) return fail(describeError(error))
+    const requester = (data as { requested_by_id: string | null } | null)?.requested_by_id
+    if (!requester || !(await isReviewerOf(viewerIds, requester))) return fail("Not authorised.")
+  }
+  return readTimeOffRecord(id, "Dashboard")
+}
+
+/** UNGATED body shared by the two loaders above — never export it. */
+async function readTimeOffRecord(
+  id: string,
+  source: "Dynamics" | "Dashboard",
+): Promise<ActionResult<TimeOffRecord>> {
+  if (!isUuid(id)) return fail("Unknown request.")
+  const role = await getEffectiveRole()
 
   const { data, error } = await getSupabaseServer()
     .from("v_admin_time_off_all")
@@ -458,9 +502,24 @@ export async function deleteTimeOffRequest(id: string): Promise<ActionResult> {
 /* ---------------------------------------------------------- approve / deny */
 
 /**
- * Approve or deny a PENDING dashboard request. The REAL actor must be a
- * super_user (not in View as), must be on the requester's reviewing team at
- * this moment, and must not be the requester. reviewed_by_* is that real actor.
+ * Who may approve / deny: any signed-in user WITH A ROLE, not in "View as" (so
+ * the effective identity is the real one). Whether they may review THIS
+ * request is decided below by reviewing-team membership — not by role.
+ */
+async function requireReviewer(): Promise<
+  { ok: true; userId: string | null; name: string | null } | { ok: false; error: string }
+> {
+  const [role, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
+  if (!role) return { ok: false, error: "Not authorised." }
+  if (identity.impersonated) return { ok: false, error: "Exit “View as” before approving or denying time off." }
+  return { ok: true, userId: identity.userId, name: identity.name }
+}
+
+/**
+ * Approve or deny a PENDING dashboard request. The REAL actor (any role, not in
+ * View as) must be on the requester's reviewing team at this moment — the
+ * designated approver — and must not be the requester. reviewed_by_* is that
+ * real actor.
  */
 export async function reviewTimeOffRequest(
   id: string,
@@ -468,7 +527,7 @@ export async function reviewTimeOffRequest(
   reviewComments?: string,
 ): Promise<ActionResult<{ status: string }>> {
   // ---- GATE (must stay first) ----
-  const gate = await requireCrmWriter("approving or denying time off")
+  const gate = await requireReviewer()
   if (!gate.ok) return fail(gate.error)
   if (decision !== "Approved" && decision !== "Denied") return fail("Unknown decision.")
 
@@ -477,7 +536,7 @@ export async function reviewTimeOffRequest(
   const prior = before.data.row
   if (prior.status !== "Pending") return fail(`This request is already ${prior.status}.`)
 
-  // requireCrmWriter refused View as, so the effective identity IS the real one.
+  // requireReviewer refused View as, so the effective identity IS the real one.
   const identity = await getEffectiveIdentity()
   const actorIds = [...new Set([...(await idsForEmail(identity.email)), gate.userId ?? ""])].filter(Boolean)
   if (actorIds.length === 0) return fail("Your sign-in isn't matched to a CRM user.")

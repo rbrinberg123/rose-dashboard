@@ -79,22 +79,24 @@ export function sortByDue<T extends { due: string | null }>(items: readonly T[])
 export const CONTRACT_WINDOW_DAYS = 90
 
 /**
- * The date a contract is counted against: its NOTICE date when that is still
- * ahead (that is the decision deadline), otherwise its TERM END. Null when
- * neither falls inside today .. today + 90 days.
+ * "Expiring" = the contract's TERM END (its expiration date) falls inside
+ * today .. today + 90 days. Returns the days left, or null when it is outside
+ * the window (already past, further out, or no term end). The notice date is
+ * shown as a labelled extra, never used for the window (changed 2026-10-08:
+ * it used to count against the notice date first, which listed contracts by an
+ * unlabelled date that was not their expiry).
  */
-export function contractKeyDay(
-  noticeDay: string | null,
-  termEndDay: string | null,
-  today: string,
-): string | null {
-  const inWindow = (d: string | null) => {
-    const n = daysUntil(d, today)
-    return n != null && n >= 0 && n <= CONTRACT_WINDOW_DAYS
-  }
-  if (inWindow(noticeDay)) return noticeDay
-  if (inWindow(termEndDay)) return termEndDay
-  return null
+export function contractDaysToExpiry(termEndDay: string | null, today: string): number | null {
+  const n = daysUntil(termEndDay, today)
+  return n != null && n >= 0 && n <= CONTRACT_WINDOW_DAYS ? n : null
+}
+
+/** Expiry colour: within 7 days → red (imminent), within 30 → amber, else neutral. */
+export const CONTRACT_RED_DAYS = 7
+export const CONTRACT_AMBER_DAYS = 30
+
+export function contractTone(daysLeft: number): DueTone {
+  return daysLeft <= CONTRACT_RED_DAYS ? "over" : daysLeft <= CONTRACT_AMBER_DAYS ? "soon" : "plain"
 }
 
 // ---------------------------------------------------------------------------
@@ -120,4 +122,36 @@ export function feedbackDueDay(meetingDay: string | null): string | null {
  */
 export function feedbackUrgency(meetingDay: string | null, today: string): Urgency {
   return urgencyFor(feedbackDueDay(meetingDay), today) === "overdue" ? "overdue" : "week"
+}
+
+// ---------------------------------------------------------------------------
+// Critical flag
+// ---------------------------------------------------------------------------
+
+/** Days past due at which a row is SEVERELY overdue and gets the red flag. */
+export const CRITICAL_OVERDUE_DAYS = 7
+
+/**
+ * Severely overdue: due CRITICAL_OVERDUE_DAYS or more days ago. An escalation
+ * on top of plain overdue (red text), shown as a bold red flag on the row.
+ */
+export function isCritical(day: string | null, today: string): boolean {
+  const d = daysUntil(day, today)
+  return d != null && d <= -CRITICAL_OVERDUE_DAYS
+}
+
+/**
+ * The same rule as a DATE CUTOFF, for the nav badge's SQL counts: a due day is
+ * critical exactly when it is BEFORE this day (i.e. ≤ today − 7).
+ */
+export function criticalDueBefore(today: string): string {
+  return shiftDay(today, -(CRITICAL_OVERDUE_DAYS - 1))
+}
+
+/**
+ * Feedback to Collect is due on meeting day + 10, so its row is critical exactly
+ * when the MEETING day is before this day.
+ */
+export function criticalMeetingBefore(today: string): string {
+  return shiftDay(today, -(CRITICAL_OVERDUE_DAYS + FEEDBACK_DUE_AFTER_DAYS - 1))
 }

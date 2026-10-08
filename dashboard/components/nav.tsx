@@ -54,7 +54,9 @@ import {
   type CrmEntity,
 } from "@/components/crm-add-new"
 import {
+  MY_DASHBOARD_ROUTE,
   canAccessRoute,
+  isHiddenRoute,
   visibleCrmNavItems,
   type CrmNavItem,
   type ViewAsRole,
@@ -86,8 +88,8 @@ type NavSection = {
 const sections: NavSection[] = [
   {
     // FIRST in the rail: the personal home page. Single clickable item.
-    // Super-user only for now (ADMIN_ONLY_ROUTES), so canAccessRoute hides it
-    // from every other role — matching the proxy.
+    // Open to every signed-in user (ALWAYS_ALLOWED_ROUTES); each sees only
+    // their own data.
     label: "My Dashboard",
     icon: LayoutDashboard,
     href: "/my-dashboard",
@@ -368,6 +370,13 @@ const ALERTS_ROUTE = "/clients/alerts"
 const AlertCountContext = React.createContext(0)
 
 /**
+ * The same red badge on the My Dashboard item: the number of rows that page
+ * flags CRITICAL for this viewer (app/my-dashboard/critical-count.ts). Hidden
+ * at 0. Same bubble (rail) / pill (labels) as Alerts.
+ */
+const MyDashboardCountContext = React.createContext(0)
+
+/**
  * Red badges cap their DISPLAY at "9+" so a three-digit number can't stretch
  * the rail, but the real number is what goes in the aria-label — a screen
  * reader should hear "12 critical", not "9+".
@@ -437,8 +446,10 @@ function visibleSections(
   return sections
     .map((section) => ({
       ...section,
-      items: (section.items ?? []).filter((item) =>
-        canAccessRoute(role, item.href, allowedRoutes),
+      // Hidden (retired) pages are off the nav for EVERYONE, super users
+      // included — reached only from Admin → Hidden Pages (isHiddenRoute).
+      items: (section.items ?? []).filter(
+        (item) => !isHiddenRoute(item.href) && canAccessRoute(role, item.href, allowedRoutes),
       ),
     }))
     .filter((section) =>
@@ -463,6 +474,7 @@ function Section({
 }) {
   const { label, icon: Icon, items, href } = section
   const alertCount = React.useContext(AlertCountContext)
+  const dashCount = React.useContext(MyDashboardCountContext)
 
   // Header-as-link: a section with an href and no child items renders the
   // category row itself as a clickable Link, with the same active/hover
@@ -475,6 +487,7 @@ function Section({
           href={href}
           onClick={onNavigate}
           aria-current={active ? "page" : undefined}
+          aria-label={alertsAriaLabel(label, href === MY_DASHBOARD_ROUTE ? dashCount : 0)}
           className={cn(
             "relative flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium uppercase tracking-wider transition-colors",
             active
@@ -491,6 +504,7 @@ function Section({
           )}
           <Icon className="size-[18px] shrink-0" />
           <span>{label}</span>
+          <AlertCountPill count={href === MY_DASHBOARD_ROUTE ? dashCount : 0} />
         </Link>
       </div>
     )
@@ -980,12 +994,15 @@ function RailIconLink({
   icon: Icon,
   active,
   align = "top",
+  badge = 0,
 }: {
   href: string
   label: string
   icon: React.ComponentType<{ className?: string }>
   active: boolean
   align?: "top" | "bottom"
+  /** Red count bubble pinned to the icon; 0 hides it. */
+  badge?: number
 }) {
   const { open, triggerProps, panelProps } = useFlyout(align)
   const tooltipId = React.useId()
@@ -994,12 +1011,13 @@ function RailIconLink({
     <div className="flex justify-center py-[3px]" {...triggerProps}>
       <Link
         href={href}
-        aria-label={label}
+        aria-label={alertsAriaLabel(label, badge)}
         aria-current={active ? "page" : undefined}
         aria-describedby={open ? tooltipId : undefined}
-        {...railIconProps(active)}
+        {...railIconProps(active, "relative")}
       >
         <Icon className="size-[18px]" />
+        <RailAlertBubble count={badge} />
       </Link>
       {open ? (
         <FlyoutPanel
@@ -1134,6 +1152,7 @@ function RailContents({
   allowedRoutes: readonly string[]
 }) {
   const crm = crmItemsFor(role, allowedRoutes)
+  const dashCount = React.useContext(MyDashboardCountContext)
 
   return (
     <>
@@ -1147,6 +1166,7 @@ function RailContents({
             label={section.label}
             icon={section.icon}
             active={isActive(pathname, section.href!)}
+            badge={section.href === MY_DASHBOARD_ROUTE ? dashCount : 0}
           />
         ),
       )}
@@ -1507,6 +1527,7 @@ export function Sidebar({
   allowedRoutes = [],
   defaultCollapsed = true,
   alertCount = 0,
+  myDashboardCount = 0,
 }: {
   userEmail?: string | null
   role?: ViewAsRole | null
@@ -1519,6 +1540,9 @@ export function Sidebar({
   /** Critical (red) Alerts for THIS viewer, from the root layout. 0 hides every
    *  badge. See app/clients/alerts/critical-count.ts for how it is counted. */
   alertCount?: number
+  /** Critical rows on My Dashboard for THIS viewer, from the root layout. 0
+   *  hides the badge. See app/my-dashboard/critical-count.ts. */
+  myDashboardCount?: number
 }) {
   const pathname = usePathname() || "/"
   const [mobileOpen, setMobileOpen] = React.useState(false)
@@ -1572,6 +1596,7 @@ export function Sidebar({
     // The Alerts count travels by context rather than through NavContents,
     // RailContents, Section and RailSection as a prop nothing between them uses.
     <AlertCountContext.Provider value={alertCount}>
+    <MyDashboardCountContext.Provider value={myDashboardCount}>
       {/* Mobile top bar — visible below md */}
       <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-[#EDEFF3] bg-white px-3 md:hidden">
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -1696,6 +1721,7 @@ export function Sidebar({
           </div>
         )}
       </aside>
+    </MyDashboardCountContext.Provider>
     </AlertCountContext.Provider>
   )
 }

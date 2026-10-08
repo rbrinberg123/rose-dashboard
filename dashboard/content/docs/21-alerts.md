@@ -1,5 +1,7 @@
 # 21 — Alerts
 
+> **Status: RETIRED (hidden) — 2026-10-08.** Superseded by **My Dashboard** ([26](26-my-dashboard.md)), which shows the same feedback work per person with critical flags and its own nav badge. The page is **not deleted**: it is off the nav for everyone and super-user only, via `HIDDEN_PAGE_REGISTRY` in `lib/access-control.ts`, and listed under **Admin → Hidden Pages** (super users can still open it there). Its loaders and views are untouched, and the Alerts badge count is skipped while hidden. **To re-enable:** set `hidden: false` on its registry entry and deploy — the nav link, route access, Roles-matrix grants and badge all come back.
+
 ## What it does (plain language)
 
 **Clients → Alerts** (`/clients/alerts`) is a **critical-to-dos worklist**: the things that are late, and whose they are. It answers one question — *what should I chase today?* — across four separate slices of feedback and meeting work.

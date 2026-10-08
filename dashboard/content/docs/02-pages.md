@@ -10,11 +10,11 @@ Remember the access rule from [01 — Access & Users](01-access-and-users.md): p
 
 "Required role" is derived from `USER_ALLOWED_ROUTES` in `dashboard/lib/access-control.ts`: a route in that list is reachable by `user` **and** `super_user`; anything else is `super_user` only. "Reads" is the main Supabase view/table the page's `page.tsx` queries via `.from(...)`. Labels and grouping come from `dashboard/components/nav.tsx`.
 
-### My Dashboard (super-user only for now)
+### My Dashboard (all signed-in users)
 
 | Route | Label | Reads | Purpose |
 |-------|-------|-------|---------|
-| `/my-dashboard` | My Dashboard | `accounts`, `v_feedback_outstanding`, `v_feedback_pipeline`, `v_profiles_upcoming`, `meetings`, `time_off_requests`, `v_admin_tasks_all`, `v_live_outreach`, `v_admin_contracts_all`, `v_client_onboarding` | The personal home page; first item in the sidebar. **Super-user only for now** (`ADMIN_ONLY_ROUTES`, the one flag) — super users land here after sign-in, everyone else lands on Portfolio (`landingRouteFor`). Moving it to `ALWAYS_ALLOWED_ROUTES` opens it to all — **every feed is scoped server-side to the viewer and their own account teams** (no super-user bypass). My To-Do (urgency-bucketed), Open Tasks (Mine / Team), Contracts ≤90 days, Onboarding, Active Marketing, Time Off Approvals (requests awaiting the viewer). Full detail in [26 — My Dashboard](26-my-dashboard.md). |
+| `/my-dashboard` | My Dashboard | `accounts`, `v_feedback_outstanding`, `v_feedback_pipeline`, `v_profiles_upcoming`, `meetings`, `time_off_requests`, `v_admin_tasks_all`, `v_live_outreach`, `v_admin_contracts_all`, `v_client_onboarding` | The personal home page; first item in the sidebar. **Open to every signed-in user with a role** (`ALWAYS_ALLOWED_ROUTES`, since 2026-10-08) — everyone with a role lands here after sign-in (`landingRouteFor`); **every feed is scoped server-side to the viewer and their own account teams** (no super-user bypass). Ten compact workflow cards under Feedback · My Work · Clients & Operations. Full detail in [26 — My Dashboard](26-my-dashboard.md). |
 
 ### Clients (super-user only)
 
@@ -551,6 +551,12 @@ Two entry points (1–2), plus the hover treatment they sit alongside (3). All a
 
 Parked pages — pulled off the main nav but kept reachable from the **Hidden Pages** section on the Admin hub (`dashboard/app/admin/page.tsx`, the `HIDDEN_PAGES` array). Their routes/pages are unchanged; they're super-user-only now because Admin is (and they were removed from `USER_ALLOWED_ROUTES`). Add another parked page with one `{ href, label }` line in `HIDDEN_PAGES`.
 
+**Retired pages (2026-10-08).** A second, stronger kind of hidden page lives in `HIDDEN_PAGE_REGISTRY` (`lib/access-control.ts`) — a code registry of `{ route, label, hidden, note }`. While an entry is `hidden: true` the page is **off the nav for everyone** (super users included), **super-user only** at the route (`canAccessRoute` → proxy + page; Roles-matrix grants are inert and `getAllowedRoutes` never offers it as a landing page), and listed first in Admin → Hidden Pages with a *Retired · hidden* tag and the reason. Nothing about the page, its loaders or its views is touched. **To re-enable:** set `hidden: false` on the entry (or delete it) and deploy — nav, route and matrix grants return as before.
+
+| Route | Label | Status | Why |
+|-------|-------|--------|-----|
+| `/clients/alerts` | Alerts | **Retired · hidden** | Superseded by My Dashboard — same feedback feeds, critical flags and nav badge. Its loaders/views (`v_feedback_outstanding`, `v_feedback_pipeline`) stay; My Dashboard uses them. Its Clients-badge count is skipped while hidden. See [21 — Alerts](21-alerts.md). |
+
 > **`/meetings` is no longer here.** It moved to the **bottom of the main nav rail** as a super-user-only **CRM** entry (its own section break, teal outline). Gating is unchanged — still `ADMIN_ONLY_ROUTES`. See [01 — Access & users](01-access-and-users.md#the-crm-block-in-the-nav-rail).
 
 | Route | Label | Reads | Purpose |
@@ -567,7 +573,7 @@ These have a `page.tsx` but no sidebar link; reach them by URL.
 
 | Route | Reads | Note |
 |-------|-------|------|
-| `/` (home) | same as `/client-statistics` | Home = Client Statistics. Plain users are redirected to `/scheduler`. |
+| `/` (home) | — | **Redirects to My Dashboard** (2026-10-08) — the default homepage, same place sign-in lands you. `app/page.tsx` → `homeRouteFor()` (`lib/access-control.ts`): My Dashboard if the role may open it (every role today), else Portfolio (the previous default), else the first page the role can open, else `/no-access` — never a blocked screen or a loop. `/` is always allowed (exact path only) so the redirect runs. Client Statistics, which `/` used to render, is unchanged at `/client-statistics`. |
 | `/planning` | `v_planning_events` | **Old planning page — kept but deliberately unlinked**, superseded by `/planning-v2` (see comments in `nav.tsx` and `access-control.ts`). |
 | `/institution-detail` | `v_institution_detail_summary` + `v_institution_detail_*` | One-institution deep-dive (quarterly, top clients, style, hosts). **Route kept but unlinked from the nav** — reached by drilling in from the Directory (`/institutions`), not typed by URL. Still super-user-only (unchanged `USER_ALLOWED_ROUTES`). |
 | `/margin` | `v_client_quarterly_pnl` | Client quarterly P&L / margin. |

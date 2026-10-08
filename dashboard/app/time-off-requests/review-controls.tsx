@@ -3,8 +3,8 @@
 /**
  * Approve / Deny for one PENDING time-off request, with an optional review
  * comment. Used by the Time Off drawer and the Alerts "Time Off Approvals"
- * section. It only calls reviewTimeOffRequest — the server decides whether the
- * caller may (super_user, not in View as, on the requester's reviewing team,
+ * section and My Dashboard. It only calls reviewTimeOffRequest — the server decides whether the
+ * caller may (any role, not in View as, on the requester's reviewing team,
  * not the requester). `disabledReason` merely explains a button that would be
  * refused anyway.
  */

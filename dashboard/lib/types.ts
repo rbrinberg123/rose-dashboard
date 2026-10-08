@@ -982,6 +982,12 @@ export type FeedbackPipelineRow = {
   claimed_by_id: string | null
   claimed_by_name: string | null
   days_in_stage: number | null
+  /**
+   * pending_review rows: the paired OPEN "Feedback Report Sent" task — the one
+   * "open task" should open. Null on in_progress rows, and absent until
+   * sql/patches/2026-10-08_feedback_pipeline_review_task_id.sql is run.
+   */
+  review_task_id?: string | null
   client_ticker: string | null
 }
 
