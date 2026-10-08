@@ -19,7 +19,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Check, Star, Trash2 } from "lucide-react"
+import { Check, Save, Star, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import type { ActionResult } from "@/lib/actions"
@@ -45,6 +45,18 @@ export type ViewActions = {
   remove: (input: { id: string }) => Promise<ActionResult>
 }
 
+/** The floppy disk with a small "S" badge (bottom-right): Save as System. */
+function SystemSaveIcon() {
+  return (
+    <span className="relative inline-flex" aria-hidden="true">
+      <Save />
+      <span className="absolute -bottom-1 -right-1.5 flex size-[11px] items-center justify-center rounded-full bg-current text-[8px] font-bold leading-none">
+        <span className="text-white">S</span>
+      </span>
+    </span>
+  )
+}
+
 export function ViewSwitcher({
   views,
   activeViewId,
@@ -57,7 +69,10 @@ export function ViewSwitcher({
   onError,
   actions,
   basePath,
+  compact = false,
 }: {
+  /** Shorter, narrower view dropdown for single-line toolbars (Clients). */
+  compact?: boolean
   /** Bound saved-view writes for this entity — see ViewActions. */
   actions: ViewActions
   /** e.g. "/meetings" — where the switcher navigates. */
@@ -166,7 +181,11 @@ export function ViewSwitcher({
         id="mtg-view"
         value={activeViewId}
         onChange={(e) => switchTo(e.target.value)}
-        className="h-9 max-w-[280px] rounded-md border border-input bg-background px-2 text-sm"
+        className={
+          compact
+            ? "h-8 max-w-[170px] shrink-0 rounded-md border border-input bg-background px-2 text-xs"
+            : "h-9 max-w-[280px] rounded-md border border-input bg-background px-2 text-sm"
+        }
       >
         <optgroup label="System views">
           {system.map((v) => (
@@ -213,29 +232,35 @@ export function ViewSwitcher({
             </Button>
           )}
 
+          {/* Save as… / Save as System — compact, subdued icon buttons
+              (2026-10-08), shared by every CRM table. Same handlers and the
+              same gate as the old text buttons: Save as System only when
+              canManageSystemViews; the server actions re-check. */}
           <Button
             type="button"
-            variant="outline"
-            size="sm"
+            variant="ghost"
+            size="icon-sm"
             disabled={busy}
             onClick={() => onSaveAs("personal")}
             title="Save these columns and filters as a new personal view"
-            className="cursor-pointer"
+            aria-label="Save as view"
+            className="cursor-pointer text-muted-foreground hover:text-foreground"
           >
-            Save as…
+            <Save />
           </Button>
 
           {canManageSystemViews && (
             <Button
               type="button"
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="icon-sm"
               disabled={busy}
               onClick={() => onSaveAs("system")}
               title="Save as a System view, shared with everyone"
-              className="cursor-pointer"
+              aria-label="Save as system (shared) view"
+              className="cursor-pointer text-muted-foreground hover:text-foreground"
             >
-              Save as System
+              <SystemSaveIcon />
             </Button>
           )}
 

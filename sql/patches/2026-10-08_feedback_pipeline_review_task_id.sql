@@ -19,6 +19,17 @@
 -- Appending at the end is what CREATE OR REPLACE VIEW allows, so v_client_todo
 -- and every other reader are unaffected.
 --
+-- ALSO (added 2026-10-08, same file — run once): a task CLOSED FROM THE
+-- DASHBOARD counts as closed even while the Dynamics mirror still says Open.
+-- Dynamics-origin tasks closed here pre-cutover record only the dashboard-owned
+-- sidecar tasks.closed_at (Feedback Reports → Pending Review → Close, and the
+-- task card's Close — lib/tasks/close.ts), so:
+--   in_progress    — the Feedback task must have closed_at IS NULL
+--   pending_review — the paired Report Sent task must have closed_at IS NULL
+-- That is what makes a closed report actually LEAVE the list for Dynamics pairs.
+-- No effect on rows never closed here (closed_at is NULL), and none on
+-- dashboard-origin closes (they also set state Completed).
+--
 -- APP. Safe to deploy before or after this runs: the app reads the column via
 -- select('*') and falls back to task_id while it is absent.
 --
@@ -109,6 +120,7 @@ in_progress AS (
     NULL::uuid                                  AS review_task_id
   FROM fb f
   WHERE f.state_label = 'Open'
+    AND f.closed_at IS NULL            -- NEW: not closed from the dashboard (sidecar)
     AND f.crdfa_feedback_received_date IS NOT NULL
 ),
 pending_review AS (
@@ -132,6 +144,7 @@ pending_review AS (
   FROM pairs p
   JOIN fb f ON f.task_id = p.fb_id AND f.state_label = 'Completed'
   JOIN rs r ON r.task_id = p.rs_id AND r.state_label = 'Open'
+    AND r.closed_at IS NULL            -- NEW: Report Sent not closed from the dashboard (sidecar)
 ),
 combined AS (
   SELECT * FROM in_progress
@@ -170,3 +183,7 @@ ORDER BY c.category, c.days_in_stage DESC NULLS LAST, c.client_account_name;
 --   SELECT category, count(*) AS rows, count(review_task_id) AS with_review_task
 --   FROM public.v_feedback_pipeline GROUP BY 1;
 --   -- expect pending_review: rows = with_review_task; in_progress: with_review_task = 0
+--   -- And nothing listed is closed from the dashboard:
+--   SELECT count(*) FROM public.v_feedback_pipeline p
+--   JOIN public.tasks t ON t.task_id = COALESCE(p.review_task_id, p.task_id)
+--   WHERE t.closed_at IS NOT NULL AND t.state_label = 'Open';   -- expect 0

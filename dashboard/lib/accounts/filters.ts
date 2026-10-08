@@ -65,9 +65,10 @@ export const EMPTY_ACCOUNT_QUICK_FILTERS: AccountQuickFilters = {}
 
 /** Every key, in toolbar order. One list so the page, the URL builder and the
  *  "any filter set?" test cannot drift apart. */
+// "state", "client_status", "feedback" and "logistics" were removed 2026-10-08
+// with their dropdowns, so an old link carrying one is ignored rather than
+// filtering invisibly.
 export const ACCOUNT_QUICK_FILTER_KEYS = [
-  "state",
-  "client_status",
   "sector",
   "industry",
   "region",
@@ -75,8 +76,6 @@ export const ACCOUNT_QUICK_FILTER_KEYS = [
   "account_manager",
   "secondary",
   "associate",
-  "feedback",
-  "logistics",
 ] as const
 
 export function hasAccountQuickFilters(f: AccountQuickFilters): boolean {

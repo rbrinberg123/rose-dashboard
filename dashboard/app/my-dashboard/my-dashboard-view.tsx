@@ -3,7 +3,15 @@ import Link from "next/link"
 
 import { ListTitleCard } from "@/components/page-masthead"
 import { StatCard } from "@/components/stat-card"
-import { CARD_CLASS, STATUS_PILL_LIGHT, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY } from "@/lib/design"
+import {
+  CANVAS,
+  CARD_CLASS,
+  STATUS_PILL_LIGHT,
+  TEXT_MUTED,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  TEXT_TERTIARY,
+} from "@/lib/design"
 import { contractTone, daysUntil, dueTone, isCritical, type DueTone } from "./policy"
 import { fmtDay, type Feed, type MyDashboardData, type TodoItem } from "./load"
 import { OpenTaskRow, TaskDrawerHost } from "./task-drawer"
@@ -24,7 +32,7 @@ import { TimeOffApprovalRow, TimeOffDrawerHost } from "./time-off-drawer"
  * grid under light group labels — every card has a fixed home:
  *   Feedback       Feedback to Collect → Reports · Pending Review → Reports · Open / Claimed
  *   My Work               Other Open Tasks → Hosting · Next 7 Days → Profiles to Review → Onboarding
- *   Clients & Operations  Time Off Approvals → Active Marketing → Contracts Expiring
+ *   Administrative & Other Time Off Approvals → Active Marketing → Contracts Expiring
  * A card's count takes the same colour as its KPI tile (cardTone).
  */
 
@@ -705,7 +713,52 @@ function greeting(): string {
   return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
 }
 
-/** KPI tile = the shared floating StatCard, wrapped as a jump link to its card. */
+/**
+ * "Jump to" — the quick-link bar (approved mockup quicklinks-v3, variant D·),
+ * low-key (2026-10-08): a light-gray bar (a shade off the page canvas) with a
+ * light 1px border and rounded corners,
+ * muted text, thin dividers between segments; a light brand-blue tint + blue
+ * text only on hover. Equal, slim segments (a quiet row of shortcuts, not a
+ * primary control). Only the pages the viewer may open are passed in, so the
+ * rest share the width evenly. Dividers are 1px box-shadows on each segment's
+ * left and top; the container clips those on its outer edge, so they stay right when
+ * the bar wraps on a narrow screen or links are hidden.
+ */
+function JumpBar({ links }: { links: { href: string; label: string }[] }) {
+  if (links.length === 0) return null
+  return (
+    <nav aria-label="Jump to page" className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+      <span
+        className="shrink-0 font-semibold uppercase"
+        style={{ fontSize: 10.5, letterSpacing: "0.06em", color: TEXT_TERTIARY }}
+      >
+        Jump to
+      </span>
+      {/* A defined but low-key container: a light-gray fill one shade off the page
+          canvas (CANVAS #F4F6F9 → #EEF1F5), light 1px border, rounded. */}
+      <div className="flex min-w-0 flex-1 flex-wrap overflow-hidden rounded-[10px] border border-[#E2E6EC] bg-[#EEF1F5]">
+        {links.map((l) => (
+          <Link
+            key={l.href}
+            href={l.href}
+            className="flex min-w-[140px] flex-1 items-center justify-center px-2.5 py-1.5 text-center font-medium transition-colors hover:bg-[rgba(3,85,167,0.07)] hover:text-[#0355A7] focus:outline-none focus-visible:bg-[rgba(3,85,167,0.07)] focus-visible:text-[#0355A7]"
+            // Muted at rest; thin divider only between segments (edges clipped).
+            style={{ fontSize: 12.5, color: TEXT_SECONDARY, boxShadow: "-1px 0 0 #DDE2E9, 0 -1px 0 #DDE2E9" }}
+          >
+            {l.label}
+          </Link>
+        ))}
+      </div>
+    </nav>
+  )
+}
+
+/**
+ * KPI tile = the shared floating StatCard (white, subtle border + shadow, number
+ * over label — the original look), wrapped as a jump link to its card. Restored
+ * 2026-10-08 after a brief condensed inline version; it now sits inside the top
+ * banner, above My Book.
+ */
 function Kpi({ href, value, label, tone }: { href: string; value: number; label: string; tone?: Tone }) {
   const color = value > 0 ? toneColor(tone) : undefined
   return (
@@ -716,6 +769,14 @@ function Kpi({ href, value, label, tone }: { href: string; value: number; label:
       <StatCard floating label={label} value={value} valueColor={color} />
     </a>
   )
+}
+
+/** My Book role tags, as in the mockup (full role name on hover). */
+const BOOK_ROLE_TAG: Record<string, string> = {
+  account_manager: "PRI",
+  secondary_manager: "SEC",
+  associate: "ASSOC",
+  logistics: "LOG",
 }
 
 /**
@@ -797,6 +858,8 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                 subtitle={LONG_DATE.format(new Date(data.today + "T00:00:00Z"))}
                 rightSlot={needsYou}
               >
+                {/* ONE top banner (2026-10-08, mockup my-dashboard-topbanner): greeting + pill
+                    (above), the KPI tiles (original white StatCards), then My Book under a thin rule. */}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
                   <Kpi href="#collect" value={overdue} label="Overdue" tone="over" />
                   <Kpi href="#collect" value={total(data.collect)} label="To collect" tone={t.collect} />
@@ -805,8 +868,85 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                   <Kpi href="#contracts" value={total(data.contracts)} label="Contracts ≤90d" tone={t.contracts} />
                   <Kpi href="#time-off" value={total(data.approvals)} label="Approvals" tone={t.approvals} />
                 </div>
+
+                {/* My Book — inside the banner, under a thin rule. Same data and links as
+                    before (CORE_TEAM_ROLES groups; tickers open Client Detail). */}
+                {/* ONE continuous wrapping flow (2026-10-08): the label, every role tag,
+                    ticker and separator are direct children of this row, so lines break
+                    wherever the width runs out — never per role group. */}
+                <div
+                  className="mt-3 flex flex-wrap items-center gap-x-1 gap-y-1.5 pt-2.5"
+                  style={{ borderTop: "1px solid #E6EAF0" }}
+                >
+                  <span
+                    className="mr-1.5 shrink-0 font-bold uppercase"
+                    style={{ fontSize: 10.5, letterSpacing: "0.05em", color: TEXT_MUTED }}
+                  >
+                    My Book · {data.book.count}
+                  </span>
+                  {data.book.groups.length === 0 && (
+                    <span style={{ fontSize: 12, color: TEXT_MUTED }}>
+                      You are not on any active client&apos;s account team.
+                    </span>
+                  )}
+                  {data.book.groups.map((g, i) => (
+                    <React.Fragment key={g.role}>
+                      {i > 0 && (
+                        <span
+                          aria-hidden="true"
+                          className="mx-1.5 inline-block size-1 shrink-0 rounded-full"
+                          style={{ background: "#C8D4E3" }}
+                        />
+                      )}
+                      <>
+                        <span
+                          className="font-bold"
+                          style={{ fontSize: 9.5, letterSpacing: "0.03em", color: TEXT_MUTED }}
+                          title={g.label}
+                        >
+                          {BOOK_ROLE_TAG[g.role] ?? g.label}
+                        </span>
+                        {g.clients.map((c) => {
+                          const tick = (
+                            <span
+                              className="inline-block rounded-[5px] border border-[#E6EAF0] font-semibold tabular-nums transition-colors"
+                              style={{ fontSize: 10.5, padding: "1px 6px", color: TEXT_SECONDARY, background: CANVAS }}
+                              title={c.name}
+                            >
+                              {c.ticker ?? c.name}
+                            </span>
+                          )
+                          return c.href ? (
+                            <Link
+                              key={c.accountId}
+                              href={c.href}
+                              className="[&>span]:hover:border-[#0355A7] [&>span]:hover:text-[#0355A7]"
+                            >
+                              {tick}
+                            </Link>
+                          ) : (
+                            <React.Fragment key={c.accountId}>{tick}</React.Fragment>
+                          )
+                        })}
+                      </>
+                    </React.Fragment>
+                  ))}
+                  {data.book.portfolioHref && data.book.count > 0 && (
+                    <Link
+                      href={data.book.portfolioHref}
+                      className="ml-auto shrink-0 pl-2 font-semibold hover:underline"
+                      style={{ fontSize: 11, color: "#0355A7" }}
+                    >
+                      Open all in Portfolio →
+                    </Link>
+                  )}
+                </div>
               </ListTitleCard>
             </div>
+
+            {/* Jump to page — quick links, directly below the top banner
+                (only pages the viewer can open). */}
+            <JumpBar links={data.jumpLinks} />
 
             {data.viewerUnresolved && (
               <div
@@ -821,58 +961,6 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                 nothing rather than nothing-outstanding. Ask an admin to check your user record in Dynamics.
               </div>
             )}
-
-            {/* My Book strip */}
-            <div className={CARD_CLASS + " mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 px-3.5 py-2.5"}>
-              <span className="shrink-0 font-semibold" style={{ fontSize: 12.5, color: TEXT_PRIMARY }}>
-                My Book · {data.book.count}
-              </span>
-              {data.book.groups.length === 0 && (
-                <span style={{ fontSize: 12.5, color: TEXT_MUTED }}>
-                  You are not on any active client&apos;s account team.
-                </span>
-              )}
-              {data.book.groups.map((g, i) => (
-                <React.Fragment key={g.role}>
-                  {i > 0 && <span className="hidden w-px self-stretch sm:block" style={{ background: RULE }} />}
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span style={{ fontSize: 11.5, color: TEXT_MUTED }}>{g.label}</span>
-                    {g.clients.map((c) => {
-                      const tick = (
-                        <span
-                          className="inline-block rounded-full font-medium tabular-nums"
-                          style={{
-                            fontSize: 11,
-                            padding: "1px 8px",
-                            color: NEUTRAL.text,
-                            background: NEUTRAL.bg,
-                          }}
-                          title={c.name}
-                        >
-                          {c.ticker ?? c.name}
-                        </span>
-                      )
-                      return c.href ? (
-                        <Link key={c.accountId} href={c.href} className="hover:opacity-80">
-                          {tick}
-                        </Link>
-                      ) : (
-                        <React.Fragment key={c.accountId}>{tick}</React.Fragment>
-                      )
-                    })}
-                  </div>
-                </React.Fragment>
-              ))}
-              {data.book.portfolioHref && data.book.count > 0 && (
-                <Link
-                  href={data.book.portfolioHref}
-                  className="ml-auto shrink-0 hover:underline"
-                  style={{ fontSize: 11.5, color: TEXT_MUTED }}
-                >
-                  Open all in Portfolio →
-                </Link>
-              )}
-            </div>
 
             {/* Explicit grid: one cluster per column, fixed homes, no masonry.
           Three columns from lg up; one stacked column below. */}
@@ -913,7 +1001,7 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                 <OnboardingCard data={data} />
               </div>
               <div className="flex min-w-0 flex-col gap-3">
-                <GroupLabel label="Clients & Operations" />
+                <GroupLabel label="Administrative & Other" />
                 <TimeOffCard data={data} tone={t.approvals} />
                 <MarketingCard data={data} />
                 <ContractsCard data={data} tone={t.contracts} />

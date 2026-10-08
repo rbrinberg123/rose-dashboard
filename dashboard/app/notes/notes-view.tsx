@@ -18,12 +18,11 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Columns3, Download, Filter, PanelRightOpen, Search, X } from "lucide-react"
+import { PanelRightOpen, Search, X } from "lucide-react"
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { ListTitleCard } from "@/components/page-masthead"
 import { SortHeader } from "@/components/sort-header"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   Table,
@@ -45,6 +44,7 @@ import { ColumnEditor } from "@/components/table-views/column-editor"
 import { FilterEditor } from "@/components/table-views/filter-editor"
 import { QuickFilterBar, type QuickFilterDef } from "@/components/table-views/quick-filters"
 import { ViewSwitcher, type ViewActions } from "@/components/table-views/view-switcher"
+import { TableToolbarActions } from "@/components/table-views/toolbar-actions"
 import { BRAND_BLUE, CANVAS, CARD_CLASS } from "@/lib/design"
 import { baseTicker } from "@/lib/client-todo-format"
 import { configsDiffer, encodeConfig } from "@/lib/table-views/config"
@@ -477,7 +477,7 @@ export function NotesView({
       </div>
 
       <div
-        className="relative sticky top-0 z-30 -mx-6 mb-3 flex flex-wrap items-center gap-3 px-6 py-2"
+        className="relative sticky top-0 z-30 -mx-6 mb-3 flex flex-wrap items-center gap-2 px-6 py-2 min-[1360px]:flex-nowrap"
         style={{ background: CANVAS }}
       >
         <ViewSwitcher
@@ -491,9 +491,11 @@ export function NotesView({
           onError={setViewError}
           actions={viewActions}
           basePath="/notes"
+          compact
         />
 
         <QuickFilterBar
+          row
           cacheKey="notes"
           filters={QUICK_FILTERS}
           values={quickFilters as Record<string, string | undefined>}
@@ -505,13 +507,13 @@ export function NotesView({
           <button
             type="button"
             onClick={() => applyQuick({})}
-            className="h-9 cursor-pointer rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            className="h-8 shrink-0 cursor-pointer whitespace-nowrap rounded-md px-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             Clear filters
           </button>
         )}
 
-        <div className="text-sm font-medium tabular-nums">
+        <div className="shrink-0 whitespace-nowrap text-xs font-medium tabular-nums">
           {total.toLocaleString()}
           <span className="ml-1 font-normal text-muted-foreground">
             {total === 1 ? "note" : "notes"}
@@ -535,7 +537,7 @@ export function NotesView({
           </span>
         )}
 
-        <div className="relative min-w-[180px] flex-1 sm:max-w-xs">
+        <div className="relative w-[150px] shrink-0">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
@@ -545,7 +547,7 @@ export function NotesView({
             }}
             placeholder="Filter by keyword"
             aria-label="Filter notes by keyword"
-            className="h-9 pl-8 pr-8"
+            className="h-8 pl-8 pr-7 text-xs"
           />
           {query && (
             <button
@@ -562,45 +564,15 @@ export function NotesView({
           )}
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setPanel((c) => (c === "columns" ? null : "columns"))}
-            className="cursor-pointer"
-          >
-            <Columns3 />
-            Edit columns
-            <span className="ml-1 text-[11px] text-muted-foreground">{columns.length}</span>
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setPanel((c) => (c === "filters" ? null : "filters"))}
-            className="cursor-pointer"
-          >
-            <Filter />
-            Edit filters
-            {activeConfig.filters.length > 0 && (
-              <span className="ml-1 text-[11px] text-muted-foreground">
-                {activeConfig.filters.length}
-              </span>
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onExport}
-            disabled={exporting || total === 0}
-            className="cursor-pointer"
-          >
-            <Download />
-            {exporting ? "Exporting…" : "Export to Excel"}
-          </Button>
-        </div>
+        <TableToolbarActions
+          columnCount={columns.length}
+          filterCount={activeConfig.filters.length}
+          onColumns={() => setPanel((c) => (c === "columns" ? null : "columns"))}
+          onFilters={() => setPanel((c) => (c === "filters" ? null : "filters"))}
+          onExport={onExport}
+          exporting={exporting}
+          exportDisabled={total === 0}
+        />
 
         {viewError && (
           <div className="absolute left-6 right-6 top-full z-40 mt-1 flex items-start gap-2 rounded-md border border-destructive/30 bg-card px-3 py-2 text-[13px] shadow-lg">

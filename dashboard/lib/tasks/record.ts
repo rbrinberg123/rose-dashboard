@@ -37,6 +37,11 @@ export type TaskRecord = {
   origin?: string | null
   /** Dashboard-created test row (drawer TEST badge). */
   is_test?: boolean
+  /** Dashboard-owned close sidecar (lib/tasks/close.ts) — set once closed here. */
+  closed_at?: string | null
+  closed_by_name?: string | null
+  /** May the viewer Close this task (owner or admin, still open, not in View as)? */
+  can_close?: boolean
   task_id: string
   /** Drives the Client link; null when the task carries no account. */
   client_account_id: string | null

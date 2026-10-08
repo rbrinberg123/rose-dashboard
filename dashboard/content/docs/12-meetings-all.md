@@ -222,10 +222,12 @@ A `?view=` naming something the caller cannot see — another user's personal vi
 | Control | What it does |
 |---------|--------------|
 | **Save** | Overwrites the active view's config. Only offered for a view the caller may edit, and only when there are unsaved changes. |
-| **Save as…** | Creates a new **personal** view, prompting for a name. |
-| **Save as System** | Creates a shared **system** view. Super-user only. |
+| **Save as…** — floppy-disk icon (lucide `Save`) | Creates a new **personal** view, prompting for a name. Tooltip "Save these columns and filters as a new personal view". |
+| **Save as System** — floppy-disk icon with an "S" badge | Creates a shared **system** view. Super-user only (`canManageSystemViews`). Tooltip "Save as a System view, shared with everyone". |
 | **Set default** | Makes the active view the caller's personal default (or, for a system view, the system default). |
 | **Manage…** | Lists the caller's personal views — and, for a super-user, the non-built-in system views — for deletion. |
+
+> **Compact icon toolbars (2026-10-08) — Clients, Contacts, Events, Meetings, Tasks, Touches, Notes.** Every action is a compact icon with a tooltip and aria-label, same behaviour and permissions as the old text buttons: **Columns** (columns icon + count shown), **Filters** (funnel + count set), **Export to Excel** (green spreadsheet icon, spinner while exporting) — one shared component, `TableToolbarActions` in `components/table-views/toolbar-actions.tsx`; **Save as…** (floppy) and **Save as System** (floppy with an "S" badge, super-user only) — inside the shared `ViewSwitcher`. The controls are smaller (h-8, small text), the view dropdown is compact, the quick filters form one evenly-sized flexible group (`QuickFilterBar` `row`; Meetings' own Client / Host / Feedback controls match) and the keyword search is a fixed 150px, so the toolbar is **one line from a ~1360px window up** and wraps below that. **Contacts** has 11 quick filters, so its filters keep their own line under the rest (`ownLine`). Admin → Contracts still uses the older text buttons.
 
 An **edited** marker appears beside the switcher whenever the working config differs from the saved one, because at that moment the row count on screen no longer matches the count in the view's own label.
 

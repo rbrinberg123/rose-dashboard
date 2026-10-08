@@ -18,7 +18,9 @@
  */
 
 import { getSupabaseServer } from "@/lib/supabase"
-import { getEffectiveRole } from "@/lib/effective-identity"
+import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { idsForEmail } from "@/lib/time-off-requests/reviewers"
+import { closeMode, decideTaskClose } from "@/lib/tasks/close"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
@@ -27,6 +29,7 @@ import {
   DASHBOARD_ROW_BASE,
   cleanText,
   countTestRows,
+  isUuid,
   easternLocalToIso,
   isIsoDate,
   loadAccountOptions,
@@ -68,6 +71,13 @@ import {
   type TaskQuickFilters,
 } from "@/lib/tasks/filters"
 import type { TaskRecord } from "@/lib/tasks/record"
+
+/** The actor for a task close: every CRM id of the REAL signed-in person. */
+async function closeActor() {
+  const [role, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
+  const ids = [...new Set([...(await idsForEmail(identity.email)), identity.userId ?? ""])].filter(Boolean)
+  return { role, identity, actor: { myIds: new Set(ids), isAdmin: role === "super_user" } }
+}
 import type { AdminTaskRow } from "@/lib/types"
 
 /* ---------------------------------------------------------------- saved views */
@@ -242,11 +252,131 @@ export async function loadTaskRecord(taskId: string): Promise<ActionResult<TaskR
   // is_test for the drawer TEST badge, read off the table (the view lacks it).
   const { data: flag } = await sb
     .from("tasks")
-    .select("is_test, origin, crdfa_feedback_received_date")
+    .select("is_test, origin, crdfa_feedback_received_date, owner_id, state_label, closed_at, closed_by_name")
     .eq("task_id", taskId)
     .maybeSingle()
 
-  return ok({ ...(data as unknown as TaskRecord), is_test: flag?.is_test === true, origin: (flag?.origin as string | undefined) ?? null, feedback_received_date: (flag?.crdfa_feedback_received_date as string | undefined) ?? null })
+  // Close button: shown only when closeTask would allow it (it re-checks).
+  const { identity, actor } = await closeActor()
+  const canClose =
+    !!flag &&
+    !identity.impersonated &&
+    decideTaskClose(
+      {
+        origin: (flag.origin as string | null) ?? null,
+        stateLabel: (flag.state_label as string | null) ?? null,
+        closedAt: (flag.closed_at as string | null) ?? null,
+        ownerId: (flag.owner_id as string | null) ?? null,
+      },
+      actor,
+    ) === null
+
+  return ok({
+    ...(data as unknown as TaskRecord),
+    is_test: flag?.is_test === true,
+    origin: (flag?.origin as string | undefined) ?? null,
+    feedback_received_date: (flag?.crdfa_feedback_received_date as string | undefined) ?? null,
+    closed_at: (flag?.closed_at as string | undefined) ?? null,
+    closed_by_name: (flag?.closed_by_name as string | undefined) ?? null,
+    can_close: canClose,
+  })
+}
+
+/* ------------------------------------------------------------------- close */
+
+/**
+ * Close (complete) a task from its record card — the Close button next to Edit.
+ *
+ * GATES (server-side; the button is cosmetic):
+ *   1. A role, and not in "View as" (a preview must not act).
+ *   2. decideTaskClose (lib/tasks/close.ts) on a FRESH read: the task's OWNER
+ *      (owner_id ∈ the actor's CRM ids) or an admin (super_user); still Open and
+ *      not already closed here. Anyone else gets "Not authorised".
+ *   3. A guarded UPDATE (same origin, still Open, not yet closed here) that must
+ *      change exactly one row — a double click or a race cannot close twice.
+ *
+ * WHAT IS WRITTEN — the EXISTING completion workflow, never a parallel status:
+ *   native  (dashboard origin): state/status Completed + actual_end = now (the
+ *           same fields as Edit → Status: Completed and the Feedback Reports
+ *           Close), so every trigger and view reacts as to any completion;
+ *           plus the closed_by_* / closed_at sidecar.
+ *   sidecar (Dynamics origin, pre-cutover): ONLY closed_by_* / closed_at — the
+ *           dashboard-owned closed state the sync never overwrites. The native
+ *           write-through is the cutover step (TASK_CLOSE_WRITE_THROUGH_DYNAMICS).
+ * Audited (recordAudit, the real actor).
+ */
+export async function closeTask(taskId: string): Promise<ActionResult<{ mode: "native" | "sidecar" }>> {
+  // ---- GATE (must stay first) ----
+  const { role, identity, actor } = await closeActor()
+  if (!role) return fail("Not authorised.")
+  if (identity.impersonated) return fail("Exit “View as” before closing a task.")
+  if (!isUuid(taskId)) return fail("Unknown task.")
+
+  const sb = getSupabaseServer()
+  const { data: t, error } = await sb
+    .from("tasks")
+    .select("task_id, origin, state_label, owner_id, closed_at, subject, is_test")
+    .eq("task_id", taskId)
+    .maybeSingle()
+  if (error) return fail(describeError(error))
+  if (!t) return fail("That task no longer exists.")
+  const task = t as {
+    task_id: string; origin: string | null; state_label: string | null; owner_id: string | null
+    closed_at: string | null; subject: string | null; is_test: boolean | null
+  }
+  const refused = decideTaskClose(
+    { origin: task.origin, stateLabel: task.state_label, closedAt: task.closed_at, ownerId: task.owner_id },
+    actor,
+  )
+  if (refused) return fail(refused)
+
+  const mode = closeMode(task.origin)
+  const now = new Date().toISOString()
+  const completed = TASK_STATUS_OPTIONS.find((o) => o.key === "completed")!
+  const sidecar = { closed_by_id: identity.userId, closed_by_name: identity.name, closed_at: now }
+  const patch: Record<string, unknown> =
+    mode === "native"
+      ? {
+          state_code: completed.state,
+          state_label: completed.stateLabel,
+          status_code: completed.status,
+          status_label: completed.statusLabel,
+          actual_end: now,
+          ...sidecar,
+          modified_on: now,
+          modified_by_id: identity.userId,
+          modified_by_name: identity.name,
+        }
+      : sidecar
+
+  const { data: changed, error: upErr } = await sb
+    .from("tasks")
+    .update(patch)
+    .eq("task_id", task.task_id)
+    .eq("origin", task.origin ?? "")
+    .eq("state_label", "Open")
+    .is("closed_at", null)
+    .select("task_id")
+  if (upErr) return fail(describeError(upErr))
+  if (!changed || changed.length !== 1) return fail("This task changed while you were looking at it — refresh and try again.")
+
+  await recordAudit({
+    action: "update",
+    entity: "tasks",
+    recordId: task.task_id,
+    changes:
+      mode === "native"
+        ? { state_label: { from: "Open", to: completed.stateLabel }, closed_by_name: { from: null, to: identity.name } }
+        : { closed_by_name: { from: null, to: identity.name }, closed_at: { from: null, to: now } },
+    context:
+      mode === "native"
+        ? `/tasks · Close task · ${task.origin} row${task.is_test ? " · test" : ""}`
+        : `/tasks · Close task · dynamics row · SIDECAR ONLY — native completion write-through pending cutover`,
+  })
+
+  revalidatePath("/tasks")
+  revalidatePath("/my-dashboard")
+  return ok({ mode })
 }
 
 /* -------------------------------------------------------------- task writes */

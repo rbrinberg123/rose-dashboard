@@ -70,7 +70,8 @@ function fetchOptionsOnce(): Promise<FilterOptions> {
 }
 
 const CONTROL =
-  "h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
+  // Compact (2026-10-08) to match the shared CRM toolbars (QuickFilterBar `row`).
+  "h-8 rounded-md border border-input bg-background px-2 text-xs disabled:opacity-60"
 
 export type QuickFilterValues = {
   client?: string
@@ -313,7 +314,7 @@ function ClientCombo({
             setActive(0)
           }}
           onKeyDown={onKeyDown}
-          className="h-9 w-[190px] pl-8 pr-7"
+          className="h-8 w-[170px] pl-8 pr-7 text-xs"
         />
         {selected && !open && (
           <button

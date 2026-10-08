@@ -20,13 +20,20 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Columns3, Download, ExternalLink, Filter, PanelRightOpen, Search, X } from "lucide-react"
+import {
+  CalendarDays,
+  ExternalLink,
+  Handshake,
+  PanelRightOpen,
+  Search,
+  SquareCheck,
+  X,
+} from "lucide-react"
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { accountTeamMembers } from "@/lib/account-team"
 import { ListTitleCard } from "@/components/page-masthead"
 import { SortHeader } from "@/components/sort-header"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   Table,
@@ -48,11 +55,12 @@ import { ColumnEditor } from "@/components/table-views/column-editor"
 import { FilterEditor } from "@/components/table-views/filter-editor"
 import { QuickFilterBar, type QuickFilterDef } from "@/components/table-views/quick-filters"
 import { ViewSwitcher, type ViewActions } from "@/components/table-views/view-switcher"
+import { TableToolbarActions } from "@/components/table-views/toolbar-actions"
 import { BRAND_BLUE, CANVAS, CARD_CLASS } from "@/lib/design"
 import { baseTicker } from "@/lib/client-todo-format"
 import { configsDiffer, encodeConfig } from "@/lib/table-views/config"
 import { exportToExcel } from "@/lib/table-views/excel"
-import { opsForField as sharedOpsForField } from "@/lib/table-views/types"
+import { BUILTIN_PREFIX, opsForField as sharedOpsForField } from "@/lib/table-views/types"
 import type { ColumnDef, FilterCondition, SavedView, ViewConfig } from "@/lib/table-views/types"
 import {
   ACCOUNT_TEAM_CELL_DISPLAY,
@@ -124,7 +132,11 @@ function formatEastern(iso: string | null): string {
 }
 
 /**
- * The eleven quick filters, declared once.
+ * The seven quick filters, declared once — one compact row (QuickFilterBar `row`).
+ *
+ * REMOVED 2026-10-08 (by request): the Active (Active / Inactive), Client
+ * Status (Current / Past), Feedback and Logistics dropdowns. The list's active/inactive split is now the
+ * built-in views alone — "Active clients" (the default) or "All clients".
  *
  * ACTIVE AND CLIENT STATUS ARE TWO SEPARATE DROPDOWNS ON PURPOSE. "Active" is
  * the Dynamics statecode — the thing the default view and ~15 existing database
@@ -140,8 +152,6 @@ function formatEastern(iso: string | null): string {
  * column type — and is converted back to an integer in lib/accounts/filters.ts.
  */
 const QUICK_FILTERS: QuickFilterDef[] = [
-  { key: "state", label: "Active", allLabel: "Active & inactive" },
-  { key: "client_status", label: "Client Status", allLabel: "All statuses" },
   { key: "sector", label: "Sector", allLabel: "All sectors", searchable: true },
   { key: "industry", label: "Industry", allLabel: "All industries", searchable: true },
   { key: "region", label: "Region", allLabel: "All regions" },
@@ -149,9 +159,44 @@ const QUICK_FILTERS: QuickFilterDef[] = [
   { key: "account_manager", label: "Account Mgr", allLabel: "All managers", searchable: true },
   { key: "secondary", label: "Secondary", allLabel: "All secondaries", searchable: true },
   { key: "associate", label: "Associate", allLabel: "All associates", searchable: true },
-  { key: "feedback", label: "Feedback", allLabel: "All feedback", searchable: true },
-  { key: "logistics", label: "Logistics", allLabel: "All logistics", searchable: true },
 ]
+
+/**
+ * Per-client jump links (the "Jump to" column, after Last Activity): open the
+ * Events / Meetings / Tasks CRM tables filtered to THIS client, on each table's
+ * built-in "All …" view (`view=builtin:all` — no stage / date / status filter),
+ * so the client is the ONLY filter and the page cannot fall back to its own
+ * default (Current & upcoming, Upcoming, Open). The same link shape as Client
+ * Detail's "View all meetings →". All three pages read `?view=` + `?client=`
+ * (the account id) and each re-checks access server-side.
+ */
+/** Width of the jump-links column (three 14px icons, evenly spaced). */
+const JUMP_COL_W = 104
+
+const ALL_VIEW = encodeURIComponent(`${BUILTIN_PREFIX}all`)
+const JUMPS = [
+  { path: "/events", label: "All events", Icon: CalendarDays },
+  { path: "/meetings", label: "All meetings", Icon: Handshake },
+  { path: "/tasks", label: "All tasks", Icon: SquareCheck },
+] as const
+
+function JumpLinks({ accountId, name }: { accountId: string; name: string | null }) {
+  return (
+    <div className="flex items-center justify-center gap-4">
+      {JUMPS.map(({ path, label, Icon }) => (
+        <Link
+          key={path}
+          href={`${path}?view=${ALL_VIEW}&client=${encodeURIComponent(accountId)}`}
+          title={`${label} for ${name ?? "this client"}`}
+          aria-label={`${label} for ${name ?? "this client"}`}
+          className="text-muted-foreground transition-colors hover:text-[#0355A7]"
+        >
+          <Icon className="size-3.5" />
+        </Link>
+      ))}
+    </div>
+  )
+}
 
 /** Header bands — one per run of consecutive columns sharing a group. */
 function bandsFor(cols: AccountColumnDef[]): GroupBand[] {
@@ -286,6 +331,8 @@ export function AccountsView({
   }, [columns])
   const bands = React.useMemo(() => {
     const b = bandsFor(columns)
+    // The jump-links column (not a data column) gets its own band after the rest.
+    b.push({ key: "jump", label: "Jump to", colSpan: 1 })
     // The Client band's label pins with its columns (GroupBand.sticky). Only when
     // the WHOLE band is frozen, or the label would slide over unfrozen cells.
     if (b.length > 0 && frozenLefts.length > 0 && b[0].colSpan === frozenLefts.length) {
@@ -295,7 +342,7 @@ export function AccountsView({
   }, [columns, frozenLefts])
   const bandStartSet = React.useMemo(() => bandStarts(columns), [columns])
   const minWidth = React.useMemo(
-    () => columns.reduce((sum, c) => sum + (parseInt(c.width, 10) || 100), 0) + 36,
+    () => columns.reduce((sum, c) => sum + (parseInt(c.width, 10) || 100), 0) + 36 + JUMP_COL_W,
     [columns],
   )
   const sort = activeConfig.sort
@@ -472,7 +519,7 @@ export function AccountsView({
   const visible = sorted.slice(first, last)
   const padTop = first * ROW_H
   const padBottom = Math.max(0, (total - last) * ROW_H)
-  const colCount = columns.length + 1
+  const colCount = columns.length + 2
 
   async function onExport() {
     setExporting(true)
@@ -523,7 +570,6 @@ export function AccountsView({
           compact
           eyebrow="CRM"
           title="Clients"
-          subtitle="Every client in the CRM — the account record itself, active and inactive, with its team, classification and engagement dates. Distinct from the Portfolio table, which is the analytics view over active clients. No row scoping is applied, so this page is super-user only."
           rightSlot={
             <div className="flex items-center gap-2">
               <PurgeTestClientsButton />
@@ -534,7 +580,11 @@ export function AccountsView({
       </div>
 
       <div
-        className="relative sticky top-0 z-30 -mx-6 mb-3 flex flex-wrap items-center gap-3 px-6 py-2"
+        // ONE LINE from a 1360px window up (2026-10-08): compact view dropdown,
+        // the seven filters as one flexible group, count, a fixed-width search and
+        // icon-only actions. Below 1360px it wraps (the filter group takes its own
+        // line).
+        className="relative sticky top-0 z-30 -mx-6 mb-3 flex flex-wrap items-center gap-2 px-6 py-2 min-[1360px]:flex-nowrap"
         style={{ background: CANVAS }}
       >
         <ViewSwitcher
@@ -548,9 +598,11 @@ export function AccountsView({
           onError={setViewError}
           actions={viewActions}
           basePath="/accounts"
+          compact
         />
 
         <QuickFilterBar
+          row
           cacheKey="accounts"
           filters={QUICK_FILTERS}
           values={quickFilters as Record<string, string | undefined>}
@@ -562,13 +614,13 @@ export function AccountsView({
           <button
             type="button"
             onClick={() => applyQuick({})}
-            className="h-9 cursor-pointer rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            className="h-8 shrink-0 cursor-pointer whitespace-nowrap rounded-md px-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             Clear filters
           </button>
         )}
 
-        <div className="text-sm font-medium tabular-nums">
+        <div className="shrink-0 whitespace-nowrap text-xs font-medium tabular-nums">
           {total.toLocaleString()}
           <span className="ml-1 font-normal text-muted-foreground">
             {total === 1 ? "client" : "clients"}
@@ -592,7 +644,7 @@ export function AccountsView({
           </span>
         )}
 
-        <div className="relative min-w-[180px] flex-1 sm:max-w-xs">
+        <div className="relative w-[150px] shrink-0">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
@@ -602,7 +654,7 @@ export function AccountsView({
             }}
             placeholder="Filter by keyword"
             aria-label="Filter clients by keyword"
-            className="h-9 pl-8 pr-8"
+            className="h-8 pl-8 pr-7 text-xs"
           />
           {query && (
             <button
@@ -619,45 +671,16 @@ export function AccountsView({
           )}
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setPanel((c) => (c === "columns" ? null : "columns"))}
-            className="cursor-pointer"
-          >
-            <Columns3 />
-            Edit columns
-            <span className="ml-1 text-[11px] text-muted-foreground">{columns.length}</span>
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setPanel((c) => (c === "filters" ? null : "filters"))}
-            className="cursor-pointer"
-          >
-            <Filter />
-            Edit filters
-            {activeConfig.filters.length > 0 && (
-              <span className="ml-1 text-[11px] text-muted-foreground">
-                {activeConfig.filters.length}
-              </span>
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onExport}
-            disabled={exporting || total === 0}
-            className="cursor-pointer"
-          >
-            <Download />
-            {exporting ? "Exporting…" : "Export to Excel"}
-          </Button>
-        </div>
+        {/* Compact icon actions, shared by every CRM table. */}
+        <TableToolbarActions
+          columnCount={columns.length}
+          filterCount={activeConfig.filters.length}
+          onColumns={() => setPanel((c) => (c === "columns" ? null : "columns"))}
+          onFilters={() => setPanel((c) => (c === "filters" ? null : "filters"))}
+          onExport={onExport}
+          exporting={exporting}
+          exportDisabled={total === 0}
+        />
 
         {viewError && (
           <div className="absolute left-6 right-6 top-full z-40 mt-1 flex items-start gap-2 rounded-md border border-destructive/30 bg-card px-3 py-2 text-[13px] shadow-lg">
@@ -728,11 +751,17 @@ export function AccountsView({
                     label={col.header ?? col.label}
                     title={col.title ?? col.label}
                     ariaLabel={col.renderer === "team" ? `Sort by ${col.label}` : undefined}
+                    // Team roles: centred over their (centred) avatar circles.
+                    align={col.renderer === "team" ? "center" : "left"}
                     isSorted={sort.field === col.key ? sort.dir : false}
                     onClick={() => toggleSort(col.key)}
                   />
                 </TableHead>
               ))}
+              <TableHead className="relative h-7 px-2" style={{ width: JUMP_COL_W, minWidth: JUMP_COL_W }}>
+                <SectionDivider />
+                <span className="sr-only">Jump to events, meetings, tasks</span>
+              </TableHead>
               <TableHead className="h-7 w-9 px-2" aria-label="Open record" />
             </TableRow>
             <GradientSweepRow bands={bands} />
@@ -780,6 +809,10 @@ export function AccountsView({
                         row={r}
                       />
                     ))}
+                    <TableCell className="relative px-2" style={{ width: JUMP_COL_W, minWidth: JUMP_COL_W }}>
+                      <SectionDivider />
+                      <JumpLinks accountId={r.account_id} name={r.name} />
+                    </TableCell>
                     <TableCell className="w-9 px-2">
                       <button
                         type="button"

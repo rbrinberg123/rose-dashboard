@@ -94,6 +94,7 @@ export async function loadClaimsContext(): Promise<ClaimsContext> {
       impersonated: viewer.impersonated,
     },
     meta: setupMissing ? {} : meta,
+    teamAccountIds: team.mode === "filter" ? [...team.accountIds] : [],
     reviews,
     closed: setupMissing ? [] : closed,
     roster,

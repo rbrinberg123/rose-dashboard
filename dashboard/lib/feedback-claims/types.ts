@@ -40,6 +40,12 @@ export type ClaimsContext = {
   viewer: ClaimViewerInfo
   /** task_id → meta, ONLY for tasks inside the claimable pool (Open, in-origin). */
   meta: Record<string, ClaimMeta>
+  /**
+   * Clients (account ids) where the viewer is on the account team — any of the
+   * six roles. Pending Review → Close is offered on these rows (display only;
+   * closeFeedbackReview re-checks).
+   */
+  teamAccountIds: string[]
   /** Feedback (report) task_id → its open review task, for Pending Review rows. */
   reviews: Record<string, ReviewTaskInfo>
   closed: ClosedClaimRow[]

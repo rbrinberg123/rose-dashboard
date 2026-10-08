@@ -988,6 +988,12 @@ export type FeedbackPipelineRow = {
    * sql/patches/2026-10-08_feedback_pipeline_review_task_id.sql is run.
    */
   review_task_id?: string | null
+  /**
+   * The report's part (tasks.feedback_report_seq: 1/2/3 = A/B/C) — attached by
+   * the Feedback Reports page ONLY when its event is split into 2+ reports, so a
+   * single-report event shows no "Part A". Not a view column.
+   */
+  report_part?: number | null
   client_ticker: string | null
 }
 

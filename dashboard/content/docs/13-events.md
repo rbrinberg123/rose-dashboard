@@ -163,7 +163,7 @@ Identical in behaviour to Meetings — see [that page's docs](12-meetings-all.md
 
 - **System** views (shared; the built-ins plus any a super-user saves) and **Personal** views (private to the login), each with a default.
 - Resolution order: `?view=` → personal default → system default → built-in **Current & Upcoming**.
-- **Save / Save as… / Save as System / Set default / Manage**.
+- **Save / Save as… / Save as System / Set default / Manage**. *Save as…* and *Save as System* are compact icon buttons (floppy / floppy with an "S" badge) on every CRM table since 2026-10-08 — see [12 — Meetings](12-meetings-all.md).
 - **Edit columns** and **Edit filters** work exactly as on Meetings, over the events catalog.
 - Personal views live in `event_saved_views`, a table of the same shape as `meeting_saved_views`. The **authorisation code is shared** — one implementation in `lib/table-views/saved-views.ts` governs both.
 

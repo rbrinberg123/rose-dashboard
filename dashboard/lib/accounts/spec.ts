@@ -863,25 +863,32 @@ export function accountCatalogBySection(): { section: string; columns: AccountCo
  * with Status on 33 accounts) is no longer in the default set, by request; it is
  * still in the picker.
  *
- * Resulting bands: Client (Ticker, Client Name) | Status | Account Team (one per
- * role) | Profile (Sector, Region, Cap Band) | Last Activity (Memo, Targeting,
- * Touchpoint). Each is a contiguous run, which is what a band requires.
+ * Resulting bands: Client (Ticker, Client Name) | Account Team (one per
+ * role, minus Fbk / Memo) | Profile (Sector, Region, Cap Band) | Last Activity
+ * (Memo, Touchpoint). Each is a contiguous run, which is what a band requires.
  */
+/** Team columns left out of the default view (still in the picker). */
+const DEFAULT_HIDDEN_TEAM_KEYS = new Set([teamColumnKey("feedback_report"), teamColumnKey("memo")])
+
 export const ACCOUNT_DEFAULT_COLUMNS: string[] = [
   // CHANGED 2026-10-02 (by request): Ticker · Client Name · Status · Account Team
   // (one column per role) · Sector · Region · Cap · Last Memo · Last Targeting ·
   // Last Touchpoint. Ticker + Client Name are frozen on horizontal scroll (the
   // leading "Client" band — see accounts-view.tsx). Every other column stays in
   // the picker; saved views keep their own column lists.
+  // CHANGED 2026-10-08 (by request): the Fbk (Feedback Report) and Memo team
+  // columns and Last Targeting are out of the default set. UI only — the data,
+  // the view columns and the picker entries are untouched, so a saved view or
+  // the column picker can still show them.
+  // Status (state_label) removed 2026-10-08 by request — the default view is
+  // Active clients only, so it read "Active" on every row. Still in the picker.
   "ticker_symbol",
   "client_account_name",
-  "state_label",
-  ...TEAM_COLUMNS.map((c) => c.key),
+  ...TEAM_COLUMNS.filter((c) => !DEFAULT_HIDDEN_TEAM_KEYS.has(c.key)).map((c) => c.key),
   "sector_label",
   "region_label",
   "market_cap_label",
   "last_memo_at",
-  "last_targeting_at",
   "last_touchpoint_at",
 ]
 

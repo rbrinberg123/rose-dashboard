@@ -18,7 +18,8 @@ export function SortHeader({
   label: string
   isSorted: false | "asc" | "desc"
   onClick: () => void
-  align?: "left" | "right"
+  /** "center" puts the label + arrow over a centred cell (e.g. avatar columns). */
+  align?: "left" | "right" | "center"
   title?: string
   /** Accessible name when `label` is an abbreviation (e.g. "Sec" → "Secondary Manager"). */
   ariaLabel?: string
@@ -33,9 +34,10 @@ export function SortHeader({
       className={cn(
         "inline-flex w-full items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground",
         align === "right" && "justify-end",
+        align === "center" && "justify-center",
       )}
     >
-      {align === "left" && <span>{label}</span>}
+      {align !== "right" && <span>{label}</span>}
       <Icon className={cn("size-3 shrink-0", isSorted ? "text-foreground" : "text-muted-foreground/60")} />
       {align === "right" && <span>{label}</span>}
     </button>

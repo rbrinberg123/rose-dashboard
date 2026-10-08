@@ -14,18 +14,22 @@
 
 It is **strictly personal**. Two people opening it at the same moment see different dashboards. There is no "see everything" mode, **not even for Super Users**: a Super User who isn't on any account team sees an empty book. To look at someone else's dashboard, use **View as {person}** (Admin → Users), which the page honours in full.
 
-**Workflow cards (2026-10-08).** The single merged *My To-Do* focus card is gone. Every Alerts-style workflow is now **its own compact card** (approved mockup `my-dashboard-v5.html`), clustered in three columns under light group labels — **Feedback · My Work · Clients & Operations**.
+**Workflow cards (2026-10-08).** The single merged *My To-Do* focus card is gone. Every Alerts-style workflow is now **its own compact card** (approved mockup `my-dashboard-v5.html`), clustered in three columns under light group labels — **Feedback · My Work · Administrative & Other**.
+
+**Close from the task card (2026-10-08).** The task drawer has a **Close** button next to Edit (owner or admin; confirm step) — see [14 — Tasks → Close from the card](14-tasks.md#close-from-the-card-2026-10-08). A closed task drops off Other Open Tasks and the counts on refresh; a Dynamics task closed here (sidecar `closed_at`, still Open in the mirror) is left out too.
 
 **Records open in place.** Rows backed by a CRM **task** (Other Open Tasks, both Report cards) open the **task drawer** on the dashboard (`task-drawer.tsx` — the same `TaskRecordPane` + `EditTaskDialog` as CRM → Tasks). **Hosting** rows open the **meeting drawer** (`meeting-drawer.tsx` — the same `MeetingRecordPane` + `EditMeetingDialog` as CRM → Meetings). Edit / close out use the drawers' existing actions and guards: Edit is offered only for dashboard-origin records and refused server-side otherwise, so **Dynamics records open read-only until cutover**. After a save the dashboard refreshes. The task drawer is offered only to people who can open CRM → Tasks; the meeting drawer opens for everyone, scoped to meetings they host (see Per-feed permissions). All other rows are links; links only appear for pages *you* can open, otherwise falling back to the client's **Client Detail**.
 
 Top to bottom:
 
-1. **Greeting** with today's date, and a red **Needs you now** pill on the right, e.g. "**4 critical** · 1 to host today/tomorrow · 2 overdue". The headline is the **critical count — the same number as the red flags and the nav badge** (it is the badge's own function, `loadMyDashboardCriticalCount`, called by `page.tsx`); approvals are inside it, so they are not listed separately. Then meetings you host today/tomorrow. "N overdue" (your own items 1+ days past due) is a muted secondary figure only, never the headline. Shown only when something is critical or hosting is imminent (2026-10-08).
-2. **My Book** strip — active clients where you are **Primary, Secondary, Associate or Logistics** (`CORE_TEAM_ROLES` in `load.ts`), grouped by that role. Feedback and Memo assignments are left out of the strip and its count — the cards still use the full six-role book. Each ticker opens that client's Client Detail; **Open all in Portfolio →** goes to Portfolio.
-3. **Six KPI tiles** (the shared floating `StatCard`, inside the page masthead) — Overdue · To collect · Pending review · Host · 7d · Contracts ≤90d · Approvals. Clicking a tile jumps to its card.
-4. **"My To-Dos & Activity"** — a section heading (with a one-line subtext) over **the workflow cards**: a fixed three-column grid (not masonry), one cluster per column:
+1. **Top banner** (2026-10-08, mockup `my-dashboard-topbanner.html`) — ONE card holding, top to bottom, the greeting row, the KPI strip and My Book (they used to be separate strips). Layout only: no data or scoping changed.
+   - **Greeting** with today's date, and a red **Needs you now** pill on the right, e.g. "**4 critical** · 1 to host today/tomorrow · 2 overdue". The headline is the **critical count — the same number as the red flags and the nav badge** (it is the badge's own function, `loadMyDashboardCriticalCount`, called by `page.tsx`); approvals are inside it, so they are not listed separately. Then meetings you host today/tomorrow. "N overdue" (your own items 1+ days past due) is a muted secondary figure only, never the headline. Shown only when something is critical or hosting is imminent (2026-10-08).
+   - **Six KPI tiles** — the shared floating `StatCard` (white, subtle border and shadow, number over label — the original look, kept after a brief condensed trial), two / three / six per row by width. Same six KPIs, values and red / amber rule — Overdue · To collect · Pending review · Host · 7d · Contracts ≤90d · Approvals. Clicking a tile jumps to its card.
+   - **My Book** — under a thin divider: active clients where you are **Primary, Secondary, Associate or Logistics** (`CORE_TEAM_ROLES` in `load.ts`), grouped by that role. Feedback and Memo assignments are left out of the strip and its count — the cards still use the full six-role book. Each ticker opens that client's Client Detail; **Open all in Portfolio →** goes to Portfolio. Role groups are tagged **PRI · SEC · ASSOC · LOG** (full role on hover) and separated by small dots, in that order, as **one continuous wrapping flow** — lines break wherever the width runs out (not at role boundaries), so a long book fills each line and continues on the next; "Open all in Portfolio →" ends the flow.
+2. **Jump to** quick-link bar (2026-10-08; approved mockup `my-dashboard-quicklinks-v3.html`, variant D·) — directly below the top banner, a slim, full-width segmented bar of text links labelled **Jump to**: **Portfolio** (`/portfolio`) · **Outreach Status** (`/clients/to-do`) · **Live Outreach** (`/live-outreach`) · **Feedback Reports** (`/feedback-manager`) · **Feedback Collection** (`/feedback-collection`) · **Onboarding** (`/onboarding`). It is **low-key but defined**: a light-gray bar (`#EEF1F5`, a shade off the page canvas `#F4F6F9`) with a light 1px border and rounded corners, thin dividers between segments, muted gray text at rest; a light blue tint and blue text appear only on hover. Equal segments; wraps to two or three per row on narrow screens. **Per-user:** a segment shows only if you can open that page — `JUMP_LINKS` filtered through the same `canAccessRoute` check as every other link here (`jumpLinks` in `load.ts`); the rest share the width evenly, and each page still enforces its own access server-side.
+3. **"My To-Dos & Activity"** — a section heading (with a one-line subtext) over **the workflow cards**: a fixed three-column grid (not masonry), one cluster per column:
 
-   | Feedback | My Work | Clients & Operations |
+   | Feedback | My Work | Administrative & Other |
    |---|---|---|
    | Feedback to Collect | Other Open Tasks | Time Off Approvals |
    | Reports · Pending Review | Hosting · Next 7 Days | Active Marketing |
@@ -45,7 +49,7 @@ Top to bottom:
 
 **Nav badge.** The My Dashboard item in the sidebar carries a red count badge (bubble on the collapsed rail, pill when labels show; "9+" above nine; hidden at 0) = the total number of critical-flagged rows for the current (effective) viewer. Counted by `loadMyDashboardCriticalCount()` (`app/my-dashboard/critical-count.ts`) in the root layout on every page — head-only SQL counts using the page's own resolvers, task filter and team rule, with the flag rule as date cutoffs (`criticalDueBefore` / `criticalMeetingBefore`, proven equal to `isCritical` in `policy.test.ts`). After an approve / deny the page refreshes, so the row drops off and the badge recounts. Fail-soft: an error counts 0. The Pending Review part counts only core-team clients, like the card.
 
-**Typography, three tiers.** "My To-Dos & Activity" is the largest heading (20px bold); the column headers (Feedback · My Work · Clients & Operations) are black 16px bold with a thin rule; card titles are black 14px bold.
+**Typography, three tiers.** "My To-Dos & Activity" is the largest heading (20px bold); the column headers (Feedback · My Work · Administrative & Other) are black 16px bold with a thin rule; card titles are black 14px bold.
 
 **Styling:** built from the app's own components — the `ListTitleCard` masthead, floating `StatCard` KPIs, `CARD_CLASS` surfaces — so fonts and surfaces match the rest of the app.
 
@@ -93,7 +97,7 @@ Top to bottom:
 
 **Feedback-task exclusion.** Other Open Tasks drops every task whose subtype is `Feedback` or `Feedback Report Sent` (`FEEDBACK_SUBTYPES` in `load.ts`) — those are exactly the tasks the Feedback cards are built from (including the automation's *Feedback Report Pending Review* tasks, which carry the *Feedback Report Sent* subtype). Tasks with no subtype are kept. So no task appears both in Other Open Tasks and a Feedback card. Rows are sorted **overdue first** (oldest due first, dateless last), with a **Mine** / **Team** chip.
 
-### Clients & Operations
+### Administrative & Other
 
 | Card | Source | Scope | Shows | Row opens | All → |
 |---|---|---|---|---|---|

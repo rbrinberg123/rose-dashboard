@@ -11,6 +11,8 @@ import type { EventRecord } from "@/lib/events/record"
 import { ListTitleCard } from "@/components/page-masthead"
 import { CARD_CLASS, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
 import type { FeedbackPipelineRow } from "@/lib/types"
+import { reportAccent } from "@/lib/feedback-reports/accents"
+import { reportLetter } from "@/lib/feedback-reports/policy"
 import type { ActionResult } from "@/lib/actions"
 import type { ClaimsContext, ClosedClaimRow } from "@/lib/feedback-claims/types"
 import {
@@ -138,6 +140,24 @@ function shortName(name: string): string {
   const parts = name.trim().split(/\s+/)
   if (parts.length === 1) return parts[0]
   return `${parts[0][0]}. ${parts[parts.length - 1]}`
+}
+
+/**
+ * "Part A / B / C" next to the event name — which report of a SPLIT event this
+ * row is (tasks.feedback_report_seq). Subtle: the report's own accent (shared
+ * with the event drawer's Meetings & Reports panel) on a faint tint of it.
+ */
+function ReportPartChip({ seq }: { seq: number }) {
+  const accent = reportAccent(seq)
+  return (
+    <span
+      className="shrink-0 rounded-full px-1.5 text-[10.5px] font-semibold leading-[17px]"
+      style={{ color: accent, background: `color-mix(in srgb, ${accent} 10%, white)` }}
+      title={`Report ${reportLetter(seq)} of a split event`}
+    >
+      Part {reportLetter(seq)}
+    </span>
+  )
 }
 
 export function FeedbackPipelineView({
@@ -489,10 +509,17 @@ export function FeedbackPipelineView({
           renderActions={
             renderActions && claims
               ? (r) => {
+                  // Close completes the paired OPEN Report Sent task — the view's
+                  // review_task_id (Dynamics + dashboard pairs), else, before that
+                  // patch runs, the automation's review task. Never task_id: that is
+                  // the already-Completed collection task (closing it is a no-op).
                   const review = claims.reviews[r.task_id]
-                  // Only dashboard-origin review tasks (explicit link), and only
-                  // for the client's account team — the action re-checks both.
-                  if (!review || !review.canClose) return null
+                  const targetId = r.review_task_id ?? review?.reviewTaskId ?? null
+                  // Offered to the client's account team; the action re-checks.
+                  const canClose =
+                    review?.canClose ||
+                    (!!r.client_account_id && claims.teamAccountIds.includes(r.client_account_id))
+                  if (!targetId || !canClose) return null
                   return (
                     <button
                       type="button"
@@ -501,14 +528,14 @@ export function FeedbackPipelineView({
                       title={
                         claims.viewer.impersonated
                           ? "Exit “View as” to close reviews"
-                          : "Complete the Feedback Report Pending Review task"
+                          : "Complete the Feedback Report Sent task — clears it from Pending Review"
                       }
                       onClick={() => {
                         if (window.confirm("Mark this feedback report review complete?")) {
                           runClaimAction(
                             r,
                             { ownerId: r.claimed_by_id, ownerName: r.claimed_by_name, closed: true },
-                            () => closeFeedbackReview(review.reviewTaskId),
+                            () => closeFeedbackReview(targetId),
                             "Review complete — the report is done.",
                           )
                         }
@@ -949,8 +976,12 @@ function PipelineTable({
                   {r.client_account_name || "—"}
                 </td>
                 {/* Event */}
-                <td className="truncate px-3 py-2.5" title={r.event_name}>
-                  {r.event_name}
+                <td className="px-3 py-2.5" title={r.event_name}>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">{r.event_name}</span>
+                    {/* Split events only (report_part is set only when 2+ reports). */}
+                    {r.report_part ? <ReportPartChip seq={r.report_part} /> : null}
+                  </div>
                 </td>
                 {/* Mtg dates */}
                 <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">

@@ -5,7 +5,7 @@ import { TEAM_ROLES, resolveAccountTeamScope } from "@/lib/access/account-team-s
 import { personIdsReviewedBy } from "@/lib/time-off-requests/reviewers"
 import { viewerUserIds } from "@/app/clients/alerts/load"
 import { easternToday } from "@/app/clients/alerts/alerts-policy"
-import { NOT_FEEDBACK, coreTeamAccountIds, teamMembersOf, type AccountRow } from "./load"
+import { NOT_FEEDBACK, coreTeamAccountIds, loadSidecarClosedTaskIds, teamMembersOf, type AccountRow } from "./load"
 import { criticalDueBefore, criticalMeetingBefore } from "./policy"
 
 /**
@@ -41,11 +41,16 @@ export const loadMyDashboardCriticalCount = cache(async (effectiveEmail: string 
   const dueCut = criticalDueBefore(today) + "T00:00:00+00:00"
   const mtgCut = criticalMeetingBefore(today) + "T00:00:00+00:00"
 
-  const [viewer, team, accountsRes] = await Promise.all([
+  const [viewer, team, accountsRes, sidecarClosedIds] = await Promise.all([
     viewerUserIds(effectiveEmail),
     resolveAccountTeamScope({ email: effectiveEmail }),
     sb.from("accounts").select(["account_id", "state_label", ...TEAM_ROLES.map((r) => r.idColumn)].join(",")),
+    loadSidecarClosedTaskIds(sb),
   ])
+  // Dynamics tasks closed from the dashboard (still Open in the mirror) don't
+  // count — exactly as the page leaves them out. PostgREST "not in" list:
+  const NOT_SIDECAR_CLOSED = sidecarClosedIds.length ? `(${sidecarClosedIds.join(",")})` : null
+  const sidecarClosed = new Set(sidecarClosedIds)
   const ids = viewer.ids
   const myIds = new Set(ids)
   const teamAccountIds = team.mode === "filter" ? [...team.accountIds] : []
@@ -80,6 +85,7 @@ export const loadMyDashboardCriticalCount = cache(async (effectiveEmail: string 
           .eq("category", "in_progress")
           .in("claimed_by_id", ids)
           .lt("due_date", dueCut)
+          .not("task_id", "in", NOT_SIDECAR_CLOSED ?? "()")
       : zero,
     ids.length
       ? sb
@@ -89,6 +95,7 @@ export const loadMyDashboardCriticalCount = cache(async (effectiveEmail: string 
           .or(NOT_FEEDBACK)
           .in("owner_id", ids)
           .lt("due_date", dueCut)
+          .not("task_id", "in", NOT_SIDECAR_CLOSED ?? "()")
       : zero,
     bookIds.length && memberIds.length
       ? sb
@@ -116,11 +123,16 @@ export const loadMyDashboardCriticalCount = cache(async (effectiveEmail: string 
 
   // Team: only someone on THAT client's team — the page's exact rule.
   const team_ = ((teamRows as { data: unknown }).data ?? []) as {
+    task_id: string
     owner_id: string | null
     client_account_id: string | null
   }[]
   const teamCount = team_.filter(
-    (t) => t.owner_id && t.client_account_id && memberRoles.get(t.owner_id)?.has(t.client_account_id),
+    (t) =>
+      !sidecarClosed.has(t.task_id) &&
+      t.owner_id &&
+      t.client_account_id &&
+      memberRoles.get(t.owner_id)?.has(t.client_account_id),
   ).length
 
   const n = (r: unknown) => ((r as { count?: number | null }).count ?? 0) || 0

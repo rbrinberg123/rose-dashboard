@@ -69,6 +69,7 @@ export function TaskDrawerHost({ children }: { children: React.ReactNode }) {
       {children}
       <TaskRecordPane
         onEdit={openId ? () => setEditId(openId) : undefined}
+        onClosed={openId ? () => afterEdit(openId) : undefined}
         record={record}
         loading={openId !== null && record === null && recordError === null}
         error={recordError}

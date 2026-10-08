@@ -118,6 +118,17 @@ Every field comes from `TASK_SECTIONS` in `lib/tasks/record.ts` as `{ label, sou
 
 Do **not** add editing without the dashboard actually becoming the system of record. Today Dynamics is, and everything in this app is read-only.
 
+### Close from the card (2026-10-08)
+
+The task card (drawer — CRM → Tasks, My Dashboard, Feedback Reports) has a **Close** button next to **Edit**. One click arms it (**Confirm close** / Cancel) — a guard against accidental closes; there is no undo because a close can fire automations (e.g. closing a Feedback task creates its review task) that an undo could not reverse. It is the action only — no form loads.
+
+- **Who:** the task's **owner** (`owner_id` ∈ your CRM ids) or an **admin** (super user); never in "View as". The button shows only when you may; `closeTask` (`app/tasks/actions.ts`) re-checks everything on a fresh read (`decideTaskClose`, `lib/tasks/close.ts`) and refuses anyone else with "Not authorised". Guarded update: still Open, same origin, not closed yet — exactly one row. Audited.
+- **What it writes — the existing completion workflow, no parallel status:**
+  - **Dashboard-origin:** state/status **Completed** + `actual_end` = now (the same fields as Edit → Status: Completed and Feedback Reports → Close), so triggers and views react as to any completion; plus the sidecar below.
+  - **Dynamics-origin (pre-cutover):** **only the dashboard-owned sidecar** — `closed_by_id`, `closed_by_name`, `closed_at` (the 2026-10-07 columns the sync never writes). The task stays Open in the mirror; the card shows a green *Closed by … · Dynamics update at cutover* pill, and **My Dashboard treats it as closed** (Other Open Tasks, Reports · Open / Claimed and the nav badge leave it out — `loadSidecarClosedTaskIds`). CRM → Tasks still lists it as Open until cutover.
+- **Afterwards:** a toast, the page refreshes (the originating list drops it, counts update), and the card reloads showing its closed state.
+- **Cutover step — native write-through:** flip `TASK_CLOSE_WRITE_THROUGH_DYNAMICS` in `lib/tasks/close.ts` so Dynamics-origin closes also write the native completion fields, and write through the ones closed before the flip: `origin = 'dynamics' AND state_label = 'Open' AND closed_at IS NOT NULL`.
+
 ## Saved views and filters
 
 Identical to Meetings and Events, on the shared implementation in `lib/table-views/saved-views.ts` — **one** module enforces the rules for all three entities, so there is no second place for the authorisation to be wrong.

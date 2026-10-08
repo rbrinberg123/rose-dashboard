@@ -75,6 +75,16 @@ export function coreTeamAccountIds(team: AccountTeamScope): string[] {
 /** Task subtypes owned by the Feedback cards — left out of Other Tasks. */
 export const FEEDBACK_SUBTYPES = ["Feedback", "Feedback Report Sent"] as const
 
+/** The "Jump to" bar's destinations, in order (approved mockup quicklinks-v3, variant D·). */
+export const JUMP_LINKS = [
+  { href: "/portfolio", label: "Portfolio" },
+  { href: "/clients/to-do", label: "Outreach Status" },
+  { href: "/live-outreach", label: "Live Outreach" },
+  { href: "/feedback-manager", label: "Feedback Reports" },
+  { href: "/feedback-collection", label: "Feedback Collection" },
+  { href: "/onboarding", label: "Onboarding" },
+] as const
+
 /**
  * PostgREST `.or()` filter: NOT a feedback-type task. A NULL subtype is kept
  * (a plain NOT IN would drop it: NULL NOT IN (...) is not true).
@@ -223,6 +233,12 @@ export type MyDashboardData = {
   canOpenMeetings: boolean
   /** Dynamics deep-link base for the meeting drawer (as on /meetings). */
   crmBase: string
+  /**
+   * "Jump to" quick-link bar (top of the page, under the greeting): the pages in
+   * JUMP_LINKS the viewer may open, in order. Same canAccessRoute gate as every
+   * link here; each page still enforces its own access server-side.
+   */
+  jumpLinks: { href: string; label: string }[]
   /** Card-header "All →" links, null where the viewer cannot open the page. */
   links: {
     collect: string | null
@@ -282,6 +298,24 @@ export type AccountRow = {
  * — the Team half of Other Open Tasks. Shared with the nav badge count
  * (critical-count.ts) so the two can never disagree about whose tasks count.
  */
+/**
+ * Dynamics-origin tasks CLOSED from the dashboard pre-cutover (Close on the task
+ * card, lib/tasks/close.ts): still state 'Open' in the mirror, but closed_at is
+ * set — My Dashboard treats them as closed (Other Open Tasks, Open / Claimed and
+ * the nav badge leave them out). Normally tiny; fails soft to [] (an error just
+ * means they keep showing as open).
+ */
+export async function loadSidecarClosedTaskIds(sb: ReturnType<typeof getSupabaseServer>): Promise<string[]> {
+  const { data, error } = await sb
+    .from("tasks")
+    .select("task_id")
+    .eq("origin", "dynamics")
+    .eq("state_label", "Open")
+    .not("closed_at", "is", null)
+    .limit(1000)
+  return error ? [] : ((data ?? []) as { task_id: string }[]).map((r) => r.task_id)
+}
+
 export function teamMembersOf(book: AccountRow[], myIds: Set<string>) {
   const memberRoles = new Map<string, Map<string, string[]>>() // person → account → labels
   const memberName = new Map<string, string>()
@@ -477,10 +511,15 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
         .order("days_onboarding", { ascending: false, nullsFirst: false })
     : skip
 
-  const results = (await Promise.all([
-    collectQ, reviewQ, claimedQ, profilesQ, hostQ, approvalsQ,
-    myTasksQ, teamTasksQ, marketingQ, contractsQ, onboardingQ,
-  ])) as QueryResult[]
+  const [results, sidecarClosedIds] = await Promise.all([
+    Promise.all([
+      collectQ, reviewQ, claimedQ, profilesQ, hostQ, approvalsQ,
+      myTasksQ, teamTasksQ, marketingQ, contractsQ, onboardingQ,
+    ]) as Promise<QueryResult[]>,
+    loadSidecarClosedTaskIds(sb),
+  ])
+  // Closed from the dashboard but still Open in the Dynamics mirror → closed here.
+  const sidecarClosed = new Set(sidecarClosedIds)
   const [
     collectRes, reviewRes, claimedRes, profilesRes, hostRes, approvalsRes,
     myTasksRes, teamTasksRes, marketingRes, contractsRes, onboardingRes,
@@ -557,6 +596,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
     task_id: string; event_name: string | null; client_account_id: string | null
     client_account_name: string | null; due_date: string | null
   }>(claimedRes)) {
+    if (sidecarClosed.has(r.task_id)) continue
     const day = storedDay(r.due_date)
     claimed.push({
       taskId: r.task_id,
@@ -668,20 +708,22 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
   }
   const taskHref = (accountId: string | null) =>
     or("/tasks", "/tasks?client=" + (accountId ?? ""), accountId)
-  const tasks: TaskItem[] = rowsOf<TaskRow>(myTasksRes).map((t) => ({
-    taskId: t.task_id,
-    key: t.task_id,
-    mine: true,
-    subject: t.subject ?? "Task",
-    client: t.client_ticker ?? t.client_account_name,
-    assignee: null,
-    role: null,
-    due: storedDay(t.due_date),
-    href: taskHref(t.client_account_id),
-  }))
+  const tasks: TaskItem[] = rowsOf<TaskRow>(myTasksRes)
+    .filter((t) => !sidecarClosed.has(t.task_id))
+    .map((t) => ({
+      taskId: t.task_id,
+      key: t.task_id,
+      mine: true,
+      subject: t.subject ?? "Task",
+      client: t.client_ticker ?? t.client_account_name,
+      assignee: null,
+      role: null,
+      due: storedDay(t.due_date),
+      href: taskHref(t.client_account_id),
+    }))
   const seen = new Set(tasks.map((t) => t.key))
   for (const t of rowsOf<TaskRow>(teamTasksRes)) {
-    if (seen.has(t.task_id) || !t.owner_id || !t.client_account_id) continue
+    if (seen.has(t.task_id) || sidecarClosed.has(t.task_id) || !t.owner_id || !t.client_account_id) continue
     // Only someone on THIS client's team — not a teammate from another client.
     const roles = memberRoles.get(t.owner_id)?.get(t.client_account_id)
     if (!roles) continue
@@ -805,6 +847,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
     canReviewTimeOff: !identity.impersonated,
     canOpenMeetings: can("/meetings"),
     crmBase: process.env.NEXT_PUBLIC_DYNAMICS_URL?.replace(/\/$/, "") || "https://clientcrm.crm.dynamics.com",
+    jumpLinks: JUMP_LINKS.filter((l) => can(l.href)).map((l) => ({ href: l.href, label: l.label })),
     links: {
       collect: can("/feedback-collection") ? "/feedback-collection" : null,
       reports: can("/feedback-manager") ? "/feedback-manager" : null,

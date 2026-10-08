@@ -20,6 +20,7 @@ import { TASK_STATUS_OPTIONS } from "@/lib/tasks/create"
 import { getEffectiveIdentity } from "@/lib/effective-identity"
 import { resolveAccountTeamScope } from "@/lib/access/account-team-scope"
 import { isAutomationOrigin } from "@/lib/feedback-reports/policy"
+import { closeMode } from "@/lib/tasks/close"
 
 /**
  * Feedback Reports → claim / release / reassign / close.
@@ -268,25 +269,37 @@ export async function closeFeedbackTask(taskId: string): Promise<ActionResult> {
 }
 
 // ---------------------------------------------------------------------------
-// Pending Review → Close: complete the "Feedback Report Pending Review" task.
+// Pending Review → Close: complete the report's paired open "Feedback Report Sent" task.
 // ---------------------------------------------------------------------------
 
 /**
- * The final step of a dashboard feedback report: complete its review task.
+ * Pending Review → Close: complete the report's paired OPEN "Feedback Report
+ * Sent" task — the task that actually clears the row from Pending Review (NOT
+ * the Feedback/collection task, which is already Completed).
+ *
+ * TARGET (chosen by the page): v_feedback_pipeline.review_task_id — the paired
+ * Report Sent task for Dynamics AND dashboard reports alike (patch
+ * 2026-10-08_feedback_pipeline_review_task_id.sql); before that patch runs, the
+ * automation-created review task (review_of_task_id). Never the collection task.
  *
  * GATES (server-side; the button is cosmetic):
  *   1. Not in "View as" (a preview must not act).
- *   2. The task is an automation-created review task — sub-type Feedback
- *      Report Sent, review_of_task_id set, still Open — and its origin is in
- *      the feedback-automation scope (dashboard-origin today; the same cutover
- *      switch the automations use, lib/feedback-reports/policy.ts).
- *   3. The viewer is on the ACCOUNT TEAM of the client — resolved report →
- *      event → client, through resolveAccountTeamScope (any of the six roles;
- *      for dashboard-created clients those come from account_team_members).
- *      No super-user bypass (account-team only, as specified).
- *   4. A guarded UPDATE (Open, same origin, same sub-type) that must change
- *      exactly one row.
- * Completion uses the same native fields as every other task completion.
+ *   2. The task is an OPEN, not-yet-closed "Feedback Report Sent" task that IS a
+ *      Pending Review pair: either the automation's review task
+ *      (review_of_task_id set, in the automation's origin scope) or the
+ *      review_task_id of a pending_review row in v_feedback_pipeline.
+ *   3. The viewer is on the client's ACCOUNT TEAM (any of the six roles,
+ *      resolveAccountTeamScope). Client: report → event → client for automation
+ *      review tasks; the task's own client otherwise. No super-user bypass.
+ *   4. A guarded UPDATE (Open, not closed, same origin, same sub-type) that must
+ *      change exactly one row.
+ *
+ * WRITE (closeMode, lib/tasks/close.ts — the one cutover switch for closes):
+ *   dashboard origin → the native completion fields (state/status Completed +
+ *     actual_end) + the closed_by_* / closed_at sidecar — every completion.
+ *   dynamics origin (pre-cutover) → ONLY the sidecar; v_feedback_pipeline drops
+ *     a Report Sent task with closed_at set, so the row still leaves Pending
+ *     Review. Native write-through is the cutover step.
  */
 export async function closeFeedbackReview(reviewTaskId: string): Promise<ActionResult> {
   const identity = await getEffectiveIdentity()
@@ -297,7 +310,7 @@ export async function closeFeedbackReview(reviewTaskId: string): Promise<ActionR
   const sb = getSupabaseServer()
   const { data: review, error } = await sb
     .from("tasks")
-    .select("task_id, origin, state_label, bcs_task_subtype_label, review_of_task_id, bcs_account_id, subject")
+    .select("task_id, origin, state_label, closed_at, bcs_task_subtype_label, review_of_task_id, bcs_account_id, subject")
     .eq("task_id", reviewTaskId)
     .maybeSingle()
   if (error) return fail(describeError(error))
@@ -306,57 +319,82 @@ export async function closeFeedbackReview(reviewTaskId: string): Promise<ActionR
     task_id: string
     origin: string | null
     state_label: string | null
+    closed_at: string | null
     bcs_task_subtype_label: string | null
     review_of_task_id: string | null
     bcs_account_id: string | null
     subject: string | null
   }
-  if (r.bcs_task_subtype_label !== "Feedback Report Sent" || !r.review_of_task_id) {
-    return fail("Only a Feedback Report Pending Review task can be closed here.")
+  if (r.bcs_task_subtype_label !== "Feedback Report Sent") {
+    return fail("Only the report's Feedback Report Sent task can be closed here.")
   }
-  if (!isAutomationOrigin(r.origin)) return fail("This review is managed in Dynamics until cutover.")
-  if (r.state_label !== "Open") return fail("This review is already closed.")
+  if (r.state_label !== "Open" || r.closed_at) return fail("This review is already closed.")
 
-  // Client: the linked report → its event → the event's client (fallback: the
-  // report's / review's own client field).
-  const { data: report } = await sb
-    .from("tasks")
-    .select("bcs_event_id, bcs_account_id")
-    .eq("task_id", r.review_of_task_id)
-    .maybeSingle()
-  let clientId = (report?.bcs_account_id as string | null) ?? r.bcs_account_id
-  if (report?.bcs_event_id) {
-    const { data: ev } = await sb
-      .from("events")
-      .select("client_account_id")
-      .eq("event_id", report.bcs_event_id as string)
+  // Gate 2 — it must be a Pending Review pair, and resolve its client.
+  let clientId: string | null = r.bcs_account_id
+  if (r.review_of_task_id && isAutomationOrigin(r.origin)) {
+    // Automation review task: report → event → client (fallbacks: the fields).
+    const { data: report } = await sb
+      .from("tasks")
+      .select("bcs_event_id, bcs_account_id")
+      .eq("task_id", r.review_of_task_id)
       .maybeSingle()
-    clientId = (ev?.client_account_id as string | null) ?? clientId
+    clientId = (report?.bcs_account_id as string | null) ?? r.bcs_account_id
+    if (report?.bcs_event_id) {
+      const { data: ev } = await sb
+        .from("events")
+        .select("client_account_id")
+        .eq("event_id", report.bcs_event_id as string)
+        .maybeSingle()
+      clientId = (ev?.client_account_id as string | null) ?? clientId
+    }
+  } else {
+    // Any other pair (Dynamics): must be a pending_review row's review_task_id.
+    const { data: row, error: pipeErr } = await sb
+      .from("v_feedback_pipeline")
+      .select("client_account_id")
+      .eq("category", "pending_review")
+      .eq("review_task_id", r.task_id)
+      .limit(1)
+      .maybeSingle()
+    if (pipeErr) {
+      return /review_task_id/.test(pipeErr.message)
+        ? fail("Closing this report needs the 2026-10-08 feedback-pipeline SQL patch run first.")
+        : fail(describeError(pipeErr))
+    }
+    if (!row) return fail("This task isn't waiting in Pending Review.")
+    clientId = (row.client_account_id as string | null) ?? clientId
   }
+
+  // Gate 3 — the client's account team.
   const team = await resolveAccountTeamScope(identity)
   if (!clientId || team.mode !== "filter" || !team.accountIds.has(clientId)) {
     return fail("Not authorised — only the client's account team can close this review.")
   }
 
+  const mode = closeMode(r.origin)
   const now = new Date().toISOString()
-  const patch = {
-    state_code: COMPLETED.state,
-    state_label: COMPLETED.stateLabel,
-    status_code: COMPLETED.status,
-    status_label: COMPLETED.statusLabel,
-    actual_end: now,
-    closed_by_id: identity.userId,
-    closed_by_name: identity.name,
-    closed_at: now,
-    modified_on: now,
-    modified_by_id: identity.userId,
-    modified_by_name: identity.name,
-  }
+  const sidecar = { closed_by_id: identity.userId, closed_by_name: identity.name, closed_at: now }
+  const patch =
+    mode === "native"
+      ? {
+          state_code: COMPLETED.state,
+          state_label: COMPLETED.stateLabel,
+          status_code: COMPLETED.status,
+          status_label: COMPLETED.statusLabel,
+          actual_end: now,
+          ...sidecar,
+          modified_on: now,
+          modified_by_id: identity.userId,
+          modified_by_name: identity.name,
+        }
+      : sidecar
   const { data: updated, error: upErr } = await sb
     .from("tasks")
     .update(patch)
     .eq("task_id", r.task_id)
     .eq("state_label", "Open")
+    .is("closed_at", null)
     .eq("bcs_task_subtype_label", "Feedback Report Sent")
     .eq("origin", r.origin as string)
     .select("task_id")
@@ -369,12 +407,18 @@ export async function closeFeedbackReview(reviewTaskId: string): Promise<ActionR
     action: "update",
     entity: "tasks",
     recordId: r.task_id,
-    changes: {
-      state_label: { from: "Open", to: COMPLETED.stateLabel },
-      closed_by_name: { from: null, to: identity.name },
-      review_of_task_id: r.review_of_task_id,
-    },
-    context: "feedback-review:close",
+    changes:
+      mode === "native"
+        ? {
+            state_label: { from: "Open", to: COMPLETED.stateLabel },
+            closed_by_name: { from: null, to: identity.name },
+            review_of_task_id: r.review_of_task_id,
+          }
+        : { closed_by_name: { from: null, to: identity.name }, closed_at: { from: null, to: now } },
+    context:
+      mode === "native"
+        ? "feedback-review:close"
+        : "feedback-review:close · dynamics row · SIDECAR ONLY — native completion write-through pending cutover",
   })
   revalidate()
   return ok()

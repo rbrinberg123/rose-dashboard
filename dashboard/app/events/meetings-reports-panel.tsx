@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Check, ChevronRight, Circle, Clock, Minus } from "lucide-react"
 
 import { STATUS_PILL_LIGHT, TEXT_MUTED, TEXT_PRIMARY, TEXT_TERTIARY } from "@/lib/design"
+import { reportAccent } from "@/lib/feedback-reports/accents"
 import { cn } from "@/lib/utils"
 import { MAX_REPORTS_PER_EVENT } from "@/lib/feedback-reports/policy"
 import {
@@ -49,8 +50,7 @@ import {
 
 const ET_DAY = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })
 
-/** Report accents, A / B / C — the IQ status tints. */
-const REPORT_ACCENTS = [STATUS_PILL_LIGHT.new.text, STATUS_PILL_LIGHT.positive.text, STATUS_PILL_LIGHT.watch.text]
+/* Report accents, A / B / C — shared with Feedback Reports (lib/feedback-reports/accents.ts). */
 
 const BTN =
   "inline-flex h-7 items-center rounded-md border border-input bg-background px-2 text-xs font-medium " +
@@ -248,11 +248,11 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
     )
   }
 
-  const groups = data.reports.map((r, i) => ({
+  const groups = data.reports.map((r) => ({
     key: r.taskId,
     report: r as FeedbackReportSummary | null,
     title: `Report ${r.letter}`,
-    accent: REPORT_ACCENTS[i % REPORT_ACCENTS.length],
+    accent: reportAccent(r.seq),
     rows: eligible.filter((m) => current(m.meetingId) === r.taskId),
   }))
   const unassigned = eligible.filter((m) => !reportIds.has(current(m.meetingId)))

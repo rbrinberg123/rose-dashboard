@@ -23,7 +23,11 @@ import * as React from "react"
 import { TestBadge } from "@/components/test-badge"
 import { RecordEditBar } from "@/components/record-edit-bar"
 import Link from "next/link"
-import { X } from "lucide-react"
+import { Check, Loader2, X } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import { closeTask } from "./actions"
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { BRAND_BLUE, STATUS_PILL_LIGHT } from "@/lib/design"
@@ -166,12 +170,86 @@ function Field({
   )
 }
 
+/**
+ * Close (complete) the task — next to Edit, shown only when the server said the
+ * viewer may (record.can_close: owner or admin, still open, not in View as;
+ * closeTask re-checks everything). One click arms it, a second confirms — a
+ * guard against accidental closes, since a close can fire automations an undo
+ * could not reverse. Light: no form, just the action. On success the page
+ * refreshes (the list it came from drops it, counts update) and onClosed lets
+ * the host reload the card to show its closed state.
+ */
+function CloseTaskButton({ taskId, onClosed }: { taskId: string; onClosed?: () => void }) {
+  const router = useRouter()
+  const [armed, setArmed] = React.useState(false)
+  const [pending, startTransition] = React.useTransition()
+
+  function confirm() {
+    startTransition(async () => {
+      const r = await closeTask(taskId)
+      if (!r.ok) {
+        setArmed(false)
+        toast.error("Could not close the task", { description: r.error })
+        return
+      }
+      toast.success(
+        "Task closed",
+        r.data.mode === "sidecar"
+          ? { description: "Recorded in the dashboard — Dynamics is updated at cutover." }
+          : undefined,
+      )
+      router.refresh()
+      onClosed?.()
+    })
+  }
+
+  if (!armed) {
+    return (
+      // Red = the committing action, distinct from the neutral Edit. #B42318 is the
+      // app's critical red (STATUS_PILL_LIGHT.atRisk.text) — literal so Tailwind sees it.
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-6 border-[#B42318]/60 px-2 text-[11px] text-[#B42318] hover:border-[#B42318] hover:bg-[#B42318] hover:text-white"
+        onClick={() => setArmed(true)}
+      >
+        <Check className="size-3" /> Close
+      </Button>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Button
+        type="button"
+        size="sm"
+        className="h-6 bg-[#B42318] px-2 text-[11px] text-white hover:bg-[#B42318]/90"
+        onClick={confirm}
+        disabled={pending}
+      >
+        {pending ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />} Confirm close
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="h-6 px-2 text-[11px]"
+        onClick={() => setArmed(false)}
+        disabled={pending}
+      >
+        Cancel
+      </Button>
+    </span>
+  )
+}
+
 export function TaskRecordPane({
   record,
   loading,
   error,
   onClose,
   onEdit,
+  onClosed,
 }: {
   record: TaskRecord | null
   loading: boolean
@@ -179,6 +257,8 @@ export function TaskRecordPane({
   onClose: () => void
   /** Opens the edit form — shown only for origin='dashboard' records. */
   onEdit?: () => void
+  /** After a successful Close — the host reloads the record to show it closed. */
+  onClosed?: () => void
 }) {
   const open = loading || !!record || !!error
   if (!open) return null
@@ -213,6 +293,13 @@ export function TaskRecordPane({
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {record?.is_test && <TestBadge />}
                   <RecordEditBar origin={record?.origin} onEdit={onEdit} />
+                  {record.can_close && <CloseTaskButton taskId={record.task_id} onClosed={onClosed} />}
+                  {/* Dynamics task closed here pre-cutover: still Open in the mirror. */}
+                  {record.closed_at && record.state_label === "Open" && (
+                    <Pill bg={STATUS_PILL_LIGHT.positive.bg} text={STATUS_PILL_LIGHT.positive.text}>
+                      Closed{record.closed_by_name ? " by " + record.closed_by_name : ""} · Dynamics update at cutover
+                    </Pill>
+                  )}
                   {typeLine && (
                     <Pill bg={STATUS_PILL_LIGHT.neutral.bg} text={STATUS_PILL_LIGHT.neutral.text}>
                       {typeLine}

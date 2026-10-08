@@ -9,9 +9,6 @@ import {
   Check,
   CircleSlash,
   Clock,
-  Columns3,
-  Download,
-  Filter,
   PanelRightOpen,
   Search,
   X,
@@ -20,7 +17,6 @@ import {
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { ListTitleCard } from "@/components/page-masthead"
 import { SortHeader } from "@/components/sort-header"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   Table,
@@ -54,6 +50,7 @@ import type { QuickFilters } from "@/lib/meetings/query"
 import { ColumnEditor } from "@/components/table-views/column-editor"
 import { FilterEditor } from "@/components/table-views/filter-editor"
 import { ViewSwitcher, type ViewActions } from "@/components/table-views/view-switcher"
+import { TableToolbarActions } from "@/components/table-views/toolbar-actions"
 import { catalogBySection, COLUMN_CATALOG, getColumn as getCatalogColumn } from "@/lib/meetings/columns"
 import { opsForField } from "@/lib/meetings/views"
 import {
@@ -709,7 +706,7 @@ export function MeetingsView({
           negative margins let its opaque canvas background span the full width
           of PageShell's p-6, so rows can't show through beside it. */}
       <div
-        className="relative sticky top-0 z-30 -mx-6 mb-3 flex flex-wrap items-center gap-3 px-6 py-2"
+        className="relative sticky top-0 z-30 -mx-6 mb-3 flex flex-wrap items-center gap-2 px-6 py-2 min-[1360px]:flex-nowrap"
         style={{ background: CANVAS }}
       >
         {/* The saved-view switcher, first — it frames what the count then
@@ -726,6 +723,7 @@ export function MeetingsView({
           onError={setViewError}
           actions={viewActions}
           basePath="/meetings"
+          compact
         />
 
         {/* Client / Host / Feedback. Each re-queries; they AND with the view's
@@ -739,13 +737,13 @@ export function MeetingsView({
           <button
             type="button"
             onClick={() => applyQuickFilters({})}
-            className="h-9 cursor-pointer rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            className="h-8 shrink-0 cursor-pointer whitespace-nowrap rounded-md px-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             Clear filters
           </button>
         )}
 
-        <div className="text-sm font-medium tabular-nums">
+        <div className="shrink-0 whitespace-nowrap text-xs font-medium tabular-nums">
           {total.toLocaleString()}
           <span className="ml-1 font-normal text-muted-foreground">
             {total === 1 ? "meeting" : "meetings"}
@@ -777,7 +775,7 @@ export function MeetingsView({
           </span>
         )}
 
-        <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
+        <div className="relative w-[150px] shrink-0">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
@@ -787,7 +785,7 @@ export function MeetingsView({
             }}
             placeholder="Filter by keyword"
             aria-label="Filter meetings by keyword"
-            className="h-9 pl-8 pr-8"
+            className="h-8 pl-8 pr-7 text-xs"
           />
           {query && (
             <button
@@ -805,45 +803,15 @@ export function MeetingsView({
         </div>
 
         {/* Top-right cluster: the two view editors, then Export. */}
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setPanel((cur) => (cur === "columns" ? null : "columns"))}
-            className="cursor-pointer"
-          >
-            <Columns3 />
-            Edit columns
-            <span className="ml-1 text-[11px] text-muted-foreground">{columns.length}</span>
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setPanel((cur) => (cur === "filters" ? null : "filters"))}
-            className="cursor-pointer"
-          >
-            <Filter />
-            Edit filters
-            {activeConfig.filters.length > 0 && (
-              <span className="ml-1 text-[11px] text-muted-foreground">
-                {activeConfig.filters.length}
-              </span>
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onExport}
-            disabled={exporting || total === 0}
-            className="cursor-pointer"
-          >
-            <Download />
-            {exporting ? "Exporting…" : "Export to Excel"}
-          </Button>
-        </div>
+        <TableToolbarActions
+          columnCount={columns.length}
+          filterCount={activeConfig.filters.length}
+          onColumns={() => setPanel((c) => (c === "columns" ? null : "columns"))}
+          onFilters={() => setPanel((c) => (c === "filters" ? null : "filters"))}
+          onExport={onExport}
+          exporting={exporting}
+          exportDisabled={total === 0}
+        />
 
         {/* A failed saved-view write, surfaced where the controls are. Server
             actions never throw to the client — they return an error string, and

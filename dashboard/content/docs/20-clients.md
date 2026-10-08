@@ -42,7 +42,7 @@ The **route is `/accounts`** because the Dynamics entity, the mirror table and t
 | `dashboard/app/accounts/actions.ts` | Server actions — record fetch, export, saved views, filter options. |
 | `dashboard/lib/accounts/record.ts` | Drawer field definitions + `AccountRecord`. |
 | `dashboard/lib/accounts/spec.ts` | Column catalog, built-in views, `ACCOUNTS_SPEC`. |
-| `dashboard/lib/accounts/filters.ts` | The eleven quick filters. |
+| `dashboard/lib/accounts/filters.ts` | The seven quick filters (Active, Client Status, Feedback and Logistics removed 2026-10-08). |
 
 Everything else is shared: `lib/table-views/` (query, config, saved views, Excel) and `components/table-views/` (view switcher, column editor, filter editor, quick-filter bar). Nothing about filtering, paging, saved views or authorisation is written again for this page — see the header of `lib/table-views/types.ts`.
 
@@ -134,16 +134,31 @@ Default visible columns are listed in the next section. Everything else is one c
 |---|--------|--------|
 | 1 | Ticker | `ticker_symbol` (frozen) |
 | 2 | Client Name | `client_account_name` (frozen) |
-| 3 | Status | `state_label` (Active / Inactive pill) |
-| 4 | **Account Team**, one column per role | `team_<role>` |
-| 5 | Sector | `sector_label` |
-| 6 | Region | `region_label` |
-| 7 | Cap | `market_cap_label` (the band; the raw $B is in the picker) |
-| 8 | Last Memo | `last_memo_at` |
-| 9 | Last Targeting | `last_targeting_at` |
-| 10 | Last Touchpoint | `last_touchpoint_at` (default sort, most recent first) |
+| 3 | **Account Team**, one column per role — **except Fbk and Memo** | `team_<role>` (Pri · Sec · Assoc · Log) |
+| 4 | Sector | `sector_label` |
+| 5 | Region | `region_label` |
+| 6 | Cap | `market_cap_label` (the band; the raw $B is in the picker) |
+| 7 | Last Memo | `last_memo_at` |
+| 8 | Last Touchpoint | `last_touchpoint_at` (default sort, most recent first) |
+| — | **Jump to** (Events · Meetings · Tasks icons) | links, not data — see below |
 
-The columns are grouped under header bands: **Client · Status · Account Team · Profile · Last Activity**. Every column sorts when you click its header. **Ticker and Client Name stay pinned** when you scroll sideways. This is the leading "Client" band (at most two columns), using the same sticky-left technique as Portfolio.
+**Removed 2026-10-08 (by request, UI only):** the **Fbk** (Feedback Report) and **Memo** team columns and **Last Targeting** are out of the default view, and the **Active** (Active / Inactive) and **Client Status** (Current / Past) dropdowns are gone from the toolbar (`ACCOUNT_DEFAULT_COLUMNS` in `lib/accounts/spec.ts`, `QUICK_FILTERS` in `accounts-view.tsx`, `ACCOUNT_QUICK_FILTER_KEYS` in `lib/accounts/filters.ts` — an old `?state=` / `?client_status=` link is now ignored). The data and view columns are untouched; the three columns are still in the column picker for saved views. The list still opens on the built-in **Active clients** view (the default); **All clients** is the way to see inactive clients.
+
+**Toolbar — one line (2026-10-08).** From a ~1360px-wide window up, the whole control row fits on one line: the compact **view** dropdown with the **Save as…** / **Save as System** icons, the seven quick filters (**Sector · Industry · Region · Market Cap · Account Mgr · Secondary · Associate** — evenly sized, each can shrink to 84px), the client count, a fixed-width **keyword search**, and icon-only actions: **Edit columns** (with its column count), **Edit filters** (with its active-filter count) and a green **Export to Excel** spreadsheet icon (a spinner while exporting). Every action keeps its tooltip, aria-label and exact behaviour. Below 1360px the row wraps and the filters take their own line. The **Feedback** and **Logistics** dropdowns were removed (an old `?feedback=` / `?logistics=` link is ignored). Built from opt-ins on the shared pieces so every other table is unchanged: `QuickFilterBar` `row` (`components/table-views/quick-filters.tsx`) and `ViewSwitcher` `compact` (`components/table-views/view-switcher.tsx`). The Columns / Filters / Export icons are now the shared `TableToolbarActions` (`components/table-views/toolbar-actions.tsx`), used by every CRM table.
+
+**Also removed 2026-10-08:** the **Status** column (the default view is Active clients only, so it read "Active" on every row; still in the picker) and the descriptive paragraph under the page title.
+
+**Jump to (2026-10-08).** After Last Activity, every row has three small icons (tooltips name the client) that open the matching CRM table **filtered to that client on its broadest built-in view**, so the client is the only filter and the page can't fall back to its own default:
+
+| Icon | Opens | Link |
+|---|---|---|
+| Calendar | **Events** — all of the client's events, every stage, all time (built-in *All events*, not *Current & upcoming*) | `/events?view=builtin:all&client=<account_id>` |
+| Handshake | **Meetings** — the *All meetings* view, no date filter (not *Upcoming*) | `/meetings?view=builtin:all&client=<account_id>` |
+| Check-square | **Tasks** — all of the client's tasks, every status, all time (built-in *All tasks*, not *Open*) | `/tasks?view=builtin:all&client=<account_id>` |
+
+Same link shape as Client Detail's "View all meetings →". `view=` selects the built-in "All …" view (`BUILTIN_PREFIX + "all"`, no filters); `client=` is each page's own client quick filter on `client_account_id`. Each page re-checks access server-side (all three are super-user only, like this page). Code: `JumpLinks` in `app/accounts/accounts-view.tsx`.
+
+The columns are grouped under header bands: **Client · Account Team · Profile · Last Activity · Jump to**. Every column sorts when you click its header. **Ticker and Client Name stay pinned** when you scroll sideways. This is the leading "Client" band (at most two columns), using the same sticky-left technique as Portfolio.
 
 **Account Team columns.** Each row takes its team from the source of truth for that client (see the next section): `account_team_members` for dashboard-created clients, the Dynamics lookups for Dynamics clients. The role set and order are that table's own: `ACCOUNT_TEAM_ROLE_KEYS` in `lib/account-teams/roles.ts`, mirrored by its CHECK constraint. The six roles are **Account Manager · Secondary · Feedback · Associate · Memo · Logistics**. The catalog generates one column per key (`TEAM_COLUMNS` in `lib/accounts/spec.ts`), so no role is hard-coded on the page.
 - **No "Planning" role exists** in either team source.

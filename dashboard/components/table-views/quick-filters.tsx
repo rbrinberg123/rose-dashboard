@@ -87,7 +87,23 @@ export function QuickFilterBar({
   onChange,
   loadOptions,
   disabled,
+  row = false,
+  ownLine = false,
 }: {
+  /**
+   * Compact layout for the CRM toolbars (2026-10-08): the dropdowns form one
+   * flexible group INSIDE the toolbar row — evenly sized (each flexes, min
+   * 84px), shorter, small text. From a 1360px window up the group sits inline;
+   * below that it takes its own line and wraps. Default false = the original
+   * inline controls.
+   */
+  row?: boolean
+  /**
+   * With `row`: too many filters to share the line (Contacts has 11) — the group
+   * always takes its OWN line under the rest of the toolbar, one line from
+   * 1360px up.
+   */
+  ownLine?: boolean
   /** Distinguishes one entity's cached options from another's. */
   cacheKey: string
   filters: QuickFilterDef[]
@@ -122,32 +138,42 @@ export function QuickFilterBar({
     [onChange, values],
   )
 
+  const controls = filters.map((f) =>
+    f.searchable ? (
+      <SearchableSelect
+        key={f.key}
+        def={f}
+        options={options[f.key] ?? []}
+        value={values[f.key]}
+        onChange={(next) => set(f.key, next)}
+        disabled={disabled}
+        loading={loading}
+        fill={row}
+      />
+    ) : (
+      <PlainSelect
+        key={f.key}
+        def={f}
+        options={options[f.key] ?? []}
+        value={values[f.key]}
+        onChange={(next) => set(f.key, next)}
+        disabled={disabled}
+        loading={loading}
+        fill={row}
+      />
+    ),
+  )
+  if (!row) return <>{controls}</>
   return (
-    <>
-      {filters.map((f) =>
-        f.searchable ? (
-          <SearchableSelect
-            key={f.key}
-            def={f}
-            options={options[f.key] ?? []}
-            value={values[f.key]}
-            onChange={(next) => set(f.key, next)}
-            disabled={disabled}
-            loading={loading}
-          />
-        ) : (
-          <PlainSelect
-            key={f.key}
-            def={f}
-            options={options[f.key] ?? []}
-            value={values[f.key]}
-            onChange={(next) => set(f.key, next)}
-            disabled={disabled}
-            loading={loading}
-          />
-        ),
-      )}
-    </>
+    <div
+      className={
+        ownLine
+          ? "order-last flex min-w-0 basis-full flex-wrap items-center gap-1.5 min-[1360px]:flex-nowrap"
+          : "flex min-w-0 basis-full flex-wrap items-center gap-1.5 min-[1360px]:flex-[3] min-[1360px]:basis-auto min-[1360px]:flex-nowrap"
+      }
+    >
+      {controls}
+    </div>
   )
 }
 
@@ -159,6 +185,7 @@ function PlainSelect({
   onChange,
   disabled,
   loading,
+  fill = false,
 }: {
   def: QuickFilterDef
   options: FilterOption[]
@@ -166,6 +193,8 @@ function PlainSelect({
   onChange: (next: string | undefined) => void
   disabled?: boolean
   loading?: boolean
+  /** Compact row mode (QuickFilterBar `row`): flex to an even share. */
+  fill?: boolean
 }) {
   const id = `qf-${def.key}`
   return (
@@ -179,7 +208,7 @@ function PlainSelect({
         disabled={disabled || loading || options.length === 0}
         onChange={(e) => onChange(e.target.value || undefined)}
         title={def.label}
-        className={cn(CONTROL, "max-w-[180px]")}
+        className={cn(CONTROL, fill ? "h-8 min-w-[84px] flex-1 text-xs" : "max-w-[180px]")}
       >
         {/* A URL can carry a filter whose option list has not arrived yet, so the
             selected value must still have something to sit on — otherwise the
@@ -211,6 +240,7 @@ function SearchableSelect({
   onChange,
   disabled,
   loading,
+  fill = false,
 }: {
   def: QuickFilterDef
   options: FilterOption[]
@@ -218,6 +248,8 @@ function SearchableSelect({
   onChange: (next: string | undefined) => void
   disabled?: boolean
   loading?: boolean
+  /** Compact row mode (QuickFilterBar `row`): flex to an even share. */
+  fill?: boolean
 }) {
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
@@ -285,7 +317,7 @@ function SearchableSelect({
   }
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className={cn("relative", fill && "min-w-[84px] flex-1")}>
       <label htmlFor={id} className="sr-only">
         {def.label}
       </label>
@@ -322,8 +354,8 @@ function SearchableSelect({
             setActive(0)
           }}
           onKeyDown={onKeyDown}
-          className="h-9 pl-8 pr-7"
-          style={{ width: def.width ?? "190px" }}
+          className={fill ? "h-8 pl-8 pr-7 text-xs" : "h-9 pl-8 pr-7"}
+          style={{ width: fill ? "100%" : (def.width ?? "190px") }}
         />
         {selected && !open && (
           <button
