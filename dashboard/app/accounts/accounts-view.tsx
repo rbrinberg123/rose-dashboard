@@ -274,6 +274,7 @@ export function AccountsView({
   truncated,
   rowCap,
   matchingRows,
+  canOpenClientDetail,
 }: {
   /** Already narrowed to the active view by the server query. */
   rows: AdminAccountRow[]
@@ -289,6 +290,8 @@ export function AccountsView({
   truncated: boolean
   rowCap: number
   matchingRows: number | null
+  /** Server-decided: may this viewer open /client-detail? Gates the name/ticker links. */
+  canOpenClientDetail: boolean
 }) {
   const router = useRouter()
   const [switching, startSwitch] = React.useTransition()
@@ -807,6 +810,7 @@ export function AccountsView({
                         bandStart={bandStartSet.has(ci)}
                         frozenLeft={ci < frozenLefts.length ? frozenLefts[ci] : undefined}
                         row={r}
+                        canLink={canOpenClientDetail}
                       />
                     ))}
                     <TableCell className="relative px-2" style={{ width: JUMP_COL_W, minWidth: JUMP_COL_W }}>
@@ -878,12 +882,15 @@ function Cell({
   bandStart,
   frozenLeft,
   row,
+  canLink,
 }: {
   col: AccountColumnDef
   bandStart: boolean
   /** Set on a frozen (sticky-left) column: its left offset in px. */
   frozenLeft?: number
   row: AdminAccountRow
+  /** Viewer may open Client Detail — name / ticker cells become links. */
+  canLink: boolean
 }) {
   const raw = (row as unknown as Record<string, unknown>)[col.key]
   const title =
@@ -919,13 +926,18 @@ function Cell({
       title={empty ? undefined : (title ?? undefined)}
       data-column={col.key}
     >
-      {empty ? "—" : renderCell(col, row, raw)}
+      {empty ? "—" : renderCell(col, row, raw, canLink)}
     </TableCell>
   )
 }
 
 /** Paint one cell, by the column's renderer. Display-only, top to bottom. */
-function renderCell(col: AccountColumnDef, row: AdminAccountRow, raw: unknown): React.ReactNode {
+function renderCell(
+  col: AccountColumnDef,
+  row: AdminAccountRow,
+  raw: unknown,
+  canLink: boolean,
+): React.ReactNode {
   const text = typeof raw === "string" ? raw : raw == null ? null : String(raw)
 
   // Dashboard-created test client: TEST badge beside the client.
@@ -933,7 +945,7 @@ function renderCell(col: AccountColumnDef, row: AdminAccountRow, raw: unknown): 
     return (
       <span className="flex min-w-0 items-center gap-1.5">
         <TestBadge />
-        {renderCell(col, { ...row, is_test: false }, raw)}
+        {renderCell(col, { ...row, is_test: false }, raw, canLink)}
       </span>
     )
   }
@@ -964,14 +976,10 @@ function renderCell(col: AccountColumnDef, row: AdminAccountRow, raw: unknown): 
         // circles line up down the page instead of starting wherever each ticker
         // happens to end. A row with no team keeps the link on the left.
         <div className="flex min-w-0 items-center justify-between gap-1.5">
-          {row.client_account_id ? (
-            <Link
-              href={`/client-detail?account_id=${row.client_account_id}`}
-              className="min-w-0 truncate font-medium hover:underline"
-              style={{ color: BRAND_BLUE }}
-            >
+          {canLink && row.client_account_id ? (
+            <ClientDetailLink accountId={row.client_account_id} className="font-medium">
               {label}
-            </Link>
+            </ClientDetailLink>
           ) : (
             <span className="min-w-0 truncate font-medium">{label}</span>
           )}
@@ -1055,6 +1063,41 @@ function renderCell(col: AccountColumnDef, row: AdminAccountRow, raw: unknown): 
 
     case "text":
     default:
+      // The plain Client Name and Ticker columns link to Client Detail too.
+      if (
+        canLink &&
+        row.client_account_id &&
+        (col.key === "client_account_name" || col.key === "ticker_symbol")
+      ) {
+        return <ClientDetailLink accountId={row.client_account_id}>{text}</ClientDetailLink>
+      }
       return text
   }
+}
+
+/**
+ * A full-page link to the client's detail page. stopPropagation keeps the click
+ * from ALSO opening the row's record drawer (the row's isInteractiveTarget check
+ * already skips anchors; this makes it explicit).
+ */
+function ClientDetailLink({
+  accountId,
+  className,
+  children,
+}: {
+  accountId: string
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <Link
+      href={`/client-detail?account_id=${accountId}`}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+      className={cn("min-w-0 truncate hover:underline", className)}
+      style={{ color: BRAND_BLUE }}
+    >
+      {children}
+    </Link>
+  )
 }

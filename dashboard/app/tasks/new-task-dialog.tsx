@@ -551,3 +551,29 @@ export function EditTaskDialog({
     />
   )
 }
+
+/**
+ * Client Detail's "+" quick-add — this same create form, opened with the
+ * page's client pre-filled (still switchable in the picker, as on /tasks).
+ * Mounted only while open; closing (or saving) calls onClose.
+ */
+export function NewTaskForClientDialog({
+  clientAccountId,
+  onClose,
+}: {
+  clientAccountId: string
+  onClose: () => void
+}) {
+  const [initial] = React.useState(() => ({ ...emptyForm(), clientAccountId }))
+  return (
+    <TaskFormDialog
+      open
+      setOpen={(o) => {
+        if (!o) onClose()
+      }}
+      initial={initial}
+      editId={null}
+      onSaved={() => {}}
+    />
+  )
+}

@@ -54,6 +54,8 @@ No new mirror table and **no new columns**: `public.accounts` already existed, a
 
 It also exposes `client_account_id` / `client_account_name` / `client_ticker` — aliases of the account's own id, name and ticker under the names every other admin view uses, so the shared ticker renderer and the `/client-detail` link work here unchanged.
 
+**Name / ticker → Client Detail (2026-10-09).** Clicking a row opens the record drawer, as before. But the **Client** column's ticker, the **Client Name** column and the **Ticker** column are links to `/client-detail?account_id=…` (full page). Their click stops propagation, so it navigates without also opening the drawer. The links render only when the server-side `canAccessRoute(role, "/client-detail", …)` check passes (passed from `page.tsx` as `canOpenClientDetail`); otherwise they are plain text and the row still opens the drawer. Client Detail itself re-checks access and the Level-2 client scope when it loads.
+
 **`v_admin_accounts_filter_options`** — the usual `(kind, value, label, count)` shape. Eleven kinds: `state`, `client_status`, `sector`, `industry`, `region`, `market_cap`, and the five team roles `account_manager` / `secondary` / `associate` / `feedback` / `logistics`.
 
 This is the **one** options view in the set that reads the entity's *view* rather than the base table. Two of the eleven kinds are derived (see below), and a dropdown offering a bucket the list cannot match is a dead option; reading the view guarantees both come from the same expression. The usual cost argument does not apply — accounts is 228 rows and the view joins nothing.

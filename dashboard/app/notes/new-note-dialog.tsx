@@ -92,7 +92,7 @@ function NoteFormDialog({
   const router = useRouter()
   const [form, setForm] = React.useState<NewNoteInput>(() => initial ?? emptyForm())
   // The review cycle follows the date until the user types their own.
-  const [cycleEdited, setCycleEdited] = React.useState(initial != null)
+  const [cycleEdited, setCycleEdited] = React.useState(editId != null)
   const [clients, setClients] = React.useState<AccountOption[] | null>(null)
   const [users, setUsers] = React.useState<UserOption[] | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -357,6 +357,32 @@ export function EditNoteDialog({
         setLoaded(null)
         onSaved(current.id)
       }}
+    />
+  )
+}
+
+/**
+ * Client Detail's "+" quick-add — this same create form, opened with the
+ * page's client pre-filled (still switchable in the picker, as on /notes).
+ * Mounted only while open; closing (or saving) calls onClose.
+ */
+export function NewNoteForClientDialog({
+  clientAccountId,
+  onClose,
+}: {
+  clientAccountId: string
+  onClose: () => void
+}) {
+  const [initial] = React.useState(() => ({ ...emptyForm(), clientAccountId }))
+  return (
+    <NoteFormDialog
+      open
+      setOpen={(o) => {
+        if (!o) onClose()
+      }}
+      initial={initial}
+      editId={null}
+      onSaved={() => {}}
     />
   )
 }

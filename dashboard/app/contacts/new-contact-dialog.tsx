@@ -414,3 +414,29 @@ export function EditContactDialog({
     />
   )
 }
+
+/**
+ * Client Detail's "+" quick-add — this same create form, opened with the
+ * page's client pre-filled (still switchable in the picker, as on /contacts).
+ * Mounted only while open; closing (or saving) calls onClose.
+ */
+export function NewContactForClientDialog({
+  clientAccountId,
+  onClose,
+}: {
+  clientAccountId: string
+  onClose: () => void
+}) {
+  const [initial] = React.useState(() => ({ ...EMPTY, clientAccountId }))
+  return (
+    <ContactFormDialog
+      open
+      setOpen={(o) => {
+        if (!o) onClose()
+      }}
+      initial={initial}
+      editId={null}
+      onSaved={() => {}}
+    />
+  )
+}

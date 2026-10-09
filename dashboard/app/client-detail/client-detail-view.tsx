@@ -48,6 +48,7 @@ import { MeetingRecordPane } from "@/app/meetings/meeting-record-pane"
 import type { MeetingRecord } from "@/lib/meeting-record"
 import { BUILTIN_PREFIX } from "@/lib/table-views/types"
 import { KeyContactsStrip } from "./key-contacts-strip"
+import { ClientQuickAdd } from "./client-quick-add"
 import type { ClientCrmLists } from "./crm-lists"
 import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
 import { type PillVariant } from "@/lib/gradients"
@@ -1002,6 +1003,7 @@ export function ClientDetailView({
           subtitle={subtitleParts.join(" · ")}
           status={statusPill}
           rightSlot={
+            <div className="flex items-center gap-1.5">
             <MastheadSelector
               items={allClients.map((c) => ({
                 value: c.account_id,
@@ -1013,6 +1015,8 @@ export function ClientDetailView({
               onNext={goNext}
               ariaLabel="Select client"
             />
+            {canOpenCrm && <ClientQuickAdd key={selected.account_id} accountId={selected.account_id} />}
+            </div>
           }
         />
       </div>
