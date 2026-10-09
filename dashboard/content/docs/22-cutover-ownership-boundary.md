@@ -306,6 +306,11 @@ Each item in the CRM **"+" quick-add menu** (New Client, Meeting, Event, Task, T
 - **New Client is live too**, because the Clients create form has shipped. It needs `sql/patches/2026-09-23g_accounts_full_fields.sql` run first.
 - **Gating is unchanged:** the menu only renders for users who can see the CRM nav, the pages redirect non-super-users, and every create action re-checks `super_user` on the server.
 
+### Cutover TODO: "Add Meeting" from Dynamics events (recorded 2026-10-09)
+The event **Add Meeting** button (drawer + edit dialog; see [13 — Events](13-events.md)) is live for **dashboard-origin events only**. Dynamics events show it disabled ("available at cutover"), and `createMeeting` refuses a `fromEventId` whose event is not dashboard-origin.
+- **At cutover:** set `ADD_MEETING_FROM_EVENT_INCLUDES_DYNAMICS = true` in `lib/meetings/create.ts`. That single switch drives both the button (`canAddMeetingFromEvent` in `app/events/add-meeting-button.tsx`) and the server check in `createMeeting`. No other change is needed.
+- **Status:** ☐ open — do not flip before the dashboard owns Dynamics events.
+
 ## Contracts: dashboard-authored contracts (2026-09-29; moved to Admin 2026-09-30)
 **Admin → Contract Management** (`/admin/contracts`) is a card on the Admin hub. It's not in the CRM nav or the CRM "+" menu. It's live on the same plumbing: origin guard on edit, a guarded single-row **Delete** (`DELETE … WHERE contract_id AND origin='dashboard'`, must hit exactly 1 row), audit, the TEST badge, and purge. The fence was already on `contracts` (Part A/B of this doc's patch, `hasOrigin: true`).
 - **Different from the other seven:** the dashboard writes its **own new columns** (`contract_name`, `account_id`, `start_date`, `term_length_months`, `termination_notice_days`, `contract_status`, `scope`, `currency`, …), not the Dynamics-mirror columns. Term End and Notice Date are **DB-generated**. The list view falls back to the Dynamics twin of each field for display.

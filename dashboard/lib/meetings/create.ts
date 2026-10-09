@@ -33,6 +33,21 @@ export const MEETING_STATUS_OPTIONS = [
  */
 export const MEETING_EVENT_STAGES = ["Pre-Launch", "Live Outreach", "Meetings Ongoing"] as const
 
+/**
+ * "Add Meeting" from an event (drawer + edit dialog): the new meeting is locked
+ * to that event and may link to it WHATEVER its stage — the user picked the event
+ * explicitly. Pre-cutover only dashboard-origin events offer it.
+ *
+ * CUTOVER TODO: flip to true to offer it on every event, Dynamics-origin too.
+ * This one switch drives both the button (UI) and createMeeting's check (server).
+ * See content/docs/22-cutover-ownership-boundary.md.
+ */
+export const ADD_MEETING_FROM_EVENT_INCLUDES_DYNAMICS = false
+
+export function canAddMeetingFromEvent(origin: string | null | undefined): boolean {
+  return origin === "dashboard" || (ADD_MEETING_FROM_EVENT_INCLUDES_DYNAMICS && origin === "dynamics")
+}
+
 export type MeetingFieldErrors = Partial<Record<"clientAccountId" | "typeCode" | "institutionId" | "investor", string>>
 
 /**

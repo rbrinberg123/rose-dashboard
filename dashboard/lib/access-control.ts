@@ -108,6 +108,12 @@ export const ALWAYS_ALLOWED_ROUTES = [
   // viewer server-side; the page itself sends a role-less user to /no-access.
   // To make it super-user only again, move this to ADMIN_ONLY_ROUTES.
   "/my-dashboard",
+  // CRM -> Time Off requests (2026-10-09) — open to every signed-in user, like
+  // My Dashboard, because the page and its drawer action scope every row
+  // server-side (lib/time-off-requests/visibility.ts: own ∪ approver-for ∪
+  // super-user all). Create / edit / delete stay super-user only. Moved here
+  // from ADMIN_ONLY_ROUTES; to make it super-user only again, move it back.
+  "/time-off-requests",
 ] as const
 
 /**
@@ -150,9 +156,7 @@ export const ADMIN_ONLY_ROUTES = [
   // salary edits, permission grants — so it is at least as sensitive as the
   // most sensitive thing in it. Never delegable through the Roles matrix.
   "/admin/audit-log",
-  // CRM -> Time Off. Every person's time-off requests (Dynamics history +
-  // dashboard requests) with approve / deny. Super-user only for now.
-  "/time-off-requests",
+  // (/time-off-requests moved to ALWAYS_ALLOWED_ROUTES 2026-10-09 — row-scoped.)
   // Admin -> Contract Management. Every client contract and retainer, read the
   // unscoped way from v_admin_contracts_all, with create/edit/delete. NOT
   // /contract-management, the matrix-grantable reporting page. Admin-section

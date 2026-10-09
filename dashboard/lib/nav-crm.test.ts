@@ -83,6 +83,11 @@ test("every CRM item is itself super-user-only at the route level", () => {
   // belong in this block — the block's whole premise is unscoped CRM data.
   assert.ok(CRM_NAV_ITEMS.length >= 2, "expected Meetings and Events in the CRM block")
   for (const item of CRM_NAV_ITEMS) {
+    // The ONE exception (2026-10-09): Time Off requests is reachable by every
+    // signed-in user because its ROWS are scoped server-side (own ∪ approver-for
+    // ∪ super-user all — lib/time-off-requests/visibility.ts). It stays in the
+    // CRM block, which itself still renders for super users only.
+    if (item.href === "/time-off-requests") continue
     for (const role of NON_SUPER) {
       // Granted explicitly in the matrix, and STILL denied.
       assert.equal(

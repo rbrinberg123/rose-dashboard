@@ -33,6 +33,7 @@ import {
   MEETING_CANCELLED_OPTIONS,
   MEETING_EVENT_STAGES,
   MEETING_STATUS_OPTIONS,
+  canAddMeetingFromEvent,
   validateMeetingRequired,
   MEETING_TYPE_OPTIONS,
   type ChoiceOption,
@@ -655,13 +656,40 @@ async function buildMeetingColumns(
  * (server-side, never from the form), so a changed event shows there.
  *
  * NOT FILTERED ANYWHERE. Containment is the ZVZZT test client.
+ *
+ * `fromEventId` = opened from an event's "Add Meeting" button: the meeting
+ * must link to exactly that event, which may then be in ANY stage (the user
+ * picked it explicitly). Re-checked here, never trusted from the browser: the
+ * event must exist and its origin must pass canAddMeetingFromEvent (dashboard
+ * only until cutover). The client match is still enforced by resolveClientEvent.
  */
-export async function createMeeting(input: NewMeetingInput): Promise<ActionResult<{ meetingId: string }>> {
+export async function createMeeting(
+  input: NewMeetingInput,
+  opts?: { fromEventId?: string },
+): Promise<ActionResult<{ meetingId: string }>> {
   // ---- GATE (must stay first) ----
   const gate = await requireCrmWriter("creating or deleting meetings")
   if (!gate.ok) return fail(gate.error)
 
-  const built = await buildMeetingColumns(input)
+  let allowEventId: string | null = null
+  if (opts?.fromEventId) {
+    if (!isUuid(opts.fromEventId) || cleanText(input.eventId) !== opts.fromEventId) {
+      return fail("This meeting must stay linked to the event it was added from.")
+    }
+    const { data: ev, error: evErr } = await getSupabaseServer()
+      .from("events")
+      .select("origin")
+      .eq("event_id", opts.fromEventId)
+      .maybeSingle()
+    if (evErr) return fail(describeError(evErr))
+    if (!ev) return fail("That event no longer exists.")
+    if (!canAddMeetingFromEvent((ev as { origin: string | null }).origin)) {
+      return fail("Adding meetings from a Dynamics event is available at cutover.")
+    }
+    allowEventId = opts.fromEventId
+  }
+
+  const built = await buildMeetingColumns(input, allowEventId)
   if (!built.ok) return fail(built.error)
 
   const now = new Date().toISOString()

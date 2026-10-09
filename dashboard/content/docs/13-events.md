@@ -281,6 +281,19 @@ On **create** of a dashboard event, the event's people columns are **snapshotted
 
 Edits never rewrite them: they record who was on the team when the event was created, and every downstream reader of those columns is unchanged. The drawer's **Account team** strip shows the client's team **live** (Account Manager, Secondary, Associate, Logistics, Feedback Report) as initials avatars.
 
+### Add Meeting from an event (2026-10-09)
+An **Add Meeting** button sits in the event **drawer** header (next to Edit, on pages whose drawer offers Edit) and in the footer of the **event edit dialog**. It opens the existing **Add New Meeting** form (`NewMeetingForEventDialog`, `app/meetings/new-meeting-dialog.tsx`) pre-filled from the event:
+
+| Meeting field | Pre-filled with | Editable? |
+|---|---|---|
+| Client | the event's client (`client_account_id`) | **Locked** (read-only) |
+| Event | this event (`event_id`; label = event name) | **Locked** |
+| City | the event's Location | Yes |
+
+There is no separate ticker field on a meeting — it comes from the client. **Stage rule:** the normal form only lists Pre-Launch / Live Outreach / Meetings Ongoing events, but here the event is kept **whatever its stage**, because the user chose it explicitly. `createMeeting(input, { fromEventId })` enforces this on the server. The meeting's event must equal `fromEventId`, the event must exist, and its origin must pass `canAddMeetingFromEvent`. The event's client must still match, and the usual `requireCrmWriter` gate applies (super user, not in View as). Saving refreshes the page.
+
+**Origin gate (pre-cutover):** enabled for **dashboard-origin** events only. On a Dynamics event the drawer shows the button **disabled**, with an *available at cutover* tooltip, and the server refuses it too. Flipping `ADD_MEETING_FROM_EVENT_INCLUDES_DYNAMICS` (`lib/meetings/create.ts`) to `true` is the only change needed to offer it on every event — see the cutover TODO in [22 — Cutover](22-cutover-ownership-boundary.md). Code: `app/events/add-meeting-button.tsx`.
+
 ## Computed lifecycle (dashboard-origin events)
 
 For `origin = 'dashboard'` events the stage is **computed by the database** and written into the existing `event_state_label` / `event_state_code`, so every filter, view, page and email that reads the stage keeps working unchanged. **Dynamics-origin events are not computed** — they show their synced stage until cutover (switch: `event_lifecycle_in_scope()`).

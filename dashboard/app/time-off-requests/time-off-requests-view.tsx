@@ -115,9 +115,15 @@ function SourceBadge({ source, isTest }: { source: string; isTest: boolean | nul
 export function TimeOffRequestsView({
   rows,
   truncated,
+  seesAll,
+  scopeError,
 }: {
   rows: TimeOffListRow[]
   truncated: boolean
+  /** Super user: every request, plus create / purge. Otherwise the scoped set. */
+  seesAll: boolean
+  /** Set when the approver lookup failed and only own requests are shown. */
+  scopeError: string | null
 }) {
   const [filters, setFilters] = React.useState<Filters>(NO_FILTERS)
   const [query, setQuery] = React.useState("")
@@ -198,15 +204,27 @@ export function TimeOffRequestsView({
           compact
           eyebrow="CRM"
           title="Time Off"
-          subtitle="Every time-off request — the Dynamics history (read-only) plus requests made here, which go Pending → Approved / Denied by the person's reviewing team. Super-user only for now."
+          subtitle={
+            seesAll
+              ? "Every time-off request — the Dynamics history (read-only) plus requests made here, which go Pending → Approved / Denied by the person's reviewing team."
+              : "Your own time-off requests, plus those of anyone you approve for — every status. The team-wide “who's out” view is the Logistics Time Off calendar."
+          }
           rightSlot={
-            <div className="flex items-center gap-2">
-              <PurgeTestTimeOffButton />
-              <NewTimeOffButton />
-            </div>
+            // Creating / purging stays super-user only (requireCrmWriter).
+            seesAll ? (
+              <div className="flex items-center gap-2">
+                <PurgeTestTimeOffButton />
+                <NewTimeOffButton />
+              </div>
+            ) : undefined
           }
         />
       </div>
+      {scopeError && (
+        <div className="mb-3 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+          {scopeError}
+        </div>
+      )}
 
       {/* ------------------------------------------------------ filter bar */}
       <div

@@ -83,7 +83,7 @@ const SOURCE: Partial<
   // ---- Contact ----
   full_name: {
     column: "full_name",
-    width: "190px",
+    width: "200px",
     renderer: "people",
     group: "Contact",
     header: "Contact",
@@ -97,10 +97,12 @@ const SOURCE: Partial<
     // parent's plain NAME when it is not a matched account, which is what a
     // contact whose parent is another contact will show.
     column: "parent_customer_name",
-    width: "104px",
+    width: "96px",
     renderer: "ticker",
     group: "Client",
-    header: "Client",
+    // "Ticker" since 2026-10-09 — the full name now has its own column beside it
+    // (client_account_name), both under the Client band.
+    header: "Ticker",
     title:
       "Client ticker — full name on hover. Links to the client's detail page. " +
       "Resolved through Company Name (parent_customer); see the patch header for " +
@@ -110,7 +112,7 @@ const SOURCE: Partial<
   // ---- Profile ----
   job_title: {
     column: "job_title",
-    width: "200px",
+    width: "220px",
     renderer: "text",
     group: "Profile",
     header: "Job Title",
@@ -119,7 +121,7 @@ const SOURCE: Partial<
   // ---- Contact Info (flattened 2026-09-16) ----
   email: {
     column: "email",
-    width: "220px",
+    width: "230px",
     renderer: "text",
     group: "Contact Info",
     header: "Email",
@@ -145,7 +147,10 @@ const SOURCE: Partial<
     width: "140px",
     renderer: "text",
     group: "Contact Info",
-    header: "Direct Line",
+    // Shown as "Phone Number" (2026-10-09): telephone1 — Dynamics' primary
+    // Business Phone. The only other phone on a contact is Mobile.
+    header: "Phone Number",
+    title: "telephone1 — the contact's primary (business) phone. The drawer calls it Direct Line",
   },
   street: {
     column: "street",
@@ -437,6 +442,20 @@ const LIST_ONLY: ContactColumnDef[] = [
     compact: true,
   },
   {
+    // 2026-10-09: the full client name, beside the Ticker column by default.
+    // The resolved ACCOUNT's name (same join as the ticker). A contact whose
+    // parent is not a matched account shows a dash here; the Ticker cell
+    // still shows the parent's plain name in that case.
+    key: "client_account_name",
+    label: "Client Name",
+    header: "Client Name",
+    section: "Client",
+    type: "text",
+    width: "200px",
+    renderer: "text",
+    title: "The full name of the contact's client account (resolved through Company Name)",
+  },
+  {
     key: "client_ticker",
     label: "Ticker (client)",
     section: "Client",
@@ -485,9 +504,13 @@ export function contactCatalogBySection(): { section: string; columns: ContactCo
 }
 
 /**
- * The default thirteen columns:
- *   Contact · Client · Job Title · Contact Type · Industry · Email · City ·
- *   IR Only · PoC · Do Not Call · Lead State · Last Activity · Active/Inactive
+ * The default ten columns (2026-10-09):
+ *   Contact · Ticker · Client Name · Job Title · Contact Type · Email · Phone Number ·
+ *   IR Only · PoC · Last Activity
+ *
+ * Industry, City, Do Not Call, Lead State and Status (Active/Inactive) were
+ * taken OUT of the default on 2026-10-09 — still in the Columns menu, and the
+ * fields are untouched. Phone Number (direct_phone) was added.
  *
  * Email and City were added 2026-09-16 when the underlying fields were finally
  * flattened out of `_raw`.
@@ -503,24 +526,21 @@ export function contactCatalogBySection(): { section: string; columns: ContactCo
  * To put Email directly after Job Title anyway, move both keys up in this list
  * and accept the repeated band label; nothing else needs to change.
  *
- * Resulting bands: Contact | Client | Profile (Job Title, Contact Type,
- * Industry) | Contact Info (Email, City) | Flags & State (IR Only, PoC, Do Not
- * Call, Lead State) | Activity (Last Activity) | Status (Active).
+ * Resulting bands: Contact | Client | Profile (Job Title, Contact Type) |
+ * Contact Info (Email, Phone Number) | Flags & State (IR Only, PoC) |
+ * Activity (Last Activity).
  */
 export const CONTACT_DEFAULT_COLUMNS: string[] = [
   "full_name",
   "parent_customer_name",
+  "client_account_name",
   "job_title",
   "contact_type_label",
-  "industry_label",
   "email",
-  "city",
+  "direct_phone",
   "ir_only",
   "poc",
-  "do_not_call",
-  "lead_state_label",
   "last_activity_time",
-  "state_label",
 ]
 
 /**

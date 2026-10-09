@@ -46,19 +46,16 @@ export type ContactQuickFilters = {
 export const EMPTY_CONTACT_QUICK_FILTERS: ContactQuickFilters = {}
 
 /** Every key, in toolbar order. One list so the page, the URL builder and the
- *  "any filter set?" test cannot drift apart. */
+ *  "any filter set?" test cannot drift apart.
+ *
+ *  2026-10-09: only Client + Contact Type are on the toolbar. The other nine keys
+ *  are left OUT of this list so an old bookmarked URL (?city=…) cannot apply a
+ *  filter the toolbar no longer shows or lets you clear. Their handling in
+ *  applyContactQuickFilters below is kept, so restoring one is re-adding its key
+ *  here and its line in QUICK_FILTERS (app/contacts/contacts-view.tsx). */
 export const CONTACT_QUICK_FILTER_KEYS = [
   "client",
   "contact_type",
-  "industry",
-  "internal_assignment",
-  "city",
-  "lead_state",
-  "state",
-  "ir_only",
-  "poc",
-  "do_not_call",
-  "distribution_list",
 ] as const
 
 export function hasContactQuickFilters(f: ContactQuickFilters): boolean {

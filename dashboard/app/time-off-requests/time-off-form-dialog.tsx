@@ -5,8 +5,9 @@
  * the test-data purge button. Same shape as the CRM Add New forms
  * (app/notes/new-note-dialog.tsx).
  *
- * The HALF-DAY picker: once a range is chosen, every day in it is listed. Each
- * working day defaults to Full and can be switched to a half — AM or PM.
+ * The DAY list: once a range is chosen, every day in it is listed. Each
+ * working day is a Full day. (The ½ AM / ½ PM toggle is hidden while
+ * TIME_OFF_PARTIAL_DAYS_ENABLED is false — full days only, 2026-10-09.)
  * Weekends and NYSE holidays are listed greyed as "not counted" and get no day
  * row (lib/time-off-requests/model.ts). The running total is shown live; the
  * server re-derives it (public.time_off_set_days) — this number is a preview.
@@ -39,6 +40,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
   NEW_TIME_OFF_TEST_DEFAULT,
+  TIME_OFF_PARTIAL_DAYS_ENABLED,
   TIME_OFF_REQUEST_TYPES,
   buildDays,
   formatDays,
@@ -118,7 +120,9 @@ function DayPicker({
           )}
         >
           <span className="tabular-nums">{dayLabel(d.date)}</span>
-          {d.counted ? (
+          {d.counted && !TIME_OFF_PARTIAL_DAYS_ENABLED ? (
+            <span className="text-[12px] text-muted-foreground">Full day</span>
+          ) : d.counted ? (
             <div className="flex gap-1" role="radiogroup" aria-label={`Portion for ${dayLabel(d.date)}`}>
               {(["Full", "AM", "PM"] as const).map((p) => {
                 const active = (portions[d.date] ?? "Full") === p
@@ -179,8 +183,11 @@ function TimeOffFormDialog({
 
   React.useEffect(() => {
     if (!open || users) return
-    loadTimeOffUserOptions().then((r) => (r.ok ? setUsers(r.data) : setError(r.error)))
-  }, [open, users])
+    // Rose & Co active personnel; an edited request keeps its requester listed.
+    loadTimeOffUserOptions(initial?.requestedById ?? null).then((r) =>
+      r.ok ? setUsers(r.data) : setError(r.error),
+    )
+  }, [open, users, initial])
 
   // The reviewing team follows the chosen person, resolved live on the server.
   React.useEffect(() => {
@@ -194,7 +201,8 @@ function TimeOffFormDialog({
     }
   }, [open, form.requestedById])
 
-  const days = buildDays(form.startDate, form.endDate, form.portions)
+  // Full days only while partial days are off — matches what the server writes.
+  const days = buildDays(form.startDate, form.endDate, TIME_OFF_PARTIAL_DAYS_ENABLED ? form.portions : {})
   const total = totalDays(days)
 
   function onSubmit(e: React.FormEvent) {

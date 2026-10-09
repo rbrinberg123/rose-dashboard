@@ -78,7 +78,18 @@ Also flattened: `owner_id`/`owner_name`, `created_by_id`/`_name`, `modified_by_i
 
 **Surfaced on the page:**
 - **Email** and **City** are visible columns by default, under a **Contact Info** band. Mobile, Direct Line and Street are in the column picker.
-- **City** is a searchable filter dropdown (free text from the CRM, so the list is long).
+- **2026-10-09 default columns:** Contact · Client · Job Title · Contact Type · Email · **Phone Number** · IR Only · PoC · Last Activity.
+  - **Phone Number** is `direct_phone` (Dynamics `telephone1`, the primary Business Phone). It was "Direct Line" in the table and is still called that in the drawer. The only other phone is Mobile, which stays in the picker.
+  - **Industry, City, Do Not Call, Lead State and Status (Active)** are off by default but still in the Columns menu. No DB fields changed.
+  - Job Title, Contact and Email were widened slightly to fill the space.
+  - User-saved views keep their own columns.
+- ~~**City** is a searchable filter dropdown~~ — removed from the toolbar 2026-10-09 (see below).
+- **Client Name column (2026-10-09):** `client_account_name` (the resolved account's `accounts.name`, same join as the ticker) sits right after the ticker, which is now headed **Ticker**. Both are under the **Client** band, and both are on by default. A contact whose parent is not a matched account shows a dash for Client Name, while the Ticker cell still shows the parent's plain name. The keyword box now matches full client names too. Job Title / Email were narrowed slightly to make room.
+- **Toolbar filters trimmed (2026-10-09):** the toolbar now has only **Client** and **Contact Type**.
+  - **Removed (UI only):** Industry, Internal Assignment, City, Lead State, Active/Inactive, and the four "Any" flag filters (IR Only, PoC, Do Not Call, Distro). Columns, data and `applyContactQuickFilters` are unchanged, and the **Filters** panel can still filter on any of those fields.
+  - **Stale URLs:** the removed keys are also out of `CONTACT_QUICK_FILTER_KEYS`, so an old `?city=…` URL no longer applies a hidden filter.
+  - **Active by default:** the page opens on the built-in **Active contacts** view (`is_active`). **All contacts** stays in the view switcher.
+  - **Layout:** with two dropdowns the filter group shares the toolbar line (`ownLine` dropped).
 - The drawer has a **Contact Info** section (Email · Mobile · Direct Line · City · Street), and **Owner / Created By / Modified By** now sit in its System section.
 - `email` and `city` are indexed (`idx_contacts_email`, `idx_contacts_city`).
 

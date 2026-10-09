@@ -18,8 +18,11 @@
  *                   (Was super-user only until 2026-10-08, when My Dashboard
  *                   opened approvals to every reviewer. Being a super_user
  *                   alone still grants nothing here: team membership decides.)
- *   drawer read     super_user (loadTimeOffRecord), OR — for one dashboard
- *                   request — a reviewer of its requester
+ *   drawer read     loadTimeOffRecord: the SAME rule as the list page —
+ *                   super_user (all), else the requester themself, else a
+ *                   reviewer of the requester (canViewTimeOffRequest,
+ *                   lib/time-off-requests/visibility.ts; 2026-10-09). And —
+ *                   for one dashboard request — a reviewer of its requester
  *                   (loadTimeOffApprovalRecord, My Dashboard).
  *   Dynamics rows   read-only, always (they are synced history).
  *
@@ -38,16 +41,19 @@ import { diffRows, recordAudit } from "@/lib/audit"
 import {
   countTestRows,
   isUuid,
-  loadUserOptions,
+  loadPersonnelOptions,
   purgeTestRows,
+  requireActivePersonnel,
   requireCrmWriter,
   resolveUser,
 } from "@/lib/crm-write"
+import { canViewTimeOffRequest } from "@/lib/time-off-requests/visibility"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import type { UserOption } from "@/lib/types"
 import {
   MAX_RANGE_DAYS,
+  TIME_OFF_PARTIAL_DAYS_ENABLED,
   buildDays,
   dynamicsTotalDays,
   isPortion,
@@ -133,6 +139,8 @@ const daysText = (days: readonly TimeOffDayInput[]) =>
 async function buildRequest(
   input: TimeOffInput,
   defaultPersonId: string | null,
+  /** Edit only: the stored requester — kept even if no longer active personnel. */
+  keepPersonId: string | null = null,
 ): Promise<ActionResult<{ columns: Record<string, unknown>; days: TimeOffDayInput[] }>> {
   if (!isRequestType(input.requestType)) return fail("Pick a request type.")
   if (!isYmd(input.startDate)) return fail("Enter a start date.")
@@ -145,9 +153,13 @@ async function buildRequest(
   if (span >= MAX_RANGE_DAYS) return fail("That range is longer than a year.")
 
   // Portions: only known values survive; unknown dates are ignored by buildDays.
+  // FULL DAYS ONLY while TIME_OFF_PARTIAL_DAYS_ENABLED is false: any portions
+  // sent are dropped, so every counted day is written as "Full".
   const portions: Record<string, TimeOffPortion> = {}
-  for (const [date, p] of Object.entries(input.portions ?? {})) {
-    if (isYmd(date) && isPortion(p)) portions[date] = p
+  if (TIME_OFF_PARTIAL_DAYS_ENABLED) {
+    for (const [date, p] of Object.entries(input.portions ?? {})) {
+      if (isYmd(date) && isPortion(p)) portions[date] = p
+    }
   }
   const days = buildDays(input.startDate, input.endDate, portions)
   if (days.length === 0) {
@@ -158,6 +170,15 @@ async function buildRequest(
   const personRes = await resolveUser(input.requestedById ?? defaultPersonId)
   if (!personRes.ok) return fail(personRes.error)
   if (!personRes.data) return fail("Pick who the time off is for.")
+  // Requested By must be ROSE & CO ACTIVE PERSONNEL — the same rule as the
+  // picker (loadPersonnelOptions) and the Meeting form's Host / Booker. An
+  // edit keeps its stored requester even if they have since left.
+  const personnel = await requireActivePersonnel(
+    personRes.data.user_id,
+    new Set(keepPersonId ? [keepPersonId] : []),
+    "Requested By",
+  )
+  if (!personnel.ok) return fail(personnel.error)
 
   const clean = (v: string | null | undefined) => {
     const s = (v ?? "").trim()
@@ -190,9 +211,14 @@ async function setDays(id: string, days: TimeOffDayInput[]): Promise<ActionResul
 
 /* ------------------------------------------------------------ form pickers */
 
-/** People for the Requested By picker. */
-export async function loadTimeOffUserOptions(): Promise<ActionResult<UserOption[]>> {
-  return loadUserOptions()
+/**
+ * People for the Requested By picker — ROSE & CO ACTIVE PERSONNEL, the exact
+ * list behind the Meeting form's Host / Booker pickers (loadPersonnelOptions:
+ * active + human @roseandco.com, one row per person). `keepId` = an edited
+ * request's current requester, kept listed even if no longer active.
+ */
+export async function loadTimeOffUserOptions(keepId: string | null = null): Promise<ActionResult<UserOption[]>> {
+  return loadPersonnelOptions([keepId])
 }
 
 /** The chosen person's reviewing team, resolved live — shown on the form. */
@@ -284,8 +310,19 @@ export async function loadTimeOffRecord(
   source: "Dynamics" | "Dashboard",
 ): Promise<ActionResult<TimeOffRecord>> {
   // ---- GATE (must stay first) ----
-  const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  // The list page's visibility rule, re-checked per record: super_user, the
+  // requester, or a reviewer of the requester. Fails closed.
+  if (!isUuid(id)) return fail("Unknown request.")
+  const { data, error } = await getSupabaseServer()
+    .from("v_admin_time_off_all")
+    .select("requested_by_id")
+    .eq("id", id)
+    .eq("source", source)
+    .maybeSingle()
+  if (error) return fail(describeError(error))
+  if (!data) return fail("Request not found.")
+  const requester = (data as { requested_by_id: string | null }).requested_by_id
+  if (!(await canViewTimeOffRequest(requester))) return fail("Not authorised.")
   return readTimeOffRecord(id, source)
 }
 
@@ -414,7 +451,7 @@ export async function updateTimeOffRequest(
   if (!before.ok) return fail(before.error)
   const { row: prior, days: priorDays } = before.data
 
-  const built = await buildRequest(input, prior.requested_by_id)
+  const built = await buildRequest(input, prior.requested_by_id, prior.requested_by_id)
   if (!built.ok) return fail(built.error)
 
   const cols = FIELD_COLUMNS.split(", ")

@@ -123,8 +123,9 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   // ADMIN_ONLY_ROUTES in lib/access-control.ts. Listed here so the page still
   // appears in the Roles matrix as a known route (its checkboxes have no effect).
   { route: "/meetings", label: "Meetings — all CRM (hidden, super-user only)", section: "Admin" },
-  // Same tier (ADMIN_ONLY_ROUTES): CRM -> Time Off and its reviewer mapping.
-  { route: "/time-off-requests", label: "Time Off requests — CRM (super-user only)", section: "Admin" },
+  // CRM -> Time Off requests: ALWAYS_ALLOWED since 2026-10-09 (rows scoped to
+  // own ∪ approver-for ∪ super-user all), so its checkboxes have no effect.
+  { route: "/time-off-requests", label: "Time Off requests — CRM (everyone, own + approvees only)", section: "Admin" },
   // Same tier: Admin -> Contract Management (not the /contract-management report).
   { route: "/admin/contracts", label: "Contract Management — Admin (super-user only)", section: "Admin" },
   { route: "/admin/time-off-reviewers", label: "Time Off Reviewers (super-user only)", section: "Admin" },

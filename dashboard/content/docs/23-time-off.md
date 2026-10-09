@@ -1,6 +1,6 @@
 # 23 — Time Off (requests & approvals)
 
-> **Status: built, local only.** Needs `sql/patches/2026-09-24_time_off_requests.sql` run in Supabase before the page loads. **Super-user only for now.**
+> **Status: built, local only.** Needs `sql/patches/2026-09-24_time_off_requests.sql` run in Supabase before the page loads. **Since 2026-10-09 the page is open to every signed-in user, row-scoped** (see *Who sees which requests* below). Creating / editing / deleting are still super-user only.
 
 ## What it does (plain language)
 
@@ -20,13 +20,45 @@ Not to be confused with **Logistics → Time Off** (`/time-off`), the who's-out 
 3. **Approve or deny.** Either open the request's drawer on the Time Off page, or use the **Time Off Approvals** section at the top of your Alerts page. Add an optional comment and click **Approve** or **Deny**.
 4. **Fix or remove a request.** In the drawer, a super-user can **Edit** (any field — dates, halves, type, person, text) or **Delete** a dashboard request, whatever its status.
 
+### Changes 2026-10-09
+
+- **Requested By = Rose & Co active personnel.**
+  - The picker uses the same list as the Meeting form's Host / Booker pickers (`loadPersonnelOptions` in `lib/crm-write.ts`): `public.users` rows that are active and pass the identity rule's *human* check (@roseandco.com, not hashed, shared-mailbox or app accounts), one row per person.
+  - The server re-checks the same rule (`requireActivePersonnel`). An edit keeps its stored requester even if they have since left.
+  - Before this, the picker was the looser plain `is_active` list.
+- **Full days only.**
+  - The form lists each working day as **Full day**, with no ½ AM / ½ PM toggle, and the total counts whole business days.
+  - The server writes every counted day as `Full`, whatever portions are sent.
+  - The switch is `TIME_OFF_PARTIAL_DAYS_ENABLED` (`lib/time-off-requests/model.ts`, now `false`). The `portion` column, the AM/PM values and `time_off_set_days()` are all **kept**, so turning it back on is a one-line change.
+  - Existing half-day requests still display as stored, but **saving an edit of one rewrites its days as Full** while the switch is off.
+  - Steps 2 and 4 under *How to use it* above describe the half-day behaviour while it was on.
+
+### Who sees which requests (CRM → Time Off, since 2026-10-09)
+
+**visible = my own requests ∪ (super user → every request) ∪ requests of everyone whose reviewing team I'm on (all statuses).**
+
+| Viewer | Sees on `/time-off-requests` |
+|---|---|
+| Anyone with a role | their **own** requests, full history (Dynamics + dashboard) |
+| An approver (on someone's reviewing team in `time_off_reviewers`) | **plus** every request of the people they approve for — Pending, Approved and Denied |
+| super_user | **every** request |
+| No role | nothing (→ `/no-access`) |
+
+- **Enforced on the server, in the query.** The page reads `v_admin_time_off_all` with the service-role key and filters `requested_by_id` with `resolveTimeOffVisibility()` (`lib/time-off-requests/visibility.ts`). The drawer's `loadTimeOffRecord` re-checks the same rule per record (`canViewTimeOffRequest`). No migration was needed; RLS is not the gate here.
+- **Identity:** the rule uses the *effective* role and identity, so **View as** shows exactly that person's set. Duplicate CRM records are unioned, as everywhere else.
+- **Fails closed:** an unmatched sign-in sees nothing. A reviewer-table read error shows **own requests only**, with a warning strip.
+- **Route:** `/time-off-requests` moved from `ADMIN_ONLY_ROUTES` to `ALWAYS_ALLOWED_ROUTES` (`lib/access-control.ts`), like My Dashboard. Its CRM nav link still renders for super users only, because the CRM block is super-user only.
+- **What non-super users see:** no *Add New Time Off* or purge buttons, and no Edit / Delete in the drawer. Approve / Deny shows when they are the designated approver.
+- **The Logistics calendar is unchanged.** `/time-off` stays the team-visible "who's out" view (matrix-grantable, `v_time_off`), and this rule does not touch it.
+
 ---
 
 ## Who can do what
 
 | Action | Who | Enforced where |
 |---|---|---|
-| Open the page / admin page | super_user | proxy (`ADMIN_ONLY_ROUTES`), the page itself, and every server action |
+| Open the page | any signed-in user with a role — **rows scoped** (own ∪ approver-for ∪ super-user all; see above) | `ALWAYS_ALLOWED_ROUTES`; `resolveTimeOffVisibility` in the page query; `canViewTimeOffRequest` in `loadTimeOffRecord` |
+| Open the reviewers admin page | super_user | proxy (`ADMIN_ONLY_ROUTES`) and its actions |
 | Create a request | super_user, not in "View as" | `createTimeOffRequest` → `requireCrmWriter` |
 | **Edit / delete** a dashboard request (any status) | **super_user only**, not in "View as" | `updateTimeOffRequest` / `deleteTimeOffRequest` → `requireCrmWriter` |
 | Approve / deny | **any signed-in user with a role** (since 2026-10-08; was super-user only), not in "View as", **on the requester's reviewing team right now** — the designated approver; being a super user alone grants nothing — not the requester, request still Pending. Reachable from CRM → Time Off (super users) and from My Dashboard's Time Off Approvals drawer (any reviewer) | `reviewTimeOffRequest` |

@@ -121,34 +121,20 @@ function formatEastern(iso: string | null): string {
 }
 
 /**
- * The eleven quick filters, declared once.
+ * The toolbar quick filters, declared once. Client is `searchable` because it
+ * runs to hundreds of choices; Contact Type is a short closed list.
  *
- * Client, Industry and Internal Assignment are `searchable` because each can run
- * to hundreds of choices once contacts are synced; the rest are short closed
- * lists and are better as native selects.
- *
- * The four flag filters and Active/Inactive come back from the options view as
- * TEXT ("true"/"false", "0"/"1") — one UNION, one column type. They are
- * converted back to real booleans and integers in lib/contacts/filters.ts.
+ * 2026-10-09: Industry, Internal Assignment, City, Lead State, Active/Inactive
+ * and the four "Any" flag filters (IR Only, PoC, Do Not Call, Distro) were
+ * REMOVED from the toolbar — UI only. Their columns, data and the filter logic in
+ * lib/contacts/filters.ts are untouched; the Filters panel (FilterEditor) can
+ * still filter on any of those fields. Active-only is the default VIEW
+ * ("Active contacts"), not a toolbar filter. To restore one, re-add its line
+ * here AND its key to CONTACT_QUICK_FILTER_KEYS.
  */
 const QUICK_FILTERS: QuickFilterDef[] = [
   { key: "client", label: "Client", allLabel: "All clients", searchable: true },
   { key: "contact_type", label: "Contact Type", allLabel: "All types" },
-  { key: "industry", label: "Industry", allLabel: "All industries", searchable: true },
-  {
-    key: "internal_assignment",
-    label: "Internal Assignment",
-    allLabel: "All assignments",
-    searchable: true,
-  },
-  // Searchable: city is free text from the CRM, so the list is long and messy.
-  { key: "city", label: "City", allLabel: "All cities", searchable: true },
-  { key: "lead_state", label: "Lead State", allLabel: "All lead states" },
-  { key: "state", label: "Active", allLabel: "Active & inactive" },
-  { key: "ir_only", label: "IR Only", allLabel: "Any" },
-  { key: "poc", label: "PoC", allLabel: "Any" },
-  { key: "do_not_call", label: "Do Not Call", allLabel: "Any" },
-  { key: "distribution_list", label: "Distro", allLabel: "Any" },
 ]
 
 /** Header bands — one per run of consecutive columns sharing a group. */
@@ -517,7 +503,6 @@ export function ContactsView({
 
         <QuickFilterBar
           row
-          ownLine
           cacheKey="contacts"
           filters={QUICK_FILTERS}
           values={quickFilters as Record<string, string | undefined>}

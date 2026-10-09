@@ -27,6 +27,7 @@ import { Check, ExternalLink, Lock, Pause, UserRound, X } from "lucide-react"
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { FeedbackReportsPanel } from "./feedback-reports-panel"
+import { AddMeetingFromEventButton } from "./add-meeting-button"
 import { loadEventRepresentatives } from "./actions"
 import type { EventRepresentative } from "@/lib/events/create"
 import { isAutomationOrigin } from "@/lib/feedback-reports/policy"
@@ -526,6 +527,17 @@ export function EventRecordPane({
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {record?.is_test && <TestBadge />}
                   <RecordEditBar origin={record?.origin} onEdit={onEdit} />
+                  {/* Offered where the host offers Edit (a write-capable page). */}
+                  {onEdit && (
+                    <AddMeetingFromEventButton
+                      key={record.event_id}
+                      origin={record.origin}
+                      eventId={record.event_id}
+                      eventName={record.event_title}
+                      clientAccountId={record.client_account_id}
+                      location={record.event_location}
+                    />
+                  )}
                   <Pill bg={statePill.bg} text={statePill.text}>
                     {record.event_state_label ?? "No state"}
                   </Pill>

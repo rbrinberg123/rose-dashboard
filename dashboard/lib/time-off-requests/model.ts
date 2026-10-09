@@ -51,6 +51,16 @@ export const TIME_OFF_STATUSES = ["Pending", "Approved", "Denied"] as const
 export type TimeOffStatus = (typeof TIME_OFF_STATUSES)[number]
 
 export const TIME_OFF_PORTIONS = ["Full", "AM", "PM"] as const
+
+/**
+ * PARTIAL DAYS — OFF (2026-10-09): full days only for now. The form shows no
+ * Full / ½ AM / ½ PM toggle and the server writes every counted day as "Full",
+ * whatever portions arrive. The portion column, time_off_set_days() and the
+ * AM/PM values are KEPT, so flipping this to true brings half days back with
+ * no other change. Existing half-day rows still display as they are stored —
+ * but saving an edit of one rewrites its days as Full while this is false.
+ */
+export const TIME_OFF_PARTIAL_DAYS_ENABLED = false
 export type TimeOffPortion = (typeof TIME_OFF_PORTIONS)[number]
 
 /** The longest range the form will expand into day rows — a guard, not a policy. */

@@ -153,12 +153,15 @@ function MeetingFormDialog({
   initial,
   editId,
   onSaved,
+  lockedEvent = null,
 }: {
   open: boolean
   setOpen: (o: boolean) => void
   initial: NewMeetingInput | null
   editId: string | null
   onSaved: () => void
+  /** Opened from an event's "Add Meeting": Client + Event are fixed to it. */
+  lockedEvent?: { id: string; name: string | null } | null
 }) {
   const router = useRouter()
   const [form, setForm] = React.useState<NewMeetingInput>(() => initial ?? emptyForm())
@@ -240,7 +243,9 @@ function MeetingFormDialog({
     }
     if (!form.start) return setError("Enter the date and time.")
     startTransition(async () => {
-      const r = editId ? await updateMeeting(editId, form) : await createMeeting(form)
+      const r = editId
+        ? await updateMeeting(editId, form)
+        : await createMeeting(form, lockedEvent ? { fromEventId: lockedEvent.id } : undefined)
       if (!r.ok) {
         setError(r.error)
         return
@@ -282,6 +287,14 @@ function MeetingFormDialog({
                     <Label>
                       Client <Req />
                     </Label>
+                    {lockedEvent ? (
+                      // Fixed to the event's client — changing it would unlink the event.
+                      <Input
+                        readOnly
+                        value={clients?.find((c) => c.account_id === form.clientAccountId)?.name ?? "Loading…"}
+                        className="bg-muted text-muted-foreground"
+                      />
+                    ) : (
                     <ClientCombobox
                       options={clients ?? []}
                       value={form.clientAccountId}
@@ -289,6 +302,7 @@ function MeetingFormDialog({
                       placeholder={clients ? "Select a client" : "Loading clients…"}
                       invalid={!!fieldErrors.clientAccountId}
                     />
+                    )}
                     <FieldError message={fieldErrors.clientAccountId} />
                   </div>
 
@@ -340,20 +354,20 @@ function MeetingFormDialog({
                   </div>
 
                   <div className="grid gap-1.5">
-                    <Label htmlFor="nm-event">Event (optional)</Label>
+                    <Label htmlFor="nm-event">{lockedEvent ? "Event" : "Event (optional)"}</Label>
                     <select
                       id="nm-event"
                       value={form.eventId ?? ""}
                       onChange={(e) => setForm((f) => ({ ...f, eventId: e.target.value }))}
                       className={SELECT_CLASS}
-                      disabled={!form.clientAccountId}
+                      disabled={!form.clientAccountId || !!lockedEvent}
                     >
                       <option value="">— none —</option>
                       {/* The chosen event is never dropped from the list, even
                           while the options are still loading. */}
                       {form.eventId && !events.some((ev) => ev.event_id === form.eventId) && (
                         <option value={form.eventId}>
-                          {eventsFor === form.clientAccountId ? "Current event" : "Loading events…"}
+                          {lockedEvent?.name ?? (eventsFor === form.clientAccountId ? "Current event" : "Loading events…")}
                         </option>
                       )}
                       {events.map((ev) => (
@@ -364,7 +378,9 @@ function MeetingFormDialog({
                       ))}
                     </select>
                     <p className="text-[11px] text-muted-foreground">
-                      Only this client’s Pre-Launch, Live Outreach and Meetings Ongoing events.
+                      {lockedEvent
+                        ? "Added from this event — the meeting is linked to it, whatever its stage."
+                        : "Only this client’s Pre-Launch, Live Outreach and Meetings Ongoing events."}
                     </p>
                   </div>
                 </FormSection>
@@ -780,6 +796,40 @@ export function EditMeetingDialog({
         setLoaded(null)
         onSaved(current.id)
       }}
+    />
+  )
+}
+
+/**
+ * "Add Meeting" from an event (event drawer + event edit dialog) — this same
+ * create form, with Client + Event pre-filled and LOCKED to the event, and the
+ * event's location as the meeting City (editable). createMeeting re-checks
+ * server-side that the event may take it (canAddMeetingFromEvent) and lets it
+ * link whatever the event's stage. Mounted only while open.
+ */
+export function NewMeetingForEventDialog({
+  event,
+  onClose,
+}: {
+  event: { eventId: string; eventName: string | null; clientAccountId: string; location: string | null }
+  onClose: () => void
+}) {
+  const [initial] = React.useState<NewMeetingInput>(() => ({
+    ...emptyForm(),
+    clientAccountId: event.clientAccountId,
+    eventId: event.eventId,
+    cityName: event.location?.trim() || null,
+  }))
+  return (
+    <MeetingFormDialog
+      open
+      setOpen={(o) => {
+        if (!o) onClose()
+      }}
+      initial={initial}
+      editId={null}
+      onSaved={() => {}}
+      lockedEvent={{ id: event.eventId, name: event.eventName }}
     />
   )
 }

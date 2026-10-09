@@ -58,6 +58,7 @@ import {
 import { loadEventForEdit, updateEvent } from "./actions"
 import { LifecycleStepper } from "./event-record-pane"
 import { MeetingsReportsPanel } from "./meetings-reports-panel"
+import { AddMeetingFromEventButton } from "./add-meeting-button"
 
 /** The stored stage the edit form's stepper shows (read from the row, never recomputed). */
 type StoredStage = React.ComponentProps<typeof LifecycleStepper>["record"]
@@ -536,6 +537,19 @@ function EventFormDialog({
             {error &&<div className="border-t px-5 py-2 text-sm text-destructive">{error}</div>}
 
             <DialogFooter className="mx-0 mb-0">
+              {/* Edit only (always a dashboard-origin row). Client + location come
+                  from the SAVED event, not unsaved edits in this form. */}
+              {editId && (
+                <AddMeetingFromEventButton
+                  origin="dashboard"
+                  eventId={editId}
+                  eventName={generatedName || null}
+                  clientAccountId={initial?.clientAccountId ?? null}
+                  location={initial?.location ?? null}
+                  className="mr-auto"
+                  compact={false}
+                />
+              )}
               <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
                 Cancel
               </Button>
