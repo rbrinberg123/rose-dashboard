@@ -111,9 +111,10 @@ function isFutureDate(value: string | null | undefined): boolean {
   return d ? d.getTime() > Date.now() : false
 }
 
-function formatMonthYear(value: string | null | undefined): string {
+/** Compact numeric date for dense lists: "3/5/26". */
+function formatNumericDate(value: string | null | undefined): string {
   const d = safeParseDate(value)
-  return d ? format(d, "MMM yyyy") : "—"
+  return d ? format(d, "M/d/yy") : "—"
 }
 
 function formatLongMonthYear(value: string | null | undefined): string {
@@ -1491,22 +1492,32 @@ export function ClientDetailView({
             {[topInstitutions.slice(0, 10), topInstitutions.slice(10, 20)].map(
               (rows, colIdx) =>
                 rows.length === 0 ? null : (
-                  <table key={colIdx} className="w-full text-sm">
+                  // table-fixed + colgroup: the name takes what's left and truncates
+                  // (full name on hover); counts and dates never wrap.
+                  <table key={colIdx} className="w-full table-fixed text-sm">
+                    <colgroup>
+                      <col style={{ width: 28 }} />
+                      <col />
+                      <col style={{ width: 64 }} />
+                      <col style={{ width: 40 }} />
+                      <col style={{ width: 64 }} />
+                      <col style={{ width: 70 }} />
+                    </colgroup>
                     <thead>
                       <tr className="border-b text-xs text-muted-foreground">
-                        <th className="px-2 py-2 text-left font-medium w-10">#</th>
-                        <th className="px-2 py-2 text-left font-medium">Institution</th>
-                        <th className="px-2 py-2 text-right font-medium">Meetings</th>
-                        <th className="px-2 py-2 text-right font-medium">LTM</th>
-                        <th className="px-2 py-2 text-right font-medium">First Met</th>
-                        <th className="px-2 py-2 text-right font-medium">Last Met</th>
+                        <th className="px-1.5 py-1.5 text-left font-medium">#</th>
+                        <th className="px-1.5 py-1.5 text-left font-medium">Institution</th>
+                        <th className="whitespace-nowrap px-1.5 py-1.5 text-right font-medium">Meetings</th>
+                        <th className="whitespace-nowrap px-1.5 py-1.5 text-right font-medium">LTM</th>
+                        <th className="whitespace-nowrap px-1.5 py-1.5 text-right font-medium">First Met</th>
+                        <th className="whitespace-nowrap px-1.5 py-1.5 text-right font-medium">Last Met</th>
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map((row) => (
                         <tr key={`${row.account_id}-${row.rank}`} className="border-b last:border-b-0">
-                          <td className="px-2 py-2 text-muted-foreground tabular-nums">{row.rank}</td>
-                          <td className="px-2 py-2">
+                          <td className="px-1.5 py-1 text-muted-foreground tabular-nums">{row.rank}</td>
+                          <td className="truncate px-1.5 py-1" title={row.institution_name ?? undefined}>
                             {row.institution_id ? (
                               <Link
                                 href={`/institution-detail?institution_id=${row.institution_id}`}
@@ -1520,23 +1531,22 @@ export function ClientDetailView({
                               </span>
                             )}
                           </td>
-                          <td className="px-2 py-2 text-right tabular-nums">
+                          <td className="whitespace-nowrap px-1.5 py-1 text-right tabular-nums">
                             {row.lifetime_count.toLocaleString()}
                           </td>
-                          <td className="px-2 py-2 text-right tabular-nums">
+                          <td className="whitespace-nowrap px-1.5 py-1 text-right tabular-nums">
                             {row.ltm_count.toLocaleString()}
                           </td>
-                          <td className="px-2 py-2 text-right text-muted-foreground">
-                            {formatMonthYear(row.first_met)}
+                          <td className="whitespace-nowrap px-1.5 py-1 text-right text-xs tabular-nums text-muted-foreground">
+                            {formatNumericDate(row.first_met)}
                           </td>
-                          <td className="px-2 py-2 text-right text-muted-foreground">
-                            {formatMonthYear(row.last_met)}
+                          <td className="whitespace-nowrap px-1.5 py-1 text-right text-xs tabular-nums text-muted-foreground">
+                            {formatNumericDate(row.last_met)}
                             {isFutureDate(row.last_met) ? (
                               <span
                                 className="font-semibold text-[#1C8C9C]"
                                 title="Scheduled (upcoming) meeting"
                               >
-                                {" "}
                                 *
                               </span>
                             ) : null}

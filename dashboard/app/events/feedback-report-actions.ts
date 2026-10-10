@@ -8,13 +8,18 @@ import { getEffectiveRole } from "@/lib/effective-identity"
 import { recordAudit } from "@/lib/audit"
 import { easternLocalToIso, isUuid, requireCrmWriter } from "@/lib/crm-write"
 import {
+  checkReallocation,
   decideAddReport,
   decideDeleteReport,
+  decideReallocation,
+  deleteTarget,
   isAutomationOrigin,
   isEligibleMeeting,
   reportLetter,
+  reportLock,
   validateAssignments,
   validateReceivedDay,
+  type ReportLock,
 } from "@/lib/feedback-reports/policy"
 
 /**
@@ -29,6 +34,20 @@ import {
  *
  * Reports are dashboard-origin Feedback tasks the automation created, so these
  * are ordinary dashboard edits — no Dynamics row is ever written.
+ *
+ * RE-ALLOCATION LOCKS (2026-10-10) — enforced HERE, server-side, on fresh data
+ * (the service-role client bypasses RLS, so the UI is never the guard):
+ *   - hard lock (report CLAIMED, or no longer Open): no meeting moves out of it
+ *     and none is added to it — saveFeedbackReportAssignments and
+ *     deleteFeedbackReport refuse, unless `overrideLock` is passed by an admin
+ *     (super user); every override writes its own audit row
+ *     (entity feedback_report_lock_override).
+ *   - warm lock (all feedback in = Feedback Received Date set, NOT claimed):
+ *     allowed only with `confirmWarm`.
+ * Rules: reportLock / checkReallocation / decideReallocation in
+ * lib/feedback-reports/policy.ts. New meetings never auto-route into a hard-
+ * locked report — that is the database trigger
+ * (sql/patches/2026-10-10_feedback_report_locks.sql).
  */
 
 const PATHS = ["/events", "/feedback-manager", "/fb-coming-soon", "/my-dashboard"]
@@ -40,8 +59,12 @@ export type FeedbackReportSummary = {
   subject: string | null
   state: string | null
   claimedByName: string | null
+  /** claimed_by_id or bcs_claimed_by_id set — the claim feature's sidecar. */
+  claimed: boolean
   dueDate: string | null
   receivedDate: string | null
+  /** Re-allocation lock — see reportLock. */
+  lock: ReportLock
 }
 
 export type FeedbackReportMeeting = {
@@ -85,7 +108,9 @@ export async function loadEventFeedbackReports(eventId: string): Promise<ActionR
   const [repRes, mtgRes, mapRes] = await Promise.all([
     sb
       .from("tasks")
-      .select("task_id, feedback_report_seq, subject, state_label, bcs_claimed_by_name, claimed_by_name, scheduled_end, crdfa_feedback_received_date")
+      .select(
+        "task_id, feedback_report_seq, subject, state_label, bcs_claimed_by_id, bcs_claimed_by_name, claimed_by_id, claimed_by_name, scheduled_end, crdfa_feedback_received_date",
+      )
       .eq("bcs_event_id", eventId)
       .not("feedback_report_seq", "is", null)
       .order("feedback_report_seq"),
@@ -114,21 +139,28 @@ export async function loadEventFeedbackReports(eventId: string): Promise<ActionR
       feedback_report_seq: number
       subject: string | null
       state_label: string | null
+      bcs_claimed_by_id: string | null
       bcs_claimed_by_name: string | null
+      claimed_by_id: string | null
       claimed_by_name: string | null
       scheduled_end: string | null
       crdfa_feedback_received_date: string | null
     }[]
-  ).map((r) => ({
-    taskId: r.task_id,
-    seq: r.feedback_report_seq,
-    letter: reportLetter(r.feedback_report_seq),
-    subject: r.subject,
-    state: r.state_label,
-    claimedByName: r.claimed_by_name ?? r.bcs_claimed_by_name,
-    dueDate: r.scheduled_end,
-    receivedDate: r.crdfa_feedback_received_date,
-  }))
+  ).map((r) => {
+    const claimed = !!(r.claimed_by_id ?? r.bcs_claimed_by_id)
+    return {
+      taskId: r.task_id,
+      seq: r.feedback_report_seq,
+      letter: reportLetter(r.feedback_report_seq),
+      subject: r.subject,
+      state: r.state_label,
+      claimedByName: r.claimed_by_name ?? r.bcs_claimed_by_name,
+      claimed,
+      dueDate: r.scheduled_end,
+      receivedDate: r.crdfa_feedback_received_date,
+      lock: reportLock({ state: r.state_label, claimed, receivedDate: r.crdfa_feedback_received_date }),
+    }
+  })
   const meetings: FeedbackReportMeeting[] = (
     (mtgRes.data ?? []) as {
       meeting_id: string
@@ -193,9 +225,28 @@ export async function addFeedbackReport(eventId: string): Promise<ActionResult<{
 }
 
 /** Reassign meetings across the event's reports (the whole set at once). */
+export type ReallocationOptions = {
+  /** The user confirmed moving meetings of an all-feedback-in (warm) report. */
+  confirmWarm?: boolean
+  /** Admin override of a claimed / closed (hard-locked) report. Audited. */
+  overrideLock?: boolean
+}
+
+/** Audit an admin's override of a hard lock (a separate row, easy to find). */
+async function auditOverride(eventId: string, what: string, details: Record<string, unknown>) {
+  await recordAudit({
+    action: "update",
+    entity: "feedback_report_lock_override",
+    recordId: eventId,
+    changes: { action: what, ...details },
+    context: "/events · Feedback report lock override (admin)",
+  })
+}
+
 export async function saveFeedbackReportAssignments(
   eventId: string,
   assignments: Record<string, string>,
+  opts: ReallocationOptions = {},
 ): Promise<ActionResult> {
   const pre = await writeGate(eventId)
   if (!pre.ok) return pre
@@ -208,6 +259,11 @@ export async function saveFeedbackReportAssignments(
   if (reason) return fail(reason)
 
   const before = Object.fromEntries(meetings.filter((m) => m.reportTaskId).map((m) => [m.meetingId, m.reportTaskId]))
+  // LOCKS, judged on the freshly loaded reports — never on what the browser sent.
+  const check = checkReallocation(reports, before, assignments)
+  const isAdmin = (await getEffectiveRole()) === "super_user"
+  const lockReason = decideReallocation(check, { ...opts, isAdmin })
+  if (lockReason) return fail(lockReason)
   const { error } = await getSupabaseServer().rpc("feedback_report_set_assignments", {
     p_event: eventId,
     p_assignments: assignments,
@@ -222,25 +278,73 @@ export async function saveFeedbackReportAssignments(
     action: "update",
     entity: "feedback_report_meetings",
     recordId: eventId,
-    changes: { moved },
+    changes: { moved, ...(check.warmLetters.length > 0 ? { warm_confirmed: check.warmLetters } : {}) },
     context: "/events · Feedback report assignments",
   })
+  if (check.hard.length > 0) {
+    await auditOverride(eventId, "reassign meetings", {
+      locked_reports: check.hardLetters,
+      moved: check.hard.map((h) => ({ meeting_id: h.meetingId, from: letter(h.from), to: letter(h.to) })),
+    })
+  }
   revalidate()
   return ok()
 }
 
 /** Delete an unclaimed, open report; its meetings move to another report. */
-export async function deleteFeedbackReport(eventId: string, reportTaskId: string): Promise<ActionResult> {
+export async function deleteFeedbackReport(
+  eventId: string,
+  reportTaskId: string,
+  opts: ReallocationOptions = {},
+): Promise<ActionResult> {
   if (!isUuid(reportTaskId)) return fail("Unknown report.")
   const pre = await writeGate(eventId)
   if (!pre.ok) return pre
-  const report = pre.data.reports.find((r) => r.taskId === reportTaskId)
+  const { reports, meetings } = pre.data
+  const report = reports.find((r) => r.taskId === reportTaskId)
   if (!report) return fail("That report isn't on this event.")
   const reason = decideDeleteReport(
-    { taskId: report.taskId, state: report.state, claimed: !!report.claimedByName },
-    pre.data.reports.length,
+    { taskId: report.taskId, state: report.state, claimed: report.claimed },
+    reports.length,
   )
   if (reason) return fail(reason)
+
+  // Its meetings must land on a report that is NOT hard-locked. They are moved
+  // first, through the assignment RPC, so the delete RPC itself moves nothing
+  // (its own target pick does not know about claims).
+  const leaving = meetings.filter((m) => m.eligible && m.reportTaskId === reportTaskId)
+  if (leaving.length > 0) {
+    if (report.lock === "warm" && !opts.confirmWarm) {
+      return fail(`All feedback is in for Report ${report.letter} — confirm to reallocate anyway.`)
+    }
+    let target = deleteTarget(reports, reportTaskId)
+    if (!target) {
+      if (!opts.overrideLock) {
+        return fail("Every other report is claimed or closed, so its meetings have nowhere to go. An admin can override.")
+      }
+      if ((await getEffectiveRole()) !== "super_user") return fail("Only an admin can override a claimed report's lock.")
+      target = reports.find((r) => r.taskId !== reportTaskId)?.taskId ?? null
+      if (!target) return fail("An event must keep at least one feedback report.")
+      await auditOverride(eventId, "delete report into a locked report", {
+        deleted: report.letter,
+        into: reports.find((r) => r.taskId === target)?.letter ?? null,
+        meetings: leaving.map((m) => m.meetingId),
+      })
+    }
+    const dest = target
+    const all = Object.fromEntries(
+      // Every eligible meeting must be assigned (the RPC's rule): the leaving
+      // ones — and any left unassigned by locked routing — go to `dest`.
+      meetings
+        .filter((m) => m.eligible)
+        .map((m) => [m.meetingId, !m.reportTaskId || m.reportTaskId === reportTaskId ? dest : m.reportTaskId]),
+    )
+    const { error: mvErr } = await getSupabaseServer().rpc("feedback_report_set_assignments", {
+      p_event: eventId,
+      p_assignments: all,
+    })
+    if (mvErr) return fail(describeError(mvErr))
+  }
 
   const { data: target, error } = await getSupabaseServer().rpc("feedback_report_delete", { p_report: reportTaskId })
   if (error) return fail(describeError(error))

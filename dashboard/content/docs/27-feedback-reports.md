@@ -104,6 +104,38 @@ The feedback-pipeline **working hub**: every Open Feedback task with no `crdfa_f
 
 **Dynamics is display-only.** Nothing on the page claims anything, and nothing touches a Dynamics row; claiming stays on Feedback Reports and dashboard-origin only until cutover; the auto-create stays dashboard-origin only (Dynamics events already create their own Feedback task, so none is duplicated). **Super-user only via `ADMIN_ONLY_ROUTES`** — the one-line flag: remove it there and tick the route in Admin → Roles to open the page to more roles.
 
+### Per-meeting feedback flag + re-allocation locks (2026-10-10)
+
+**Per-meeting flag.** Every meeting row in both panels shows a compact pill from the definitive `meetings.feedback_status_label`, with the received date in the tooltip. The panels are the event drawer's *Feedback reports* and Edit Event's *Meetings & Reports*. The component is `FeedbackFlagPill`.
+
+| `feedback_status_label` | Pill |
+|---|---|
+| *(blank)* | Not in (grey) |
+| Awaiting Additional | Waiting (amber) |
+| Closed - No Feedback | No feedback (grey) |
+| Closed - All in | Feedback in (green) |
+
+**Report locks.** The rule is `reportLock` in `lib/feedback-reports/policy.ts`, and it is unit-tested.
+
+| Lock | Signal | Effect |
+|---|---|---|
+| **Hard** | Claimed: `tasks.claimed_by_id` or the legacy mirror `bcs_claimed_by_id`. Or the report is no longer Open. | Lock icon on the report. Its meetings can't be moved out and no meeting can be added to it: the pickers and the option are disabled. |
+| **Warm** | All feedback in (`crdfa_feedback_received_date` set by *Mark received*) and **not** claimed. | Warn icon. Re-allocation is allowed after a confirm ("All feedback is in for Report B — reallocate anyway?"). Deleting the report asks the same. |
+| **None** | Neither. | Freely editable, exactly as before. |
+
+**Enforced server-side** (`app/events/feedback-report-actions.ts`, on freshly loaded data; the service-role client bypasses RLS, so the UI is never the guard):
+
+- **`saveFeedbackReportAssignments(event, assignments, { confirmWarm, overrideLock })`** classifies every move with `checkReallocation` and decides with `decideReallocation`. A move out of or into a hard-locked report is rejected unless `overrideLock` comes from an admin. A move touching a warm report is rejected unless `confirmWarm` is sent.
+- **`deleteFeedbackReport`** moves the deleted report's meetings first, to the first other report that is not hard-locked (`deleteTarget`: not-yet-received first, then lowest sequence), so they never land in a claimed report. If every other report is locked, it refuses unless an admin overrides. A warm report's deletion needs `confirmWarm`.
+
+**Admin override.** *Override lock* in either panel appears only when a report is hard-locked, and it asks for confirmation. It re-enables the locked controls; the server still re-checks that the caller is a super user. Every override writes its own audit row: entity **`feedback_report_lock_override`**, with the locked report letters and the meetings moved. All writers of these panels are super users (`requireCrmWriter`), so every writer can override, but only deliberately, and it is always audited.
+
+**New meetings never auto-route into a hard-locked report.** This needs `sql/patches/2026-10-10_feedback_report_locks.sql`. Until it is run, routing still uses the 2026-10-07b rule.
+
+1. `trg_meetings_feedback_routing` now calls `feedback_event_route_target`, which picks the newest report that is Open **and unclaimed**, preferring one whose feedback isn't in yet.
+2. If every report is locked, it creates the next split (`feedback_report_create`, max 3).
+3. Failing that, the meeting stays unassigned (shown under "Not in a report") for a person to place.
+
 ### Cutover switch
 
 `feedback_automation_includes_dynamics()` in SQL (authoritative — every trigger asks `feedback_automation_in_scope(origin)`), mirrored by `FEEDBACK_AUTOMATION_INCLUDES_DYNAMICS` in `lib/feedback-reports/policy.ts` (decides whether the drawer offers the panel). Flip **both** at cutover — together with the claim switch `FEEDBACK_CLAIMS_INCLUDE_DYNAMICS` (14 — Tasks). Note: Dynamics events that already exist at cutover won't get a report retroactively (the trigger fires on insert); backfill would be a one-off script.

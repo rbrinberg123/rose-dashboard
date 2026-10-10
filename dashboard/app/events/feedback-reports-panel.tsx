@@ -14,12 +14,25 @@ import {
   type EventFeedbackReports,
 } from "./feedback-report-actions"
 import { MarkReceivedControl } from "./mark-received-control"
+import {
+  FeedbackFlagPill,
+  OverrideLockButton,
+  ReportLockMark,
+  confirmReallocation,
+  reportSelectable,
+} from "./report-locks"
 
 /**
  * Event drawer → "Feedback reports". Shows the event's 1–3 Feedback report
  * tasks (auto-created when the event was created) and which meetings each one
  * covers; lets a super user Split (add a report), reassign meetings A / B / C,
  * and delete an unclaimed report. Every rule is re-checked on the server.
+ *
+ * Each meeting shows its own feedback flag (definitive feedback_status_label).
+ * LOCKS (report-locks.tsx; enforced server-side): a claimed / closed report is
+ * hard-locked (lock icon, its meetings' pickers and its option disabled; admin
+ * "Override lock", audited); an all-feedback-in unclaimed report is warm (warn
+ * icon; Save / Delete ask to confirm).
  */
 
 const UTC_DAY = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" })
@@ -34,6 +47,7 @@ export function FeedbackReportsPanel({ eventId }: { eventId: string }) {
   const [draft, setDraft] = React.useState<Record<string, string> | null>(null)
   const [busy, startTransition] = React.useTransition()
   const [reloadKey, setReloadKey] = React.useState(0)
+  const [override, setOverride] = React.useState(false)
   const router = useRouter()
 
   // The effect owns only the async fetch — every setState is in its callback.
@@ -45,6 +59,7 @@ export function FeedbackReportsPanel({ eventId }: { eventId: string }) {
         setData(res.data)
         setError(null)
         setDraft(null)
+        setOverride(false)
       } else setError(res.error)
     })
     return () => {
@@ -93,6 +108,7 @@ export function FeedbackReportsPanel({ eventId }: { eventId: string }) {
   const current = (id: string) => draft?.[id] ?? data.meetings.find((m) => m.meetingId === id)?.reportTaskId ?? ""
   const dirty = draft !== null
   const autoRouted = eligible.filter((m) => m.autoRouted).length
+  const savedLocked = (taskId: string | null) => data.reports.some((r) => r.taskId === taskId && r.lock === "hard")
 
   function run(call: () => Promise<{ ok: boolean; error?: string }>, success: string) {
     startTransition(async () => {
@@ -120,6 +136,7 @@ export function FeedbackReportsPanel({ eventId }: { eventId: string }) {
               <span className="w-5 shrink-0 font-semibold" style={{ color: TEXT_PRIMARY }}>
                 {r.letter}
               </span>
+              <ReportLockMark report={r} />
               <span className="min-w-0 flex-1 truncate" style={{ color: TEXT_PRIMARY }} title={r.subject ?? undefined}>
                 {r.claimedByName ?? "System (unclaimed)"}
                 <span style={{ color: TEXT_MUTED }}>
@@ -146,8 +163,15 @@ export function FeedbackReportsPanel({ eventId }: { eventId: string }) {
                         : "Delete — its meetings move to another report"
                   }
                   onClick={() => {
-                    if (window.confirm(`Delete report ${r.letter}? Its meetings move to another report of this event.`)) {
-                      run(() => deleteFeedbackReport(eventId, r.taskId), `Report ${r.letter} deleted.`)
+                    const warm = r.lock === "warm" && count > 0
+                    const msg = warm
+                      ? `All feedback is in for Report ${r.letter} — delete it and reallocate its meetings anyway?`
+                      : `Delete report ${r.letter}? Its meetings move to another report of this event.`
+                    if (window.confirm(msg)) {
+                      run(
+                        () => deleteFeedbackReport(eventId, r.taskId, { confirmWarm: warm, overrideLock: override }),
+                        `Report ${r.letter} deleted.`,
+                      )
                     }
                   }}
                 >
@@ -175,10 +199,13 @@ export function FeedbackReportsPanel({ eventId }: { eventId: string }) {
                   </span>
                 )}
               </span>
+              <FeedbackFlagPill status={m.feedbackStatus} receivedDate={m.feedbackReceivedDate} />
               <select
                 aria-label={`Report for ${m.institution ?? "meeting"}`}
                 value={current(m.meetingId)}
-                disabled={busy || data.reports.length < 2}
+                // A meeting in a hard-locked report can't move out (admin override).
+                disabled={busy || data.reports.length < 2 || (savedLocked(m.reportTaskId) && !override)}
+                title={savedLocked(m.reportTaskId) && !override ? "Its report is claimed — locked" : undefined}
                 onChange={(e) =>
                   setDraft((d) => ({
                     ...Object.fromEntries(eligible.map((x) => [x.meetingId, current(x.meetingId)])),
@@ -186,12 +213,18 @@ export function FeedbackReportsPanel({ eventId }: { eventId: string }) {
                     [m.meetingId]: e.target.value,
                   }))
                 }
-                className="h-7 rounded-md border border-input bg-background px-1.5 text-xs"
+                className="h-7 rounded-md border border-input bg-background px-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {!current(m.meetingId) && <option value="">—</option>}
                 {data.reports.map((r) => (
-                  <option key={r.taskId} value={r.taskId}>
+                  <option
+                    key={r.taskId}
+                    value={r.taskId}
+                    // Nothing can be added to a hard-locked report (admin override).
+                    disabled={r.taskId !== current(m.meetingId) && !reportSelectable(r, override)}
+                  >
                     Report {r.letter}
+                    {r.lock === "hard" ? " · locked" : ""}
                   </option>
                 ))}
               </select>
@@ -231,7 +264,10 @@ export function FeedbackReportsPanel({ eventId }: { eventId: string }) {
             disabled={busy}
             onClick={() => {
               const all = Object.fromEntries(eligible.map((m) => [m.meetingId, current(m.meetingId)]))
-              run(() => saveFeedbackReportAssignments(eventId, all), "Meeting assignments saved.")
+              const before = Object.fromEntries(eligible.map((m) => [m.meetingId, m.reportTaskId]))
+              const opts = confirmReallocation(data.reports, before, all, override)
+              if (!opts) return
+              run(() => saveFeedbackReportAssignments(eventId, all, opts), "Meeting assignments saved.")
             }}
           >
             {dirty ? "Save assignments" : "Confirm assignments"}
@@ -242,6 +278,8 @@ export function FeedbackReportsPanel({ eventId }: { eventId: string }) {
             Cancel
           </button>
         )}
+        <span className="ml-auto" />
+        <OverrideLockButton reports={data.reports} on={override} onChange={setOverride} className={BTN} disabled={busy} />
       </div>
     </>,
   )

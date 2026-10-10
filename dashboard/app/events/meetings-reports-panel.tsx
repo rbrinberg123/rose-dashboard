@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Check, ChevronRight, Circle, Clock, Minus } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 
 import { STATUS_PILL_LIGHT, TEXT_MUTED, TEXT_PRIMARY, TEXT_TERTIARY } from "@/lib/design"
 import { reportAccent } from "@/lib/feedback-reports/accents"
@@ -18,6 +18,13 @@ import {
   type FeedbackReportMeeting,
   type FeedbackReportSummary,
 } from "./feedback-report-actions"
+import {
+  FeedbackFlagPill,
+  OverrideLockButton,
+  ReportLockMark,
+  confirmReallocation,
+  reportSelectable,
+} from "./report-locks"
 
 /**
  * Edit Event dialog → 4th column, "Meetings & Reports". The event's meetings
@@ -38,10 +45,15 @@ import {
  * (= SQL feedback_meeting_is_eligible): cancelled / inactive meetings sit in a
  * subtle "Cancelled / inactive" group, never in a report.
  *
- * FEEDBACK FLAG per meeting = the meeting's OWN feedback status
- * (meetings.feedback_status_label + fb_received_date — what Feedback Collection
- * sets): Closed - All in = received ✓, Closed - No Feedback = closed without
- * feedback, Awaiting Additional = partial, blank = nothing yet.
+ * FEEDBACK FLAG per meeting = the meeting's OWN feedback status, from the
+ * definitive meetings.feedback_status_label (FeedbackFlagPill): blank → Not in ·
+ * Awaiting Additional → Waiting · Closed - No Feedback → No feedback ·
+ * Closed - All in → Feedback in.
+ *
+ * LOCKS (report-locks.tsx; enforced server-side): a CLAIMED / closed report is
+ * hard-locked (lock icon; its rows' pickers and its option are disabled), an
+ * all-feedback-in unclaimed report is warm (warn icon; Save asks to confirm).
+ * "Override lock" (admin) re-enables the locked controls; the save is audited.
  *
  * These writes are immediate and independent of the event form: every button
  * is type="button", and the panel holds no form state, so it never submits or
@@ -70,38 +82,6 @@ function reportStatus(r: FeedbackReportSummary): string {
   return r.receivedDate ? "Feedback received" : "Awaiting feedback"
 }
 
-/** The meeting's own feedback status, as a small mark. */
-function FeedbackFlag({ m }: { m: FeedbackReportMeeting }) {
-  const s = m.feedbackStatus
-  const when = m.feedbackReceivedDate ? ` · received ${m.feedbackReceivedDate.slice(0, 10)}` : ""
-  if (s === "Closed - All in") {
-    return (
-      <span title={`Feedback received (Closed - All in)${when}`} aria-label="Feedback received" className="shrink-0">
-        <Check className="size-3.5" strokeWidth={3} style={{ color: STATUS_PILL_LIGHT.positive.text }} />
-      </span>
-    )
-  }
-  if (s === "Closed - No Feedback") {
-    return (
-      <span title={`Closed - No Feedback${when}`} aria-label="Closed, no feedback" className="shrink-0">
-        <Minus className="size-3.5" strokeWidth={3} style={{ color: TEXT_TERTIARY }} />
-      </span>
-    )
-  }
-  if (s === "Awaiting Additional") {
-    return (
-      <span title={`Awaiting Additional — some feedback in${when}`} aria-label="Awaiting additional feedback" className="shrink-0">
-        <Clock className="size-3.5" style={{ color: STATUS_PILL_LIGHT.watch.text }} />
-      </span>
-    )
-  }
-  return (
-    <span title={s ? `Feedback: ${s}` : "No feedback recorded yet"} aria-label="No feedback yet" className="shrink-0">
-      <Circle className="size-3.5" style={{ color: "#D5DBE7" }} />
-    </span>
-  )
-}
-
 export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
   const [data, setData] = React.useState<EventFeedbackReports | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -110,6 +90,7 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
   const [reloadKey, setReloadKey] = React.useState(0)
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set(["cancelled"]))
   const [now] = React.useState(() => Date.now())
+  const [override, setOverride] = React.useState(false)
   const router = useRouter()
 
   // The effect owns only the async fetch — every setState is in its callback.
@@ -121,6 +102,7 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
         setData(res.data)
         setError(null)
         setDraft(null)
+        setOverride(false)
       } else setError(res.error)
     })
     return () => {
@@ -141,6 +123,7 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
     router.refresh()
   }
   function run(call: () => Promise<{ ok: boolean; error?: string }>, success: string) {
+    if (!data) return
     startTransition(async () => {
       const res = await call()
       if (res.ok) {
@@ -189,6 +172,7 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
   const dirty = draft !== null
   const autoRouted = eligible.filter((m) => m.autoRouted).length
   const reportIds = new Set(data.reports.map((r) => r.taskId))
+  const savedLocked = (taskId: string | null) => data.reports.find((r) => r.taskId === taskId && r.lock === "hard")
   const move = (meetingId: string, taskId: string) =>
     setDraft((d) => ({
       ...Object.fromEntries(eligible.map((x) => [x.meetingId, current(x.meetingId)])),
@@ -225,7 +209,10 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
           disabled={busy}
           onClick={() => {
             const all = Object.fromEntries(eligible.map((m) => [m.meetingId, current(m.meetingId)]))
-            run(() => saveFeedbackReportAssignments(eventId, all), "Meeting assignments saved.")
+            const before = Object.fromEntries(eligible.map((m) => [m.meetingId, m.reportTaskId]))
+            const opts = confirmReallocation(data.reports, before, all, override)
+            if (!opts) return
+            run(() => saveFeedbackReportAssignments(eventId, all, opts), "Meeting assignments saved.")
           }}
         >
           {dirty ? "Save assignments" : "Confirm assignments"}
@@ -236,6 +223,8 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
           Cancel
         </button>
       )}
+      <span className="ml-auto" />
+      <OverrideLockButton reports={data.reports} on={override} onChange={setOverride} className={BTN} disabled={busy} />
     </div>
   )
 
@@ -301,8 +290,15 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
                           : "Delete — its meetings move to another report"
                     }
                     onClick={() => {
-                      if (window.confirm(`Delete report ${r.letter}? Its meetings move to another report of this event.`)) {
-                        run(() => deleteFeedbackReport(eventId, r.taskId), `Report ${r.letter} deleted.`)
+                      const warm = r.lock === "warm" && g.rows.length > 0
+                      const msg = warm
+                        ? `All feedback is in for Report ${r.letter} — delete it and reallocate its meetings anyway?`
+                        : `Delete report ${r.letter}? Its meetings move to another report of this event.`
+                      if (window.confirm(msg)) {
+                        run(
+                          () => deleteFeedbackReport(eventId, r.taskId, { confirmWarm: warm, overrideLock: override }),
+                          `Report ${r.letter} deleted.`,
+                        )
                       }
                     }}
                   >
@@ -341,19 +337,27 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
                           </span>
                         )}
                       </span>
-                      <FeedbackFlag m={m} />
+                      <FeedbackFlagPill status={m.feedbackStatus} receivedDate={m.feedbackReceivedDate} />
                       {m.eligible && data.reports.length > 1 && (
                         <select
                           aria-label={`Report for ${m.institution ?? "meeting"}`}
                           value={current(m.meetingId)}
-                          disabled={busy}
+                          // A meeting in a hard-locked report can't move out (admin override).
+                          disabled={busy || (!!savedLocked(m.reportTaskId) && !override)}
+                          title={savedLocked(m.reportTaskId) && !override ? "Its report is claimed — locked" : undefined}
                           onChange={(e) => move(m.meetingId, e.target.value)}
-                          className="h-6 shrink-0 rounded border border-input bg-background px-0.5 text-[11px]"
+                          className="h-6 shrink-0 rounded border border-input bg-background px-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {!current(m.meetingId) && <option value="">—</option>}
                           {data.reports.map((rep) => (
-                            <option key={rep.taskId} value={rep.taskId}>
+                            <option
+                              key={rep.taskId}
+                              value={rep.taskId}
+                              // Nothing can be added to a hard-locked report (admin override).
+                              disabled={rep.taskId !== current(m.meetingId) && !reportSelectable(rep, override)}
+                            >
                               {rep.letter}
+                              {rep.lock === "hard" ? " · locked" : ""}
                             </option>
                           ))}
                         </select>
@@ -402,9 +406,11 @@ function GroupHeader({
         <span className="shrink-0 font-semibold" style={{ color: g.key === "cancelled" ? TEXT_MUTED : TEXT_PRIMARY }}>
           {g.title}
         </span>
+        {g.report && <ReportLockMark report={g.report} />}
         {g.report && (
           <span className="truncate text-[11px]" style={{ color: TEXT_MUTED }}>
             · {reportStatus(g.report)}
+            {g.report.claimed && g.report.claimedByName ? ` · ${g.report.claimedByName}` : ""}
           </span>
         )}
       </button>

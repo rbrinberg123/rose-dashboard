@@ -66,3 +66,52 @@ test("received date: today and past accepted; empty, impossible and future refus
   assert.match(validateReceivedDay("10/07/2026", today) ?? "", /valid date/)
   assert.match(validateReceivedDay("2026-10-08", today) ?? "", /future/)
 })
+
+// ---- Per-meeting flag + re-allocation locks (2026-10-10) -------------------
+import { meetingFeedbackFlag, reportLock, checkReallocation, decideReallocation, deleteTarget } from "./policy.ts"
+
+test("meetingFeedbackFlag maps the definitive field", () => {
+  assert.equal(meetingFeedbackFlag(null).label, "Not in")
+  assert.equal(meetingFeedbackFlag("Awaiting Additional").label, "Waiting")
+  assert.equal(meetingFeedbackFlag("Closed - No Feedback").label, "No feedback")
+  assert.equal(meetingFeedbackFlag("Closed - All in").label, "Feedback in")
+  assert.equal(meetingFeedbackFlag("Closed – All In").key, "in")
+})
+
+const A = { taskId: "a", letter: "A", seq: 1, state: "Open", claimed: false, receivedDate: null }
+const B = { taskId: "b", letter: "B", seq: 2, state: "Open", claimed: false, receivedDate: "2026-10-01" } // warm
+const C = { taskId: "c", letter: "C", seq: 3, state: "Open", claimed: true, receivedDate: "2026-10-01" } // hard
+
+test("reportLock: claimed / closed = hard, received-unclaimed = warm, else none", () => {
+  assert.equal(reportLock(A), "none")
+  assert.equal(reportLock(B), "warm")
+  assert.equal(reportLock(C), "hard")
+  assert.equal(reportLock({ ...A, state: "Completed" }), "hard")
+})
+
+test("untouched reports move freely", () => {
+  const chk = checkReallocation([A, B, C], { m1: "a" }, { m1: "a" })
+  assert.equal(decideReallocation(chk, { isAdmin: true }), null)
+})
+
+test("warm: allowed only with confirmation", () => {
+  const chk = checkReallocation([A, B, C], { m1: "b" }, { m1: "a" })
+  assert.deepEqual(chk.warmLetters, ["B"])
+  assert.match(decideReallocation(chk, { isAdmin: true }) ?? "", /All feedback is in for Report B/)
+  assert.equal(decideReallocation(chk, { isAdmin: true, confirmWarm: true }), null)
+})
+
+test("hard: no moving out, no adding in; admin override allowed", () => {
+  const out = checkReallocation([A, B, C], { m1: "c" }, { m1: "a" })
+  const into = checkReallocation([A, B, C], { m2: "a" }, { m2: "c" })
+  assert.match(decideReallocation(out, { isAdmin: true }) ?? "", /claimed or closed/)
+  assert.match(decideReallocation(into, { isAdmin: true }) ?? "", /claimed or closed/)
+  assert.equal(decideReallocation(into, { isAdmin: true, overrideLock: true }), null)
+  assert.match(decideReallocation(into, { isAdmin: false, overrideLock: true }) ?? "", /Only an admin/)
+})
+
+test("deleteTarget skips hard-locked reports, prefers not-yet-received", () => {
+  assert.equal(deleteTarget([A, B, C], "b"), "a")
+  assert.equal(deleteTarget([A, B, C], "a"), "b")
+  assert.equal(deleteTarget([{ ...A, claimed: true }, C, B], "b"), null)
+})
