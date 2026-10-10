@@ -23,6 +23,7 @@ import { PanelRightOpen, Search, X } from "lucide-react"
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { ListTitleCard } from "@/components/page-masthead"
 import { SortHeader } from "@/components/sort-header"
+import { CRM_TABLE_DENSITY } from "@/lib/table-density"
 import { Input } from "@/components/ui/input"
 import {
   Table,
@@ -78,6 +79,8 @@ import {
 import { ContactRecordPane, contactStatePill } from "./contact-record-pane"
 import { TestBadge } from "@/components/test-badge"
 import { EditContactDialog, NewContactButton, PurgeTestContactsButton } from "./new-contact-dialog"
+import { useFillHeight } from "@/components/use-fill-height"
+import { useFitColumns } from "@/components/use-fit-columns"
 
 // Row geometry. ROW_H must match the rendered row height exactly or the spacers
 // drift out of step with the scroll position and the window shows the wrong
@@ -85,7 +88,7 @@ import { EditContactDialog, NewContactButton, PurgeTestContactsButton } from "./
 //
 // 30, matching Events, Touches and Notes. Every contacts cell is a single short
 // value — a name, a title, a Yes/No — so nothing here wants to wrap.
-const ROW_H = 30
+const ROW_H = CRM_TABLE_DENSITY.rowH
 const OVERSCAN = 12
 
 /**
@@ -93,10 +96,8 @@ const OVERSCAN = 12
  * see the long note in app/meetings/meetings-view.tsx. Give it no bounded height
  * and the sticky <thead> never engages.
  */
-const SCROLLER_CLASSES =
-  "[&_[data-slot=table-container]]:h-[calc(100vh-16rem)] " +
-  "[&_[data-slot=table-container]]:min-h-[300px] " +
-  "[&_[data-slot=table-container]]:overflow-y-auto"
+// Sized to fill the page — see CRM_TABLE_DENSITY.scroller / useFillHeight.
+const SCROLLER_CLASSES = CRM_TABLE_DENSITY.scroller
 
 const VIEWPORT_H_FALLBACK = 560
 
@@ -243,19 +244,20 @@ export function ContactsView({
     [activeConfig.columns],
   )
 
+  const cardRef = React.useRef<HTMLDivElement>(null)
+  useFillHeight(cardRef)
+  // Columns fitted to the container (fixed-content columns keep their width,
+  // text columns compress + truncate) — see components/use-fit-columns.ts.
+  const { fitted, minWidth } = useFitColumns(cardRef, columns, 36)
+
   const bands = React.useMemo(() => bandsFor(columns), [columns])
   const bandStartSet = React.useMemo(() => bandStarts(columns), [columns])
-  const minWidth = React.useMemo(
-    () => columns.reduce((sum, c) => sum + (parseInt(c.width, 10) || 100), 0) + 36,
-    [columns],
-  )
   const sort = activeConfig.sort
   const dirty = React.useMemo(
     () => configsDiffer(activeConfig, savedConfig),
     [activeConfig, savedConfig],
   )
 
-  const cardRef = React.useRef<HTMLDivElement>(null)
   const scrollerRef = React.useRef<HTMLElement | null>(null)
   const [viewportH, setViewportH] = React.useState(VIEWPORT_H_FALLBACK)
 
@@ -484,7 +486,7 @@ export function ContactsView({
       </div>
 
       <div
-        className="relative sticky top-0 z-30 -mx-6 mb-3 flex flex-wrap items-center gap-2 px-6 py-2"
+        className={CRM_TABLE_DENSITY.toolbar}
         style={{ background: CANVAS }}
       >
         <ViewSwitcher
@@ -514,7 +516,7 @@ export function ContactsView({
           <button
             type="button"
             onClick={() => applyQuick({})}
-            className="h-8 shrink-0 cursor-pointer whitespace-nowrap rounded-md px-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            className="h-7 shrink-0 cursor-pointer whitespace-nowrap rounded-md px-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             Clear filters
           </button>
@@ -554,7 +556,7 @@ export function ContactsView({
             }}
             placeholder="Filter by keyword"
             aria-label="Filter contacts by keyword"
-            className="h-8 pl-8 pr-7 text-xs"
+            className="h-7 pl-8 pr-7 text-xs"
           />
           {query && (
             <button
@@ -629,18 +631,27 @@ export function ContactsView({
       </div>
 
       <div ref={cardRef} className={`${CARD_CLASS} overflow-hidden ${SCROLLER_CLASSES}`}>
-        <Table style={{ minWidth: `${minWidth}px` }}>
+        <Table className="table-fixed" style={{ minWidth: `${minWidth}px` }}>
+          {/* table-fixed + colgroup: the fitted widths are binding, so no cell's
+              content can push its column wider (useFitColumns). */}
+          <colgroup>
+            {fitted.map((c) => (
+              <col key={c.key} style={{ width: c.width }} />
+            ))}
+            <col style={{ width: 36 }} />
+          </colgroup>
           <TableHeader className="sticky top-0 z-20 bg-card [&_tr]:border-b-0 [&_th]:bg-card">
             <GroupBandRow bands={bands} />
             <TableRow className="border-b-0" style={{ backgroundColor: SUBHEADER_BG }}>
-              {columns.map((col, i) => (
+              {fitted.map((col, i) => (
                 <TableHead
                   key={col.key}
-                  className={cn("h-7 px-2", bandStartSet.has(i) && "relative")}
+                  className={cn(CRM_TABLE_DENSITY.head, bandStartSet.has(i) && "relative")}
                   style={{ width: col.width, minWidth: col.width }}
                 >
                   {bandStartSet.has(i) && <SectionDivider />}
                   <SortHeader
+                    className={CRM_TABLE_DENSITY.headLabel}
                     label={col.header ?? col.label}
                     title={col.title ?? col.label}
                     isSorted={sort.field === col.key ? sort.dir : false}
@@ -689,7 +700,7 @@ export function ContactsView({
                       }
                     }}
                   >
-                    {columns.map((col, ci) => (
+                    {fitted.map((col, ci) => (
                       <Cell
                         key={col.key}
                         col={col}
@@ -697,7 +708,7 @@ export function ContactsView({
                         row={r}
                       />
                     ))}
-                    <TableCell className="w-9 px-2">
+                    <TableCell className={CRM_TABLE_DENSITY.actionCell}>
                       <button
                         type="button"
                         onClick={() => openRecord(r.contact_id)}
@@ -782,8 +793,8 @@ function Cell({
   return (
     <TableCell
       className={cn(
-        "truncate py-0.5 text-[13px]",
-        col.compact ? "px-1 text-center" : "px-2",
+        CRM_TABLE_DENSITY.cell,
+        col.compact ? CRM_TABLE_DENSITY.padXCompact : CRM_TABLE_DENSITY.padX,
         empty && "text-muted-foreground",
         col.type === "date" && "tabular-nums",
       )}

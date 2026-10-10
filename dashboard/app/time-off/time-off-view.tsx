@@ -6,6 +6,7 @@ import { CARD_CLASS, BRAND_NAVY, TEXT_PRIMARY, ACCENT_STRIP } from "@/lib/design
 import { cn } from "@/lib/utils"
 import type { TimeOffRow } from "@/lib/types"
 import { SendTimeOffControls } from "./send-time-off-button"
+import { personNameCore } from "@/lib/team-initials"
 
 // Two time-off styles — differentiated by BOTH color and fill style:
 //   OOO    = filled light-green pill/bar with dark-green text.
@@ -47,7 +48,7 @@ function startOfDay(d: Date): Date {
 // Short display name: drop credentials after a comma, then first name + last
 // initial. "Scott Grossman, CFA" -> "Scott G."
 function shortName(name: string): string {
-  const base = name.split(",")[0].trim()
+  const base = personNameCore(name)
   const parts = base.split(/\s+/).filter(Boolean)
   if (parts.length === 0) return name
   if (parts.length === 1) return parts[0]

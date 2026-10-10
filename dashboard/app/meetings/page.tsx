@@ -7,11 +7,13 @@ import { markTestRows, testRowIds } from "@/lib/crm-write"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import type { AdminMeetingRow } from "@/lib/types"
 import {
+  FEEDBACK_STATUS_COLUMN,
   ROW_CAP,
   availableColumns,
   countViewRows,
   fetchViewRows,
   loadHostAliasGroups,
+  withFeedbackStatus,
   type QuickFilters,
 } from "@/lib/meetings/query"
 import { decodeConfig, resolveActiveView, type SavedView } from "@/lib/meetings/views"
@@ -137,7 +139,7 @@ export default async function MeetingsPage({
   // see lib/meetings/query.ts. `available` is the deployed view's real column
   // list, so a column the SQL patches have not delivered is dropped rather than
   // erroring the page.
-  const { rows, error: loadError, truncated } = await fetchViewRows<AdminMeetingRow>(
+  const { rows: viewRows, error: loadError, truncated } = await fetchViewRows<AdminMeetingRow>(
     sb,
     effectiveConfig,
     now,
@@ -160,6 +162,15 @@ export default async function MeetingsPage({
       </PageShell>
     )
   }
+
+  // Feedback Status — the table's one feedback column — straight off
+  // public.meetings until the view patch adds it (see withFeedbackStatus).
+  const { rows, bridged } = await withFeedbackStatus(sb, viewRows, available)
+  const tableColumns = available
+    ? bridged
+      ? [...available, FEEDBACK_STATUS_COLUMN]
+      : [...available]
+    : null
 
   // Per-view row counts for the switcher's labels, counted in the DB (`head:
   // true` returns no rows). Built-ins plus saved rows is a small number of cheap
@@ -206,7 +217,7 @@ export default async function MeetingsPage({
         /* Writes are refused while impersonating (views-actions invariant 4);
            the UI hides the save controls rather than offering a doomed click. */
         readOnlyViews={identity.impersonated}
-        availableColumns={available ? [...available] : null}
+        availableColumns={tableColumns}
         quickFilters={quick}
         truncated={truncated}
         rowCap={ROW_CAP}

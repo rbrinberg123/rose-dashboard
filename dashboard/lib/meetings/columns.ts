@@ -143,7 +143,7 @@ const SOURCE: Partial<
   date_time: {
     group: "Meeting",
     column: "meeting_date",
-    width: "130px",
+    width: "128px",
     renderer: "date",
     header: "Date",
     title: "Meeting date and time, Eastern",
@@ -155,7 +155,7 @@ const SOURCE: Partial<
   meeting_type: {
     group: "Meeting",
     column: "meeting_type_label",
-    width: "62px",
+    width: "56px",
     renderer: "text",
     header: "Type",
     title: "Meeting Type — Live or Virtual",
@@ -167,16 +167,16 @@ const SOURCE: Partial<
   status: {
     group: "Meeting",
     column: "meeting_status_label",
-    width: "90px",
+    width: "84px",
     renderer: "statusPill",
     header: "Status",
     title: "Meeting Status",
   },
-  investor: { column: "investor_name", width: "180px", renderer: "text", group: "Counterparty" },
+  investor: { column: "investor_name", width: "120px", renderer: "text", group: "Counterparty" },
   client: {
     group: "Client",
     column: "client_account_name",
-    width: "92px",
+    width: "84px",
     renderer: "ticker",
     header: "Client",
     // Sorting and the keyword box work off the FULL name, which every row has —
@@ -184,7 +184,7 @@ const SOURCE: Partial<
     title:
       "Client ticker — full name on hover. Links to the client's detail page. Sorted by full client name",
   },
-  institution: { column: "institution_name", width: "200px", renderer: "text", group: "Counterparty" },
+  institution: { column: "institution_name", width: "132px", renderer: "text", group: "Counterparty" },
   city: { column: "city_name", width: "120px", renderer: "text", needsViewPatch: true, group: "Meeting" },
   state_region: { column: "state_region_name", width: "120px", renderer: "text", needsViewPatch: true, group: "Meeting" },
   group_meeting: { column: "group_meeting", width: "70px", renderer: "bool", compact: true, needsViewPatch: true, group: "Meeting" },
@@ -194,11 +194,11 @@ const SOURCE: Partial<
   // ---- Representatives ----
   // 94px, not 88: "Booked By" needs 93px of header at 12px Geist, so the old
   // 88px was never actually honoured.
-  booked_by: { column: "booker_name", width: "94px", renderer: "people", title: "Initials — full name on hover", group: "Representatives" },
+  booked_by: { column: "booker_name", width: "84px", renderer: "people", title: "Initials — full name on hover", group: "Representatives" },
   on_behalf_of: {
     group: "Representatives",
     column: "on_behalf_of",
-    width: "60px",
+    width: "52px",
     renderer: "people",
     header: "OBO",
     title: "On Behalf Of — initials, full name on hover",
@@ -206,7 +206,7 @@ const SOURCE: Partial<
   hosts: {
     group: "Representatives",
     column: "host_names",
-    width: "76px",
+    width: "64px",
     renderer: "people",
     header: "Host",
     title: "All hosts on the meeting — initials, full name on hover",
@@ -214,7 +214,7 @@ const SOURCE: Partial<
   feedback_assignee: {
     group: "Representatives",
     column: "feedback_name",
-    width: "88px",
+    width: "80px",
     renderer: "people",
     title: "Feedback assignee (bcs_feedback) — initials, full name on hover",
   },
@@ -225,27 +225,45 @@ const SOURCE: Partial<
   calendar: {
     group: "Workflow",
     column: "calendar_label",
-    width: "96px",
+    width: "80px",
     renderer: "text",
     title: "Calendar stage — truncated, full value on hover",
   },
   profile: { column: "profile_label", width: "120px", renderer: "text", needsViewPatch: true, group: "Workflow" },
 
   // ---- Feedback ----
+  // Feedback Status (bcs_feedbackstatus) is the ONE authoritative feedback-state
+  // field: it is what closes meeting-level feedback (v_feedback_outstanding,
+  // Feedback Collection, Planning, Productivity, Capacity all read it). It is the
+  // table's only feedback column by default (2026-10-10). FB in BDA and FB Rec'd
+  // are informational only (BDA is no longer used) — kept in the Columns menu.
+  // Needs sql/patches/2026-10-10_admin_meetings_feedback_status.sql; until it is
+  // run the view lacks the column and the table simply leaves it out.
+  feedback_status: {
+    group: "Workflow",
+    column: "feedback_status_label",
+    width: "80px",
+    renderer: "bdaMark",
+    compact: true,
+    needsViewPatch: true,
+    header: "FB Status",
+    title:
+      "Feedback Status — the field that closes meeting feedback. ✓ closed, all in · ⃠ closed, no feedback · ◷ awaiting additional. Full value on hover",
+  },
   fb_in_bda: {
     group: "Workflow",
     column: "feedback_bda_label",
-    width: "62px",
+    width: "52px",
     renderer: "bdaMark",
     compact: true,
     header: "BDA",
     title:
-      "FB in BDA — ✓ all in, ⃠ closed with no feedback, ◷ awaiting additional. Full value on hover",
+      "FB in BDA (info only; BDA is no longer used — Feedback Status is the authoritative field) — ✓ all in, ⃠ closed with no feedback, ◷ awaiting additional. Full value on hover",
   },
   fb_received: {
     group: "Workflow",
     column: "fb_received",
-    width: "66px",
+    width: "56px",
     renderer: "checkMark",
     compact: true,
     header: "Rec'd",
@@ -283,7 +301,7 @@ const LIST_ONLY: MeetingColumnDef[] = [
     // the client's own ticker — so it bands with Client, not on its own.
     section: "Client",
     type: "text",
-    width: "220px",
+    width: "148px",
     renderer: "text",
   },
   {
@@ -358,10 +376,12 @@ export const DEFAULT_COLUMNS: string[] = [
   "host_names",
   "feedback_name",
   "booker_name",
-  "on_behalf_of",
+  // OBO (on_behalf_of) left the default 2026-10-10 — still in the Columns menu.
   "calendar_label",
-  "feedback_bda_label",
-  "fb_received",
+  // ONE feedback column (2026-10-10): the authoritative Feedback Status. FB in
+  // BDA and FB Rec'd (info only) were dropped from the default; still in the
+  // Columns menu.
+  "feedback_status_label",
 ]
 
 /**

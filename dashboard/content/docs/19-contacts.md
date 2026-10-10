@@ -83,6 +83,10 @@ Also flattened: `owner_id`/`owner_name`, `created_by_id`/`_name`, `modified_by_i
   - **Industry, City, Do Not Call, Lead State and Status (Active)** are off by default but still in the Columns menu. No DB fields changed.
   - Job Title, Contact and Email were widened slightly to fill the space.
   - User-saved views keep their own columns.
+- **2026-10-10 default columns:** Contact · Ticker · Client Name · Job Title · Contact Type · Email · Phone Number · Last Activity.
+  - **IR Only and PoC** (the whole **Flags & State** band) are off by default so the table fits a ≈1366px laptop. They are still in the Columns menu, and no DB fields changed.
+  - The freed width went back to Contact (176px), Client Name (170px), Job Title (176px) and Email (200px). The default view is now 1,170px wide.
+  - User-saved views keep their own columns.
 - ~~**City** is a searchable filter dropdown~~ — removed from the toolbar 2026-10-09 (see below).
 - **Client Name column (2026-10-09):** `client_account_name` (the resolved account's `accounts.name`, same join as the ticker) sits right after the ticker, which is now headed **Ticker**. Both are under the **Client** band, and both are on by default. A contact whose parent is not a matched account shows a dash for Client Name, while the Ticker cell still shows the parent's plain name. The keyword box now matches full client names too. Job Title / Email were narrowed slightly to make room.
 - **Toolbar filters trimmed (2026-10-09):** the toolbar now has only **Client** and **Contact Type**.

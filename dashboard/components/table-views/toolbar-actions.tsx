@@ -41,7 +41,7 @@ export function TableToolbarActions({
         onClick={onColumns}
         title={`Columns (${columnCount} shown)`}
         aria-label={`Columns, ${columnCount} shown`}
-        className="h-8 cursor-pointer gap-0.5 px-1.5 text-muted-foreground hover:text-foreground"
+        className="h-7 cursor-pointer gap-0.5 px-1.5 text-muted-foreground hover:text-foreground"
       >
         <Columns3 />
         <span className="text-[11px] tabular-nums">{columnCount}</span>
@@ -53,7 +53,7 @@ export function TableToolbarActions({
         onClick={onFilters}
         title={filterCount > 0 ? `Filters (${filterCount} set)` : "Filters"}
         aria-label={filterCount > 0 ? `Filters, ${filterCount} set` : "Filters"}
-        className="h-8 cursor-pointer gap-0.5 px-1.5 text-muted-foreground hover:text-foreground"
+        className="h-7 cursor-pointer gap-0.5 px-1.5 text-muted-foreground hover:text-foreground"
       >
         <Filter />
         {filterCount > 0 && <span className="text-[11px] tabular-nums">{filterCount}</span>}

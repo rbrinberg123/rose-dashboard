@@ -14,6 +14,7 @@ export function SortHeader({
   align = "left",
   title,
   ariaLabel,
+  className,
 }: {
   label: string
   isSorted: false | "asc" | "desc"
@@ -23,6 +24,8 @@ export function SortHeader({
   title?: string
   /** Accessible name when `label` is an abbreviation (e.g. "Sec" → "Secondary Manager"). */
   ariaLabel?: string
+  /** Extra classes — e.g. a density token's smaller label size. */
+  className?: string
 }) {
   const Icon = isSorted === "asc" ? ArrowUp : isSorted === "desc" ? ArrowDown : ArrowUpDown
   return (
@@ -35,6 +38,7 @@ export function SortHeader({
         "inline-flex w-full items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground",
         align === "right" && "justify-end",
         align === "center" && "justify-center",
+        className,
       )}
     >
       {align !== "right" && <span>{label}</span>}

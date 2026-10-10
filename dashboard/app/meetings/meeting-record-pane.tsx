@@ -15,6 +15,7 @@ import {
   type MeetingRecord,
   type MeetingSectionDef,
 } from "@/lib/meeting-record"
+import { splitPeople } from "@/lib/team-initials"
 
 /**
  * The meeting-record drawer: one meeting, read-only, in a right-side Sheet.
@@ -124,10 +125,8 @@ function Toggle({ on }: { on: boolean | null }) {
 
 /** One or more people as the shared avatar circles plus their full names. */
 function People({ value, role }: { value: string | null; role: string }) {
-  const names = (value ?? "")
-    .split(",")
-    .map((n) => n.trim())
-    .filter(Boolean)
+  // splitPeople, never a bare comma split: "Scott Grossman, CFA" is ONE person.
+  const names = splitPeople(value)
   if (names.length === 0) return <span className="text-muted-foreground">—</span>
   return (
     <span className="flex items-center gap-2">

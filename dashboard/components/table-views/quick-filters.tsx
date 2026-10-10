@@ -31,6 +31,12 @@ import { Input } from "@/components/ui/input"
 import type { FilterOption } from "@/lib/table-views/query"
 import { cn } from "@/lib/utils"
 
+/** Row-mode minimum widths (px) — keep in step with the min-w-[…] classes below. */
+const FILL_MIN_SELECT = 96
+const FILL_MIN_SEARCHABLE = 120
+/** gap-1.5 between row-mode dropdowns. */
+const FILL_GAP = 6
+
 const CONTROL =
   "h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
 
@@ -164,12 +170,23 @@ export function QuickFilterBar({
     ),
   )
   if (!row) return <>{controls}</>
+  // The group's natural width: every dropdown at its comfortable minimum (a
+  // searchable one needs room for its icon + a legible placeholder). Used as the
+  // flex BASIS, so the group stays inline while that fits and otherwise drops to
+  // a line of its own as a whole — never squeezing "Sector" down to "Secto".
+  const basis =
+    filters.reduce((w, f) => w + (f.searchable ? FILL_MIN_SEARCHABLE : FILL_MIN_SELECT), 0) +
+    FILL_GAP * Math.max(0, filters.length - 1)
   return (
     <div
+      style={ownLine ? undefined : { flexBasis: basis }}
       className={
         ownLine
-          ? "order-last flex min-w-0 basis-full flex-wrap items-center gap-1.5 min-[1360px]:flex-nowrap"
-          : "flex min-w-0 basis-full flex-wrap items-center gap-1.5 min-[1360px]:flex-[3] min-[1360px]:basis-auto min-[1360px]:flex-nowrap"
+          ? "order-last flex min-w-0 basis-full flex-wrap items-center gap-1.5"
+          : // Inline with the rest of the toolbar whenever it fits (an even share,
+            // flex-[3]); drops to its own line only when the row genuinely runs
+            // out of room (see `basis`), and its dropdowns wrap rather than cram.
+            "flex min-w-0 flex-[3] flex-wrap items-center gap-1.5"
       }
     >
       {controls}
@@ -208,7 +225,7 @@ function PlainSelect({
         disabled={disabled || loading || options.length === 0}
         onChange={(e) => onChange(e.target.value || undefined)}
         title={def.label}
-        className={cn(CONTROL, fill ? "h-8 min-w-[84px] flex-1 text-xs" : "max-w-[180px]")}
+        className={cn(CONTROL, fill ? "h-7 min-w-[96px] flex-1 text-xs" : "max-w-[180px]")}
       >
         {/* A URL can carry a filter whose option list has not arrived yet, so the
             selected value must still have something to sit on — otherwise the
@@ -317,7 +334,7 @@ function SearchableSelect({
   }
 
   return (
-    <div ref={rootRef} className={cn("relative", fill && "min-w-[84px] flex-1")}>
+    <div ref={rootRef} className={cn("relative", fill && "min-w-[120px] flex-1")}>
       <label htmlFor={id} className="sr-only">
         {def.label}
       </label>
@@ -354,7 +371,7 @@ function SearchableSelect({
             setActive(0)
           }}
           onKeyDown={onKeyDown}
-          className={fill ? "h-8 pl-8 pr-7 text-xs" : "h-9 pl-8 pr-7"}
+          className={fill ? "h-7 pl-8 pr-7 text-xs" : "h-9 pl-8 pr-7"}
           style={{ width: fill ? "100%" : (def.width ?? "190px") }}
         />
         {selected && !open && (

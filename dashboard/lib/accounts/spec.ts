@@ -122,7 +122,7 @@ const SOURCE: Partial<
   // what is PAINTED, not what is stored.
   name: {
     column: "name",
-    width: "230px",
+    width: "200px",
     renderer: "client",
     group: "Client",
     header: "Client",
@@ -166,7 +166,7 @@ const SOURCE: Partial<
   },
   sector_label: {
     column: "sector_label",
-    width: "140px",
+    width: "120px",
     renderer: "text",
     group: "Profile",
     header: "Sector",
@@ -182,7 +182,7 @@ const SOURCE: Partial<
   },
   region_label: {
     column: "region_label",
-    width: "96px",
+    width: "84px",
     renderer: "text",
     group: "Profile",
     header: "Region",
@@ -208,7 +208,7 @@ const SOURCE: Partial<
   },
   market_cap_label: {
     column: "market_cap_label",
-    width: "88px",
+    width: "80px",
     renderer: "text",
     group: "Profile",
     header: "Cap Band",
@@ -636,7 +636,7 @@ const LIST_ONLY: AccountColumnDef[] = [
     header: "Client Name",
     section: "Client",
     type: "text",
-    width: "240px",
+    width: "200px",
     renderer: "text",
     title: "The full company name, as plain text — the Client column paints the ticker instead",
   },
@@ -766,7 +766,8 @@ const TEAM_COLUMNS: AccountColumnDef[] = ACCOUNT_TEAM_ROLE_KEYS.map((role) => {
     section: "Account Team",
     type: "text",
     // Narrower than any text column: the cell holds an initials circle or two.
-    width: "60px",
+    // 56px: the narrowest that still fits the "Assoc" header + sort icon.
+    width: "56px",
     renderer: "team",
     compact: true,
     teamRole: role,
@@ -789,7 +790,7 @@ const LAST_ACTIVITY_COLUMNS: AccountColumnDef[] = [
       "Matches the CRM's Last Teaser rollup except where newer activity exists",
     section: "Last Activity",
     type: "date",
-    width: "104px",
+    width: "92px",
     renderer: "date",
   },
   {
@@ -809,7 +810,7 @@ const LAST_ACTIVITY_COLUMNS: AccountColumnDef[] = [
     title: "Most recent touchpoint up to today (Dynamics + dashboard)",
     section: "Last Activity",
     type: "date",
-    width: "116px",
+    width: "112px",
     renderer: "date",
   },
 ]

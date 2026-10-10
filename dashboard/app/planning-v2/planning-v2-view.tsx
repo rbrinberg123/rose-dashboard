@@ -15,6 +15,7 @@ import {
   TEXT_SECONDARY,
 } from "@/lib/design"
 import type { PlanningEventRow } from "@/lib/types"
+import { initialsOf as sharedInitialsOf } from "@/lib/team-initials"
 
 // ⚗️ EXPERIMENTAL SANDBOX COPY of app/planning/planning-view.tsx.
 // The real Planning page (app/planning) is untouched and shares the same
@@ -1674,14 +1675,9 @@ function StageCell({
 // the cell's title). "Laura Jevons" → "LJ"; a 3+ word name uses first + last
 // initial ("Mary Jane Watson" → "MW"); a single word uses its first two letters
 // ("Reception" → "RE"). Null/blank passes through so the cell shows its em-dash.
+// The shared, suffix-aware initials ("Scott Grossman, CFA" → "SG").
 function hostInitials(name: string | null): string | null {
-  if (!name) return null
-  const tokens = name.trim().split(/\s+/).filter(Boolean)
-  if (tokens.length === 0) return null
-  if (tokens.length === 1) return tokens[0].slice(0, 2).toUpperCase()
-  const first = tokens[0][0]
-  const last = tokens[tokens.length - 1][0]
-  return (first + last).toUpperCase()
+  return name ? sharedInitialsOf(name, 2) || null : null
 }
 
 // ---- ONE shared table shell -----------------------------------------------

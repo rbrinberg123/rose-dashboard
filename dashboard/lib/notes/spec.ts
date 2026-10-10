@@ -79,7 +79,7 @@ const SOURCE: Partial<
     // Holds the ticker and links to the client's detail page, exactly as the
     // other CRM tables do — same renderer, same destination.
     column: "client_account_name",
-    width: "104px",
+    width: "96px",
     renderer: "ticker",
     group: "Client",
     header: "Client",
@@ -89,7 +89,7 @@ const SOURCE: Partial<
   // ---- Note ----
   note_date: {
     column: "note_date",
-    width: "104px",
+    width: "92px",
     renderer: "date",
     group: "Note",
     header: "Date",
@@ -97,7 +97,7 @@ const SOURCE: Partial<
   },
   note_body: {
     column: "note_body",
-    width: "420px",
+    width: "320px",
     renderer: "body",
     group: "Note",
     header: "Note",
@@ -117,7 +117,7 @@ const SOURCE: Partial<
   // ---- Assessment ----
   status_text: {
     column: "status_text",
-    width: "104px",
+    width: "100px",
     renderer: "statusPill",
     group: "Assessment",
     header: "Status",
@@ -128,7 +128,7 @@ const SOURCE: Partial<
   },
   primary_risk_driver: {
     column: "primary_risk_driver",
-    width: "210px",
+    width: "180px",
     renderer: "text",
     group: "Assessment",
     header: "Risk Driver",
@@ -138,7 +138,7 @@ const SOURCE: Partial<
   // ---- Action ----
   action_step: {
     column: "action_step",
-    width: "300px",
+    width: "250px",
     renderer: "text",
     group: "Action",
     header: "Action Step",
@@ -164,7 +164,7 @@ const SOURCE: Partial<
   // ---- People ----
   owner_name: {
     column: "owner_name",
-    width: "88px",
+    width: "84px",
     renderer: "people",
     group: "People",
     header: "Owner",

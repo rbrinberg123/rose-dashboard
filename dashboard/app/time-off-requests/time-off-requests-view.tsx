@@ -46,15 +46,15 @@ import { cn } from "@/lib/utils"
 import { deleteTimeOffRequest, loadTimeOffApprovalRecord, loadTimeOffRecord } from "./actions"
 import { ReviewControls } from "./review-controls"
 import { EditTimeOffDialog, NewTimeOffButton, PurgeTestTimeOffButton } from "./time-off-form-dialog"
+import { useFillHeight } from "@/components/use-fill-height"
+import { CRM_TABLE_DENSITY } from "@/lib/table-density"
 
 const ROW_H = 30
 const OVERSCAN = 12
 const VIEWPORT_H_FALLBACK = 560
 
-const SCROLLER_CLASSES =
-  "[&_[data-slot=table-container]]:h-[calc(100vh-20rem)] " +
-  "[&_[data-slot=table-container]]:min-h-[300px] " +
-  "[&_[data-slot=table-container]]:overflow-y-auto"
+// Sized to fill the page — see CRM_TABLE_DENSITY.scroller / useFillHeight.
+const SCROLLER_CLASSES = CRM_TABLE_DENSITY.scroller
 
 const CONTROL = "h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
 
@@ -131,6 +131,7 @@ export function TimeOffRequestsView({
   const [open, setOpen] = React.useState<{ id: string; source: TimeOffListRow["source"] } | null>(null)
 
   const cardRef = React.useRef<HTMLDivElement>(null)
+  useFillHeight(cardRef)
   const scrollerRef = React.useRef<HTMLElement | null>(null)
   const [viewportH, setViewportH] = React.useState(VIEWPORT_H_FALLBACK)
 

@@ -17,6 +17,7 @@ import {
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { ListTitleCard } from "@/components/page-masthead"
 import { SortHeader } from "@/components/sort-header"
+import { CRM_TABLE_DENSITY } from "@/lib/table-density"
 import { Input } from "@/components/ui/input"
 import {
   Table,
@@ -64,6 +65,9 @@ import { QuickFilterControls } from "./quick-filters"
 import { MeetingRecordPane, statusPill } from "./meeting-record-pane"
 import type { AdminMeetingRow } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { splitPeople } from "@/lib/team-initials"
+import { useFillHeight } from "@/components/use-fill-height"
+import { useFitColumns } from "@/components/use-fit-columns"
 
 /**
  * The all-CRM Meetings table. Every meeting, no scoping — see the security note
@@ -78,9 +82,25 @@ import { cn } from "@/lib/utils"
 // Row geometry. ROW_H must match the rendered row height exactly or the spacers
 // drift out of step with the scroll position and the window shows the wrong
 // slice. It is enforced on every row via an inline height, not left to content.
-// 30px is the dense floor: a 24px avatar circle plus the cells' py-0.5 is 28.
-const ROW_H = 30
+// Comes from the shared density token (30px): a 24px avatar circle with the
+// compact cells' py-0 fits with room to spare.
+const ROW_H = CRM_TABLE_DENSITY.rowH
 const OVERSCAN = 12
+
+/**
+ * FROZEN IDENTITY COLUMNS — the laptop-width fallback. Since OBO left the
+ * default (2026-10-10) the 12 default columns fit a 1366px laptop (1,188px), so
+ * this only engages when a view adds columns past the width — but then
+ * shrinking them further would read as broken. So the leading run of identity
+ * columns (Type · Status · Date · Client in the default order) pins on
+ * horizontal scroll and the rest slide under it — the same sticky-left
+ * technique as Clients and Portfolio. Only a LEADING run freezes: a reordered
+ * view that doesn't open with these simply has nothing pinned.
+ */
+const FROZEN_KEYS = new Set(["meeting_type_label", "meeting_status_label", "meeting_date", "client_account_name"])
+const MAX_FROZEN = 4
+/** Hairline on the last frozen column, so scrolled cells read as passing under it. */
+const FROZEN_EDGE = "inset -1px 0 0 #E6EAF0"
 
 /**
  * THE SCROLL CONTAINER IS THE SHARED <Table>'S OWN WRAPPER, NOT A DIV OF OURS.
@@ -98,10 +118,8 @@ const OVERSCAN = 12
  * listener + ResizeObserver attach to it too. Do not reintroduce an outer
  * scrolling div: it would re-break the header.
  */
-const SCROLLER_CLASSES =
-  "[&_[data-slot=table-container]]:h-[calc(100vh-16rem)] " +
-  "[&_[data-slot=table-container]]:min-h-[300px] " +
-  "[&_[data-slot=table-container]]:overflow-y-auto"
+// Sized to fill the page — see CRM_TABLE_DENSITY.scroller / useFillHeight.
+const SCROLLER_CLASSES = CRM_TABLE_DENSITY.scroller
 
 // Only used for the first paint, before the ResizeObserver reports the real height.
 const VIEWPORT_H_FALLBACK = 560
@@ -155,8 +173,10 @@ const STAFF_ROLES = {
  * Render one staff cell as the shared initials-circle cluster.
  *
  * A cell may hold more than one person — Host especially, where the view
- * concatenates hosts with ", " — so the string is split and each person becomes
- * their own circle. AccountTeamAvatars then owns everything else: the 24px
+ * concatenates hosts with ", " — so the string is split into people by the
+ * shared splitPeople (lib/team-initials.ts), which keeps a suffix comma
+ * ("Scott Grossman, CFA") inside one person, and each person becomes their own
+ * circle. AccountTeamAvatars then owns everything else: the 24px
  * overlapping circles, the initials (including the global KMu/KMi
  * disambiguation via lookupInitials), and the per-circle "Role: Full Name"
  * tooltip. Nothing about that logic is duplicated here.
@@ -168,10 +188,8 @@ function staffAvatars(
   value: string | null,
 ): React.ReactNode | undefined {
   if (!value) return undefined
-  const names = value
-    .split(",")
-    .map((n) => n.trim())
-    .filter(Boolean)
+  // splitPeople, never a bare comma split: "Scott Grossman, CFA" is ONE person.
+  const names = splitPeople(value)
   if (names.length === 0) return undefined
   return <TeamAvatars members={names.map((name) => ({ ...spec, name }))} />
 }
@@ -214,7 +232,8 @@ function statusPillCell(label: string | null): React.ReactNode | undefined {
 }
 
 /**
- * FB in BDA as a three-state mark.
+ * Feedback Status (and the legacy FB in BDA, which shares its option set) as a
+ * three-state mark.
  *
  * NOT a yes/no: the field carries "Closed - All in", "Closed - No Feedback" and
  * "Awaiting Additional", and collapsing the first two together would erase the
@@ -413,28 +432,47 @@ export function MeetingsView({
    * The columns to render, resolved from the active view's ordered keys.
    *
    * A key with no catalog entry is dropped rather than rendered blank — that is
-   * how a view saved before a column was retired keeps working.
+   * how a view saved before a column was retired keeps working. So is a column
+   * the deployed view does not have yet (a pending view patch): the query
+   * already leaves it out, so it could only ever render as a column of dashes.
    */
   const columns = React.useMemo(
     () =>
       activeConfig.columns
         .map((k) => getColumn(k))
-        .filter((c): c is MeetingColumnDef => c !== undefined),
-    [activeConfig.columns],
+        .filter((c): c is MeetingColumnDef => c !== undefined)
+        .filter((c) => !availableSet || availableSet.has(c.key)),
+    [activeConfig.columns, availableSet],
   )
 
-  const bands: GroupBand[] = React.useMemo(
-    () => bandsFor(columns.map((c) => c.key)),
-    [columns],
-  )
+  const cardRef = React.useRef<HTMLDivElement>(null)
+  useFillHeight(cardRef)
+  // Columns fitted to the container (fixed-content columns keep their width,
+  // text columns compress + truncate) — see components/use-fit-columns.ts.
+  const { fitted, minWidth } = useFitColumns(cardRef, columns, 36)
+
+  // Value = the frozen column's sticky `left`; length = how many are frozen.
+  const frozenLefts = React.useMemo(() => {
+    const lefts: number[] = []
+    let left = 0
+    for (const c of fitted) {
+      if (!FROZEN_KEYS.has(c.key) || lefts.length >= MAX_FROZEN) break
+      lefts.push(left)
+      left += parseInt(c.width, 10) || 100
+    }
+    return lefts
+  }, [fitted])
+  const bands: GroupBand[] = React.useMemo(() => {
+    const b: GroupBand[] = bandsFor(columns.map((c) => c.key))
+    // The first band's label pins with its columns — only when the WHOLE band is
+    // frozen, or the label would slide over unfrozen cells.
+    if (b.length > 0 && frozenLefts.length > 0 && b[0].colSpan <= frozenLefts.length) {
+      b[0] = { ...b[0], sticky: true }
+    }
+    return b
+  }, [columns, frozenLefts])
   const bandStartSet = React.useMemo(() => bandStarts(columns.map((c) => c.key)), [columns])
 
-  /** The table's min-width has to track the chosen columns, or the browser
-   *  spreads the slack and the layout stops matching the declared widths. */
-  const minWidth = React.useMemo(
-    () => columns.reduce((sum, c) => sum + (parseInt(c.width, 10) || 100), 0) + 36,
-    [columns],
-  )
 
   const sort: SortState = React.useMemo(
     () => ({ key: activeConfig.sort.field, dir: activeConfig.sort.dir }),
@@ -511,7 +549,6 @@ export function MeetingsView({
   )
   // Wraps the shared <Table>; the real scroll element is the table-container
   // inside it (see SCROLLER_CLASSES), which is what we listen to and measure.
-  const cardRef = React.useRef<HTMLDivElement>(null)
   const scrollerRef = React.useRef<HTMLElement | null>(null)
 
   const [viewportH, setViewportH] = React.useState(VIEWPORT_H_FALLBACK)
@@ -706,7 +743,7 @@ export function MeetingsView({
           negative margins let its opaque canvas background span the full width
           of PageShell's p-6, so rows can't show through beside it. */}
       <div
-        className="relative sticky top-0 z-30 -mx-6 mb-3 flex flex-wrap items-center gap-2 px-6 py-2 min-[1360px]:flex-nowrap"
+        className={CRM_TABLE_DENSITY.toolbar}
         style={{ background: CANVAS }}
       >
         {/* The saved-view switcher, first — it frames what the count then
@@ -737,7 +774,7 @@ export function MeetingsView({
           <button
             type="button"
             onClick={() => applyQuickFilters({})}
-            className="h-8 shrink-0 cursor-pointer whitespace-nowrap rounded-md px-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            className="h-7 shrink-0 cursor-pointer whitespace-nowrap rounded-md px-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             Clear filters
           </button>
@@ -785,7 +822,7 @@ export function MeetingsView({
             }}
             placeholder="Filter by keyword"
             aria-label="Filter meetings by keyword"
-            className="h-8 pl-8 pr-7 text-xs"
+            className="h-7 pl-8 pr-7 text-xs"
           />
           {query && (
             <button
@@ -879,7 +916,15 @@ export function MeetingsView({
         {/* The min-width tracks the CHOSEN columns: leave it fixed and the
             browser spreads the slack, so the declared widths stop matching what
             renders. Recomputed from the active view's own widths. */}
-        <Table style={{ minWidth: `${minWidth}px` }}>
+        <Table className="table-fixed" style={{ minWidth: `${minWidth}px` }}>
+          {/* table-fixed + colgroup: the fitted widths are binding, so no cell's
+              content can push its column wider (useFitColumns). */}
+          <colgroup>
+            {fitted.map((c) => (
+              <col key={c.key} style={{ width: c.width }} />
+            ))}
+            <col style={{ width: 36 }} />
+          </colgroup>
           <TableHeader className="sticky top-0 z-20 bg-card [&_tr]:border-b-0 [&_th]:bg-card">
             {/* Tier 1: unfilled navy section bands (shared with Portfolio / To-Do).
                 Derived from the columns' catalog sections — see bandsFor. */}
@@ -888,14 +933,27 @@ export function MeetingsView({
             {/* Tier 2: the sortable column labels. Clicking one re-queries with a
                 new ORDER BY; the sort is part of the view and saves with it. */}
             <TableRow className="border-b-0" style={{ backgroundColor: SUBHEADER_BG }}>
-              {columns.map((col, i) => (
+              {fitted.map((col, i) => (
                 <TableHead
                   key={col.key}
-                  className={cn("h-7 px-2", bandStartSet.has(i) && "relative")}
-                  style={{ width: col.width, minWidth: col.width }}
+                  className={cn(CRM_TABLE_DENSITY.head, bandStartSet.has(i) && "relative")}
+                  style={{
+                    width: col.width,
+                    minWidth: col.width,
+                    ...(i < frozenLefts.length
+                      ? {
+                          position: "sticky",
+                          left: frozenLefts[i],
+                          zIndex: 30,
+                          backgroundColor: SUBHEADER_BG,
+                          ...(i === frozenLefts.length - 1 ? { boxShadow: FROZEN_EDGE } : null),
+                        }
+                      : null),
+                  }}
                 >
                   {bandStartSet.has(i) && <SectionDivider />}
                   <SortHeader
+                    className={CRM_TABLE_DENSITY.headLabel}
                     label={col.header ?? col.label}
                     title={col.title ?? col.label}
                     isSorted={sort.key === col.key ? sort.dir : false}
@@ -948,19 +1006,21 @@ export function MeetingsView({
                       }
                     }}
                   >
-                    {columns.map((col, ci) => (
+                    {fitted.map((col, ci) => (
                       <Cell
                         key={col.key}
                         col={col}
                         index={ci}
                         bandStart={bandStartSet.has(ci)}
+                        frozenLeft={ci < frozenLefts.length ? frozenLefts[ci] : undefined}
+                        frozenEdge={ci === frozenLefts.length - 1}
                         row={r}
                       />
                     ))}
                     {/* Opens the record drawer. This used to be a direct
                         "Open in CRM" link; that link now lives in the drawer's
                         action bar, where it sits beside the rest of the record. */}
-                    <TableCell className="w-9 px-2">
+                    <TableCell className={CRM_TABLE_DENSITY.actionCell}>
                       <button
                         type="button"
                         onClick={() => openRecord(r.meeting_id)}
@@ -1023,11 +1083,17 @@ function Cell({
   col,
   index,
   bandStart,
+  frozenLeft,
+  frozenEdge = false,
   row,
 }: {
   col: MeetingColumnDef
   index: number
   bandStart: boolean
+  /** Sticky `left` when this column is frozen (see FROZEN_KEYS). */
+  frozenLeft?: number
+  /** The last frozen column — draws the hairline the scrolled cells pass under. */
+  frozenEdge?: boolean
   row: AdminMeetingRow
 }) {
   const raw = (row as unknown as Record<string, unknown>)[col.key]
@@ -1042,10 +1108,10 @@ function Cell({
   return (
     <TableCell
       className={cn(
-        "truncate py-0.5 text-[13px]",
+        CRM_TABLE_DENSITY.cell,
         // Mark columns centre their glyph and halve the side padding; text
-        // columns keep the standard px-2 so their truncation still reads.
-        compact ? "px-1 text-center" : "px-2",
+        // columns keep the standard padding so their truncation still reads.
+        compact ? CRM_TABLE_DENSITY.padXCompact : CRM_TABLE_DENSITY.padX,
         empty && "text-muted-foreground",
         col.renderer === "date" && "tabular-nums",
       )}
@@ -1053,6 +1119,16 @@ function Cell({
         width,
         maxWidth: width,
         ...(bandStart ? BODY_SECTION_START_STYLE : null),
+        // Opaque so scrolled cells pass UNDER it; below the sticky header (z-20).
+        ...(frozenLeft !== undefined
+          ? {
+              position: "sticky",
+              left: frozenLeft,
+              zIndex: 10,
+              backgroundColor: "var(--card)",
+              ...(frozenEdge ? { boxShadow: FROZEN_EDGE } : null),
+            }
+          : null),
       }}
       title={empty ? undefined : (title ?? undefined)}
       data-column={col.key}

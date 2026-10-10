@@ -83,7 +83,7 @@ const SOURCE: Partial<
   // ---- Contact ----
   full_name: {
     column: "full_name",
-    width: "200px",
+    width: "176px",
     renderer: "people",
     group: "Contact",
     header: "Contact",
@@ -97,7 +97,7 @@ const SOURCE: Partial<
     // parent's plain NAME when it is not a matched account, which is what a
     // contact whose parent is another contact will show.
     column: "parent_customer_name",
-    width: "96px",
+    width: "80px",
     renderer: "ticker",
     group: "Client",
     // "Ticker" since 2026-10-09 — the full name now has its own column beside it
@@ -112,7 +112,7 @@ const SOURCE: Partial<
   // ---- Profile ----
   job_title: {
     column: "job_title",
-    width: "220px",
+    width: "176px",
     renderer: "text",
     group: "Profile",
     header: "Job Title",
@@ -121,7 +121,7 @@ const SOURCE: Partial<
   // ---- Contact Info (flattened 2026-09-16) ----
   email: {
     column: "email",
-    width: "230px",
+    width: "190px",
     renderer: "text",
     group: "Contact Info",
     header: "Email",
@@ -144,7 +144,7 @@ const SOURCE: Partial<
   },
   direct_phone: {
     column: "direct_phone",
-    width: "140px",
+    width: "112px",
     renderer: "text",
     group: "Contact Info",
     // Shown as "Phone Number" (2026-10-09): telephone1 — Dynamics' primary
@@ -161,7 +161,7 @@ const SOURCE: Partial<
   },
   contact_type_label: {
     column: "contact_type_label",
-    width: "140px",
+    width: "116px",
     renderer: "text",
     group: "Profile",
     header: "Contact Type",
@@ -179,7 +179,7 @@ const SOURCE: Partial<
   // ---- Flags & State ----
   ir_only: {
     column: "ir_only",
-    width: "70px",
+    width: "64px",
     renderer: "bool",
     group: "Flags & State",
     header: "IR Only",
@@ -187,7 +187,7 @@ const SOURCE: Partial<
   },
   poc: {
     column: "poc",
-    width: "62px",
+    width: "52px",
     renderer: "bool",
     group: "Flags & State",
     header: "PoC",
@@ -232,7 +232,7 @@ const SOURCE: Partial<
   // ---- Activity ----
   last_activity_time: {
     column: "last_activity_time",
-    width: "112px",
+    width: "104px",
     renderer: "date",
     group: "Activity",
     header: "Last Activity",
@@ -451,7 +451,7 @@ const LIST_ONLY: ContactColumnDef[] = [
     header: "Client Name",
     section: "Client",
     type: "text",
-    width: "200px",
+    width: "170px",
     renderer: "text",
     title: "The full name of the contact's client account (resolved through Company Name)",
   },
@@ -504,9 +504,14 @@ export function contactCatalogBySection(): { section: string; columns: ContactCo
 }
 
 /**
- * The default ten columns (2026-10-09):
+ * The default eight columns (2026-10-10):
  *   Contact · Ticker · Client Name · Job Title · Contact Type · Email · Phone Number ·
- *   IR Only · PoC · Last Activity
+ *   Last Activity
+ *
+ * IR Only and PoC (the Flags & State band) came OUT of the default on
+ * 2026-10-10 so the table fits a laptop width — still in the Columns menu, and
+ * the fields are untouched. The freed width went back to Contact, Client Name,
+ * Job Title and Email.
  *
  * Industry, City, Do Not Call, Lead State and Status (Active/Inactive) were
  * taken OUT of the default on 2026-10-09 — still in the Columns menu, and the
@@ -527,8 +532,7 @@ export function contactCatalogBySection(): { section: string; columns: ContactCo
  * and accept the repeated band label; nothing else needs to change.
  *
  * Resulting bands: Contact | Client | Profile (Job Title, Contact Type) |
- * Contact Info (Email, Phone Number) | Flags & State (IR Only, PoC) |
- * Activity (Last Activity).
+ * Contact Info (Email, Phone Number) | Activity (Last Activity).
  */
 export const CONTACT_DEFAULT_COLUMNS: string[] = [
   "full_name",
@@ -538,8 +542,6 @@ export const CONTACT_DEFAULT_COLUMNS: string[] = [
   "contact_type_label",
   "email",
   "direct_phone",
-  "ir_only",
-  "poc",
   "last_activity_time",
 ]
 

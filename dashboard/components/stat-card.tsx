@@ -21,6 +21,7 @@ export function StatCard({
   gradient,
   floating = false,
   sparkline,
+  compact = false,
 }: {
   label: React.ReactNode
   value: React.ReactNode
@@ -34,10 +35,12 @@ export function StatCard({
   floating?: boolean
   /** Optional sparkline / trend node, shown under the number (floating only). */
   sparkline?: React.ReactNode
+  /** Tighter vertical padding (floating only) — same stacked number-over-label. */
+  compact?: boolean
 }) {
   if (floating) {
     return (
-      <div className={`relative overflow-hidden p-4 ${KPI_CARD_CLASS}`}>
+      <div className={`relative overflow-hidden ${compact ? "px-4 py-2.5" : "p-4"} ${KPI_CARD_CLASS}`}>
         <div
           className="font-semibold leading-tight tracking-tight tabular-nums"
           style={{

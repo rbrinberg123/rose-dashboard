@@ -183,7 +183,7 @@ export function ViewSwitcher({
         onChange={(e) => switchTo(e.target.value)}
         className={
           compact
-            ? "h-8 max-w-[170px] shrink-0 rounded-md border border-input bg-background px-2 text-xs"
+            ? "h-7 max-w-[170px] shrink-0 rounded-md border border-input bg-background px-2 text-xs"
             : "h-9 max-w-[280px] rounded-md border border-input bg-background px-2 text-sm"
         }
       >

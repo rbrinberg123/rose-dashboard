@@ -75,6 +75,7 @@ import type {
   MarketingCalendarRow,
   MarketingEventMeeting,
 } from "@/lib/types"
+import { initialsOf as sharedInitialsOf } from "@/lib/team-initials"
 
 // Brand palette — inline-styled where Tailwind classes don't cover the exact hex.
 const NAVY_DEEP = "#1E2858"
@@ -139,12 +140,8 @@ function formatCompactDollars(value: number | null | undefined): string {
 }
 
 // First letter of the first and last word of a name ("Jane A. Doe" → "JD").
-function initialsOf(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean)
-  if (words.length === 0) return ""
-  if (words.length === 1) return words[0][0].toUpperCase()
-  return (words[0][0] + words[words.length - 1][0]).toUpperCase()
-}
+// The shared, suffix-aware initials ("Scott Grossman, CFA" → "SG").
+const initialsOf = (name: string): string => sharedInitialsOf(name)
 
 /** Tiny inline-SVG trend line for a KPI card (no axes, no chrome). */
 function Sparkline({ values, color }: { values: number[]; color: string }) {

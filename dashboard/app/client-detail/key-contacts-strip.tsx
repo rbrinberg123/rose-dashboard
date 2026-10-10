@@ -9,6 +9,7 @@ import { loadContactRecord } from "@/app/contacts/actions"
 import { ContactRecordPane } from "@/app/contacts/contact-record-pane"
 import type { ContactRecord } from "@/lib/contacts/record"
 import type { ClientContactItem } from "./crm-lists"
+import { initialsOf as sharedInitialsOf } from "@/lib/team-initials"
 
 /**
  * Client Detail top card → "Key Contacts", directly under Account Team. The
@@ -27,9 +28,9 @@ const AVATAR_FG = "#5B6472"
 const AVATAR_CLASS =
   "flex size-[18px] shrink-0 items-center justify-center rounded-full text-[8px] font-semibold leading-none"
 
+// The shared, suffix-aware initials ("Scott Grossman, CFA" → "SG").
 function initialsOf(name: string | null): string {
-  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean)
-  return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase() || "?"
+  return sharedInitialsOf(name ?? "") || "?"
 }
 
 function Chip({ c, onOpen }: { c: ClientContactItem; onOpen: (id: string) => void }) {

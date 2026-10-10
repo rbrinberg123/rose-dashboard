@@ -81,7 +81,7 @@ const SOURCE: Partial<
   // ---- Task ----
   subject: {
     column: "subject",
-    width: "300px",
+    width: "250px",
     renderer: "subject",
     group: "Task",
     header: "Subject",
@@ -96,7 +96,7 @@ const SOURCE: Partial<
   },
   task_type_label: {
     column: "task_type_label",
-    width: "104px",
+    width: "96px",
     renderer: "text",
     group: "Classification",
     header: "Task Type",
@@ -104,14 +104,14 @@ const SOURCE: Partial<
   },
   task_subtype_label: {
     column: "task_subtype_label",
-    width: "150px",
+    width: "128px",
     renderer: "text",
     group: "Classification",
     header: "Sub-type",
   },
   priority_label: {
     column: "priority_label",
-    width: "84px",
+    width: "76px",
     renderer: "text",
     group: "Classification",
     header: "Priority",
@@ -120,7 +120,7 @@ const SOURCE: Partial<
   },
   status_label: {
     column: "status_label",
-    width: "112px",
+    width: "104px",
     renderer: "statusPill",
     group: "Classification",
     header: "Status",
@@ -145,7 +145,7 @@ const SOURCE: Partial<
   },
   due_date: {
     column: "due_date",
-    width: "104px",
+    width: "92px",
     renderer: "date",
     group: "Schedule",
     header: "Due Date",
@@ -179,7 +179,7 @@ const SOURCE: Partial<
   // ---- Regarding & links ----
   regarding_name: {
     column: "regarding_name",
-    width: "230px",
+    width: "200px",
     renderer: "regarding",
     group: "Task",
     header: "Regarding",
@@ -197,7 +197,7 @@ const SOURCE: Partial<
     // Holds the ticker and links to the client's detail page, exactly as the
     // Events table's Client column does — same renderer, same destination.
     column: "client_account_name",
-    width: "104px",
+    width: "96px",
     renderer: "ticker",
     group: "Client",
     header: "Client",
@@ -215,7 +215,7 @@ const SOURCE: Partial<
   // ---- People ----
   owner_name: {
     column: "owner_name",
-    width: "84px",
+    width: "80px",
     renderer: "owner",
     group: "People",
     header: "Owner",

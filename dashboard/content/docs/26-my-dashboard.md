@@ -14,7 +14,7 @@
 
 It is **strictly personal**. Two people opening it at the same moment see different dashboards. There is no "see everything" mode, **not even for Super Users**: a Super User who isn't on any account team sees an empty book. To look at someone else's dashboard, use **View as {person}** (Admin → Users), which the page honours in full.
 
-**Workflow cards (2026-10-08).** The single merged *My To-Do* focus card is gone. Every Alerts-style workflow is now **its own compact card** (approved mockup `my-dashboard-v5.html`), clustered in three columns under light group labels — **Feedback · My Work · Administrative & Other**.
+**Workflow cards (2026-10-08).** The single merged *My To-Do* focus card is gone. Every Alerts-style workflow is now **its own compact card** (approved mockup `my-dashboard-v5.html`), clustered in three columns under light group labels — **Feedback Tasks · Other Tasks and Activity · Administrative**.
 
 **Close from the task card (2026-10-08).** The task drawer has a **Close** button next to Edit (owner or admin; confirm step) — see [14 — Tasks → Close from the card](14-tasks.md#close-from-the-card-2026-10-08). A closed task drops off Other Open Tasks and the counts on refresh; a Dynamics task closed here (sidecar `closed_at`, still Open in the mirror) is left out too.
 
@@ -26,10 +26,10 @@ Top to bottom:
    - **Greeting** with today's date, and a red **Needs you now** pill on the right, e.g. "**4 critical** · 1 to host today/tomorrow · 2 overdue". The headline is the **critical count — the same number as the red flags and the nav badge** (it is the badge's own function, `loadMyDashboardCriticalCount`, called by `page.tsx`); approvals are inside it, so they are not listed separately. Then meetings you host today/tomorrow. "N overdue" (your own items 1+ days past due) is a muted secondary figure only, never the headline. Shown only when something is critical or hosting is imminent (2026-10-08).
    - **Six KPI tiles** — the shared floating `StatCard` (white, subtle border and shadow, number over label — the original look, kept after a brief condensed trial), two / three / six per row by width. Same six KPIs, values and red / amber rule — Overdue · To collect · Pending review · Host · 7d · Contracts ≤90d · Approvals. Clicking a tile jumps to its card.
    - **My Book** — under a thin divider: active clients where you are **Primary, Secondary, Associate or Logistics** (`CORE_TEAM_ROLES` in `load.ts`), grouped by that role. Feedback and Memo assignments are left out of the strip and its count — the cards still use the full six-role book. Each ticker opens that client's Client Detail; **Open all in Portfolio →** goes to Portfolio. Role groups are tagged **PRI · SEC · ASSOC · LOG** (full role on hover) and separated by small dots, in that order, as **one continuous wrapping flow** — lines break wherever the width runs out (not at role boundaries), so a long book fills each line and continues on the next; "Open all in Portfolio →" ends the flow.
-2. **Jump to** quick-link bar (2026-10-08; approved mockup `my-dashboard-quicklinks-v3.html`, variant D·) — directly below the top banner, a slim, full-width segmented bar of text links labelled **Jump to**: **Portfolio** (`/portfolio`) · **Outreach Status** (`/clients/to-do`) · **Live Outreach** (`/live-outreach`) · **Feedback Reports** (`/feedback-manager`) · **Feedback Collection** (`/feedback-collection`) · **Onboarding** (`/onboarding`). It is **low-key but defined**: a light-gray bar (`#EEF1F5`, a shade off the page canvas `#F4F6F9`) with a light 1px border and rounded corners, thin dividers between segments, muted gray text at rest; a light blue tint and blue text appear only on hover. Equal segments; wraps to two or three per row on narrow screens. **Per-user:** a segment shows only if you can open that page — `JUMP_LINKS` filtered through the same `canAccessRoute` check as every other link here (`jumpLinks` in `load.ts`); the rest share the width evenly, and each page still enforces its own access server-side.
+2. **Jump to** quick-link bar (2026-10-08; approved mockup `my-dashboard-quicklinks-v3.html`, variant D·) — directly below the top banner, a slim, full-width segmented bar of text links labelled **Jump to page**: **Portfolio** (`/portfolio`) · **Outreach Status** (`/clients/to-do`) · **Live Outreach** (`/live-outreach`) · **Feedback Reports** (`/feedback-manager`) · **Feedback Collection** (`/feedback-collection`) · **Onboarding** (`/onboarding`). It is **low-key but defined**: a light-gray bar (`#EEF1F5`, a shade off the page canvas `#F4F6F9`) with a light 1px border and rounded corners, thin dividers between segments, muted gray text at rest; a light blue tint and blue text appear only on hover. Equal segments; wraps to two or three per row on narrow screens. **Per-user:** a segment shows only if you can open that page — `JUMP_LINKS` filtered through the same `canAccessRoute` check as every other link here (`jumpLinks` in `load.ts`); the rest share the width evenly, and each page still enforces its own access server-side.
 3. **"My To-Dos & Activity"** — a section heading (with a one-line subtext) over **the workflow cards**: a fixed three-column grid (not masonry), one cluster per column:
 
-   | Feedback | My Work | Administrative & Other |
+   | Feedback Tasks | Other Tasks and Activity | Administrative |
    |---|---|---|
    | Feedback to Collect | Other Open Tasks | Time Off Approvals |
    | Reports · Pending Review | Hosting · Next 7 Days | Active Marketing |
@@ -49,7 +49,7 @@ Top to bottom:
 
 **Nav badge.** The My Dashboard item in the sidebar carries a red count badge (bubble on the collapsed rail, pill when labels show; "9+" above nine; hidden at 0) = the total number of critical-flagged rows for the current (effective) viewer. Counted by `loadMyDashboardCriticalCount()` (`app/my-dashboard/critical-count.ts`) in the root layout on every page — head-only SQL counts using the page's own resolvers, task filter and team rule, with the flag rule as date cutoffs (`criticalDueBefore` / `criticalMeetingBefore`, proven equal to `isCritical` in `policy.test.ts`). After an approve / deny the page refreshes, so the row drops off and the badge recounts. Fail-soft: an error counts 0. The Pending Review part counts only core-team clients, like the card.
 
-**Typography, three tiers.** "My To-Dos & Activity" is the largest heading (20px bold); the column headers (Feedback · My Work · Administrative & Other) are black 16px bold with a thin rule; card titles are black 14px bold.
+**Typography, three tiers.** "My To-Dos & Activity" is the largest heading (20px bold); the column headers (Feedback Tasks · Other Tasks and Activity · Administrative) are black 16px bold with a thin rule; card titles are black 14px bold.
 
 **Styling:** built from the app's own components — the `ListTitleCard` masthead, floating `StatCard` KPIs, `CARD_CLASS` surfaces — so fonts and surfaces match the rest of the app.
 
@@ -74,7 +74,7 @@ Top to bottom:
 
 **Due-date rule** (`dueTone()` in `app/my-dashboard/policy.ts`): before today → **red**; today through today + 7 days → **amber**; later or no date → neutral.
 
-### Feedback
+### Feedback Tasks
 
 **Why it is on your card (2026-10-08).** Each feedback row's secondary line ends with the **inclusion reason**, worded exactly as on the Alerts page because it comes from the same logic: **Reports · Pending Review** and **Reports · Open / Claimed** — `teamLabel()` (exported from `app/clients/alerts/load.ts`), e.g. "You: Secondary" (Pending Review falls back to "Acct mgr: …" like Alerts); **Feedback to Collect** — "Owner: {name}" (the view's feedback owner, host fallback). Pending Review's detail is "Reviewer: …" or "Unclaimed" (Alerts' wording). Muted, truncated, full text on hover; rows with no reason simply omit it.
 
@@ -86,7 +86,7 @@ Top to bottom:
 
 **"Claimed by me"** uses the pipeline view's `claimed_by_id` (`tasks.bcs_claimed_by_id`). A **Claim** on Feedback Reports keeps that field in step with the dashboard-owned claim (`tasks.claimed_by_id`), so a task you claim there appears here, and **Close** (task → Completed) drops it off. If the claim column is missing on a database, the card shows **empty, not an error**. See [14 — Tasks → Feedback claiming](14-tasks.md#feedback-claiming-feedback-reports--claim--release--reassign--close).
 
-### My Work
+### Other Tasks and Activity
 
 | Card | Source | Scope | Date / colour | Row opens | All → |
 |---|---|---|---|---|---|
@@ -97,7 +97,7 @@ Top to bottom:
 
 **Feedback-task exclusion.** Other Open Tasks drops every task whose subtype is `Feedback` or `Feedback Report Sent` (`FEEDBACK_SUBTYPES` in `load.ts`) — those are exactly the tasks the Feedback cards are built from (including the automation's *Feedback Report Pending Review* tasks, which carry the *Feedback Report Sent* subtype). Tasks with no subtype are kept. So no task appears both in Other Open Tasks and a Feedback card. Rows are sorted **overdue first** (oldest due first, dateless last), with a **Mine** / **Team** chip.
 
-### Administrative & Other
+### Administrative
 
 | Card | Source | Scope | Shows | Row opens | All → |
 |---|---|---|---|---|---|

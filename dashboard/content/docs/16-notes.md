@@ -180,7 +180,7 @@ The same shape as the other four CRM tables:
 - **Distinct filter values come from a dedicated view**, not a scan.
 - **The unfiltered load is capped** at `ROW_CAP` (2,000) with a "showing first N of M" notice. At 693 live rows the cap does not bite today; it is there for growth. The **Excel export is not capped** — it re-fetches uncapped, *with the quick filters re-applied*, so the file always matches the active view. It additionally forces `client_account_name`, `note_body`, `review_cycle`, `action_owner` and `action_deadline` into the sheet, since the table shows a ticker and a truncated line and the action fields are hidden on the default view.
 - **Five new indexes.** `note_date DESC` for the default sort (the pre-existing `idx_client_notes_client` leads with `client_account_id` and cannot serve an unfiltered sort), `owner_id`, and **three expression indexes on `btrim(...)`** for status, risk driver and review cycle — a plain index on the raw column could not serve a filter on the trimmed value.
-- **Row height is 30px**, matching Events and Touches. The Note cell is deliberately one truncated line rather than a wrapped excerpt: letting it wrap would make row height unpredictable and break the virtualisation, whose spacers assume a fixed `ROW_H`.
+- **Row height is 30px** (`CRM_TABLE_DENSITY.rowH`; before the 2026-10-10 compact pass it really rendered at ~37px because of the open-record cell's padding), matching Events and Touches. The Note cell is deliberately one truncated line rather than a wrapped excerpt: letting it wrap would make row height unpredictable and break the virtualisation, whose spacers assume a fixed `ROW_H`.
 
 ## Shared architecture
 

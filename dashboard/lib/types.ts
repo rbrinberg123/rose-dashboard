@@ -1509,6 +1509,11 @@ export type AdminMeetingRow = {
   calendar_label: string | null
   feedback_bda_label: string | null
   fb_received: string | null
+  /** meetings.feedback_status_label — the field feedback closure is computed
+   *  from (v_feedback_outstanding). On the view once
+   *  sql/patches/2026-10-10_admin_meetings_feedback_status.sql is run; until
+   *  then the page merges it from public.meetings (withFeedbackStatus). */
+  feedback_status_label?: string | null
   state_label: string | null
   client_account_id: string | null
   event_id: string | null

@@ -22,6 +22,7 @@ import {
   reassignFeedbackTask,
   releaseFeedbackTask,
 } from "./actions"
+import { initialsOf as sharedInitialsOf, personNameCore } from "@/lib/team-initials"
 
 // ---------------------------------------------------------------------------
 // Palette + tokens. Row chips reuse the site's STATUS_PILL_LIGHT light tints;
@@ -137,7 +138,8 @@ function sortRows(list: FeedbackPipelineRow[], sort: SortState): FeedbackPipelin
 
 // "Blair Mutschler" → "B. Mutschler" for the compact workload strip.
 function shortName(name: string): string {
-  const parts = name.trim().split(/\s+/)
+  // Suffix-aware core first, so "Scott Grossman, CFA" is "S. Grossman", not "S. CFA".
+  const parts = personNameCore(name).split(/\s+/)
   if (parts.length === 1) return parts[0]
   return `${parts[0][0]}. ${parts[parts.length - 1]}`
 }
@@ -1275,12 +1277,8 @@ function ClosedTable({ rows }: { rows: ClosedClaimRow[] }) {
 
 // Deterministic avatar circle from a person's name.
 const AVATAR_COLORS = ["#1E2858", "#0355A7", "#1C8C9C", "#0E7C56", "#92600B", "#7A3E9D"]
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/)
-  const a = parts[0]?.[0] ?? ""
-  const b = parts.length > 1 ? parts[parts.length - 1][0] : ""
-  return (a + b).toUpperCase()
-}
+// The shared, suffix-aware initials ("Scott Grossman, CFA" → "SG").
+const initials = (name: string): string => sharedInitialsOf(name)
 function Avatar({ name }: { name: string }) {
   let hash = 0
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0

@@ -182,7 +182,7 @@ The same shape as the other three CRM tables:
 - **Distinct filter values come from a dedicated view**, not a scan.
 - **The unfiltered load is capped** at `ROW_CAP` (2,000) with a "showing first N of M" notice. At 1,141 live rows the cap does not bite today; it is there for growth. The **Excel export is not capped** — it re-fetches uncapped, *with the quick filters re-applied*, so the file always matches the active view. The export additionally forces `client_account_name`, `description` and `state_label` into the sheet, since the table shows a ticker and the notes are drawer-only.
 - **Six new indexes.** `scheduled_start DESC` for the default sort (the pre-existing `idx_touchpoints_client` leads with `client_account_id` and cannot serve an unfiltered sort), plus `touchpoint_type_label`, `contact_type_label`, `created_by_id`, `status_label` and `state_label`.
-- **Row height is 30px**, matching Events rather than Tasks' 34 — every cell here is a single line, with no stacked two-line cell. `ROW_H` must match the rendered height exactly or the virtualisation spacers drift out of step with the scroll position.
+- **Row height is 30px** (`CRM_TABLE_DENSITY.rowH`; before the 2026-10-10 compact pass it really rendered at ~37px because of the open-record cell's padding), matching Events rather than Tasks' 32 — every cell here is a single line, with no stacked two-line cell. `ROW_H` must match the rendered height exactly or the virtualisation spacers drift out of step with the scroll position.
 
 ## Shared architecture
 

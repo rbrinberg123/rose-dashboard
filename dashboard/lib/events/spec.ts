@@ -94,17 +94,17 @@ const SOURCE: Partial<
     // nothing but is 28px wider for the sake of three tickers. Those three
     // ellipsize, with the full client name on the cell's hover title.
     column: "client_account_name",
-    width: "132px",
+    width: "124px",
     renderer: "ticker",
     group: "Client",
     header: "Client",
     title: "Client ticker — full name on hover. Links to the client's detail page",
   },
-  event_location: { column: "event_location", width: "150px", renderer: "text", group: "Event Details" },
+  event_location: { column: "event_location", width: "120px", renderer: "text", group: "Event Details" },
   tbc: { column: "tbc", width: "58px", renderer: "bool", group: "Event Details", compact: true, title: "To be confirmed" },
   event_dates: {
     column: "event_dates",
-    width: "120px",
+    width: "110px",
     renderer: "text",
     group: "Event Details",
     header: "Dates",
@@ -171,7 +171,7 @@ const SOURCE: Partial<
   // are read together, and a band is a run of ADJACENT columns.
   of_slots: {
     column: "of_slots",
-    width: "70px",
+    width: "62px",
     renderer: "number",
     group: "Meetings",
     type: "number",
@@ -211,7 +211,7 @@ const SOURCE: Partial<
   targeting_date: { column: "targeting_date", width: "130px", renderer: "date", group: "Planning", header: "Tgt Date" },
   targeting_url: {
     column: "targeting_url",
-    width: "90px",
+    width: "84px",
     renderer: "url",
     group: "Planning",
     header: "Targeting",
@@ -240,7 +240,7 @@ const SOURCE: Partial<
   // ---- Header fields, also offerable as columns ----
   event_title: {
     column: "event_title",
-    width: "260px",
+    width: "220px",
     renderer: "title",
     group: "Event",
     header: "Event Title",
@@ -248,7 +248,7 @@ const SOURCE: Partial<
   },
   event_state_label: {
     column: "event_state_label",
-    width: "128px",
+    width: "112px",
     renderer: "statePill",
     group: "Event Details",
     header: "Event State",
@@ -262,7 +262,7 @@ const SOURCE: Partial<
   },
   user_team_lead: {
     column: "user_team_lead",
-    width: "150px",
+    width: "130px",
     renderer: "text",
     group: "People",
     header: "User/Team Lead",
@@ -285,7 +285,7 @@ const LIST_ONLY: EventColumnDef[] = [
     label: "Meetings",
     section: "Meetings",
     type: "number",
-    width: "86px",
+    width: "76px",
     renderer: "number",
     title: "Confirmed meetings on this event — the same count Portfolio's Open Slots uses",
   },
@@ -295,7 +295,7 @@ const LIST_ONLY: EventColumnDef[] = [
     header: "Remaining",
     section: "Meetings",
     type: "number",
-    width: "96px",
+    width: "86px",
     renderer: "number",
     title:
       "Slots minus confirmed meetings. Blank when the event has no slot count; negative means overbooked",

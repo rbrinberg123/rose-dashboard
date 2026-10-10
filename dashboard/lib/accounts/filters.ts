@@ -66,11 +66,11 @@ export const EMPTY_ACCOUNT_QUICK_FILTERS: AccountQuickFilters = {}
 /** Every key, in toolbar order. One list so the page, the URL builder and the
  *  "any filter set?" test cannot drift apart. */
 // "state", "client_status", "feedback" and "logistics" were removed 2026-10-08
-// with their dropdowns, so an old link carrying one is ignored rather than
-// filtering invisibly.
+// with their dropdowns, and "industry" on 2026-10-10 (to fit the toolbar on one
+// row; the Industry column and the Filters panel still cover it), so an old
+// link carrying one is ignored rather than filtering invisibly.
 export const ACCOUNT_QUICK_FILTER_KEYS = [
   "sector",
-  "industry",
   "region",
   "market_cap",
   "account_manager",

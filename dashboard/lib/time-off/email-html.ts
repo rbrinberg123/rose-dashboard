@@ -16,6 +16,7 @@
 
 import type { TimeOffEmailData, TimeOffDay, TimeOffMonthCell } from "./load"
 import type { TimeOffRow } from "@/lib/types"
+import { personNameCore } from "@/lib/team-initials"
 
 // ---- geometry --------------------------------------------------------------
 const CONTAINER = 640
@@ -44,7 +45,7 @@ function esc(s: unknown): string {
 // ---- name / type formatting -----------------------------------------------
 /** Strip credentials after a comma. "Scott Grossman, CFA" → "Scott Grossman". */
 function cleanName(name: string): string {
-  return name.split(",")[0].trim()
+  return personNameCore(name)
 }
 
 /** "Scott G." — first name + last initial (matches the page's Pill). Used in the

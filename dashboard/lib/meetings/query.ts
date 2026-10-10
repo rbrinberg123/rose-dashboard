@@ -26,6 +26,7 @@ import {
 } from "@/lib/table-views/query"
 import type { ViewConfig } from "@/lib/table-views/types"
 import { MEETINGS_SPEC } from "./spec"
+import { splitPeople } from "@/lib/team-initials"
 
 export { ROW_CAP, easternDayStartIso } from "@/lib/table-views/query"
 export type { FilterOption } from "@/lib/table-views/query"
@@ -172,6 +173,53 @@ export async function loadHostAliasGroups(sb: SupabaseClient): Promise<HostAlias
 
 /* ------------------------------------------------------------------------ */
 
+/** The authoritative feedback-state field — see withFeedbackStatus. */
+export const FEEDBACK_STATUS_COLUMN = "feedback_status_label"
+const FEEDBACK_STATUS_CHUNK = 200
+
+/**
+ * BRIDGE until sql/patches/2026-10-10_admin_meetings_feedback_status.sql runs.
+ *
+ * The table's one feedback column is Feedback Status (meetings.
+ * feedback_status_label) — the field feedback closure is computed from:
+ * v_feedback_outstanding keeps a meeting outstanding while it is NULL or
+ * 'Awaiting Additional', and isClosedFeedbackStatus treats "Closed…" as done.
+ * v_admin_meetings_all does not carry it until that patch, so when the view
+ * lacks the column this reads it straight off public.meetings for the rows
+ * already fetched (≤ ROW_CAP ids, in chunks) and merges it in. Once the view
+ * has the column it is a no-op and the view supplies it natively — including
+ * server-side sort and filter, which the bridge cannot offer.
+ *
+ * Returns the rows plus whether the column is now present, so the page can
+ * tell the table to render it. Fails soft: on any error the column stays out.
+ */
+export async function withFeedbackStatus<T extends { meeting_id: string }>(
+  sb: SupabaseClient,
+  rows: T[],
+  available: Set<string> | null,
+): Promise<{ rows: T[]; bridged: boolean }> {
+  if (!available || available.has(FEEDBACK_STATUS_COLUMN) || rows.length === 0) {
+    return { rows, bridged: false }
+  }
+  const ids = rows.map((r) => r.meeting_id)
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += FEEDBACK_STATUS_CHUNK) chunks.push(ids.slice(i, i + FEEDBACK_STATUS_CHUNK))
+  const results = await Promise.all(
+    chunks.map((c) => sb.from("meetings").select(`meeting_id, ${FEEDBACK_STATUS_COLUMN}`).in("meeting_id", c)),
+  )
+  if (results.some((r) => r.error)) return { rows, bridged: false }
+  const status = new Map<string, string | null>()
+  for (const r of results) {
+    for (const m of (r.data ?? []) as { meeting_id: string; feedback_status_label: string | null }[]) {
+      status.set(m.meeting_id, m.feedback_status_label)
+    }
+  }
+  return {
+    rows: rows.map((r) => ({ ...r, [FEEDBACK_STATUS_COLUMN]: status.get(r.meeting_id) ?? null })),
+    bridged: true,
+  }
+}
+
 export async function fetchViewRows<T>(
   sb: SupabaseClient,
   config: ViewConfig,
@@ -291,7 +339,8 @@ async function loadFilterOptionsFallback(sb: SupabaseClient): Promise<FilterOpti
       if (r.client_account_id && r.client_account_name?.trim()) {
         bump(clients, r.client_account_id, r.client_account_name.trim())
       }
-      for (const h of (r.host_names ?? "").split(", ").map((x) => x.trim()).filter(Boolean)) {
+      // splitPeople keeps "Scott Grossman, CFA" as one host, not two options.
+      for (const h of splitPeople(r.host_names)) {
         bump(hosts, h, h)
       }
       const fb = r.feedback_name?.trim()

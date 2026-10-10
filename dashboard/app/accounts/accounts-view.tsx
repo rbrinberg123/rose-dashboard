@@ -25,7 +25,6 @@ import {
   ExternalLink,
   Handshake,
   PanelRightOpen,
-  Search,
   SquareCheck,
   X,
 } from "lucide-react"
@@ -34,7 +33,7 @@ import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-ava
 import { accountTeamMembers } from "@/lib/account-team"
 import { ListTitleCard } from "@/components/page-masthead"
 import { SortHeader } from "@/components/sort-header"
-import { Input } from "@/components/ui/input"
+import { CRM_TABLE_DENSITY } from "@/lib/table-density"
 import {
   Table,
   TableBody,
@@ -95,14 +94,17 @@ import {
 import { AccountRecordPane, accountStatePill } from "./account-record-pane"
 import { TestBadge } from "@/components/test-badge"
 import { EditClientDialog, NewClientButton, PurgeTestClientsButton } from "./new-client-dialog"
+import { splitPeople } from "@/lib/team-initials"
+import { useFillHeight } from "@/components/use-fill-height"
+import { useFitColumns } from "@/components/use-fit-columns"
 
 // Row geometry. ROW_H must match the rendered row height exactly or the spacers
 // drift out of step with the scroll position and the window shows the wrong
 // slice. Enforced on every row via an inline height, not left to content.
 //
-// 30, matching Events, Touches, Notes and Contacts. The Client cell carries a
+// CRM_TABLE_DENSITY.rowH (30), shared with every CRM table. The Client cell carries a
 // 24px avatar cluster, which still clears a 30px row.
-const ROW_H = 30
+const ROW_H = CRM_TABLE_DENSITY.rowH
 const OVERSCAN = 12
 
 /**
@@ -110,10 +112,8 @@ const OVERSCAN = 12
  * see the long note in app/meetings/meetings-view.tsx. Give it no bounded height
  * and the sticky <thead> never engages.
  */
-const SCROLLER_CLASSES =
-  "[&_[data-slot=table-container]]:h-[calc(100vh-16rem)] " +
-  "[&_[data-slot=table-container]]:min-h-[300px] " +
-  "[&_[data-slot=table-container]]:overflow-y-auto"
+// Sized to fill the page — see CRM_TABLE_DENSITY.scroller / useFillHeight.
+const SCROLLER_CLASSES = CRM_TABLE_DENSITY.scroller
 
 const VIEWPORT_H_FALLBACK = 560
 
@@ -153,7 +153,6 @@ function formatEastern(iso: string | null): string {
  */
 const QUICK_FILTERS: QuickFilterDef[] = [
   { key: "sector", label: "Sector", allLabel: "All sectors", searchable: true },
-  { key: "industry", label: "Industry", allLabel: "All industries", searchable: true },
   { key: "region", label: "Region", allLabel: "All regions" },
   { key: "market_cap", label: "Market Cap", allLabel: "All caps" },
   { key: "account_manager", label: "Account Mgr", allLabel: "All managers", searchable: true },
@@ -219,47 +218,6 @@ function bandStarts(cols: AccountColumnDef[]): Set<number> {
   return starts
 }
 
-/**
- * The visible text columns the keyword box searches — dates excluded.
- *
- * `client_ticker` rides along unconditionally: the Client column stores the full
- * NAME and paints the TICKER, so without this, typing the ticker you can see on
- * screen would match nothing.
- */
-function searchKeysFor(cols: AccountColumnDef[]): string[] {
-  return [
-    ...new Set([
-      ...cols.filter((c) => c.type !== "date").map((c) => c.key),
-      "client_ticker",
-    ]),
-  ]
-}
-
-function haystackFor(row: AdminAccountRow, keys: string[]): string {
-  return keys
-    .map((k) => {
-      const v = (row as unknown as Record<string, unknown>)[k]
-      if (typeof v === "boolean") return v ? "yes" : "no"
-      if (typeof v === "number") return String(v)
-      return typeof v === "string" ? v : ""
-    })
-    .join(" ")
-    .toLowerCase()
-}
-
-function matchesKeyword(
-  rows: AdminAccountRow[],
-  keys: string[],
-  query: string,
-): AdminAccountRow[] {
-  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
-  if (!terms.length) return rows
-  return rows.filter((r) => {
-    const hay = haystackFor(r, keys)
-    return terms.every((t) => hay.includes(t))
-  })
-}
-
 export function AccountsView({
   rows,
   views,
@@ -295,7 +253,6 @@ export function AccountsView({
 }) {
   const router = useRouter()
   const [switching, startSwitch] = React.useTransition()
-  const [query, setQuery] = React.useState("")
   const [scrollTop, setScrollTop] = React.useState(0)
   const [exporting, setExporting] = React.useState(false)
   const [panel, setPanel] = React.useState<null | "columns" | "filters">(null)
@@ -318,6 +275,12 @@ export function AccountsView({
     [activeConfig.columns],
   )
 
+  const cardRef = React.useRef<HTMLDivElement>(null)
+  useFillHeight(cardRef)
+  // Columns fitted to the container (fixed-content columns keep their width,
+  // text columns compress + truncate) — see components/use-fit-columns.ts.
+  const { fitted, minWidth } = useFitColumns(cardRef, columns, 36 + JUMP_COL_W)
+
   // FROZEN COLUMNS: the leading run of "Client" columns (Ticker + Client Name in
   // the default view; at most two) stays pinned on horizontal scroll — the row is
   // wide once every account-team role has its own column. Same sticky-left
@@ -325,13 +288,13 @@ export function AccountsView({
   const frozenLefts = React.useMemo(() => {
     const lefts: number[] = []
     let left = 0
-    for (const c of columns) {
+    for (const c of fitted) {
       if (c.section !== "Client" || lefts.length >= MAX_FROZEN) break
       lefts.push(left)
       left += parseInt(c.width, 10) || 100
     }
     return lefts
-  }, [columns])
+  }, [fitted])
   const bands = React.useMemo(() => {
     const b = bandsFor(columns)
     // The jump-links column (not a data column) gets its own band after the rest.
@@ -344,17 +307,12 @@ export function AccountsView({
     return b
   }, [columns, frozenLefts])
   const bandStartSet = React.useMemo(() => bandStarts(columns), [columns])
-  const minWidth = React.useMemo(
-    () => columns.reduce((sum, c) => sum + (parseInt(c.width, 10) || 100), 0) + 36 + JUMP_COL_W,
-    [columns],
-  )
   const sort = activeConfig.sort
   const dirty = React.useMemo(
     () => configsDiffer(activeConfig, savedConfig),
     [activeConfig, savedConfig],
   )
 
-  const cardRef = React.useRef<HTMLDivElement>(null)
   const scrollerRef = React.useRef<HTMLElement | null>(null)
   const [viewportH, setViewportH] = React.useState(VIEWPORT_H_FALLBACK)
 
@@ -486,19 +444,11 @@ export function AccountsView({
     }
   }, [openId])
 
-  const searchKeys = React.useMemo(() => searchKeysFor(columns), [columns])
-  const haystacks = React.useMemo(
-    () => rows.map((r) => haystackFor(r, searchKeys)),
-    [rows, searchKeys],
-  )
-
-  // Keyword only — the view's filters and the dropdowns were already applied by
-  // the server query, and the rows arrive sorted.
-  const sorted = React.useMemo(() => {
-    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
-    if (!terms.length) return rows
-    return rows.filter((_r, i) => terms.every((t) => haystacks[i].includes(t)))
-  }, [rows, haystacks, query])
+  // No keyword box on Clients (removed 2026-10-10 to keep the toolbar on one
+  // row — the view, the dropdowns and ⌘K global search cover lookup). The view's
+  // filters and the dropdowns were applied by the server query, and the rows
+  // arrive sorted.
+  const sorted = rows
 
   const toggleSort = React.useCallback(
     (key: string) => {
@@ -530,9 +480,7 @@ export function AccountsView({
     try {
       // Rows come from a fresh UNCAPPED server fetch when the page was capped —
       // the export must never be silently truncated. The quick filters go with
-      // the request, so the export always matches the ACTIVE VIEW. The keyword
-      // box is re-applied here because it is the one filter living in the
-      // browser.
+      // the request, so the export always matches the ACTIVE VIEW.
       let out = sorted
       if (truncated) {
         const res = await loadAccountRowsForExport({
@@ -543,7 +491,7 @@ export function AccountsView({
           setViewError(`Export failed: ${res.error}`)
           return
         }
-        out = matchesKeyword(res.data, searchKeys, query)
+        out = res.data
       }
       await exportToExcel(out as unknown as Record<string, unknown>[], columns, {
         sheetName: "Clients",
@@ -587,7 +535,7 @@ export function AccountsView({
         // the seven filters as one flexible group, count, a fixed-width search and
         // icon-only actions. Below 1360px it wraps (the filter group takes its own
         // line).
-        className="relative sticky top-0 z-30 -mx-6 mb-3 flex flex-wrap items-center gap-2 px-6 py-2 min-[1360px]:flex-nowrap"
+        className={CRM_TABLE_DENSITY.toolbar}
         style={{ background: CANVAS }}
       >
         <ViewSwitcher
@@ -617,7 +565,7 @@ export function AccountsView({
           <button
             type="button"
             onClick={() => applyQuick({})}
-            className="h-8 shrink-0 cursor-pointer whitespace-nowrap rounded-md px-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            className="h-7 shrink-0 cursor-pointer whitespace-nowrap rounded-md px-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             Clear filters
           </button>
@@ -646,33 +594,6 @@ export function AccountsView({
             Export includes all.
           </span>
         )}
-
-        <div className="relative w-[150px] shrink-0">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value)
-              resetScroll()
-            }}
-            placeholder="Filter by keyword"
-            aria-label="Filter clients by keyword"
-            className="h-8 pl-8 pr-7 text-xs"
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => {
-                setQuery("")
-                resetScroll()
-              }}
-              aria-label="Clear filter"
-              className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer text-muted-foreground hover:text-foreground"
-            >
-              <X className="size-3.5" />
-            </button>
-          )}
-        </div>
 
         {/* Compact icon actions, shared by every CRM table. */}
         <TableToolbarActions
@@ -733,14 +654,23 @@ export function AccountsView({
       </div>
 
       <div ref={cardRef} className={`${CARD_CLASS} overflow-hidden ${SCROLLER_CLASSES}`}>
-        <Table style={{ minWidth: `${minWidth}px` }}>
+        <Table className="table-fixed" style={{ minWidth: `${minWidth}px` }}>
+          {/* table-fixed + colgroup: the fitted widths are binding, so no cell's
+              content can push its column wider (useFitColumns). */}
+          <colgroup>
+            {fitted.map((c) => (
+              <col key={c.key} style={{ width: c.width }} />
+            ))}
+            <col style={{ width: JUMP_COL_W }} />
+            <col style={{ width: 36 }} />
+          </colgroup>
           <TableHeader className="sticky top-0 z-20 bg-card [&_tr]:border-b-0 [&_th]:bg-card">
             <GroupBandRow bands={bands} />
             <TableRow className="border-b-0" style={{ backgroundColor: SUBHEADER_BG }}>
-              {columns.map((col, i) => (
+              {fitted.map((col, i) => (
                 <TableHead
                   key={col.key}
-                  className={cn("h-7", col.renderer === "team" ? "px-1" : "px-2", bandStartSet.has(i) && "relative")}
+                  className={cn(CRM_TABLE_DENSITY.headH, col.renderer === "team" ? "px-1" : CRM_TABLE_DENSITY.padX, bandStartSet.has(i) && "relative")}
                   style={{
                     width: col.width,
                     minWidth: col.width,
@@ -751,6 +681,7 @@ export function AccountsView({
                 >
                   {bandStartSet.has(i) && <SectionDivider />}
                   <SortHeader
+                    className={CRM_TABLE_DENSITY.headLabel}
                     label={col.header ?? col.label}
                     title={col.title ?? col.label}
                     ariaLabel={col.renderer === "team" ? `Sort by ${col.label}` : undefined}
@@ -774,9 +705,7 @@ export function AccountsView({
             {total === 0 ? (
               <TableRow>
                 <TableCell colSpan={colCount} className="py-10 text-center text-muted-foreground">
-                  {rows.length === 0
-                    ? "No clients returned. If the accounts sync has not run yet, this table is empty until it does."
-                    : `No clients match “${query}”.`}
+                  No clients returned. If the accounts sync has not run yet, this table is empty until it does.
                 </TableCell>
               </TableRow>
             ) : (
@@ -803,7 +732,7 @@ export function AccountsView({
                       }
                     }}
                   >
-                    {columns.map((col, ci) => (
+                    {fitted.map((col, ci) => (
                       <Cell
                         key={col.key}
                         col={col}
@@ -813,11 +742,11 @@ export function AccountsView({
                         canLink={canOpenClientDetail}
                       />
                     ))}
-                    <TableCell className="relative px-2" style={{ width: JUMP_COL_W, minWidth: JUMP_COL_W }}>
+                    <TableCell className="relative px-2 py-0" style={{ width: JUMP_COL_W, minWidth: JUMP_COL_W }}>
                       <SectionDivider />
                       <JumpLinks accountId={r.account_id} name={r.name} />
                     </TableCell>
-                    <TableCell className="w-9 px-2">
+                    <TableCell className={CRM_TABLE_DENSITY.actionCell}>
                       <button
                         type="button"
                         onClick={() => openRecord(r.account_id)}
@@ -908,8 +837,8 @@ function Cell({
   return (
     <TableCell
       className={cn(
-        "truncate py-0.5 text-[13px]",
-        col.compact ? "px-1 text-center" : "px-2",
+        CRM_TABLE_DENSITY.cell,
+        col.compact ? CRM_TABLE_DENSITY.padXCompact : CRM_TABLE_DENSITY.padX,
         empty && "text-muted-foreground",
         (col.type === "date" || col.type === "number") && "tabular-nums",
         col.renderer === "number" && "text-right",
@@ -1011,10 +940,7 @@ function renderCell(
       // joined by TEAM_NAME_SEPARATOR (a line break — never a comma: names contain
       // commas, e.g. "Scott Grossman, CFA"). ACCOUNT_TEAM_CELL_DISPLAY is the one
       // switch between initials circles (name on hover) and full names.
-      const names = (text ?? "")
-        .split(TEAM_NAME_SEPARATOR)
-        .map((n) => n.trim())
-        .filter(Boolean)
+      const names = splitPeople(text, TEAM_NAME_SEPARATOR)
       if (ACCOUNT_TEAM_CELL_DISPLAY === "names" || !col.teamRole) return names.join(" · ")
       const meta = ACCOUNT_TEAM_ROLE_META[col.teamRole]
       return (

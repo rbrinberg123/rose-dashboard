@@ -14,6 +14,7 @@ import type {
   SchedulerUnassignedRow,
 } from "@/lib/types"
 import type { HostBusyResponse } from "@/lib/host-busy"
+import { initialsOf as sharedInitialsOf, personNameCore } from "@/lib/team-initials"
 
 // Brand palette
 const NAVY_DEEP = "#1E2858"
@@ -251,11 +252,9 @@ function hourTicks(win: Interval): number[] {
 }
 
 // Host initials for the narrow firm-week blocks: first + last word initials.
+// The shared, suffix-aware initials ("Scott Grossman, CFA" → "SG").
 function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return "?"
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return sharedInitialsOf(name, 2) || "?"
 }
 
 const firmKindStyle = (kind: FirmKind): React.CSSProperties => {
@@ -331,7 +330,7 @@ function packLanes(blocks: FirmBlock[]): PackedBlock[] {
 const EXCLUDED_HOSTS = new Set(["simon willcocks", "shawna giust", "simon rose"])
 
 function isExcludedHost(name: string): boolean {
-  return EXCLUDED_HOSTS.has(name.split(",")[0].trim().toLowerCase())
+  return EXCLUDED_HOSTS.has(personNameCore(name).toLowerCase())
 }
 
 const selectClass = "h-9 rounded-md border border-border bg-card px-2 text-sm"

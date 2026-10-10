@@ -30,9 +30,9 @@ import { TimeOffApprovalRow, TimeOffDrawerHost } from "./time-off-drawer"
  * Layout (approved mockup my-dashboard-v5): every Alerts-style workflow is its
  * own compact card (≤ ROW_LIMIT rows + "All →"), in an EXPLICIT three-column
  * grid under light group labels — every card has a fixed home:
- *   Feedback       Feedback to Collect → Reports · Pending Review → Reports · Open / Claimed
- *   My Work               Other Open Tasks → Hosting · Next 7 Days → Profiles to Review → Onboarding
- *   Administrative & Other Time Off Approvals → Active Marketing → Contracts Expiring
+ *   Feedback Tasks           Feedback to Collect → Reports · Pending Review → Reports · Open / Claimed
+ *   Other Tasks and Activity Other Open Tasks → Hosting · Next 7 Days → Profiles to Review → Onboarding
+ *   Administrative           Time Off Approvals → Active Marketing → Contracts Expiring
  * A card's count takes the same colour as its KPI tile (cardTone).
  */
 
@@ -732,7 +732,7 @@ function JumpBar({ links }: { links: { href: string; label: string }[] }) {
         className="shrink-0 font-semibold uppercase"
         style={{ fontSize: 10.5, letterSpacing: "0.06em", color: TEXT_TERTIARY }}
       >
-        Jump to
+        Jump to page
       </span>
       {/* A defined but low-key container: a light-gray fill one shade off the page
           canvas (CANVAS #F4F6F9 → #EEF1F5), light 1px border, rounded. */}
@@ -766,7 +766,7 @@ function Kpi({ href, value, label, tone }: { href: string; value: number; label:
       href={href}
       className="block rounded-[13px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(16,24,40,0.12)]"
     >
-      <StatCard floating label={label} value={value} valueColor={color} />
+      <StatCard floating compact label={label} value={value} valueColor={color} />
     </a>
   )
 }
@@ -974,7 +974,7 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
             </div>
             <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
               <div className="flex min-w-0 flex-col gap-3">
-                <GroupLabel label="Feedback" />
+                <GroupLabel label="Feedback Tasks" />
                 <CollectCard data={data} tone={t.collect} />
                 <ReportCard
                   data={data}
@@ -994,14 +994,14 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                 />
               </div>
               <div className="flex min-w-0 flex-col gap-3">
-                <GroupLabel label="My Work" />
+                <GroupLabel label="Other Tasks and Activity" />
                 <TasksCard data={data} tone={t.tasks} />
                 <HostingCard data={data} tone={t.hosting} />
                 <ProfilesCard data={data} tone={t.profiles} />
                 <OnboardingCard data={data} />
               </div>
               <div className="flex min-w-0 flex-col gap-3">
-                <GroupLabel label="Administrative & Other" />
+                <GroupLabel label="Administrative" />
                 <TimeOffCard data={data} tone={t.approvals} />
                 <MarketingCard data={data} />
                 <ContractsCard data={data} tone={t.contracts} />

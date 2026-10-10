@@ -528,6 +528,94 @@ The bottom block of the nav rail, behind a "CRM" divider. Both read unscoped adm
 | `/tasks` | Tasks | `v_admin_tasks_all` | Every task in the CRM — all types, all states, opening on **Open tasks** sorted by due date. See [14 — Tasks](14-tasks.md). Needs `sql/patches/2026-09-11_admin_tasks.sql`. |
 | `/contacts` | Contacts | `v_admin_contacts_all` | Every contact in the CRM — the people at client companies, opening on **Active contacts** sorted by last activity. See [19 — Contacts](19-contacts.md). Needs `sql/23_contacts_table.sql` **and** `sql/patches/2026-09-16_admin_contacts.sql`. |
 
+#### CRM table density — one token, fit-to-laptop (2026-10-10)
+
+All seven CRM list tables (Clients, Meetings, Events, Tasks, Touches, Notes, Contacts) take their header-row and body-cell styling and their virtualised row height from **one token**, `CRM_TABLE_DENSITY` in `lib/table-density.ts`. Change it there and the whole family moves together. To roll the compact look out site-wide later, point other tables at the same object.
+
+| Setting | Before | Compact (now) |
+|---|---|---|
+| Body font | 13px | **12px** |
+| Header label (SortHeader) | 12px | **11px** |
+| Cell padding, horizontal | 8px (`px-2`) | **6px** (`px-1.5`); `compact` mark columns stay `px-1` |
+| Cell padding, vertical | 2px (`py-0.5`) | **0** |
+| Row height (`ROW_H`) | declared 30px (Tasks 34), **actually rendered ~37px** | **30px, really** (Tasks 32, `rowHTwoLine`) |
+
+**Rows had been taller than declared.** The trailing open-record cell kept the base `TableCell` `p-2`, which made it the tallest cell, so every row rendered at about 37px against a declared `ROW_H` of 30. The virtualisation spacers assume `ROW_H`, so long lists drifted. The token's `actionCell` (`py-0`) fixes this, so rows now measure exactly 30px (Tasks 32px). Most of the visible tightening comes from that fix.
+
+Every body cell is a single line with an ellipsis, and the cell's `title` attribute carries the full value, so narrow columns lose nothing. Each column has a fixed `width` and the same `maxWidth` in its entity spec (`lib/<entity>/spec.ts`, Meetings `lib/meetings/columns.ts`), so no column grows past its width.
+
+**Fit at ≈1366px.** A final shave (2026-10-10) trimmed the widest text column on Events, Tasks, Notes, Contacts and Meetings, so every default view fits even in a 1300px-wide window, with no horizontal scrollbar. The sidebar defaults to the collapsed 58px rail, which leaves the table card about 1,220px. Column widths were re-tuned per table to fit inside that. The default-view sums below include the 36px open-record column:
+
+| Table | Default view width | At 1366px |
+|---|---|---|
+| Clients | 1,126px (incl. 104px Jump to) | fits; Ticker + Client Name are also frozen |
+| Events | 1,160px | fits |
+| Tasks | 1,158px | fits |
+| Touches | 980px | fits (unchanged widths) |
+| Notes | 1,158px | fits |
+| Contacts | 1,160px | fits (IR Only / PoC off by default since 2026-10-10) |
+| Meetings | 1,172px | fits with ~70px to spare even when the page shows its own vertical scrollbar (Event 148 · Institution 140 · Investor 128 · Host 64 · Calendar 80, trimmed 2026-10-10); OBO left the default (12 columns: one feedback column, FB Status). Type · Status · Date · Client still freeze if a view adds columns past the width |
+
+**The frozen-column + horizontal-scroll fallback** is wired into **Meetings** (it engages only when a view is wider than the screen), and Clients already had it. The leading identity columns stay pinned with sticky left and the rest scroll sideways under them. On Meetings that is **Type · Status · Date · Client** (`FROZEN_KEYS` in `app/meetings/meetings-view.tsx`); on Clients it is **Ticker · Client Name**. On Meetings, a hairline on the last frozen column marks the edge the scrolled cells pass under. It is the same technique as Portfolio's frozen Core columns. Meetings' 14 default columns cannot fit at laptop width without cramming, so they scroll instead.
+
+**Toolbar row (2026-10-10).** The filter/toolbar row above each table (view switcher · quick filters · count · keyword · Columns / Filters / Export) uses `CRM_TABLE_DENSITY.toolbar` too.
+
+- **Compact sizing:** every control is 28px tall (`h-7`, was 32px), padding is 6px (was 8px), gaps are 6px (was 8px) and the margin below is 8px (was 12px). The row is 40px instead of 48px, and the table starts 12px higher.
+- **Wraps instead of cramming:** the old `min-[1360px]:flex-nowrap` is gone. Below 1360px the quick-filter group used to always take its own line; it now sits inline whenever it fits.
+- **Filter widths:** each filter keeps a comfortable minimum, 120px for a type-to-search filter and 96px for a plain dropdown. The group's flex basis is the sum of those, so the group never squeezes a placeholder to "Secto".
+- **Result at ≈1366px:** Meetings, Events, Tasks, Touches, Notes and Contacts are a single row, and stay single-row at 1280px. **Clients** has had **no keyword box and no Industry dropdown since 2026-10-10** (six filters): the view, the seven dropdowns and ⌘K global search cover lookup. Its toolbar is therefore one row at 1366px (and at 1340px) and wraps only below about 1320px.
+
+#### Columns fit the container — no sideways scroll (2026-10-10)
+
+**Diagnosis.** Every CRM table set `min-width` to the sum of its fixed px column widths, with automatic table layout. The table could therefore never be narrower than that sum, whatever the window. Trimming widths only moved the threshold. Measured overflow before the fix:
+
+| Setup | Clients | Meetings | Events | Tasks | Notes | Contacts | Touches |
+|---|---|---|---|---|---|---|---|
+| 1366px, sidebar collapsed | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 1280px (1920 laptop at 150%) | 0 | 15 | 3 | 8 | 1 | 3 | 0 |
+| 1366px, sidebar **expanded** | 81 | 127 | 115 | 120 | 113 | 115 | 0 |
+
+Auto layout also let content that cannot break widen a column past its declared width. Measured: the Tasks Status pill (117px in a 104px column), Meetings FB Status (78 in 76), and the Clients Assoc avatars (56 in 52). The 15px vertical-scrollbar gutter was **not** a cause: `clientWidth` already excludes it.
+
+**Fix (shared).** `useFitColumns` (`components/use-fit-columns.ts`) measures the scroll container and shares its width out among the columns:
+
+- **Fixed columns** keep their width: dates, numbers, avatars, tickers and check/flag marks.
+- **Flexible columns** (text, titles, notes, pills, links) shrink proportionally, each to a floor of half its width (minimum 64px), and truncate with the full value on hover.
+- **Header labels** truncate too (`CRM_TABLE_DENSITY.headLabel`), with the full name on hover.
+
+All seven views render with `table-fixed` and a `<colgroup>` of the fitted widths, so the widths are binding. The scroller has `scrollbar-gutter: stable`. The Clients team columns are now 56px and Meetings FB Status 80px, the narrowest that fit their headers.
+
+**Result: 0px overflow on all seven tables in all three setups above.** Only a window narrower than every floor added up still scrolls sideways; Clients and Meetings keep their frozen identity columns in that case.
+
+#### Tables fill the page height (2026-10-10)
+
+The CRM tables now fill the available page height, and the body scrolls inside the table. This covers Clients, Meetings, Events, Tasks, Touches, Notes, Contacts and Time Off.
+
+- **Before:** the scroll body was a fixed `calc(100vh - 16rem)`. That guessed at the masthead and toolbar above it and left a gap under the table.
+- **Now:** the table extends to the bottom of the window, minus the page's own 24px padding.
+
+| | |
+|---|---|
+| **How** | `useFillHeight(cardRef)` (`components/use-fill-height.ts`) measures the scroll container's top edge and writes `--crm-fill-h` = window height − that top − 25px. `CRM_TABLE_DENSITY.scroller` uses it as the container's height (min 300px), with the old `calc` as the pre-hydration fallback. It re-measures on window resize and whenever anything above the table changes height (a ResizeObserver on `<body>`), for example a toolbar wrapping to two lines or the View-As banner. |
+| **Why measured** | What sits above the table varies by viewer and route: the View-As banner, the section-nav strip, the masthead, a wrapping toolbar. A pure-CSS full-height chain would mean making `<main>` the scroller for every page in the root layout. Measuring is exact on every CRM page and changes nothing elsewhere. |
+| **Scrolling** | Only the table body scrolls. The column header is sticky inside the table, and the toolbar is sticky too. The page itself does not scroll, so there is no double scrollbar. There is no pagination footer: rows are virtualised, and the row count sits in the toolbar. On a very short window the 300px minimum applies and the page scrolls instead. |
+| **Measured** (sample rows, 1366×768) | 2 more rows visible per page, the table ending 26px above the window bottom at 620, 768, 950 and 1080px tall, and re-fitting on resize. |
+
+#### People names in avatars — one parser (2026-10-10)
+
+Display names carry commas and suffixes, for example "Scott Grossman, CFA", "John Smith, Jr.", "Henry Ford, III", "Jane Doe, PhD" and even "# Lewis, Tyler". Two bugs kept resurfacing table by table:
+
+- **Phantom second person.** A people string split on a bare comma drew one person as two bubbles ("Scott Grossman" + "CFA").
+- **Wrong initials.** First-and-last-*word* initials read "Scott Grossman, CFA" as "SC".
+
+All the parsing now lives in **`lib/team-initials.ts`**, and every avatar, initials and short-name renderer goes through it:
+
+- `splitPeople(value, delimiter)` splits a delimited string into people. Clients' team cells use a line break (`TEAM_NAME_SEPARATOR`). The Meetings view joins hosts with `", "`, so there a fragment that is only a known suffix, or a single word, stays with the previous name; a real second person always has at least two words.
+- `initialsOf` / `expandedInitialsOf` ignore suffixes and letter-less tokens, so "Scott Grossman, CFA" → **SG**.
+- `personNameCore` strips only **known** trailing suffixes, so "Scott Grossman, CFA" → "Scott Grossman" while "# Lewis, Tyler" is left whole.
+
+Every caller of `AccountTeamAvatars` passes one entry per person, either from a structured source (per-role fields or `accountTeamMembers`) or via `splitPeople`. No bare comma split feeds an avatar. Unit tests are in `lib/team-initials.test.ts`.
+
 #### "Add New" buttons and the quick-add menu — PLACEHOLDERS, not wired up
 
 > **These create nothing.** They are visual scaffolding staged ahead of the CRM cutover. There is no form, no Server Action, no database write and no navigation behind any of them. Clicking one shows a **"Coming soon — record creation isn't enabled yet"** toast and stops there. The toast exists so a click reads as *deliberate* rather than broken.

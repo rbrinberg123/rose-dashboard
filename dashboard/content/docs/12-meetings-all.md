@@ -64,10 +64,21 @@ Every column is sortable, and the sort is part of the view. The default is **Dat
 | 8 | Host | `meetings.host_name` **+ `_raw`** | A meeting can have more than one host; the view concatenates the flattened host with a second one from `_raw` when present. Shown as **initials** |
 | 9 | Feedback | **`_raw`** → `_bcs_feedback_value` formatted value | The feedback assignee. Same expression `v_feedback_outstanding` uses. Shown as **initials** |
 | 10 | Booked By | `meetings.booker_name` | Shown as **initials** |
-| 11 | On Behalf Of | **`_raw`** | Rose custom lookup first, falling back to the Dataverse `createdonbehalfby`. Header **"OBO"**; shown as **initials** |
+| 11 | ~~On Behalf Of~~ | **`_raw`** | Rose custom lookup first, falling back to the Dataverse `createdonbehalfby`. Header **"OBO"**; shown as **initials**. **Off by default since 2026-10-10** (still in the Columns menu; field untouched) |
 | 12 | Calendar | `meetings.calendar_label` | Narrowed — truncates with the full value on hover |
-| 13 | FB in BDA | `meetings.feedback_bda_label` | Header **"BDA"**; shown as a **three-state icon** |
-| 14 | FB Rec'd | **`_raw`** | Rendered as text — Dynamics may model this as a Yes/No flag *or* a date, and the view passes the formatted value straight through. Header **"Rec'd"**; shown as a **check when populated** |
+| 13 | **Feedback Status** | `meetings.feedback_status_label` | **The one feedback column (2026-10-10).** The authoritative feedback-state field — the one that closes meeting feedback. Header **"FB Status"**; shown as a **three-state icon** (✓ closed, all in · ⃠ closed, no feedback · ◷ awaiting additional), full value on hover. Needs `sql/patches/2026-10-10_admin_meetings_feedback_status.sql` |
+
+> **One feedback column (2026-10-10).** The default used to end with two feedback columns, **FB in BDA** (`feedback_bda_label`, header "BDA") and **FB Rec'd** (`fb_received`, header "Rec'd"). Neither is the authoritative field. The drawer already labels both *info only*, and BDA is no longer used. The field that actually drives feedback state is **Feedback Status** (`feedback_status_label`, Dynamics `bcs_feedbackstatus`). It is what `v_feedback_outstanding`, Feedback Collection, Planning, Productivity and Capacity read. It was not on `v_admin_meetings_all` at all, so the table could not show it.
+>
+> Feedback Status now replaces both columns in the default view, which has 13 columns. **FB in BDA and FB Rec'd stay in the Columns menu**, and no DB fields changed. **Bound field, confirmed in code:** `meetings.feedback_status_label` is the field feedback closure is computed from. `v_feedback_outstanding` keeps a meeting outstanding while it is `NULL` or `'Awaiting Additional'`, `isClosedFeedbackStatus` (`lib/feedback-collection/policy.ts`) treats any `Closed…` value as done, and Feedback Collection writes exactly this field.
+
+**Bridge until the view patch runs (2026-10-10).** `v_admin_meetings_all` lacks the column until `sql/patches/2026-10-10_admin_meetings_feedback_status.sql`. Until then, `withFeedbackStatus` (`lib/meetings/query.ts`) reads `feedback_status_label` straight off `public.meetings` for the rows already fetched, in chunks of 200 ids, and merges it in, so the column shows and is populated now. The bridge has three limits:
+
+- The column cannot sort or filter server-side. A sort on it falls back to the default sort, and a filter on it is skipped; neither errors.
+- The Excel export omits it.
+- If the bridge query fails, the column is simply left out.
+
+Once the patch runs, the bridge is a no-op and the view supplies the column natively. In production the column probe is cached per process, so that switch happens after the next deploy or restart.
 
 ### Column display
 
@@ -101,8 +112,8 @@ Above the column headers sits a band per group. Five over the default layout:
 | **Meeting** | Type, Status, Date |
 | **Client** | Client, Event |
 | **Counterparty** | Institution, Investor |
-| **Representatives** | Host, Feedback, Booked By, OBO |
-| **Workflow** | Calendar, BDA, Rec'd |
+| **Representatives** | Host, Feedback, Booked By |
+| **Workflow** | Calendar, FB Status |
 
 The full catalog assigns every column to one of seven groups — the five above plus **Logistics · Live meetings** and **System**, which only appear once a view selects columns from them:
 
@@ -112,7 +123,7 @@ The full catalog assigns every column to one of seven groups — the five above 
 | **Client** | Client, Event, Ticker (raw) |
 | **Counterparty** | Investor, Institution |
 | **Representatives** | Booked By, On Behalf Of, Host, Feedback, Client Booked, Host Notes |
-| **Workflow** | Calendar, Profile, FB in BDA, FB Rec'd, Feedback Notes |
+| **Workflow** | Calendar, Profile, Feedback Status, FB in BDA, FB Rec'd, Feedback Notes |
 | **Logistics · Live meetings** | Sent, Confirm, Driver, Food Order, Logistics Notes |
 | **System** | Modified By, Modified On, Created By, Created On |
 
@@ -389,12 +400,13 @@ Until the patch runs, the Host filter **falls back** to the old name-token match
 
   **The scroll container is the shared `<Table>`'s own wrapper, not a div of ours** — and getting this wrong is what broke the header on the first two attempts. `components/ui/table.tsx` renders `<div data-slot="table-container" class="relative w-full overflow-x-auto">` around the `<table>`. That `overflow-x: auto` makes the div a scroll container on *both* axes as far as sticky positioning is concerned, so a `sticky top-0` `<thead>` anchors to **it** — not to any scroller wrapped around it. With no bounded height on that container it never scrolls vertically, the sticky never engages, and the header rides away with the body.
 
-  So the height (`calc(100vh - 16rem)`) and `overflow-y: auto` are applied **to that container**, via arbitrary variants, exactly as Portfolio and Outreach Status do it. The scroll listener and `ResizeObserver` attach to the same element, so the virtualization and the sticky header can never disagree about what is scrolling. **Do not reintroduce an outer scrolling div** — it re-breaks the header.
+  So the height (filled to the page bottom since 2026-10-10; see [02 — Pages → Tables fill the page height](02-pages.md#tables-fill-the-page-height-2026-10-10)) and `overflow-y: auto` are applied **to that container**, via arbitrary variants, exactly as Portfolio and Outreach Status do it. The scroll listener and `ResizeObserver` attach to the same element, so the virtualization and the sticky header can never disagree about what is scrolling. **Do not reintroduce an outer scrolling div** — it re-breaks the header.
 
   Header cells carry an explicit opaque `bg-card` at cell level (`[&_th]:bg-card`), so rows cannot show through on scroll. The toolbar is separately `sticky top-0` so it stays pinned if a short viewport lets the page itself scroll.
 
   Verified in a browser at `scrollTop: 6000`, `scrollLeft: 681`: header top equal to container top (pinned), header and body column offsets identical (aligned), header background opaque white, and 39 of 400 rows in the DOM (windowing still live).
-- **Rows are 30px** with `py-0.5` cells — the dense floor, since a 24px avatar circle plus that padding is 28px. `ROW_H` and the cell padding must stay in step: the virtualization spacers are computed from `ROW_H`, so changing one without the other silently misaligns the window.
+- **Frozen identity columns (2026-10-10).** With OBO and the two info-only feedback columns out of the default, the 12 default columns fit a 1366px laptop: 1,188px after a final trim of Event, Institution, Investor, Host and Calendar, which leaves room for the page's own vertical scrollbar. Freezing therefore only engages when a view adds columns past the available width. Then the leading run of **Type · Status · Date · Client** (`FROZEN_KEYS`, at most 4) therefore stays pinned, with a hairline on its right edge, with sticky left, and the rest scroll sideways under it. The Meeting band label pins along with them. A reordered view that does not open with those columns simply has nothing pinned. See [02 — Pages → CRM table density](02-pages.md#crm-table-density--one-token-fit-to-laptop-2026-10-10).
+- **Rows are 30px** with `py-0` cells (the shared `CRM_TABLE_DENSITY` token), which clears a 24px avatar circle. Before 2026-10-10 they really rendered at ~37px, because the open-record cell kept the base `p-2`; its `actionCell` class now holds it to the row. `ROW_H` and the cell padding must stay in step: the virtualization spacers are computed from `ROW_H`, so changing one without the other silently misaligns the window.
 - **Every text cell truncates with the full value on hover** (`title`), which is what lets Client, Event, Institution and Investor stay narrow without losing anything. No column or value was dropped — condensing is purely visual, and the Excel export keeps full untruncated values.
 
 ### Other

@@ -156,7 +156,7 @@ The same shape as the other two CRM tables:
 - **Distinct filter values come from a dedicated view**, not a scan.
 - **The unfiltered load is capped** at `ROW_CAP` (2,000) with a "showing first N of M" notice. The **Excel export is not capped** — it re-fetches uncapped, *with the quick filters re-applied*, so the file always matches the active view.
 - **Six new indexes** (`sql/patches/2026-09-11_admin_tasks.sql`): `(state_label, scheduled_end)` for the default view and its sort, plus `state_label`, `scheduled_end`, `bcs_task_type_label`, `bcs_task_subtype_label` and `owner_id`. Note the pre-existing `idx_tasks_task_type` is on the `_code` column, which cannot serve a filter on the label.
-- **Row height is 34px**, not the Events table's 30, because the Regarding cell stacks a name over a small type label. `ROW_H` must match the rendered height exactly or the virtualisation spacers drift out of step with the scroll position.
+- **Row height is 32px** (`CRM_TABLE_DENSITY.rowHTwoLine`; 34px before the 2026-10-10 compact pass), not the shared 30px, because the Regarding cell stacks a name over a small type label. `ROW_H` must match the rendered height exactly or the virtualisation spacers drift out of step with the scroll position.
 
 ## Shared architecture
 
