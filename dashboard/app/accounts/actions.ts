@@ -24,6 +24,10 @@
  * components/crm-add-new.tsx). In particular nothing here touches
  * public.account_status or public.account_team_members — the two dashboard-owned
  * accounts-overlay tables — in either direction.
+ *
+ * EXCEPTION to the super_user rule: deactivateClient / reactivateClient (end of
+ * file) use their own gate, lib/accounts/deactivation-gate.ts — super_user OR
+ * the client's primary manager, dashboard-origin clients only until cutover.
  */
 
 import { getSupabaseServer } from "@/lib/supabase"
@@ -78,6 +82,15 @@ import {
   type AccountQuickFilters,
 } from "@/lib/accounts/filters"
 import type { AccountRecord } from "@/lib/accounts/record"
+import {
+  DEACTIVATION_REASON_MAX,
+  type ClientDeactivationState,
+} from "@/lib/accounts/deactivation"
+import {
+  DEACTIVATION_PATCH_MISSING,
+  loadDeactivationState,
+  requireDeactivationWriter,
+} from "@/lib/accounts/deactivation-gate"
 import type { AdminAccountRow } from "@/lib/types"
 
 /* ---------------------------------------------------------------- saved views */
@@ -696,6 +709,31 @@ export async function updateClient(id: string, input: NewClientInput): Promise<A
   if (!gate.ok) return fail(gate.error)
   const built = await buildClientColumns(input, gate.userId, id)
   if (!built.ok) return fail(built.error)
+
+  // COHERENCE with Deactivate: setting a DEACTIVATED client back to Active from
+  // the form is a reactivation — clear the stamp and record who/when, so
+  // `deactivated_at NOT NULL ⇒ Inactive` always holds (the 2026-10-12b trigger
+  // backstops it). Setting Inactive here leaves the stamp alone: an Inactive
+  // client without a stamp is just "inactive", not "deactivated". The extra
+  // keys are only added when the row IS deactivated, so an unpatched database
+  // (no columns yet) reads null here and the edit still saves.
+  if (input.active !== false && isUuid(id)) {
+    const { data: d } = await getSupabaseServer()
+      .from("accounts")
+      .select("deactivated_at")
+      .eq("account_id", id)
+      .maybeSingle()
+    if ((d as { deactivated_at?: string | null } | null)?.deactivated_at) {
+      Object.assign(built.data, {
+        deactivated_at: null,
+        deactivated_by: null,
+        deactivation_reason: null,
+        reactivated_at: new Date().toISOString(),
+        reactivated_by: gate.name ?? "unknown",
+      })
+    }
+  }
+
   return updateDashboardRow({
     table: "accounts",
     pk: "account_id",
@@ -719,4 +757,112 @@ export async function purgeTestClients(): Promise<ActionResult<{ deleted: number
     path: "/accounts",
     context: "/accounts · Delete test clients",
   })
+}
+
+/* ------------------------------------------------- deactivate / reactivate */
+// Reversible client deactivation. Model, gate and cutover switch:
+// lib/accounts/deactivation.ts + deactivation-gate.ts, and
+// content/docs/20-clients.md "Deactivating a client". Option 2: the write sets
+// state_label, which every existing "active" view and query already reads, so
+// nothing else needs to change. Related records are never touched.
+
+/** The flip itself — the same Active/Inactive column set the Edit form writes. */
+const activeColumns = (active: boolean) => ({
+  state_code: active ? 0 : 1,
+  state_label: active ? "Active" : "Inactive",
+  status_code: active ? 1 : 2,
+  status_label: active ? "Active" : "Inactive",
+})
+
+/** Every page that lists or counts active clients reads the layout tree. */
+function revalidateActiveSurfaces() {
+  revalidatePath("/", "layout")
+}
+
+/** The drawer / Client Detail ask what the viewer may do. Gate is server-side. */
+export async function loadClientDeactivation(
+  accountId: string,
+): Promise<ActionResult<ClientDeactivationState>> {
+  const res = await loadDeactivationState(accountId)
+  return res.ok ? ok(res.state) : fail(res.error)
+}
+
+export async function deactivateClient(input: {
+  accountId: string
+  reason?: string | null
+}): Promise<ActionResult> {
+  // ---- GATE (must stay first) ----
+  const gate = await requireDeactivationWriter(input.accountId, "deactivating clients")
+  if (!gate.ok) return fail(gate.error)
+  if (gate.state.deactivatedAt) return fail("This client is already deactivated.")
+
+  const reason = cleanText(input.reason)
+  if (reason && reason.length > DEACTIVATION_REASON_MAX) {
+    return fail(`Keep the reason under ${DEACTIVATION_REASON_MAX} characters.`)
+  }
+
+  const patch = {
+    ...activeColumns(false),
+    deactivated_at: new Date().toISOString(),
+    deactivated_by: gate.actor,
+    deactivation_reason: reason,
+  }
+  const { error } = await getSupabaseServer()
+    .from("accounts")
+    .update(patch)
+    .eq("account_id", input.accountId)
+    .is("deactivated_at", null) // a concurrent deactivate cannot double-stamp
+  if (error) {
+    const msg = describeError(error)
+    return fail(/deactivat|reactivat/i.test(msg) ? DEACTIVATION_PATCH_MISSING : msg)
+  }
+
+  await recordAudit({
+    action: "update",
+    entity: "accounts",
+    recordId: input.accountId,
+    changes: { state_label: { from: gate.state.stateLabel, to: "Inactive" }, deactivated: patch },
+    context: "Deactivate client",
+  })
+  revalidateActiveSurfaces()
+  return ok()
+}
+
+export async function reactivateClient(input: { accountId: string }): Promise<ActionResult> {
+  // ---- GATE (must stay first) ----
+  const gate = await requireDeactivationWriter(input.accountId, "reactivating clients")
+  if (!gate.ok) return fail(gate.error)
+  if (!gate.state.deactivatedAt) return fail("This client is not deactivated.")
+
+  const patch = {
+    ...activeColumns(true),
+    deactivated_at: null,
+    deactivated_by: null,
+    deactivation_reason: null,
+    reactivated_at: new Date().toISOString(),
+    reactivated_by: gate.actor,
+  }
+  const { error } = await getSupabaseServer()
+    .from("accounts")
+    .update(patch)
+    .eq("account_id", input.accountId)
+  if (error) return fail(describeError(error))
+
+  await recordAudit({
+    action: "update",
+    entity: "accounts",
+    recordId: input.accountId,
+    changes: {
+      state_label: { from: gate.state.stateLabel, to: "Active" },
+      cleared: {
+        deactivated_at: gate.state.deactivatedAt,
+        deactivated_by: gate.state.deactivatedBy,
+        deactivation_reason: gate.state.reason,
+      },
+      reactivated: { reactivated_at: patch.reactivated_at, reactivated_by: patch.reactivated_by },
+    },
+    context: "Reactivate client",
+  })
+  revalidateActiveSurfaces()
+  return ok()
 }

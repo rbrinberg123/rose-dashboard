@@ -24,6 +24,8 @@ import { NoClientsAssigned, ClientNotInScope } from "@/components/scoped-empty"
 import { loadConfirmedMeetingsByEvent } from "@/lib/event-meetings"
 import { ClientDetailView } from "./client-detail-view"
 import { loadClientCrmLists } from "./crm-lists"
+import { loadDeactivationState } from "@/lib/accounts/deactivation-gate"
+import { DeactivatedClientNotice } from "./deactivated-notice"
 
 export const dynamic = "force-dynamic"
 
@@ -91,6 +93,20 @@ export default async function ClientDetailPage({
     CLIENT_DETAIL_FINANCIAL_FIELDS,
     showFinancials,
   )
+
+  // A requested client that is not in the (active-only) summary may have been
+  // DEACTIVATED — show who/when/why and a Reactivate button rather than
+  // silently falling back to another client. Scope was already checked above.
+  if (requestedId && !summaryRows.some((r) => r.account_id === requestedId)) {
+    const d = await loadDeactivationState(requestedId)
+    if (d.ok && d.state.deactivatedAt) {
+      return (
+        <PageShell title="Client Detail">
+          <DeactivatedClientNotice state={d.state} />
+        </PageShell>
+      )
+    }
+  }
 
   if (summaryRows.length === 0) {
     return (

@@ -6,7 +6,10 @@
  * through createClient / updateClient in ./actions.ts (gate, audit, re-reads,
  * origin guard via lib/crm-write.ts).
  *
- * Covers the drawer's own fields, grouped like the drawer. NOT here, by design:
+ * Covers the drawer's own fields in nine panel sections across two columns
+ * (2026-10-12: Identity · Status & Classification · Location & Contact ·
+ * Links & Ownership | Key Dates · Meeting Preferences · Onboarding & Service
+ * Flags · Profile Flags, then full-width Notes). NOT here, by design:
  * the ACCOUNT TEAM (deferred source-of-truth decision — the drawer keeps
  * showing it read-only) and Dynamics rollups (last/next touch & event, days
  * since review, last targeting/teaser, current project).
@@ -16,7 +19,18 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Loader2 } from "lucide-react"
+import {
+  Building2,
+  CalendarDays,
+  Flag,
+  Link2,
+  ListChecks,
+  Loader2,
+  MapPin,
+  Settings2,
+  StickyNote,
+  Tags,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { AddNewButton, useQuickAddRequest } from "@/components/crm-add-new"
@@ -147,10 +161,23 @@ function ClientFormDialog({
     </div>
   )
 
+  const yesNo = (k: (typeof CLIENT_FLAGS)[number][0] | (typeof CLIENT_PROFILE_FLAGS)[number][0], label: string) => (
+    <YesNo
+      key={k}
+      label={label}
+      checked={form.flags[k]}
+      onChange={(v) => set({ flags: { ...form.flags, [k]: v } })}
+    />
+  )
+
   return (
     <Dialog open={open} onOpenChange={(o) => !pending && setOpen(o)}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
+      {/* Large, two-column — the same treatment as the event, meeting, task,
+          contact and touchpoint forms: wide on desktop, one scrolling column on
+          small screens. Header and footer stay put; only the field area
+          scrolls. Layout only — every field, default and rule is unchanged. */}
+      <DialogContent className="flex max-h-[92vh] w-[96vw] flex-col gap-0 p-0 sm:max-w-[1120px]">
+        <DialogHeader className="border-b px-5 py-3">
           <DialogTitle>{editId ? "Edit client" : "Add new client"}</DialogTitle>
           <DialogDescription>
             {editId
@@ -159,180 +186,186 @@ function ClientFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="grid max-h-[72vh] gap-3 overflow-y-auto pr-1">
-          <FormSection title="Overview">
-            <div className="grid grid-cols-2 gap-3">
-              {text("nl-name", "Client name", "name", { autoFocus: true })}
-              {text("nl-ticker", "Ticker", "tickerSymbol")}
-              <SelectField
-                id="nl-active"
-                label="Active/Inactive — only Active clients appear on My Portfolio"
-                value={form.active ? "1" : "0"}
-                onChange={(v) => set({ active: v === "1" })}
-                options={[
-                  { value: "1", label: "Active" },
-                  { value: "0", label: "Inactive" },
-                ]}
-                empty={null}
-              />
-              {choice("nl-status", "Client Status", "clientStatusCode", choices?.clientStatus)}
-              {choice("nl-sector", "Sector", "sectorCode", choices?.sector)}
-              {choice("nl-industry", "Industry", "industryCode", choices?.industry)}
-              <SelectField
-                id="nl-hqcountry"
-                label="HQ Country"
-                value={form.hqCountryId ?? ""}
-                onChange={(v) => set({ hqCountryId: v || null })}
-                options={(choices?.hqCountry ?? []).map((o) => ({ value: o.id, label: o.name }))}
-              />
-              {text("nl-mcap", "Market Cap ($B)", "marketCapB", { type: "number", step: "any" })}
-              {choice("nl-exchange", "Exchange", "exchangeCode", choices?.exchange)}
-              {text("nl-web", "Website", "websiteUrl")}
-              {text("nl-email", "Email", "email", { type: "email" })}
-              {text("nl-ipreo", "Ipreo Ticker", "ipreoTicker")}
-              <SelectField
-                id="nl-master"
-                label="Master Company Record"
-                value={form.companyMasterId ?? ""}
-                onChange={(v) => set({ companyMasterId: v || null })}
-                options={(choices?.companyMaster ?? []).map((o) => ({ value: o.id, label: o.name }))}
-              />
-            </div>
-          </FormSection>
+        <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="grid min-h-0 flex-1 gap-x-4 gap-y-2.5 overflow-y-auto px-4 py-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            {/* ---- Column 1: who the client is ---- */}
+            <div className="grid min-w-0 content-start gap-2.5">
+              <FormSection panel icon={Building2} title="Client Identity">
+                <div className="grid grid-cols-2 gap-3">
+                  {text("nl-name", "Client name", "name", { autoFocus: true })}
+                  {text("nl-ticker", "Ticker", "tickerSymbol")}
+                  {text("nl-ipreo", "Ipreo Ticker", "ipreoTicker")}
+                  <SelectField
+                    id="nl-master"
+                    label="Master Company Record"
+                    value={form.companyMasterId ?? ""}
+                    onChange={(v) => set({ companyMasterId: v || null })}
+                    options={(choices?.companyMaster ?? []).map((o) => ({ value: o.id, label: o.name }))}
+                  />
+                  {text("nl-web", "Website", "websiteUrl")}
+                  {text("nl-email", "Email", "email", { type: "email" })}
+                </div>
+              </FormSection>
 
-          <FormSection title="Primary address">
-            {text("nl-street", "Street", "street")}
-            <div className="grid grid-cols-2 gap-3">
-              {text("nl-city", "City", "city")}
-              {text("nl-state", "State/Province", "stateProvince")}
-              {text("nl-postal", "Postal Code", "postalCode")}
-              {text("nl-country", "Country", "country")}
-              {text("nl-phone", "Phone", "phone", { type: "tel" })}
-            </div>
-          </FormSection>
-
-          <FormSection title="Links">
-            <div className="grid grid-cols-2 gap-3">
-              <SelectField
-                id="nl-contact"
-                label="Primary Contact"
-                value={form.primaryContactId ?? ""}
-                onChange={(v) => set({ primaryContactId: v || null })}
-                options={contacts.map((c) => ({ value: c.contact_id, label: c.full_name ?? c.contact_id }))}
-                empty={editId ? "—" : "— (after the client exists)"}
-              />
-              <SelectField
-                id="nl-event"
-                label="Current Event"
-                value={form.currentEventId ?? ""}
-                onChange={(v) => set({ currentEventId: v || null })}
-                options={events.map((ev) => ({ value: ev.event_id, label: ev.name ?? ev.event_id }))}
-                empty={editId ? "—" : "— (after the client exists)"}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              The account team (manager, secondary, associate, feedback, logistics, targeting, teaser) is assigned
-              separately and is not set here.
-            </p>
-          </FormSection>
-
-          <FormSection title="Engagement dates">
-            <div className="grid grid-cols-3 gap-3">
-              {CLIENT_DATES.map(([k, label]) => (
-                <TextField
-                  key={k}
-                  id={`nl-${k}`}
-                  label={label}
-                  type="date"
-                  value={form.dates[k] ?? ""}
-                  onChange={(v) => set({ dates: { ...form.dates, [k]: v } })}
+              <FormSection panel icon={Tags} title="Status & Classification">
+                <SelectField
+                  id="nl-active"
+                  label="Active/Inactive — only Active clients appear on My Portfolio"
+                  value={form.active ? "1" : "0"}
+                  onChange={(v) => set({ active: v === "1" })}
+                  options={[
+                    { value: "1", label: "Active" },
+                    { value: "0", label: "Inactive" },
+                  ]}
+                  empty={null}
                 />
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Last/next touchpoint and event, days since review and last targeting/teaser are Dynamics rollups —
-              display-only.
-            </p>
-          </FormSection>
+                <div className="grid grid-cols-2 gap-3">
+                  {choice("nl-status", "Client Status", "clientStatusCode", choices?.clientStatus)}
+                  {choice("nl-sector", "Sector", "sectorCode", choices?.sector)}
+                  {choice("nl-industry", "Industry", "industryCode", choices?.industry)}
+                  {text("nl-mcap", "Market Cap ($B)", "marketCapB", { type: "number", step: "any" })}
+                  {choice("nl-exchange", "Exchange", "exchangeCode", choices?.exchange)}
+                  {choice("nl-secex", "Secondary Exchange", "secondaryExchangeCode", choices?.secondaryExchange)}
+                  {text("nl-yield", "Dividend Yield (%)", "divYield", { type: "number", step: "any" })}
+                </div>
+              </FormSection>
 
-          <FormSection title="Flags">
-            <div className="grid grid-cols-3 gap-2">
-              {CLIENT_FLAGS.map(([k, label]) => (
-                <YesNo
-                  key={k}
-                  label={label}
-                  checked={form.flags[k]}
-                  onChange={(v) => set({ flags: { ...form.flags, [k]: v } })}
+              <FormSection panel icon={MapPin} title="Location & Contact">
+                <div className="grid grid-cols-2 gap-3">
+                  <SelectField
+                    id="nl-hqcountry"
+                    label="HQ Country"
+                    value={form.hqCountryId ?? ""}
+                    onChange={(v) => set({ hqCountryId: v || null })}
+                    options={(choices?.hqCountry ?? []).map((o) => ({ value: o.id, label: o.name }))}
+                  />
+                  {choice("nl-hqstate", "HQ State", "hqStateCode", choices?.hqState)}
+                </div>
+                {text("nl-street", "Street", "street")}
+                <div className="grid grid-cols-2 gap-3">
+                  {text("nl-city", "City", "city")}
+                  {text("nl-state", "State/Province", "stateProvince")}
+                  {text("nl-postal", "Postal Code", "postalCode")}
+                  {text("nl-country", "Country", "country")}
+                  {text("nl-phone", "Phone", "phone", { type: "tel" })}
+                </div>
+              </FormSection>
+
+              <FormSection panel icon={Link2} title="Links & Ownership">
+                <div className="grid grid-cols-2 gap-3">
+                  <SelectField
+                    id="nl-contact"
+                    label="Primary Contact"
+                    value={form.primaryContactId ?? ""}
+                    onChange={(v) => set({ primaryContactId: v || null })}
+                    options={contacts.map((c) => ({ value: c.contact_id, label: c.full_name ?? c.contact_id }))}
+                    empty={editId ? "—" : "— (after the client exists)"}
+                  />
+                  <SelectField
+                    id="nl-event"
+                    label="Current Event"
+                    value={form.currentEventId ?? ""}
+                    onChange={(v) => set({ currentEventId: v || null })}
+                    options={events.map((ev) => ({ value: ev.event_id, label: ev.name ?? ev.event_id }))}
+                    empty={editId ? "—" : "— (after the client exists)"}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>Owner</Label>
+                  <UserCombobox
+                    options={users ?? []}
+                    value={form.ownerId ?? null}
+                    onChange={(v) => set({ ownerId: v })}
+                    placeholder="Me (default)"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The account team (manager, secondary, associate, feedback, logistics, targeting, teaser) is assigned
+                  separately and is not set here.
+                </p>
+              </FormSection>
+            </div>
+
+            {/* ---- Column 2: engagement, preferences, flags ---- */}
+            <div className="grid min-w-0 content-start gap-2.5">
+              <FormSection panel icon={CalendarDays} title="Key Dates">
+                <div className="grid grid-cols-2 gap-3">
+                  {CLIENT_DATES.map(([k, label]) => (
+                    <TextField
+                      key={k}
+                      id={`nl-${k}`}
+                      label={label}
+                      type="date"
+                      value={form.dates[k] ?? ""}
+                      onChange={(v) => set({ dates: { ...form.dates, [k]: v } })}
+                    />
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Last/next touchpoint and event, days since review and last targeting/teaser are Dynamics rollups —
+                  display-only.
+                </p>
+              </FormSection>
+
+              <FormSection panel icon={Settings2} title="Meeting Preferences">
+                <div className="grid grid-cols-2 gap-3">
+                  {choice("nl-freq", "Reporting Frequency", "reportingFrequencyCode", choices?.reportingFrequency)}
+                  {text("nl-slot", "Meeting Slot (min)", "meetingSlotMinutes", { type: "number" })}
+                  {text("nl-platform", "Meeting Platform", "meetingPlatformPref", { placeholder: "e.g. Teams, Zoom" })}
+                  {text("nl-tz", "Time Zone (Dynamics code)", "timezoneCode", {
+                    type: "number",
+                    placeholder: "e.g. 35 = Eastern, 85 = London",
+                  })}
+                </div>
+              </FormSection>
+
+              <FormSection panel icon={Flag} title="Onboarding & Service Flags">
+                <div className="grid grid-cols-2 gap-2">
+                  {CLIENT_FLAGS.map(([k, label]) => yesNo(k, label))}
+                </div>
+              </FormSection>
+
+              <FormSection panel icon={ListChecks} title="Profile Flags">
+                <div className="grid grid-cols-2 gap-2">
+                  {CLIENT_PROFILE_FLAGS.map(([k, label]) => yesNo(k, label))}
+                </div>
+              </FormSection>
+            </div>
+
+            {/* ---- Full width: notes ---- */}
+            <div className="min-w-0 lg:col-span-2">
+              <FormSection panel icon={StickyNote} title="Notes">
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="lg:col-span-2">{notes("nl-addl", "Additional Notes", "additionalNotes")}</div>
+                  {notes("nl-targeting", "Targeting Parameters", "targetingParameters")}
+                  {notes("nl-onboarding", "Onboarding Notes", "onboardingNotes")}
+                  {notes("nl-peers", "Peers", "peers")}
+                  {notes("nl-diet", "Dietary Restrictions", "dietaryRestrictions")}
+                </div>
+              </FormSection>
+            </div>
+
+            {!editId && (
+              <label className="flex items-start gap-2 rounded-md border border-[#F3E2BF] bg-[#FCF4E6] px-3 py-2 text-sm lg:col-span-2">
+                <Checkbox
+                  checked={form.isTest}
+                  onCheckedChange={(c) => set({ isTest: c === true })}
+                  className="mt-0.5"
                 />
-              ))}
-            </div>
-          </FormSection>
-
-          <FormSection title="Profile & Preferences">
-            <div className="grid grid-cols-2 gap-3">
-              {choice("nl-secex", "Secondary Exchange", "secondaryExchangeCode", choices?.secondaryExchange)}
-              {choice("nl-hqstate", "HQ State", "hqStateCode", choices?.hqState)}
-              {choice("nl-freq", "Reporting Frequency", "reportingFrequencyCode", choices?.reportingFrequency)}
-              {text("nl-yield", "Dividend Yield (%)", "divYield", { type: "number", step: "any" })}
-              {text("nl-slot", "Meeting Slot (min)", "meetingSlotMinutes", { type: "number" })}
-              {text("nl-platform", "Meeting Platform", "meetingPlatformPref", { placeholder: "e.g. Teams, Zoom" })}
-              {text("nl-tz", "Time Zone (Dynamics code)", "timezoneCode", {
-                type: "number",
-                placeholder: "e.g. 35 = Eastern, 85 = London",
-              })}
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {CLIENT_PROFILE_FLAGS.map(([k, label]) => (
-                <YesNo
-                  key={k}
-                  label={label}
-                  checked={form.flags[k]}
-                  onChange={(v) => set({ flags: { ...form.flags, [k]: v } })}
-                />
-              ))}
-            </div>
-          </FormSection>
-
-          <FormSection title="Notes">
-            {notes("nl-addl", "Additional Notes", "additionalNotes")}
-            {notes("nl-targeting", "Targeting Parameters", "targetingParameters")}
-            {notes("nl-onboarding", "Onboarding Notes", "onboardingNotes")}
-            {notes("nl-peers", "Peers", "peers")}
-            {notes("nl-diet", "Dietary Restrictions", "dietaryRestrictions")}
-          </FormSection>
-
-          <FormSection title="System">
-            <div className="grid gap-1.5">
-              <Label>Owner</Label>
-              <UserCombobox
-                options={users ?? []}
-                value={form.ownerId ?? null}
-                onChange={(v) => set({ ownerId: v })}
-                placeholder="Me (default)"
-              />
-            </div>
-          </FormSection>
-
-          {!editId && (
-            <label className="flex items-start gap-2 rounded-md border border-[#F3E2BF] bg-[#FCF4E6] px-3 py-2 text-sm">
-              <Checkbox
-                checked={form.isTest}
-                onCheckedChange={(c) => set({ isTest: c === true })}
-                className="mt-0.5"
-              />
-              <span>
-                <span className="font-medium">Test record</span>
-                <span className="block text-xs text-muted-foreground">
-                  Marked TEST and removed by “Delete test clients”. It is NOT hidden anywhere — an Active test
-                  client appears on My Portfolio like any other.
+                <span>
+                  <span className="font-medium">Test record</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Marked TEST and removed by “Delete test clients”. It is NOT hidden anywhere — an Active test
+                    client appears on My Portfolio like any other.
+                  </span>
                 </span>
-              </span>
-            </label>
-          )}
+              </label>
+            )}
+          </div>
 
-          {error && <div className="text-sm text-destructive">{error}</div>}
+          {error && <div className="border-t px-5 py-2 text-sm text-destructive">{error}</div>}
 
-          <DialogFooter>
+          <DialogFooter className="mx-0 mb-0">
             <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
               Cancel
             </Button>

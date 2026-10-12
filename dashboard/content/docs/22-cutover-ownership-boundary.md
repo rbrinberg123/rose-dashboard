@@ -318,3 +318,11 @@ The event **Add Meeting** button (drawer + edit dialog; see [13 — Events](13-e
 - Needs `sql/patches/2026-09-29_contracts_crm.sql` run first.
 
 Full detail is in [24 — Contract Management](24-contracts.md).
+
+## Client deactivation (2026-10-12)
+
+- **Now:** Deactivate / Reactivate (Clients drawer, Client Detail notice) works on `origin = 'dashboard'` clients only. It flips `state_label` (Option 2) and stamps the dashboard-owned `deactivated_*` / `reactivated_*` columns, which the sync never writes.
+- **At cutover:** first land Option 1: a generated `is_active_effective` column, with the ~50 views and ~12 code sites repointed to it. Only then set `DEACTIVATION_INCLUDES_DYNAMICS = true` in `lib/accounts/deactivation.ts`. Flipping it earlier would let the next sync rewrite a deactivated Dynamics client's `state_label` back to Active.
+- Needs `sql/patches/2026-10-12b_account_deactivation.sql` run first.
+
+Full detail is in [20 — Clients](20-clients.md), "Deactivating a client".

@@ -86,17 +86,23 @@ function Pill({ children, bg, text }: { children: React.ReactNode; bg: string; t
  * same list the event drawer draws for its Company Representatives. Only
  * dashboard-created touchpoints can carry any; hidden when there are none.
  */
-function ClientContacts({ touchpointId }: { touchpointId: string }) {
+function ClientContacts({
+  touchpointId,
+  load,
+}: {
+  touchpointId: string
+  load: typeof loadTouchContacts
+}) {
   const [contacts, setContacts] = React.useState<TouchContact[] | null>(null)
   React.useEffect(() => {
     let live = true
-    loadTouchContacts(touchpointId).then((r) => {
+    load(touchpointId).then((r) => {
       if (live) setContacts(r.ok ? (r.data ?? []) : [])
     })
     return () => {
       live = false
     }
-  }, [touchpointId])
+  }, [touchpointId, load])
   if (!contacts || contacts.length === 0) return null
   return (
     <section className="mb-6">
@@ -215,6 +221,7 @@ export function TouchpointRecordPane({
   error,
   onClose,
   onEdit,
+  loadContacts = loadTouchContacts,
 }: {
   record: TouchpointRecord | null
   loading: boolean
@@ -222,6 +229,9 @@ export function TouchpointRecordPane({
   onClose: () => void
   /** Opens the edit form — shown only for origin='dashboard' records. */
   onEdit?: () => void
+  /** Client Contacts loader. Default: the Touchpoints tab's (super_user);
+   *  the Onboarding page passes its client-scope-gated one. */
+  loadContacts?: typeof loadTouchContacts
 }) {
   const open = loading || !!record || !!error
   if (!open) return null
@@ -304,7 +314,7 @@ export function TouchpointRecordPane({
               </section>
             ))}
 
-          {record && <ClientContacts key={`contacts-${record.touchpoint_id}`} touchpointId={record.touchpoint_id} />}
+          {record && <ClientContacts key={`contacts-${record.touchpoint_id}`} touchpointId={record.touchpoint_id} load={loadContacts} />}
 
           {record && (
             <p className="pb-4 text-[11px] text-muted-foreground">

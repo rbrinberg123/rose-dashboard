@@ -4462,10 +4462,14 @@ GRANT SELECT ON public.v_scheduler_time_off TO service_role;
 -- derived from a task. Three kinds:
 --   * DATE steps -> complete when a date is present. The date itself is also
 --     exposed, and the page prints it under the checkmark:
---       f_onboarding_call    (bcs_onboardingcall / onboarding_call)
+--       f_onboarding_call    latest Onboarding Call touchpoint, else
+--                            (bcs_onboardingcall / onboarding_call)
 --                            date -> onboarding_call_date
---       f_teach_in_date      (bcs_teachindate    / teach_in_date)
+--       f_teach_in_date      latest Teach-in touchpoint, else
+--                            (bcs_teachindate    / teach_in_date)
 --                            date -> teach_in_date
+--     (touchpoint-first since patch 2026-10-12c; the account column is the
+--     fallback, so no existing date was lost)
 --   * TASK step -> complete when the client has a completed Outreach ->
 --     Data Upload task; the date is that task actual_end (latest wins):
 --       f_meeting_history    date -> meeting_history_date  (see data_upload CTE)
@@ -4534,13 +4538,20 @@ WITH onb AS (
     -- the grid can print it under the checkmark. Read as the Eastern calendar
     -- day, same convention as onboarding_start_date above. Both are real
     -- intraday timestamps (not UTC midnight), so this cast cannot shift the day.
-    (a.onboarding_call     AT TIME ZONE 'America/New_York')::date AS onboarding_call_date,
-    (a.teach_in_date       AT TIME ZONE 'America/New_York')::date AS teach_in_date,
+    --
+    -- TWO-WAY LINK WITH TOUCHPOINTS (2026-10-12c): the most-recently-ENTERED
+    -- touchpoint of the matching type (created_on DESC) wins, and the stored
+    -- account date is the FALLBACK -- nothing is overwritten, a touchpoint only
+    -- takes over where one exists. Types match on touchpoint_type_label, exact
+    -- strings Onboarding Call and Teach-in. See docs 20-clients / 02-pages.
+    (COALESCE(tp_onb.scheduled_start, a.onboarding_call) AT TIME ZONE 'America/New_York')::date AS onboarding_call_date,
+    (COALESCE(tp_ti.scheduled_start,  a.teach_in_date)   AT TIME ZONE 'America/New_York')::date AS teach_in_date,
     -- Free-text onboarding notes. Empty and whitespace-only strings collapse to
     -- NULL so the page has exactly one "no note" case to render muted.
     NULLIF(btrim(a.onboarding_notes), '') AS onboarding_notes,
-    (a.onboarding_call          IS NOT NULL) AS f_onboarding_call,
-    (a.teach_in_date            IS NOT NULL) AS f_teach_in_date,
+    -- Checkbox meaning unchanged: the step has a date (now the COALESCEd one).
+    (COALESCE(tp_onb.scheduled_start, a.onboarding_call) IS NOT NULL) AS f_onboarding_call,
+    (COALESCE(tp_ti.scheduled_start,  a.teach_in_date)   IS NOT NULL) AS f_teach_in_date,
     (a.calendar                 IS TRUE)     AS f_calendar,
     (a.calendar_confirmed       IS TRUE)     AS f_calendar_confirmed,
     (a.distro                   IS TRUE)     AS f_distro,
@@ -4548,6 +4559,25 @@ WITH onb AS (
     (a.recurring_call_scheduled IS TRUE)     AS f_recurring_call_scheduled,
     (a.report                   IS TRUE)     AS f_report
   FROM public.accounts a
+  -- Latest-entered touchpoint per step. The tie-break on touchpoint_id matches
+  -- app/onboarding/actions.ts (latestOnboardingTouch), so a cell click opens
+  -- exactly the touchpoint whose date the cell shows.
+  LEFT JOIN LATERAL (
+    SELECT tp.scheduled_start
+    FROM public.touchpoints tp
+    WHERE tp.client_account_id = a.account_id
+      AND tp.touchpoint_type_label = 'Onboarding Call'
+    ORDER BY tp.created_on DESC NULLS LAST, tp.touchpoint_id DESC
+    LIMIT 1
+  ) tp_onb ON true
+  LEFT JOIN LATERAL (
+    SELECT tp.scheduled_start
+    FROM public.touchpoints tp
+    WHERE tp.client_account_id = a.account_id
+      AND tp.touchpoint_type_label = 'Teach-in'
+    ORDER BY tp.created_on DESC NULLS LAST, tp.touchpoint_id DESC
+    LIMIT 1
+  ) tp_ti ON true
   WHERE a.state_label = 'Active'
 ),
 -- Meeting History step. Sourced from the client latest COMPLETED Outreach ->

@@ -84,10 +84,24 @@ export async function loadActiveAccountOptions(
 ): Promise<ActionResult<AccountOption[]>> {
   const role = await getEffectiveRole()
   if (role !== "super_user") return fail("Not authorised.")
+  return readActiveAccountOptions(includeAccountId)
+}
 
+/**
+ * loadActiveAccountOptions WITHOUT the role gate, optionally limited to
+ * `onlyIds` (a caller's client scope). For callers that gate themselves.
+ */
+export async function readActiveAccountOptions(
+  includeAccountId?: string | null,
+  onlyIds?: readonly string[] | null,
+): Promise<ActionResult<AccountOption[]>> {
   const keep = includeAccountId && isUuid(includeAccountId) ? includeAccountId : null
   let q = getSupabaseServer().from("accounts").select("account_id, name, ticker_symbol")
   q = keep ? q.or(`state_label.eq.Active,account_id.eq.${keep}`) : q.eq("state_label", "Active")
+  if (onlyIds) {
+    if (onlyIds.length === 0) return ok([])
+    q = q.in("account_id", [...onlyIds])
+  }
   const { data, error } = await q.order("name", { ascending: true }).limit(5000)
   if (error) return fail(describeError(error))
   return ok((data ?? []) as AccountOption[])
@@ -438,8 +452,17 @@ export async function updateDashboardRow(opts: {
   path: string
   context: string
   verb?: string
+  /**
+   * A writer the CALLER has already gated, in place of requireCrmWriter — for
+   * a narrower path with its own server-side gate (the Onboarding page's
+   * touchpoint cells, app/onboarding/actions.ts). Omitted = the usual
+   * super_user write gate. The origin guard below applies either way.
+   */
+  actor?: { userId: string | null; name: string | null }
 }): Promise<ActionResult<{ changed: number }>> {
-  const gate = await requireCrmWriter(opts.verb ?? "editing records")
+  const gate = opts.actor
+    ? ({ ok: true, ...opts.actor } as const)
+    : await requireCrmWriter(opts.verb ?? "editing records")
   if (!gate.ok) return fail(gate.error)
   if (!isUuid(opts.id)) return fail("Unknown record.")
 
@@ -510,6 +533,16 @@ export async function loadDashboardRowForEdit(
 ): Promise<ActionResult<Record<string, unknown>>> {
   const role = await getEffectiveRole()
   if (role !== "super_user") return fail("Not authorised.")
+  return readDashboardRowForEdit(table, pk, id, columns)
+}
+
+/** loadDashboardRowForEdit WITHOUT the role gate — for callers that gate themselves. */
+export async function readDashboardRowForEdit(
+  table: string,
+  pk: string,
+  id: string,
+  columns: string,
+): Promise<ActionResult<Record<string, unknown>>> {
   if (!isUuid(id)) return fail("Unknown record.")
   const { data, error } = await getSupabaseServer()
     .from(table)

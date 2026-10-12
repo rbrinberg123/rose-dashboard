@@ -238,7 +238,8 @@ At 228 rows none of these changes a plan today; they are there so the page does 
 
 1. **The accounts field-flatten pass** — promote the ~40 fields still living only in `_raw` (staff initials, `address1_*`, …) to real columns, then add them here. Nothing about this page needs to change structurally when that lands.
 2. **The account-team source-of-truth decision** — Dynamics fields on `accounts`, or the dashboard-owned `account_team_members`. This page displays the former and takes no position.
-3. **Editing.** The drawer is styled and structured to flip to editable at cutover (swap the read-only renderer for an input keyed off each field's `type`), but must not until the dashboard actually becomes the system of record.
+3. **Deactivation at cutover (Option 1).** Add `is_active_effective`, repoint the ~50 views and ~12 code sites, then flip `DEACTIVATION_INCLUDES_DYNAMICS`. See *Deactivating a client*. Also reconcile or remove the inert `account_status`.
+4. **Editing.** The drawer is styled and structured to flip to editable at cutover (swap the read-only renderer for an input keyed off each field's `type`), but must not until the dashboard actually becomes the system of record.
 
 ---
 
@@ -265,6 +266,50 @@ Dropdowns list the distinct values already on accounts, since option-set metadat
 
 ### Behaviour-driving field: Active/Inactive
 `state_label = 'Active'` (statecode 0) decides whether a client appears on **Portfolio** (`v_client_portfolio`) and in `v_client_statistics`, the stats by market cap / region, `v_client_onboarding`, `v_contract_management`, `v_productivity_detail_summary`, `v_client_detail_summary` and `v_client_quarterly_pnl`. It's the Active/Inactive field on the form, and saving sets both the statecode and statuscode pairs. Client Status (Current / Past) gates nothing.
+Deactivating a client works through this same field. See *Deactivating a client* below.
+
+## Deactivating a client (2026-10-12)
+
+**In plain language:** a permitted user can **deactivate** a client from its record drawer on the Clients page. The client drops out of every "active" surface at once: Portfolio, Client Detail, the active-client counts and the Client pickers on the task, touch point, note, contact, meeting and event forms. **Nothing is deleted.** Its events, meetings, contacts, tasks and notes are untouched. It stays in the Clients table as **Inactive** (use the built-in *All clients* view, or filter Status = Inactive), where it can be **reactivated**, which reverses all of it. Opening a deactivated client's Client Detail link shows a "This client is deactivated" notice instead of the dashboard, with who/when/why and a Reactivate button.
+
+### The sidecar columns (`sql/patches/2026-10-12b_account_deactivation.sql`)
+Dashboard-owned columns on `public.accounts`. The Dynamics sync upserts only the columns its mapper produces, so it never writes or clears these.
+
+| Column | Set by | Meaning |
+|---|---|---|
+| `deactivated_at` | Deactivate | When it was deactivated. `NULL` = not deactivated. |
+| `deactivated_by` | Deactivate | Who deactivated it (display name). |
+| `deactivation_reason` | Deactivate | The optional reason typed in the confirm. |
+| `reactivated_at` / `reactivated_by` | Reactivate (or the Edit form) | When and by whom it was last reactivated. Kept after reactivation. |
+
+Deactivate and Reactivate are also written to `audit_log` (entity `accounts`, context "Deactivate client" / "Reactivate client"), which holds the full history. The columns hold only the latest round.
+
+### How "active" is computed: Option 2 now, Option 1 at cutover
+**Now (Option 2, the state_label shortcut).** Deactivate sets `state_label = 'Inactive'` (plus `state_code` / `status_code` / `status_label`, the same set the Edit form writes) and stamps the columns above. Reactivate sets `'Active'`, clears `deactivated_*` and stamps `reactivated_*`. Every existing view and query already means `state_label = 'Active'` by "active client", so they all follow with **no view rewrite**. That includes the ~50 views, `listActiveClientIds` and `loadActiveAccountOptions`. Effective active is therefore just `state_label = 'Active'`, and the invariant **`deactivated_at IS NOT NULL ⇒ state_label = 'Inactive'`** always holds.
+
+This is sound **only for dashboard-origin clients**, whose `state_label` the dashboard already owns. For Dynamics clients the sync rewrites `state_label`, which would silently undo a deactivation.
+
+**Planned cutover follow-up (Option 1).** Add a generated column `is_active_effective = (state_label = 'Active' AND deactivated_at IS NULL)`, then repoint the ~50 views and ~12 code sites from `state_label = 'Active'` to it. Only after that may `DEACTIVATION_INCLUDES_DYNAMICS` be flipped. The view list is spread across `sql/03_views.sql`, `sql/20_client_todo.sql` and the later patches that re-create them. In code the sites are `lib/crm-write.ts` `loadActiveAccountOptions`, `app/events/actions.ts`, `app/institution-style/page.tsx`, `app/clients/alerts/load.ts`, `app/my-dashboard/load.ts` + `critical-count.ts` and `lib/events/spec.ts`.
+
+### Keeping the flag and state_label in step
+- **Reactivate** clears the stamp.
+- **The Edit form:** saving a deactivated client with Active switched on counts as a reactivation. `updateClient` clears `deactivated_*` and stamps `reactivated_*`. Saving with Inactive leaves any stamp alone. An Inactive client *without* a stamp is just "inactive", not "deactivated".
+- **Backstop trigger** `trg_accounts_deactivation_coherence`: any other write that leaves a stamped row non-Inactive has its deactivation cleared and `reactivated_at` stamped.
+
+### Permission gate (server-side), `lib/accounts/deactivation-gate.ts`
+All reads and writes use the service-role key, so this is the real gate. RLS is not involved, and the UI only hides the button.
+- **Who:** effective role `super_user` (there is no separate admin role), **or** the client's **primary manager**: `accounts.sales_lead_primary_id` is one of the viewer's user ids, using the same unioned id set as data scoping (`loadIdentity().resolve`). An unresolved or ambiguous identity is refused. **To widen or narrow, edit `isPermissioned` in that file.**
+- **Not while impersonating:** writes are refused during "View as", the same rule as every CRM write.
+- The Clients page and its drawer are themselves super-user only. A primary manager who isn't a super user therefore reaches the button through the Client Detail notice (Reactivate) rather than the drawer.
+
+### Origin / cutover switch, `DEACTIVATION_INCLUDES_DYNAMICS`
+In `lib/accounts/deactivation.ts`, currently **`false`**: Deactivate/Reactivate is offered and accepted for `origin = 'dashboard'` clients only. On Dynamics clients the button is hidden and the server refuses ("available after cutover"). Flip it to `true` at cutover, and **only after Option 1 lands** (see above).
+
+### Not `account_status`
+`public.account_status` (the inert Active/Inactive toggle on /admin/account-teams, `lib/account-teams/status.ts`) overlaps this but is **not read or written** by deactivation. Reconcile it with the deactivation model, or remove it, in a later change.
+
+### Files
+`sql/patches/2026-10-12b_account_deactivation.sql` · `lib/accounts/deactivation.ts` (switch, types) · `lib/accounts/deactivation-gate.ts` (gate) · `app/accounts/actions.ts` (`loadClientDeactivation`, `deactivateClient`, `reactivateClient`, the `updateClient` coherence) · `components/client-deactivation-control.tsx` (button + confirm) · `app/accounts/account-record-pane.tsx` (drawer) · `app/client-detail/deactivated-notice.tsx` + `page.tsx` (notice).
 
 ### Newly flattened columns (`sql/patches/2026-09-23g_accounts_full_fields.sql`)
 | Column(s) | Dynamics field | Populated (of 228) |

@@ -468,8 +468,8 @@ Eight steps come straight off the client card in Dynamics (synced onto `public.a
 
 | # | Column label | Full name | CRM source | Complete when | Date shown |
 |---|---|---|---|---|---|
-| 1 | Onb. Call | Onboarding Call | `accounts.onboarding_call` (`bcs_onboardingcall`) — date | a date is present | ✅ that date |
-| 2 | Teach-in | Teach-in Date | `accounts.teach_in_date` (`bcs_teachindate`) — date | a date is present | ✅ that date |
+| 1 | Onb. Call | Onboarding Call | latest **Onboarding Call touchpoint**, else `accounts.onboarding_call` (`bcs_onboardingcall`) — see below | a date is present | ✅ that date |
+| 2 | Teach-in | Teach-in Date | latest **Teach-in touchpoint**, else `accounts.teach_in_date` (`bcs_teachindate`) — see below | a date is present | ✅ that date |
 | 3 | Calendar | Calendar | `accounts.calendar` (`bcs_calendar`) — boolean | flag is TRUE | — |
 | 4 | Cal. Conf. | Calendar Confirmed | `accounts.calendar_confirmed` (`bcs_calendarconfirmed`) — boolean | flag is TRUE | — |
 | 5 | Mtg Hist. | Meeting History | **Outreach → Data Upload task** (see below) | a completed Data Upload task exists | ✅ that task's date |
@@ -485,6 +485,51 @@ For the six boolean steps, a **No** and an **unset** flag are treated identicall
 It replaced `accounts.meeting_history_received` (`bcs_meetinghistoryrecd`), which is **still synced but no longer feeds this step** — that flag was `false` on every client on the page, so the step could never tick. Re-sourcing took it from 0 of 10 clients to 5 of 10. The view column was renamed `f_meeting_history_received` → **`f_meeting_history`** to match, deliberately rather than leaving a column named after a source that no longer feeds it.
 
 > **Deployment note (2026-08-20).** The step dates and the Data-Upload re-sourcing were written into `sql/03_views.sql` and the page code, but the **live view was never rebuilt from that file** — it still exposed `f_meeting_history_received` and had none of the three date columns. The page therefore read `undefined` for every date and for `f_meeting_history`, so Meeting History always rendered as missing and no dates ever printed. `sql/patches/2026-08-20_onboarding_dates_contract_notes.sql` reconciles live with the repo and adds the two reference columns below. **A SQL change only takes effect once it is run against Supabase.**
+
+#### Onboarding ↔ touchpoints: the Onboarding Call and Teach-in cells (2026-10-12)
+
+**In plain language:** the Onboarding Call and Teach-in dates now come from **touchpoints**. Log a touchpoint of type *Onboarding Call* or *Teach-in* for a client, and its date shows on the Onboarding page. Clicking either cell goes the other way. It opens that client's touchpoint of that type, or a pre-filled form to add one, so there's no trip to the Touchpoints screen.
+
+**The date rule: touchpoint first, stored date as fallback.** `sql/patches/2026-10-12c_onboarding_touchpoint_dates.sql` recreates `v_client_onboarding` so that:
+- `onboarding_call_date` = the Eastern day of `COALESCE(` the `scheduled_start` of the **most-recently-entered** touchpoint with `touchpoint_type_label = 'Onboarding Call'` for the client, `accounts.onboarding_call)`.
+- `teach_in_date` = the same with `'Teach-in'` (lower-case "i") and `accounts.teach_in_date`.
+- "Most recently entered" means ordered by `created_on DESC` (tie-break `touchpoint_id DESC`). That is when it was logged, not the date it happened.
+
+Nothing is overwritten. Touchpoints take over only where one exists, and the stored Dynamics / Edit-form date stays the fallback, so no client lost a date. The flow never writes `accounts.onboarding_call` / `teach_in_date`.
+
+**The checkbox keeps its meaning:** ticked when that step has a date (the result above `IS NOT NULL`). `filled_count` follows. My Dashboard reads the same `f_onboarding_call` / `f_teach_in_date` columns from this view (`app/my-dashboard/load.ts`, `actions.ts`), so it follows with no code change.
+
+**Clicking a cell** (`app/onboarding/touch-cell.tsx`) checks whether a touchpoint of that type **exists**, not whether the cell shows a date, since a date can come from the fallback column with no touchpoint behind it:
+
+| Latest touchpoint of that type | Opens |
+|---|---|
+| none | **Add New Touchpoint**, pre-filled (below). Saved as `origin = 'dashboard'`; the cell then shows its date. |
+| dashboard-origin | the same form in **edit** mode (`updateDashboardRow` origin guard) |
+| Dynamics-origin | the **read-only** touchpoint drawer, "Synced from Dynamics — read-only until cutover" |
+
+The opened touchpoint is the same one whose date the cell shows: the server action uses the view's ordering.
+
+**Pre-fill** (`NewTouchForClientDialog`, the Client Detail "+" form, extended with `typeCode` / `subject` / `blankDate`):
+- **Client:** the row's client.
+- **Type:** the cell's type. The Type dropdown offers only Onboarding Call and Teach-in here.
+- **Subject:** the type label.
+- **Date:** left **empty** for the user to fill.
+
+Everything stays editable, and the required fields are unchanged.
+- **Contact Type** (required: CEO / CFO / IRO / Other) still has to be picked.
+- **Client Contact** is optional.
+
+There is no "the company itself" contact option: the form and data model only carry a contact *role* plus specific contact people (`touchpoint_contacts`), and the sync does not bring in Dynamics' activity-party links, where the company can be the party. See the open item below.
+
+**Permission: scoped to this path, not a general opening of touchpoints.** The Touchpoints tab and all its actions stay super-user only. The onboarding cells use their own server actions (`app/onboarding/actions.ts`), each of which checks, server-side:
+1. the viewer can reach `/onboarding` (Roles matrix);
+2. the client is inside **`resolveClientScope`**: super users and users with the *All* data scope see every client; users with the *Account Management* scope see clients where they are the primary manager, secondary manager, associate or logistics coordinator (owner excluded); anyone else sees none;
+3. the touchpoint is an **Onboarding Call or Teach-in**, both for what it loads and for what it writes;
+4. writes are refused in "View as".
+
+Dynamics-origin touchpoints are view-only until cutover, and new ones are always dashboard-origin. The form, the contact picker and the drawer are the existing components. They take the onboarding actions as an `api` / `loadOptions` / `loadContacts` prop. The ungated touchpoint core they share with the Touchpoints tab lives in `lib/touchpoints/write.ts`.
+
+**Open item: company as contact.** Pre-filling "the company" as the contact needs a new choice in the model, such as a "Company" contact type, or contact-party sync from Dynamics. Until then, the user picks a Contact Type before saving.
 
 #### Three reference columns (not steps)
 

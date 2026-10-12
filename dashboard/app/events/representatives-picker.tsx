@@ -20,6 +20,10 @@
  * `allowAll={false}`: no "All contacts" toggle, so only the picked client's
  * contacts are offered, and the field is disabled until a client is chosen.
  * Defaults keep the event form exactly as it was.
+ *
+ * `loadOptions` swaps the (super_user-gated) loader for a differently-gated
+ * one — the Onboarding page's touchpoint cells pass their client-scope-gated
+ * loader (app/onboarding/actions.ts).
  */
 
 import * as React from "react"
@@ -42,6 +46,7 @@ export function RepresentativesPicker({
   onChange,
   allowAll = true,
   inputId,
+  loadOptions = loadEventContactOptions,
 }: {
   clientAccountId: string | null
   value: EventRepresentative[]
@@ -50,6 +55,8 @@ export function RepresentativesPicker({
   allowAll?: boolean
   /** id for the search input, so a <Label htmlFor> can point at it. */
   inputId?: string
+  /** The candidate-contacts loader. Default: the event form's. */
+  loadOptions?: typeof loadEventContactOptions
 }) {
   const [allToggle, setAll] = React.useState(false)
   const all = allowAll && allToggle
@@ -64,7 +71,7 @@ export function RepresentativesPicker({
   React.useEffect(() => {
     if (loaded?.key === key || (!all && !clientAccountId)) return
     let live = true
-    loadEventContactOptions({ clientAccountId, all }).then((r) => {
+    loadOptions({ clientAccountId, all }).then((r) => {
       if (!live) return
       if (r.ok) {
         setLoaded({ key, items: (r.data ?? []).map(toRep) })
@@ -74,7 +81,7 @@ export function RepresentativesPicker({
     return () => {
       live = false
     }
-  }, [key, all, clientAccountId, loaded?.key])
+  }, [key, all, clientAccountId, loaded?.key, loadOptions])
 
   const ready = loaded?.key === key
   // Items = the scope's contacts, plus anything already chosen (so chips for

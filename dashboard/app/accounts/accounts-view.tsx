@@ -775,6 +775,7 @@ export function AccountsView({
           record cannot remount the table. */}
       <AccountRecordPane
         onEdit={openId ? () => setEditId(openId) : undefined}
+        onDeactivationChange={openId ? () => afterEdit(openId) : undefined}
         record={record}
         loading={openId !== null && record === null && recordError === null}
         error={recordError}

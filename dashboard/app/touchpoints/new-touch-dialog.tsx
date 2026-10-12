@@ -53,6 +53,29 @@ import { FieldError, FormSection, SelectField } from "@/components/crm-form-kit"
 import { RepresentativesPicker } from "@/app/events/representatives-picker"
 import { countTestTouches, createTouch, loadTouchClientOptions, purgeTestTouches } from "./actions"
 import { loadTouchForEdit, updateTouch } from "./actions"
+import { loadEventContactOptions } from "@/app/events/actions"
+import type { ActionResult } from "@/lib/actions"
+
+/**
+ * The server actions the form calls. Default = the Touchpoints tab's own
+ * (super_user-gated). The Onboarding page's cells pass a client-scope-gated set
+ * (app/onboarding/actions.ts) — the FORM is the same, only the gate differs.
+ */
+export type TouchFormApi = {
+  create: (input: NewTouchInput) => Promise<ActionResult<{ touchpointId: string }>>
+  update: (id: string, input: NewTouchInput) => Promise<ActionResult<{ changed: number }>>
+  loadClients: (includeAccountId?: string | null) => Promise<ActionResult<AccountOption[]>>
+  loadContactOptions: typeof loadEventContactOptions
+  loadForEdit: (id: string) => Promise<ActionResult<NewTouchInput>>
+}
+
+const DEFAULT_API: TouchFormApi = {
+  create: createTouch,
+  update: updateTouch,
+  loadClients: loadTouchClientOptions,
+  loadContactOptions: loadEventContactOptions,
+  loadForEdit: loadTouchForEdit,
+}
 
 /** Now, as an Eastern "YYYY-MM-DDTHH:mm" for the datetime-local input. */
 function nowEasternLocal(): string {
@@ -108,12 +131,17 @@ function TouchFormDialog({
   initial,
   editId,
   onSaved,
+  api = DEFAULT_API,
+  typeCodes,
 }: {
   open: boolean
   setOpen: (o: boolean) => void
   initial: NewTouchInput | null
   editId: string | null
   onSaved: () => void
+  api?: TouchFormApi
+  /** Limit the Touchpoint type options (the Onboarding path: its two types). */
+  typeCodes?: readonly string[]
 }) {
   const router = useRouter()
   const [form, setForm] = React.useState<NewTouchInput>(() => initial ?? emptyForm())
@@ -125,11 +153,11 @@ function TouchFormDialog({
   // an edited touchpoint (or a Client Detail quick-add) keeps its own client.
   React.useEffect(() => {
     if (!open || clients) return
-    loadTouchClientOptions(initial?.clientAccountId ?? null).then((r) => {
+    api.loadClients(initial?.clientAccountId ?? null).then((r) => {
       if (r.ok) setClients(r.data)
       else setError(`Could not load clients: ${r.error}`)
     })
-  }, [open, clients, initial])
+  }, [open, clients, initial, api])
 
   const setText =
     (k: "subject" | "start" | "durationMinutes") => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -157,7 +185,7 @@ function TouchFormDialog({
       return setError("Fill in the required fields marked below.")
     }
     startTransition(async () => {
-      const r = editId ? await updateTouch(editId, form) : await createTouch(form)
+      const r = editId ? await api.update(editId, form) : await api.create(form)
       if (!r.ok) {
         setError(r.error)
         return
@@ -229,6 +257,7 @@ function TouchFormDialog({
                       inputId="nt-contacts"
                       clientAccountId={form.clientAccountId}
                       allowAll={false}
+                      loadOptions={api.loadContactOptions}
                       value={form.contacts ?? []}
                       onChange={(next) => setForm((f) => ({ ...f, contacts: next }))}
                     />
@@ -261,7 +290,7 @@ function TouchFormDialog({
                         className={`${SELECT_CLASS} ${INVALID_SELECT}`}
                       >
                         <option value="">Select a type</option>
-                        {TOUCH_TYPE_OPTIONS.map((o) => (
+                        {TOUCH_TYPE_OPTIONS.filter((o) => !typeCodes || typeCodes.includes(o.code)).map((o) => (
                           <option key={o.code} value={o.code}>
                             {o.label}
                           </option>
@@ -456,17 +485,21 @@ export function EditTouchDialog({
   id,
   onClose,
   onSaved,
+  api = DEFAULT_API,
+  typeCodes,
 }: {
   id: string | null
   onClose: () => void
   onSaved: (id: string) => void
+  api?: TouchFormApi
+  typeCodes?: readonly string[]
 }) {
   const [loaded, setLoaded] = React.useState<{ id: string; input: NewTouchInput } | null>(null)
 
   React.useEffect(() => {
     if (!id) return
     let live = true
-    loadTouchForEdit(id).then((r) => {
+    api.loadForEdit(id).then((r) => {
       if (!live) return
       if (r.ok) setLoaded({ id, input: r.data })
       else {
@@ -477,7 +510,7 @@ export function EditTouchDialog({
     return () => {
       live = false
     }
-  }, [id, onClose])
+  }, [id, onClose, api])
 
   const current = id && loaded?.id === id ? loaded : null
   if (!current) return null
@@ -493,6 +526,8 @@ export function EditTouchDialog({
       }}
       initial={current.input}
       editId={current.id}
+      api={api}
+      typeCodes={typeCodes}
       onSaved={() => {
         setLoaded(null)
         onSaved(current.id)
@@ -505,15 +540,36 @@ export function EditTouchDialog({
  * Client Detail's "+" quick-add — this same create form, opened with the
  * page's client pre-filled (still switchable in the picker, as on /touchpoints).
  * Mounted only while open; closing (or saving) calls onClose.
+ *
+ * Also the Onboarding page's empty-cell create (2026-10-12): `typeCode` and
+ * `subject` pre-fill those fields too, and the Date is left EMPTY for the user
+ * to set (`blankDate`). Everything stays editable; the required-field rules
+ * are unchanged.
  */
 export function NewTouchForClientDialog({
   clientAccountId,
   onClose,
+  typeCode,
+  subject,
+  blankDate = false,
+  api,
+  typeCodes,
 }: {
   clientAccountId: string
   onClose: () => void
+  typeCode?: string
+  subject?: string
+  blankDate?: boolean
+  api?: TouchFormApi
+  typeCodes?: readonly string[]
 }) {
-  const [initial] = React.useState(() => ({ ...emptyForm(), clientAccountId }))
+  const [initial] = React.useState(() => ({
+    ...emptyForm(),
+    clientAccountId,
+    ...(typeCode ? { typeCode } : null),
+    ...(subject ? { subject } : null),
+    ...(blankDate ? { start: "" } : null),
+  }))
   return (
     <TouchFormDialog
       open
@@ -523,6 +579,8 @@ export function NewTouchForClientDialog({
       initial={initial}
       editId={null}
       onSaved={() => {}}
+      api={api}
+      typeCodes={typeCodes}
     />
   )
 }

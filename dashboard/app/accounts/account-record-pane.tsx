@@ -19,6 +19,10 @@
  * system of record. The Account Team block in particular is a DISPLAY of the
  * Dynamics fields: it does not read or write public.account_team_members, and
  * which of the two is canonical is a separate, open question.
+ *
+ * The one write affordance besides Edit is Deactivate / Reactivate
+ * (components/client-deactivation-control.tsx), shown only when the server says
+ * the viewer may use it — see lib/accounts/deactivation-gate.ts.
  */
 
 import * as React from "react"
@@ -36,6 +40,12 @@ import {
 import { isPersonName } from "@/lib/accounts/spec"
 import { TestBadge } from "@/components/test-badge"
 import { RecordEditBar } from "@/components/record-edit-bar"
+import {
+  ClientDeactivationControl,
+  describeDeactivation,
+} from "@/components/client-deactivation-control"
+import type { ClientDeactivationState } from "@/lib/accounts/deactivation"
+import { loadClientDeactivation } from "./actions"
 import { cn } from "@/lib/utils"
 
 /** Eastern, matching every other date on the page. */
@@ -195,6 +205,7 @@ export function AccountRecordPane({
   error,
   onClose,
   onEdit,
+  onDeactivationChange,
 }: {
   record: AccountRecord | null
   loading: boolean
@@ -202,7 +213,25 @@ export function AccountRecordPane({
   onClose: () => void
   /** Opens the edit form — shown only for origin='dashboard' clients. */
   onEdit?: () => void
+  /** After a deactivate / reactivate — the list refreshes and the drawer reloads. */
+  onDeactivationChange?: () => void
 }) {
+  // Deactivation state + permission, fetched per record. A failure (e.g. the
+  // 2026-10-12b patch not run yet) just leaves the control hidden.
+  const accountId = record?.account_id ?? null
+  const [deactivation, setDeactivation] = React.useState<ClientDeactivationState | null>(null)
+  React.useEffect(() => {
+    if (!accountId) return
+    let cancelled = false
+    loadClientDeactivation(accountId).then((res) => {
+      if (!cancelled) setDeactivation(res.ok ? res.data : null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [accountId])
+  const dState = deactivation && deactivation.accountId === accountId ? deactivation : null
+
   const open = loading || !!record || !!error
   if (!open) return null
 
@@ -248,6 +277,18 @@ export function AccountRecordPane({
                   <Pill bg={statePill.bg} text={statePill.text}>
                     {record.state_label ?? "No state"}
                   </Pill>
+                  {dState && (
+                    <ClientDeactivationControl
+                      state={dState}
+                      onDone={() => onDeactivationChange?.()}
+                    />
+                  )}
+                </div>
+              )}
+              {dState?.deactivatedAt && (
+                <div className="mt-2 rounded-md border border-[#E4E9F4] bg-[#F4F6FB] px-2.5 py-1.5 text-[12px] text-[#5B6472]">
+                  <span className="font-medium text-[#1A2233]">{describeDeactivation(dState)}</span>
+                  {dState.reason && <> · {dState.reason}</>}
                 </div>
               )}
             </div>

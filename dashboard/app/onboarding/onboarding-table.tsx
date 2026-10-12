@@ -34,6 +34,8 @@ import {
 import { cn } from "@/lib/utils"
 import { formatDay, stripTickerPrefix } from "@/lib/client-todo-format"
 import type { ClientOnboardingRow } from "@/lib/types"
+import type { OnboardingTouchKind } from "@/lib/onboarding/touch-link"
+import { OnboardingTouchHost, type OnboardingTouchTarget } from "./touch-cell"
 
 const NAVY = "#1E2858"
 // The app-wide "complete / positive" green — the same value carried as GREEN or
@@ -60,7 +62,14 @@ type StepKey =
 /** The three steps that carry a date; the grid prints it under the checkmark. */
 type StepDateKey = "onboarding_call_date" | "teach_in_date" | "meeting_history_date"
 
-type Step = { key: StepKey; short: string; full: string; dateKey?: StepDateKey }
+type Step = {
+  key: StepKey
+  short: string
+  full: string
+  dateKey?: StepDateKey
+  /** Touchpoint-backed (2026-10-12c): the cell opens / creates that touchpoint. */
+  touchKind?: OnboardingTouchKind
+}
 
 // The nine onboarding steps, in grid order. `key` is the view's boolean column;
 // `short` is the compact column label; `full` is the tooltip / full name.
@@ -73,12 +82,14 @@ export const STEPS: readonly Step[] = [
     short: "Onb. Call",
     full: "Onboarding Call",
     dateKey: "onboarding_call_date",
+    touchKind: "onboarding_call",
   },
   {
     key: "f_teach_in_date",
     short: "Teach-in",
     full: "Teach-in Date",
     dateKey: "teach_in_date",
+    touchKind: "teach_in",
   },
   { key: "f_calendar", short: "Calendar", full: "Calendar" },
   { key: "f_calendar_confirmed", short: "Cal. Conf.", full: "Calendar Confirmed" },
@@ -434,6 +445,9 @@ function LegendItem({ swatch, text }: { swatch: React.ReactNode; text: string })
 }
 
 export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
+  // Onboarding Call / Teach-in cell clicks → the touchpoint form or drawer.
+  const [touchTarget, setTouchTarget] = React.useState<OnboardingTouchTarget | null>(null)
+  const closeTouch = React.useCallback(() => setTouchTarget(null), [])
   // Default sort: most-stalled first (longest days at top) so problems surface.
   const [sortKey, setSortKey] = React.useState<SortKey>("days_onboarding")
   const [sortDir, setSortDir] = React.useState<SortDir>("desc")
@@ -708,11 +722,30 @@ export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
                       className="px-1.5 py-1.5 text-center align-middle"
                       style={i === 0 ? GROUP_START_STYLE : undefined}
                     >
-                      <CheckCell
-                        done={r[step.key]}
-                        label={step.full}
-                        date={step.dateKey ? r[step.dateKey] : null}
-                      />
+                      {step.touchKind ? (
+                        // Touchpoint-backed step: opens the latest touchpoint
+                        // of this type, or the pre-filled Add form if none.
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setTouchTarget({ accountId: r.account_id, kind: step.touchKind!, nonce: Date.now() })
+                          }
+                          title={`${step.full}: open or add the touchpoint`}
+                          className="inline-flex cursor-pointer rounded-md px-1 py-0.5 hover:bg-[#F4F6F9] focus-visible:outline-2 focus-visible:outline-[#0355A7]"
+                        >
+                          <CheckCell
+                            done={r[step.key]}
+                            label={step.full}
+                            date={step.dateKey ? r[step.dateKey] : null}
+                          />
+                        </button>
+                      ) : (
+                        <CheckCell
+                          done={r[step.key]}
+                          label={step.full}
+                          date={step.dateKey ? r[step.dateKey] : null}
+                        />
+                      )}
                     </TableCell>
                   ))}
 
@@ -735,6 +768,7 @@ export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
           </TableBody>
         </Table>
       </div>
+      <OnboardingTouchHost target={touchTarget} onClose={closeTouch} />
     </>
   )
 }

@@ -1,5 +1,7 @@
 # 15 — Touchpoints (all CRM)
 
+> **Onboarding page link (2026-10-12).** Touchpoints of type **Onboarding Call** and **Teach-in** drive the Onboarding page's two date cells. The most-recently-entered one wins, and the stored account date is the fallback. Those cells open or create these touchpoints through **client-scope-gated** actions (`app/onboarding/actions.ts`), limited to those two types. The Touchpoints tab itself stays super-user only. The shared, ungated read/write core is `lib/touchpoints/write.ts`. Full detail is in [02 — Pages](02-pages.md), "Onboarding ↔ touchpoints".
+
 > **Renamed 2026-10-12: "Touches" → "Touchpoints" on screen.** Display labels only — see [Naming](#naming-touchpoints-on-screen-touchpoints-underneath) for the full list. Older sections of this doc and other docs still say "Touches"; read it as the same page.
 >
 > **Spelling standardised to ONE word, "Touchpoint" / "Touchpoints" (2026-10-12).** The first rename that day used two words ("Touch Point" / "Touch Points"). Every user-facing string was then changed to the single word, keeping its casing: title case stays title case ("Add New Touchpoint", "Create Touchpoint", "Last Touchpoint"), sentence case stays lower ("touchpoint", "No touchpoints returned."). The Excel file became `crm-touchpoints_<date>.xlsx`. Routes, tables, columns and identifiers were never renamed. When adding text, write **Touchpoint**, never "Touch Point" or "Touches".
