@@ -2,9 +2,16 @@
 
 > **Status: built, local only.** Needs `sql/patches/2026-09-24_time_off_requests.sql` run in Supabase before the page loads. **Since 2026-10-09 the page is open to every signed-in user, row-scoped** (see *Who sees which requests* below). Creating / editing / deleting are still super-user only.
 
+**Where it lives (2026-10-11).** The requests table is no longer a standalone **CRM** nav item. It is reached from the Logistics **Time Off** page (`/time-off`), whose header now has two actions:
+
+- **Manage Time Off** (secondary, for everyone) opens this table, `/time-off-requests`. The route, its row scoping (own ∪ approver-for ∪ super-user all) and the drawer are unchanged.
+- **New Time Off Request** (primary) opens the existing create form (`NewTimeOffButton`; active Rose & Co personnel only, full days only). It is shown only to whoever `createTimeOffRequest` accepts: an effective super user, not in "View as". Creating stays super-user only on the server.
+
+The Logistics calendar itself is unchanged. The nav's quick-add menu still opens the form on this table (`/time-off-requests?new=1`).
+
 ## What it does (plain language)
 
-**CRM → Time Off** (`/time-off-requests`) is the one list of every time-off request:
+**Time Off → Manage Time Off** (`/time-off-requests`; it was the *CRM → Time Off* nav item until 2026-10-11) is the one list of every time-off request:
 
 - the **Dynamics history** — every request synced from Dynamics (`new_vacationrequest`). Read-only, always; and
 - **requests made in the dashboard**, which go through a simple workflow: **Pending → Approved** or **Denied**.

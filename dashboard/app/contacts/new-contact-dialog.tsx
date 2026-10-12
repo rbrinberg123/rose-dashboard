@@ -15,7 +15,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Loader2 } from "lucide-react"
+import { Contact2, Loader2, Settings2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { AddNewButton, useQuickAddRequest } from "@/components/crm-add-new"
@@ -37,11 +37,13 @@ import {
   CONTACT_INDUSTRY_OPTIONS,
   CONTACT_TYPE_OPTIONS,
   NEW_CONTACT_TEST_DEFAULT,
+  validateContactRequired,
+  type ContactFieldErrors,
   type NewContactInput,
 } from "@/lib/contacts/create"
 import type { AccountOption, UserOption } from "@/lib/types"
 import { UserCombobox } from "@/components/user-combobox"
-import { FormSection, SelectField, TextField, YesNo } from "@/components/crm-form-kit"
+import { FieldError, FormSection, SelectField, TextField, YesNo } from "@/components/crm-form-kit"
 import {
   countTestContacts,
   createContact,
@@ -51,6 +53,15 @@ import {
   loadContactUserOptions,
   purgeTestContacts,
 } from "./actions"
+
+/** The red "required" asterisk after a label (same as the other CRM forms). */
+function Req() {
+  return (
+    <span className="text-destructive" aria-label="required">
+      *
+    </span>
+  )
+}
 
 type TextKey = "firstName" | "lastName" | "jobTitle" | "email" | "mobilePhone" | "directPhone" | "city"
 
@@ -106,24 +117,30 @@ function ContactFormDialog({
   const [error, setError] = React.useState<string | null>(null)
   const [pending, startTransition] = React.useTransition()
 
-  // Load the client list the first time the form opens.
+  // Load the pickers the first time the form opens. Clients: ACTIVE only — an
+  // edited contact (or a Client Detail quick-add) keeps its own client listed.
   React.useEffect(() => {
     if (!open || clients) return
-    loadContactClientOptions().then((r) => {
+    loadContactClientOptions(initial?.clientAccountId ?? null).then((r) => {
       if (r.ok) setClients(r.data)
       else setError(`Could not load clients: ${r.error}`)
     })
     loadContactUserOptions().then((r) => (r.ok ? setUsers(r.data) : setError(r.error)))
-  }, [open, clients])
+  }, [open, clients, initial])
 
   const set = (k: TextKey) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }))
 
+  // REQUIRED fields: shown once the user has tried to submit, then live.
+  const [showErrors, setShowErrors] = React.useState(false)
+  const fieldErrors: ContactFieldErrors = showErrors ? validateContactRequired(form) : {}
+
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    if (!form.firstName.trim() && !form.lastName.trim()) {
-      setError("Enter a first or last name.")
+    setShowErrors(true)
+    if (Object.keys(validateContactRequired(form)).length) {
+      setError("Fill in the required fields marked below.")
       return
     }
     startTransition(async () => {
@@ -140,18 +157,34 @@ function ContactFormDialog({
     })
   }
 
-  const field = (id: TextKey, label: string, props?: React.ComponentProps<typeof Input>) => (
-    <div className="grid gap-1.5">
+  const field = (
+    id: TextKey,
+    label: React.ReactNode,
+    props?: React.ComponentProps<typeof Input>,
+    error?: string,
+  ) => (
+    <div className="grid min-w-0 gap-1.5">
       <Label htmlFor={`nc-${id}`}>{label}</Label>
-      <Input id={`nc-${id}`} value={(form[id] as string) ?? ""} onChange={set(id)} {...props} />
+      <Input
+        id={`nc-${id}`}
+        value={(form[id] as string) ?? ""}
+        onChange={set(id)}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `nc-${id}-error` : undefined}
+        {...props}
+      />
+      <FieldError id={`nc-${id}-error`} message={error} />
     </div>
   )
 
   return (
     <>
       <Dialog open={open} onOpenChange={(o) => !pending && setOpen(o)}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        {/* Large, two-column (same treatment as the event, meeting, task and
+            touchpoint forms): wide on desktop, one scrolling column on small
+            screens. Header and footer stay put; only the field area scrolls. */}
+        <DialogContent className="flex max-h-[92vh] w-[96vw] flex-col gap-0 p-0 sm:max-w-[960px]">
+          <DialogHeader className="border-b px-5 py-3">
             <DialogTitle>{editId ? "Edit contact" : "Add new contact"}</DialogTitle>
             <DialogDescription>
               {editId ? (
@@ -164,148 +197,166 @@ function ContactFormDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={onSubmit} className="grid max-h-[70vh] gap-3 overflow-y-auto pr-1">
-            <div className="grid grid-cols-2 gap-3">
-              {field("firstName", "First name", { autoFocus: true })}
-              {field("lastName", "Last name")}
-            </div>
-            {field("jobTitle", "Job title")}
+          <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+            {/* minmax(0,1fr) columns + min-w-0 so a long client / option name
+                can never widen a pane past half (as on the task form). */}
+            <div className="grid min-h-0 flex-1 gap-x-4 gap-y-2.5 overflow-y-auto px-4 py-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              {/* ---- Column 1: who the contact is ---- */}
+              <div className="grid min-w-0 content-start gap-2.5">
+                <FormSection panel icon={Contact2} title="Contact">
+                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+                    {field("firstName", <>First name <Req /></>, { autoFocus: true }, fieldErrors.firstName)}
+                    {field("lastName", <>Last name <Req /></>, undefined, fieldErrors.lastName)}
+                  </div>
+                  {field("jobTitle", "Job title")}
 
-            <div className="grid gap-1.5">
-              <Label>Client</Label>
-              <ClientCombobox
-                options={clients ?? []}
-                value={form.clientAccountId ?? null}
-                onChange={(v) => setForm((f) => ({ ...f, clientAccountId: v }))}
-                placeholder={clients ? "Select a client (optional)" : "Loading clients…"}
-              />
-            </div>
+                  <div className="grid min-w-0 gap-1.5">
+                    <Label>
+                      Client <Req />
+                    </Label>
+                    <ClientCombobox
+                      options={clients ?? []}
+                      value={form.clientAccountId ?? null}
+                      onChange={(v) => setForm((f) => ({ ...f, clientAccountId: v }))}
+                      placeholder={clients ? "Select an active client" : "Loading clients…"}
+                      invalid={!!fieldErrors.clientAccountId}
+                    />
+                    <FieldError message={fieldErrors.clientAccountId} />
+                  </div>
 
-            <div className="grid gap-1.5">
-              <Label htmlFor="nc-type">Contact type</Label>
-              <select
-                id="nc-type"
-                value={form.contactTypeCode ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, contactTypeCode: e.target.value }))}
-                className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
-              >
-                <option value="">—</option>
-                {CONTACT_TYPE_OPTIONS.map((o) => (
-                  <option key={o.code} value={o.code}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="nc-type">Contact type</Label>
+                    <select
+                      id="nc-type"
+                      value={form.contactTypeCode ?? ""}
+                      onChange={(e) => setForm((f) => ({ ...f, contactTypeCode: e.target.value }))}
+                      className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+                    >
+                      <option value="">—</option>
+                      {CONTACT_TYPE_OPTIONS.map((o) => (
+                        <option key={o.code} value={o.code}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-            {field("email", "Email", { type: "email" })}
-            <div className="grid grid-cols-2 gap-3">
-              {field("mobilePhone", "Mobile phone", { type: "tel" })}
-              {field("directPhone", "Direct phone", { type: "tel" })}
-            </div>
-            {field("city", "City")}
-            <TextField id="nc-street" label="Street" value={form.street} onChange={(v) => up({ street: v })} />
-
-            <FormSection title="Profile">
-              <div className="grid grid-cols-2 gap-3">
-                <SelectField
-                  id="nc-industry"
-                  label="Industry"
-                  value={form.industryCode}
-                  onChange={(v) => up({ industryCode: v })}
-                  options={[
-                    ...CONTACT_INDUSTRY_OPTIONS.map((o) => ({ value: o.code, label: o.label })),
-                    ...(form.industryCode && !CONTACT_INDUSTRY_OPTIONS.some((o) => o.code === form.industryCode)
-                      ? [{ value: form.industryCode, label: `Existing code ${form.industryCode}` }]
-                      : []),
-                  ]}
-                />
-                <SelectField
-                  id="nc-active"
-                  label="Active/Inactive"
-                  value={form.active ? "1" : "0"}
-                  onChange={(v) => up({ active: v === "1" })}
-                  options={[
-                    { value: "1", label: "Active" },
-                    { value: "0", label: "Inactive" },
-                  ]}
-                  empty={null}
-                />
+                  {field("email", "Email", { type: "email" })}
+                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+                    {field("mobilePhone", "Mobile phone", { type: "tel" })}
+                    {field("directPhone", "Direct phone", { type: "tel" })}
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+                    {field("city", "City")}
+                    <TextField id="nc-street" label="Street" value={form.street} onChange={(v) => up({ street: v })} />
+                  </div>
+                </FormSection>
               </div>
-            </FormSection>
 
-            <FormSection title="Flags">
-              <div className="grid grid-cols-3 gap-2">
-                <YesNo label="IR Only" checked={form.irOnly} onChange={(v) => up({ irOnly: v })} />
-                <YesNo label="PoC" checked={form.poc} onChange={(v) => up({ poc: v })} />
-                <YesNo label="Do Not Call" checked={form.doNotCall} onChange={(v) => up({ doNotCall: v })} />
-                <YesNo
-                  label="Distribution List"
-                  checked={form.distributionList}
-                  onChange={(v) => up({ distributionList: v })}
-                />
-                <YesNo label="Ex-Employee" checked={form.exEmployee} onChange={(v) => up({ exEmployee: v })} />
+              {/* ---- Column 2: profile, flags, activity, system ---- */}
+              <div className="grid min-w-0 content-start gap-2.5">
+                <FormSection title="Profile">
+                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+                    <SelectField
+                      id="nc-industry"
+                      label="Industry"
+                      value={form.industryCode}
+                      onChange={(v) => up({ industryCode: v })}
+                      options={[
+                        ...CONTACT_INDUSTRY_OPTIONS.map((o) => ({ value: o.code, label: o.label })),
+                        ...(form.industryCode && !CONTACT_INDUSTRY_OPTIONS.some((o) => o.code === form.industryCode)
+                          ? [{ value: form.industryCode, label: `Existing code ${form.industryCode}` }]
+                          : []),
+                      ]}
+                    />
+                    <SelectField
+                      id="nc-active"
+                      label="Active/Inactive"
+                      value={form.active ? "1" : "0"}
+                      onChange={(v) => up({ active: v === "1" })}
+                      options={[
+                        { value: "1", label: "Active" },
+                        { value: "0", label: "Inactive" },
+                      ]}
+                      empty={null}
+                    />
+                  </div>
+                </FormSection>
+
+                <FormSection title="Flags">
+                  <div className="grid grid-cols-3 gap-2">
+                    <YesNo label="IR Only" checked={form.irOnly} onChange={(v) => up({ irOnly: v })} />
+                    <YesNo label="PoC" checked={form.poc} onChange={(v) => up({ poc: v })} />
+                    <YesNo label="Do Not Call" checked={form.doNotCall} onChange={(v) => up({ doNotCall: v })} />
+                    <YesNo
+                      label="Distribution List"
+                      checked={form.distributionList}
+                      onChange={(v) => up({ distributionList: v })}
+                    />
+                    <YesNo label="Ex-Employee" checked={form.exEmployee} onChange={(v) => up({ exEmployee: v })} />
+                  </div>
+                </FormSection>
+
+                <FormSection title="Activity">
+                  <div className="grid grid-cols-3 gap-3">
+                    <TextField
+                      id="nc-verified"
+                      label="Verified On"
+                      type="date"
+                      value={form.verifiedOn}
+                      onChange={(v) => up({ verifiedOn: v })}
+                    />
+                    <TextField
+                      id="nc-prev"
+                      label="Previous Company"
+                      value={form.previousCompany}
+                      onChange={(v) => up({ previousCompany: v })}
+                    />
+                    <TextField
+                      id="nc-ticker"
+                      label="Ticker Symbol"
+                      value={form.tickerSymbol}
+                      onChange={(v) => up({ tickerSymbol: v })}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Last Activity (subject, type, time) is maintained by the CRM from the contact’s activities — display-only.
+                  </p>
+                </FormSection>
+
+                <FormSection panel quiet icon={Settings2} title="System">
+                  <div className="grid gap-1.5">
+                    <Label>Owner</Label>
+                    <UserCombobox
+                      options={users ?? []}
+                      value={form.ownerId ?? null}
+                      onChange={(v) => up({ ownerId: v })}
+                      placeholder="Me (default)"
+                    />
+                  </div>
+                </FormSection>
+
+                {!editId && (
+                  <label className="flex items-start gap-2 rounded-md border border-[#F3E2BF] bg-[#FCF4E6] px-3 py-2 text-sm">
+                    <Checkbox
+                      checked={form.isTest}
+                      onCheckedChange={(c) => setForm((f) => ({ ...f, isTest: c === true }))}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="font-medium">Test record</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Marked TEST and removed by “Delete test contacts”. Leave on while we’re testing.
+                      </span>
+                    </span>
+                  </label>
+                )}
               </div>
-            </FormSection>
+            </div>
 
-            <FormSection title="Activity">
-              <div className="grid grid-cols-3 gap-3">
-                <TextField
-                  id="nc-verified"
-                  label="Verified On"
-                  type="date"
-                  value={form.verifiedOn}
-                  onChange={(v) => up({ verifiedOn: v })}
-                />
-                <TextField
-                  id="nc-prev"
-                  label="Previous Company"
-                  value={form.previousCompany}
-                  onChange={(v) => up({ previousCompany: v })}
-                />
-                <TextField
-                  id="nc-ticker"
-                  label="Ticker Symbol"
-                  value={form.tickerSymbol}
-                  onChange={(v) => up({ tickerSymbol: v })}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Last Activity (subject, type, time) is maintained by the CRM from the contact’s activities — display-only.
-              </p>
-            </FormSection>
+            {error && <div className="border-t px-5 py-2 text-sm text-destructive">{error}</div>}
 
-            <FormSection title="System">
-              <div className="grid gap-1.5">
-                <Label>Owner</Label>
-                <UserCombobox
-                  options={users ?? []}
-                  value={form.ownerId ?? null}
-                  onChange={(v) => up({ ownerId: v })}
-                  placeholder="Me (default)"
-                />
-              </div>
-            </FormSection>
-
-            {!editId && (
-              <label className="flex items-start gap-2 rounded-md border border-[#F3E2BF] bg-[#FCF4E6] px-3 py-2 text-sm">
-                <Checkbox
-                  checked={form.isTest}
-                  onCheckedChange={(c) => setForm((f) => ({ ...f, isTest: c === true }))}
-                  className="mt-0.5"
-                />
-                <span>
-                  <span className="font-medium">Test record</span>
-                  <span className="block text-xs text-muted-foreground">
-                    Marked TEST and removed by “Delete test contacts”. Leave on while we’re testing.
-                  </span>
-                </span>
-              </label>
-            )}
-
-            {error && <div className="text-sm text-destructive">{error}</div>}
-
-            <DialogFooter>
+            <DialogFooter className="mx-0 mb-0">
               <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
                 Cancel
               </Button>

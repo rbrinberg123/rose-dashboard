@@ -78,7 +78,7 @@ export async function buildClientTodoWorkbook(rows: ClientTodoTableRow[]) {
     { header: "Meetings YTD", key: "ytd", width: 14 },
     { header: "Meetings L12M", key: "l12m", width: 15 },
     { header: "Meetings Upcoming", key: "upcoming", width: 18 },
-    { header: "Last Touch (CRM)", key: "lastTouch", width: 18, style: { numFmt: DATE_FMT } },
+    { header: "Last Touchpoint (CRM)", key: "lastTouch", width: 18, style: { numFmt: DATE_FMT } },
     { header: "Last Data Upload", key: "lastUpload", width: 18, style: { numFmt: DATE_FMT } },
     { header: "Current & Upcoming Event", key: "eventName", width: 42 },
     { header: "Event Status", key: "eventStatus", width: 18 },

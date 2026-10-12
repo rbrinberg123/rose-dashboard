@@ -3,6 +3,7 @@ import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { getUserRole } from "@/lib/user-role"
+import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import type { TimeOffRow } from "@/lib/types"
 import { TimeOffView } from "./time-off-view"
 
@@ -21,6 +22,11 @@ export default async function TimeOffPage() {
   } = await supabase.auth.getUser()
   const userEmail = user?.email ?? undefined
   const isSuperUser = (await getUserRole(userEmail)) === "super_user"
+  // "New Time Off Request" is offered only to whoever createTimeOffRequest
+  // accepts — the same rule as requireCrmWriter: effective super user, not in
+  // "View as". Everyone gets "Manage Time Off" (that table is row-scoped).
+  const [effectiveRole, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
+  const canCreateRequest = effectiveRole === "super_user" && !identity.impersonated
 
   // ~400 approved time-off rows — comfortably under the PostgREST 1,000-row cap,
   // so a single fetch is enough (no pagination like the Scheduler needs).
@@ -45,7 +51,7 @@ export default async function TimeOffPage() {
 
   return (
     <PageShell title="Time Off" hideHeader canvas>
-      <TimeOffView entries={entries} userEmail={userEmail} isSuperUser={isSuperUser} />
+      <TimeOffView entries={entries} userEmail={userEmail} isSuperUser={isSuperUser} canCreateRequest={canCreateRequest} />
     </PageShell>
   )
 }

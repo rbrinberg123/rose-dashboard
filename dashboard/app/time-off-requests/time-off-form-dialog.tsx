@@ -398,7 +398,7 @@ export function PurgeTestTimeOffButton() {
 }
 
 /** "Add New Time Off" — the page button plus a fresh create form per open. */
-export function NewTimeOffButton() {
+export function NewTimeOffButton({ label }: { label?: string } = {}) {
   const [open, setOpen] = React.useState(false)
   const [mount, setMount] = React.useState(0)
   // The nav quick-add lands here with ?new=1 — open the same form.
@@ -407,6 +407,7 @@ export function NewTimeOffButton() {
     <>
       <AddNewButton
         entity="time_off"
+        label={label}
         onClick={() => {
           setMount((m) => m + 1)
           setOpen(true)

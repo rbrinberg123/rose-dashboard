@@ -217,6 +217,12 @@ update public.sync_runs set last_synced_at = null where entity_name = 'contacts'
 
 **Editable:** name, job title, client, contact type, email, mobile, direct line, city, **street**, **industry**, **Active/Inactive**, the five **flags** (IR Only, PoC, Do Not Call, Distribution List, Ex-Employee), **verified on**, **previous company**, **ticker symbol**, **owner**.
 
+**Required fields (2026-10-12):** **First Name**, **Last Name** and **Client**, each marked with a red \*. Saving with any of them empty is blocked and the field shows an inline error. Before this, a contact needed only one of the two names and no client. The rule lives in one place, `validateContactRequired` in `lib/contacts/create.ts` (tested in `create.test.ts`): the form calls it before submitting, and `buildContactColumns` in `app/contacts/actions.ts` calls it again on the server.
+
+**Client picker = active clients only (2026-10-12).** It uses `loadContactClientOptions` → `loadActiveAccountOptions` in `lib/crm-write.ts`, the shared `accounts.state_label = 'Active'` rule used by the Event, Meeting, Task, Touchpoint and Note forms. An edited contact, or a Client Detail quick-add, keeps its own client in the list even if that client has since gone inactive, so a historical value is never blanked. This is a picker scope only.
+
+**Layout:** the form is the large two-column dialog used for events, meetings, tasks and touchpoints (`max-h-[92vh] w-[96vw] sm:max-w-[960px]`). Column 1 has *Contact*: name, job title, client, type, email, phones, city and street. Column 2 has *Profile*, *Flags*, *Activity*, *System* (Owner) and the Test toggle. Below the `lg` breakpoint it collapses to one scrolling column. Only the field area scrolls; the header and footer stay fixed.
+
 **Display-only:**
 - **Last Activity** subject, type and time: Dynamics maintains these from the contact's activities.
 - **Lead State:** empty on every contact, so there's no known option list.

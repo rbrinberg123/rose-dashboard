@@ -166,7 +166,7 @@ function ClientFormDialog({
               {text("nl-ticker", "Ticker", "tickerSymbol")}
               <SelectField
                 id="nl-active"
-                label="Active/Inactive — only Active clients appear on Portfolio"
+                label="Active/Inactive — only Active clients appear on My Portfolio"
                 value={form.active ? "1" : "0"}
                 onChange={(v) => set({ active: v === "1" })}
                 options={[
@@ -250,7 +250,7 @@ function ClientFormDialog({
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              Last/next touch and event, days since review and last targeting/teaser are Dynamics rollups —
+              Last/next touchpoint and event, days since review and last targeting/teaser are Dynamics rollups —
               display-only.
             </p>
           </FormSection>
@@ -324,7 +324,7 @@ function ClientFormDialog({
                 <span className="font-medium">Test record</span>
                 <span className="block text-xs text-muted-foreground">
                   Marked TEST and removed by “Delete test clients”. It is NOT hidden anywhere — an Active test
-                  client appears on Portfolio like any other.
+                  client appears on My Portfolio like any other.
                 </span>
               </span>
             </label>

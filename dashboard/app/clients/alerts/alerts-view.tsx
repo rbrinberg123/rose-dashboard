@@ -299,7 +299,7 @@ export function AlertsView({ data }: { data: AlertsData }) {
   return (
     <>
       <div className="mb-4">
-        <ListTitleCard eyebrow="Clients · Worklist" title="Alerts" subtitle={subtitle}>
+        <ListTitleCard eyebrow="Insights · Worklist" title="Alerts" subtitle={subtitle}>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatCard
               floating

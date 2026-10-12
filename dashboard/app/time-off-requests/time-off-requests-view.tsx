@@ -208,7 +208,7 @@ export function TimeOffRequestsView({
           subtitle={
             seesAll
               ? "Every time-off request — the Dynamics history (read-only) plus requests made here, which go Pending → Approved / Denied by the person's reviewing team."
-              : "Your own time-off requests, plus those of anyone you approve for — every status. The team-wide “who's out” view is the Logistics Time Off calendar."
+              : "Your own time-off requests, plus those of anyone you approve for — every status. The team-wide “who's out” view is the Workflows → Time Off calendar."
           }
           rightSlot={
             // Creating / purging stays super-user only (requireCrmWriter).
@@ -659,7 +659,7 @@ export function TimeOffPane({
                 {record.source === "Dynamics" && (
                   <p className="mt-2 text-[11px] text-muted-foreground">
                     Dynamics never fills its request status, so every synced request is shown as
-                    Approved (the same rule as the Logistics Time Off calendar).
+                    Approved (the same rule as the Time Off calendar).
                   </p>
                 )}
               </section>

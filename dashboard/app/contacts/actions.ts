@@ -40,7 +40,7 @@ import {
   DASHBOARD_ROW_BASE,
   cleanText,
   countTestRows,
-  loadAccountOptions,
+  loadActiveAccountOptions,
   purgeTestRows,
   requireCrmWriter,
   isIsoDate,
@@ -55,6 +55,7 @@ import type { AccountOption, UserOption } from "@/lib/types"
 import {
   CONTACT_INDUSTRY_OPTIONS,
   CONTACT_TYPE_OPTIONS,
+  validateContactRequired,
   type NewContactInput,
 } from "@/lib/contacts/create"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
@@ -295,9 +296,14 @@ export async function loadContactRecord(
 // Gate, client lookup, ownership stamp, guarded edit and purge are the shared
 // ones in lib/crm-write.ts — the same plumbing every live CRM entity uses.
 
-/** Clients for the form's picker: every account, by name. */
-export async function loadContactClientOptions(): Promise<ActionResult<AccountOption[]>> {
-  return loadAccountOptions()
+/**
+ * The Client picker: ACTIVE clients only (accounts.state_label = 'Active') —
+ * the same shared helper as the Event, Meeting, Task, Touchpoint and Note
+ * forms. An edited contact (or a Client Detail quick-add) keeps its own client
+ * listed even if that client has since gone inactive.
+ */
+export async function loadContactClientOptions(includeAccountId?: string | null): Promise<ActionResult<AccountOption[]>> {
+  return loadActiveAccountOptions(includeAccountId)
 }
 
 /** People for the Owner picker. */
@@ -314,9 +320,12 @@ async function buildContactColumns(
   input: NewContactInput,
   defaultOwnerId: string | null,
 ): Promise<ActionResult<Record<string, unknown>>> {
+  // REQUIRED: First Name, Last Name, Client — the same rule the form applies
+  // before submit (lib/contacts/create.ts validateContactRequired).
+  const missing = Object.values(validateContactRequired(input))
+  if (missing.length) return fail(missing.join(" "))
   const firstName = cleanText(input.firstName)
   const lastName = cleanText(input.lastName)
-  if (!firstName && !lastName) return fail("Enter a first or last name.")
 
   const email = cleanText(input.email)
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail("That email address doesn't look valid.")

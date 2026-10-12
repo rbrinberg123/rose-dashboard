@@ -304,7 +304,7 @@ export function AccountRecordPane({
           {record && (
             <p className="pb-4 text-[11px] text-muted-foreground">
               View only — Dynamics is the system of record. This is the client RECORD, not the
-              Portfolio analytics view: meeting counts, retainers and open slots live there, and
+              My Portfolio analytics view: meeting counts, retainers and open slots live there, and
               the fields still held only in the raw CRM payload are a separate flatten pass.
             </p>
           )}

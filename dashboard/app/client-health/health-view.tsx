@@ -422,7 +422,7 @@ export function HealthView({
     <>
       <div className="mb-4">
         <ListTitleCard
-          eyebrow="Clients"
+          eyebrow="Insights"
           title="Client Health"
           subtitle={
             <>

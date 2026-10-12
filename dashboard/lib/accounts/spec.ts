@@ -129,7 +129,7 @@ const SOURCE: Partial<
     title:
       "Client ticker — full company name on hover. Links to the client's detail " +
       "page. The circles are the account team (manager, secondary, associate, " +
-      "logistics), the same cluster Portfolio and Events show. Sorts and filters " +
+      "logistics), the same cluster My Portfolio and Events show. Sorts and filters " +
       "on the full name",
   },
   ticker_symbol: {
@@ -342,7 +342,7 @@ const SOURCE: Partial<
     width: "104px",
     renderer: "date",
     group: "Engagement",
-    header: "Last Touch",
+    header: "Last Touchpoint",
     title:
       "bcs_LastTouchpoint — the CRM's own rollup, not a count off public.meetings. " +
       "Known to lag; treat it as what the CRM believes",
@@ -352,7 +352,7 @@ const SOURCE: Partial<
     width: "104px",
     renderer: "date",
     group: "Engagement",
-    header: "Next Touch",
+    header: "Next Touchpoint",
   },
   last_event_date: {
     column: "last_event_date",

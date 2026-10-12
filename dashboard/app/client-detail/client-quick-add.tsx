@@ -21,7 +21,7 @@ type Kind = "event" | "task" | "touch" | "note" | "contact"
 const ITEMS: { kind: Kind; label: string }[] = [
   { kind: "event", label: "New Event" },
   { kind: "task", label: "New Task" },
-  { kind: "touch", label: "New Touch Point" },
+  { kind: "touch", label: "New Touchpoint" },
   { kind: "note", label: "New Note" },
   { kind: "contact", label: "New Contact" },
 ]

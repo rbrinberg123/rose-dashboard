@@ -443,8 +443,8 @@ export function TouchpointsView({
         out = matchesKeyword(res.data, searchKeys, query)
       }
       await exportToExcel(out as unknown as Record<string, unknown>[], columns, {
-        sheetName: "Touches",
-        fileStem: "crm-touches",
+        sheetName: "Touchpoints",
+        fileStem: "crm-touchpoints",
         // The full client name and the call notes are the first two things
         // anyone wants from a CRM dump — the table shows a ticker, and the notes
         // are a drawer-only field. The coarse state rides along with them.
@@ -462,7 +462,7 @@ export function TouchpointsView({
         <ListTitleCard
           compact
           eyebrow="CRM"
-          title="Touches"
+          title="Touchpoints"
           subtitle="Every logged client contact in the CRM — calls, virtual meetings, emails, in-person. No row scoping is applied, so this page is super-user only."
           rightSlot={
             <div className="flex items-center gap-2">
@@ -513,7 +513,7 @@ export function TouchpointsView({
         <div className="shrink-0 whitespace-nowrap text-xs font-medium tabular-nums">
           {total.toLocaleString()}
           <span className="ml-1 font-normal text-muted-foreground">
-            {total === 1 ? "touch" : "touches"}
+            {total === 1 ? "touchpoint" : "touchpoints"}
           </span>
           {total !== rows.length && (
             <span className="ml-1 font-normal text-muted-foreground">
@@ -543,7 +543,7 @@ export function TouchpointsView({
               resetScroll()
             }}
             placeholder="Filter by keyword"
-            aria-label="Filter touches by keyword"
+            aria-label="Filter touchpoints by keyword"
             className="h-7 pl-8 pr-7 text-xs"
           />
           {query && (
@@ -658,7 +658,7 @@ export function TouchpointsView({
             {total === 0 ? (
               <TableRow>
                 <TableCell colSpan={colCount} className="py-10 text-center text-muted-foreground">
-                  {rows.length === 0 ? "No touches returned." : `No touches match “${query}”.`}
+                  {rows.length === 0 ? "No touchpoints returned." : `No touchpoints match “${query}”.`}
                 </TableCell>
               </TableRow>
             ) : (
@@ -675,7 +675,7 @@ export function TouchpointsView({
                     style={{ height: ROW_H }}
                     className="cursor-pointer"
                     tabIndex={0}
-                    aria-label={`Open record for ${r.subject ?? "touch"}`}
+                    aria-label={`Open record for ${r.subject ?? "touchpoint"}`}
                     onClick={(e) => {
                       if (!isInteractiveTarget(e.target)) openRecord(r.touchpoint_id)
                     }}

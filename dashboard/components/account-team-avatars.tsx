@@ -16,7 +16,15 @@ export type { TeamAvatarMember }
 // whose two-letter initials collide with anyone else in that full set shows an
 // expanded three-letter form (e.g. "KMu"/"KMi"), the same on every page/team —
 // not just when the colliding people happen to share one circle.
-export function AccountTeamAvatars({ members }: { members: readonly TeamAvatarMember[] }) {
+export function AccountTeamAvatars({
+  members,
+  size = 24,
+}: {
+  members: readonly TeamAvatarMember[]
+  /** Circle diameter in px (default 24, the table size). Initials and the
+   *  overlap scale with it, so a larger cluster keeps the same proportions. */
+  size?: number
+}) {
   const initialsMap = useTeamInitials()
   const shown = members.filter(
     (m): m is TeamAvatarMember & { name: string } => Boolean(m.name && m.name.trim()),
@@ -35,16 +43,16 @@ export function AccountTeamAvatars({ members }: { members: readonly TeamAvatarMe
           aria-label={`${m.role}: ${m.name}`}
           className="flex shrink-0 items-center justify-center rounded-full"
           style={{
-            width: 24,
-            height: 24,
-            fontSize: "9px",
+            width: size,
+            height: size,
+            fontSize: `${Math.round((size * 9) / 24)}px`,
             fontWeight: 600,
             lineHeight: 1,
             backgroundColor: m.bg,
             color: m.fg,
             // Thin border in the card/row background so overlapping avatars read cleanly.
             border: "2px solid var(--card)",
-            marginLeft: i === 0 ? 0 : -8,
+            marginLeft: i === 0 ? 0 : -Math.round(size / 3),
             // Earlier roles sit on top of later ones.
             zIndex: shown.length - i,
           }}

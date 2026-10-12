@@ -162,10 +162,13 @@ export async function loadMeetingRecord(
 }
 
 /**
- * The meeting drawer for My Dashboard's Hosting card, for ANY signed-in user —
- * but only for a meeting the viewer HOSTS (host_id ∈ the effective viewer's
- * CRM ids), the exact scope of that card. Anything else is refused, so this
- * can never be used to read someone else's meeting. Super users pass too.
+ * The meeting drawer for My Dashboard's Hosting and Feedback to Collect cards,
+ * for ANY signed-in user — but only for a meeting that is on one of those cards
+ * for the viewer: one they HOST (meetings.host_id ∈ the effective viewer's CRM
+ * ids), or one whose outstanding feedback is theirs to collect
+ * (v_feedback_outstanding.host_id — the feedback-responsible person — ∈ those
+ * ids; the Feedback to Collect card's exact scope). Anything else is refused,
+ * so this can never be used to read someone else's meeting. Super users pass.
  */
 export async function loadHostedMeetingRecord(
   meetingId: string,
@@ -178,14 +181,18 @@ export async function loadHostedMeetingRecord(
     const identity = await getEffectiveIdentity()
     const viewer = await viewerUserIds(identity.email)
     if (viewer.ids.length === 0) return fail("Not authorised.")
-    const { data, error } = await getSupabaseServer()
-      .from("meetings")
-      .select("meeting_id")
-      .eq("meeting_id", meetingId)
-      .in("host_id", viewer.ids)
-      .maybeSingle()
-    if (error) return fail(describeError(error))
-    if (!data) return fail("Not authorised.")
+    const sb = getSupabaseServer()
+    const [hosted, toCollect] = await Promise.all([
+      sb.from("meetings").select("meeting_id").eq("meeting_id", meetingId).in("host_id", viewer.ids).maybeSingle(),
+      sb
+        .from("v_feedback_outstanding")
+        .select("meeting_id")
+        .eq("meeting_id", meetingId)
+        .in("host_id", viewer.ids)
+        .limit(1),
+    ])
+    if (hosted.error) return fail(describeError(hosted.error))
+    if (!hosted.data && !(toCollect.data && toCollect.data.length > 0)) return fail("Not authorised.")
   }
   return readMeetingRecord(meetingId)
 }

@@ -1,8 +1,12 @@
 "use client"
 
 /**
- * "Add New Touch" — the third LIVE dashboard create form, a near-copy of
- * app/notes/new-note-dialog.tsx — plus the touches test-data purge button.
+ * "Add New Touchpoint" — the third LIVE dashboard create form, a near-copy of
+ * app/notes/new-note-dialog.tsx — plus the touchpoints test-data purge button.
+ *
+ * DISPLAY NAME is "Touchpoint(s)" (2026-10-12; was "Touch(es)"). Everything
+ * internal — the route, tables, file and symbol names (createTouch,
+ * NewTouchButton, …) — is unchanged.
  *
  * Writes go through createTouch / purgeTestTouches in ./actions.ts, which hold
  * the real gate (super_user, not impersonating) and the audit call, via the
@@ -15,7 +19,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Loader2 } from "lucide-react"
+import { CalendarClock, Loader2, MessagesSquare } from "lucide-react"
 import { toast } from "sonner"
 
 import { AddNewButton, useQuickAddRequest } from "@/components/crm-add-new"
@@ -39,10 +43,14 @@ import {
   TOUCH_CONTACT_TYPE_OPTIONS,
   TOUCH_STATUS_OPTIONS,
   TOUCH_TYPE_OPTIONS,
+  validateTouchRequired,
   type NewTouchInput,
+  type TouchFieldErrors,
 } from "@/lib/touchpoints/create"
 import type { AccountOption } from "@/lib/types"
-import { SelectField } from "@/components/crm-form-kit"
+import { FieldError, FormSection, SelectField } from "@/components/crm-form-kit"
+// The event form's contact picker, in client-only mode (allowAll={false}).
+import { RepresentativesPicker } from "@/app/events/representatives-picker"
 import { countTestTouches, createTouch, loadTouchClientOptions, purgeTestTouches } from "./actions"
 import { loadTouchForEdit, updateTouch } from "./actions"
 
@@ -61,15 +69,25 @@ function nowEasternLocal(): string {
   return `${g("year")}-${g("month")}-${g("day")}T${g("hour")}:${g("minute")}`
 }
 
+/** The red "required" asterisk after a label (same as the meeting/event/task forms). */
+function Req() {
+  return (
+    <span className="text-destructive" aria-label="required">
+      *
+    </span>
+  )
+}
+
 function emptyForm(): NewTouchInput {
   return {
-    clientAccountId: null,
-    subject: "",
+    clientAccountId: null, // REQUIRED
+    subject: "", // REQUIRED
     description: "",
-    typeCode: TOUCH_TYPE_OPTIONS[0].code, // Virtual — 83% of live touches
-    contactTypeCodes: [],
+    typeCode: "", // REQUIRED — blank so it is a deliberate choice (was Virtual)
+    contactTypeCodes: [], // REQUIRED — at least one
+    contacts: [], // OPTIONAL, multi — the client's contacts (touchpoint_contacts)
     outgoing: true,
-    start: nowEasternLocal(),
+    start: nowEasternLocal(), // REQUIRED — starts at now, still editable
     durationMinutes: "30", // the Dynamics default on 98% of live touches
     statusKey: "open",
     isTest: NEW_TOUCH_TEST_DEFAULT,
@@ -103,14 +121,15 @@ function TouchFormDialog({
   const [error, setError] = React.useState<string | null>(null)
   const [pending, startTransition] = React.useTransition()
 
-  // Load the client list the first time the form opens.
+  // Load the client list the first time the form opens: ACTIVE clients only;
+  // an edited touchpoint (or a Client Detail quick-add) keeps its own client.
   React.useEffect(() => {
     if (!open || clients) return
-    loadTouchClientOptions().then((r) => {
+    loadTouchClientOptions(initial?.clientAccountId ?? null).then((r) => {
       if (r.ok) setClients(r.data)
       else setError(`Could not load clients: ${r.error}`)
     })
-  }, [open, clients])
+  }, [open, clients, initial])
 
   const setText =
     (k: "subject" | "start" | "durationMinutes") => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -125,12 +144,18 @@ function TouchFormDialog({
     }))
   }
 
+  // REQUIRED fields: shown once the user has tried to submit, then live.
+  const [showErrors, setShowErrors] = React.useState(false)
+  const fieldErrors: TouchFieldErrors = showErrors ? validateTouchRequired(form) : {}
+  const INVALID_SELECT = "aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20"
+
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    if (!form.clientAccountId) return setError("Pick a client.")
-    if (!form.subject.trim()) return setError("Enter a subject.")
-    if (!form.start) return setError("Enter the date and time.")
+    setShowErrors(true)
+    if (Object.keys(validateTouchRequired(form)).length) {
+      return setError("Fill in the required fields marked below.")
+    }
     startTransition(async () => {
       const r = editId ? await updateTouch(editId, form) : await createTouch(form)
       if (!r.ok) {
@@ -138,7 +163,9 @@ function TouchFormDialog({
         return
       }
       const client = clients?.find((c) => c.account_id === form.clientAccountId)?.name ?? "client"
-      toast.success(editId ? "Changes saved" : form.isTest ? `Test touch for ${client} created` : `Touch for ${client} created`)
+      toast.success(
+        editId ? "Changes saved" : form.isTest ? `Test touchpoint for ${client} created` : `Touchpoint for ${client} created`,
+      )
       setOpen(false)
       router.refresh()
       onSaved()
@@ -148,147 +175,223 @@ function TouchFormDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={(o) => !pending && setOpen(o)}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{editId ? "Edit touch" : "Add new touch"}</DialogTitle>
+        {/* Large, two-column (same treatment as the event, meeting and task
+            forms): wide on desktop, one scrolling column on small screens.
+            Header and footer stay put; only the field area scrolls. */}
+        <DialogContent className="flex max-h-[92vh] w-[96vw] flex-col gap-0 p-0 sm:max-w-[960px]">
+          <DialogHeader className="border-b px-5 py-3">
+            <DialogTitle>{editId ? "Edit Touchpoint" : "Add New Touchpoint"}</DialogTitle>
             <DialogDescription>
               {editId ? (
                 "Editing a record created in the dashboard. Changes are saved directly and audited."
               ) : (
                 <>
               Created directly in the dashboard (not in Dynamics). It appears on this page right away and
-              flows everywhere a touch does — including Client Detail and the AI summary.
+              flows everywhere a touchpoint does — including Client Detail and the AI summary.
                 </>
               )}
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={onSubmit} className="grid gap-3">
-            <div className="grid gap-1.5">
-              <Label>Client</Label>
-              <ClientCombobox
-                options={clients ?? []}
-                value={form.clientAccountId}
-                onChange={(v) => setForm((f) => ({ ...f, clientAccountId: v }))}
-                placeholder={clients ? "Select a client" : "Loading clients…"}
-              />
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label htmlFor="nt-subject">Subject</Label>
-              <Input id="nt-subject" value={form.subject} onChange={setText("subject")} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="nt-type">Touch type</Label>
-                <select
-                  id="nt-type"
-                  value={form.typeCode}
-                  onChange={(e) => setForm((f) => ({ ...f, typeCode: e.target.value }))}
-                  className={SELECT_CLASS}
-                >
-                  {TOUCH_TYPE_OPTIONS.map((o) => (
-                    <option key={o.code} value={o.code}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="nt-direction">Direction</Label>
-                <select
-                  id="nt-direction"
-                  value={form.outgoing ? "out" : "in"}
-                  onChange={(e) => setForm((f) => ({ ...f, outgoing: e.target.value === "out" }))}
-                  className={SELECT_CLASS}
-                >
-                  <option value="out">Outgoing</option>
-                  <option value="in">Incoming</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="nt-start">Date &amp; time (Eastern)</Label>
-                <Input id="nt-start" type="datetime-local" value={form.start} onChange={setText("start")} />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="nt-duration">Duration (minutes)</Label>
-                <Input
-                  id="nt-duration"
-                  type="number"
-                  min={0}
-                  max={1440}
-                  value={form.durationMinutes ?? ""}
-                  onChange={setText("durationMinutes")}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <SelectField
-                id="nt-status"
-                label="Status"
-                value={form.statusKey}
-                onChange={(v) => setForm((f) => ({ ...f, statusKey: v as NewTouchInput["statusKey"] }))}
-                options={TOUCH_STATUS_OPTIONS.map((o) => ({ value: o.key, label: `${o.statusLabel} (${o.stateLabel})` }))}
-                empty={null}
-              />
-              <div className="grid gap-1.5">
-                <Label>Owner Team</Label>
-                <p className="flex h-8 items-center text-xs text-muted-foreground">
-                  Set automatically — the client’s own Dynamics team.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label>Contact type</Label>
-              <div className="flex flex-wrap gap-4 text-sm">
-                {TOUCH_CONTACT_TYPE_OPTIONS.map((o) => (
-                  <label key={o.code} className="flex items-center gap-1.5">
-                    <Checkbox
-                      checked={form.contactTypeCodes.includes(o.code)}
-                      onCheckedChange={(c) => toggleContactType(o.code, c === true)}
+          <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+            <div className="grid min-h-0 flex-1 gap-x-4 gap-y-2.5 overflow-y-auto px-4 py-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              {/* ---- Column 1: the touchpoint itself ---- */}
+              <div className="grid min-w-0 content-start gap-2.5">
+                <FormSection panel icon={MessagesSquare} title="Touchpoint">
+                  <div className="grid gap-1.5">
+                    <Label>
+                      Client <Req />
+                    </Label>
+                    <ClientCombobox
+                      options={clients ?? []}
+                      value={form.clientAccountId}
+                      // A different client = different contacts: clear the old picks.
+                      onChange={(v) =>
+                        setForm((f) => ({
+                          ...f,
+                          clientAccountId: v,
+                          contacts: v === f.clientAccountId ? f.contacts : [],
+                        }))
+                      }
+                      placeholder={clients ? "Select a client" : "Loading clients…"}
+                      invalid={!!fieldErrors.clientAccountId}
                     />
-                    {o.label}
+                    <FieldError message={fieldErrors.clientAccountId} />
+                  </div>
+
+                  {/* CLIENT CONTACT — multi, client-dependent (2026-10-12): the
+                      picked client's contacts only; disabled until a client is
+                      chosen. Saved to touchpoint_contacts. */}
+                  <div className="grid min-w-0 gap-1.5">
+                    <Label htmlFor="nt-contacts">Client Contact</Label>
+                    <RepresentativesPicker
+                      key={form.clientAccountId ?? "none"}
+                      inputId="nt-contacts"
+                      clientAccountId={form.clientAccountId}
+                      allowAll={false}
+                      value={form.contacts ?? []}
+                      onChange={(next) => setForm((f) => ({ ...f, contacts: next }))}
+                    />
+                  </div>
+
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="nt-subject">
+                      Subject <Req />
+                    </Label>
+                    <Input
+                      id="nt-subject"
+                      value={form.subject}
+                      onChange={setText("subject")}
+                      aria-invalid={fieldErrors.subject ? true : undefined}
+                      aria-describedby={fieldErrors.subject ? "nt-subject-error" : undefined}
+                    />
+                    <FieldError id="nt-subject-error" message={fieldErrors.subject} />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="nt-type">
+                        Touchpoint type <Req />
+                      </Label>
+                      <select
+                        id="nt-type"
+                        value={form.typeCode}
+                        onChange={(e) => setForm((f) => ({ ...f, typeCode: e.target.value }))}
+                        aria-invalid={fieldErrors.typeCode ? true : undefined}
+                        className={`${SELECT_CLASS} ${INVALID_SELECT}`}
+                      >
+                        <option value="">Select a type</option>
+                        {TOUCH_TYPE_OPTIONS.map((o) => (
+                          <option key={o.code} value={o.code}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      <FieldError message={fieldErrors.typeCode} />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="nt-direction">Direction</Label>
+                      <select
+                        id="nt-direction"
+                        value={form.outgoing ? "out" : "in"}
+                        onChange={(e) => setForm((f) => ({ ...f, outgoing: e.target.value === "out" }))}
+                        className={SELECT_CLASS}
+                      >
+                        <option value="out">Outgoing</option>
+                        <option value="in">Incoming</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-1.5">
+                    <Label id="nt-ctype-label">
+                      Contact type <Req />
+                    </Label>
+                    <div
+                      role="group"
+                      aria-labelledby="nt-ctype-label"
+                      aria-describedby={fieldErrors.contactTypeCodes ? "nt-ctype-error" : undefined}
+                      className={
+                        "flex flex-wrap gap-4 rounded-lg border px-2.5 py-2 text-sm " +
+                        (fieldErrors.contactTypeCodes ? "border-destructive" : "border-transparent")
+                      }
+                    >
+                      {TOUCH_CONTACT_TYPE_OPTIONS.map((o) => (
+                        <label key={o.code} className="flex items-center gap-1.5">
+                          <Checkbox
+                            checked={form.contactTypeCodes.includes(o.code)}
+                            onCheckedChange={(c) => toggleContactType(o.code, c === true)}
+                          />
+                          {o.label}
+                        </label>
+                      ))}
+                    </div>
+                    <FieldError id="nt-ctype-error" message={fieldErrors.contactTypeCodes} />
+                  </div>
+                </FormSection>
+              </div>
+
+              {/* ---- Column 2: when, status, notes ---- */}
+              <div className="grid min-w-0 content-start gap-2.5">
+                <FormSection panel icon={CalendarClock} title="When & Status">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="nt-start">
+                        Date &amp; time (Eastern) <Req />
+                      </Label>
+                      <Input
+                        id="nt-start"
+                        type="datetime-local"
+                        value={form.start}
+                        onChange={setText("start")}
+                        aria-invalid={fieldErrors.start ? true : undefined}
+                        aria-describedby={fieldErrors.start ? "nt-start-error" : undefined}
+                      />
+                      <FieldError id="nt-start-error" message={fieldErrors.start} />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="nt-duration">Duration (minutes)</Label>
+                      <Input
+                        id="nt-duration"
+                        type="number"
+                        min={0}
+                        max={1440}
+                        value={form.durationMinutes ?? ""}
+                        onChange={setText("durationMinutes")}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <SelectField
+                      id="nt-status"
+                      label="Status"
+                      value={form.statusKey}
+                      onChange={(v) => setForm((f) => ({ ...f, statusKey: v as NewTouchInput["statusKey"] }))}
+                      options={TOUCH_STATUS_OPTIONS.map((o) => ({ value: o.key, label: `${o.statusLabel} (${o.stateLabel})` }))}
+                      empty={null}
+                    />
+                    <div className="grid gap-1.5">
+                      <Label>Owner Team</Label>
+                      <p className="flex h-8 items-center text-xs text-muted-foreground">
+                        Set automatically — the client’s own Dynamics team.
+                      </p>
+                    </div>
+                  </div>
+                </FormSection>
+
+                <div className="grid gap-1.5">
+                  <Label htmlFor="nt-description">Description</Label>
+                  <Textarea
+                    id="nt-description"
+                    rows={6}
+                    value={form.description ?? ""}
+                    onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                  />
+                </div>
+
+                {!editId && (
+                  <label className="flex items-start gap-2 rounded-md border border-[#F3E2BF] bg-[#FCF4E6] px-3 py-2 text-sm">
+                    <Checkbox
+                      checked={form.isTest}
+                      onCheckedChange={(c) => setForm((f) => ({ ...f, isTest: c === true }))}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="font-medium">Test record</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Marked TEST and removed by “Delete test touchpoints”. It is NOT hidden anywhere — use the ZZ -
+                        Test Client (ZVZZT) while we’re testing.
+                      </span>
+                    </span>
                   </label>
-                ))}
+                )}
               </div>
             </div>
 
-            <div className="grid gap-1.5">
-              <Label htmlFor="nt-description">Description</Label>
-              <Textarea
-                id="nt-description"
-                rows={4}
-                value={form.description ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              />
-            </div>
+            {error && <div className="border-t px-5 py-2 text-sm text-destructive">{error}</div>}
 
-            {!editId && (
-              <label className="flex items-start gap-2 rounded-md border border-[#F3E2BF] bg-[#FCF4E6] px-3 py-2 text-sm">
-                <Checkbox
-                  checked={form.isTest}
-                  onCheckedChange={(c) => setForm((f) => ({ ...f, isTest: c === true }))}
-                  className="mt-0.5"
-                />
-                <span>
-                  <span className="font-medium">Test record</span>
-                  <span className="block text-xs text-muted-foreground">
-                    Marked TEST and removed by “Delete test touches”. It is NOT hidden anywhere — use the ZZ -
-                    Test Client (ZVZZT) while we’re testing.
-                  </span>
-                </span>
-              </label>
-            )}
-
-            {error && <div className="text-sm text-destructive">{error}</div>}
-
-            <DialogFooter>
+            <DialogFooter className="mx-0 mb-0">
               <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
                 Cancel
               </Button>
@@ -298,7 +401,7 @@ function TouchFormDialog({
                     <Loader2 className="size-4 animate-spin" /> Saving…
                   </>
                 ) : (
-                  editId ? "Save changes" : "Create touch"
+                  editId ? "Save changes" : "Create Touchpoint"
                 )}
               </Button>
             </DialogFooter>
@@ -311,7 +414,7 @@ function TouchFormDialog({
 
 /** "Delete test touches" — the shared purge button, bound to touchpoints. */
 export function PurgeTestTouchesButton() {
-  return <PurgeTestButton noun="touches" count={countTestTouches} purge={purgeTestTouches} />
+  return <PurgeTestButton noun="touchpoints" count={countTestTouches} purge={purgeTestTouches} />
 }
 
 /** "Add New Touch" — the page button plus a fresh create form per open. */

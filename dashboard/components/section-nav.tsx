@@ -14,7 +14,7 @@ import {
 } from "@/lib/design"
 import type { ViewAsRole } from "@/lib/access-control"
 import { TOP_BAR_HEIGHT } from "@/lib/sidebar"
-import { isNavRouteActive, visibleNavSections } from "@/components/nav"
+import { isNavRouteActive, visibleNavGroups } from "@/components/nav"
 
 /**
  * SECTIONAL NAV STRIP — one shared component, one mount point.
@@ -47,9 +47,12 @@ export function SectionNav({
   // Which section owns this URL? Match against the ACCESS-FILTERED item lists,
   // then keep the longest match: `/clients/to-do` must win over a hypothetical
   // `/clients`, since `isNavRouteActive` matches ancestors too.
-  let section: ReturnType<typeof visibleNavSections>[number] | null = null
+  // Groups = each section's own items, plus each nested sub-group (e.g.
+  // "Insights · Productivity") as its own group, so a page's strip lists its
+  // true siblings.
+  let section: ReturnType<typeof visibleNavGroups>[number] | null = null
   let activeHref: string | null = null
-  for (const candidate of visibleNavSections(role, allowedRoutes)) {
+  for (const candidate of visibleNavGroups(role, allowedRoutes)) {
     for (const item of candidate.items) {
       if (!isNavRouteActive(pathname, item.href)) continue
       if (activeHref && item.href.length <= activeHref.length) continue

@@ -31,11 +31,32 @@ export const CONTACT_TYPE_OPTIONS = [
   { code: "755860003", label: "Other" },
 ] as const
 
+export type ContactFieldErrors = Partial<Record<"firstName" | "lastName" | "clientAccountId", string>>
+
+/**
+ * REQUIRED fields (2026-10-12) — First Name, Last Name and Client. Before this
+ * a contact needed only one of the two names and no client. Pure: the form
+ * calls it to block submit and mark the fields; createContact / updateContact
+ * call it again server-side. Empty object = valid.
+ */
+export function validateContactRequired(
+  input: Pick<NewContactInput, "firstName" | "lastName" | "clientAccountId">,
+): ContactFieldErrors {
+  const errors: ContactFieldErrors = {}
+  if (!(input.firstName ?? "").trim()) errors.firstName = "Enter a first name."
+  if (!(input.lastName ?? "").trim()) errors.lastName = "Enter a last name."
+  if (!(input.clientAccountId ?? "").trim()) errors.clientAccountId = "Pick a client."
+  return errors
+}
+
 export type NewContactInput = {
+  /** REQUIRED. */
   firstName: string
+  /** REQUIRED. */
   lastName: string
   jobTitle?: string
-  /** accounts.account_id of the client; the name is re-read server-side. */
+  /** REQUIRED — accounts.account_id of the client; the name is re-read
+   *  server-side. ACTIVE clients only in the picker (loadActiveAccountOptions). */
   clientAccountId?: string | null
   email?: string
   mobilePhone?: string

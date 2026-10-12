@@ -287,7 +287,7 @@ const LIST_ONLY: EventColumnDef[] = [
     type: "number",
     width: "76px",
     renderer: "number",
-    title: "Confirmed meetings on this event — the same count Portfolio's Open Slots uses",
+    title: "Confirmed meetings on this event — the same count My Portfolio's Open Slots uses",
   },
   {
     key: "slots_remaining",

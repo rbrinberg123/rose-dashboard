@@ -71,7 +71,7 @@ export default async function FeedbackCollectionPage() {
     <PageShell title="Feedback Collection" hideHeader canvas>
       <div className="mb-4">
         <ListTitleCard
-          eyebrow="Logistics · Feedback"
+          eyebrow="Workflows · Feedback"
           title="Feedback Collection"
           subtitle="Concluded meetings still needing feedback — scoped to the meetings you booked, hosted, are the feedback assignee for, or are on the client's account team."
           rightSlot={canSend ? <SendEmailControls userEmail={userEmail} /> : undefined}

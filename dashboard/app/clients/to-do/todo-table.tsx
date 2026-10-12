@@ -300,7 +300,7 @@ function LastTouchCell({
       days={row.last_touch_days}
       amberAt={TOUCH_AMBER_DAYS}
       redAt={TOUCH_RED_DAYS}
-      label="Last touch"
+      label="Last touchpoint"
     />
   )
   // No touchpoint behind the date → the bare cell, exactly as before. Never an
@@ -327,7 +327,7 @@ function LastTouchCell({
         render={
           <button
             type="button"
-            aria-label={`Last touch ${when} — show touchpoint detail`}
+            aria-label={`Last touchpoint ${when} — show touchpoint detail`}
             className="inline-flex cursor-help items-center rounded-sm bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           />
         }
@@ -881,7 +881,7 @@ export function TodoTable({
                 <SortHeader
                   label="Status"
                   sortKey="note_status"
-                  title="Client status from the latest client note — same field and colours as Client Portfolio"
+                  title="Client status from the latest client note — same field and colours as My Portfolio"
                   {...headerProps}
                 />
               </TableHead>
@@ -922,7 +922,7 @@ export function TodoTable({
               <TableHead className="relative h-7 px-2">
                 <SectionDivider />
                 <SortHeader
-                  label="Last Touch"
+                  label="Last Touchpoint"
                   sortKey="last_touch_date"
                   title="Most recent CRM touchpoint activity"
                   {...headerProps}

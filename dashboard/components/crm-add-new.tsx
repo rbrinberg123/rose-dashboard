@@ -66,7 +66,7 @@ export const CRM_ENTITY_LABELS: Record<CrmEntity, string> = {
   meeting: "Meeting",
   event: "Event",
   task: "Task",
-  touch: "Touch",
+  touch: "Touchpoint",
   note: "Note",
   contact: "Contact",
   client: "Client",
@@ -159,9 +159,12 @@ export function AddNewButton({
   entity,
   className,
   onClick,
+  label,
 }: {
   entity: CrmEntity
   className?: string
+  /** Override the default "Add New <Entity>" wording. */
+  label?: string
   /**
    * A LIVE create flow, overriding the stub. Every page's button passes one.
    */
@@ -180,7 +183,7 @@ export function AddNewButton({
       style={{ background: RAIL_ACCENT_FILL }}
     >
       <Plus className="size-4 shrink-0" aria-hidden="true" />
-      Add New {CRM_ENTITY_LABELS[entity]}
+      {label ?? `Add New ${CRM_ENTITY_LABELS[entity]}`}
     </button>
   )
 }

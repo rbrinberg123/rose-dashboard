@@ -32,10 +32,11 @@ import {
   isUuid,
   easternLocalToIso,
   isIsoDate,
-  loadAccountOptions,
+  loadActiveAccountOptions,
   loadClientEventOptions,
-  loadUserOptions,
+  loadPersonnelOptions,
   purgeTestRows,
+  requireActivePersonnel,
   requireCrmWriter,
   updateDashboardRow,
   loadDashboardRowForEdit,
@@ -50,6 +51,7 @@ import {
   TASK_PRIORITY_OPTIONS,
   TASK_STATUS_OPTIONS,
   TASK_TYPE_OPTIONS,
+  validateTaskRequired,
   type NewTaskInput,
 } from "@/lib/tasks/create"
 import type { AccountOption, UserOption } from "@/lib/types"
@@ -383,12 +385,24 @@ export async function closeTask(taskId: string): Promise<ActionResult<{ mode: "n
 // The same shared plumbing as every live CRM entity (lib/crm-write.ts): write
 // gate, re-reads, ownership stamp, guarded edit, audited purge.
 
-export async function loadTaskClientOptions(): Promise<ActionResult<AccountOption[]>> {
-  return loadAccountOptions()
+/**
+ * The Client picker: ACTIVE clients only (accounts.state_label = 'Active') —
+ * the same shared helper as the Event, Meeting, Note and Touchpoint forms. An
+ * edited task keeps its own client listed even if that client has since gone
+ * inactive. Client stays OPTIONAL on tasks.
+ */
+export async function loadTaskClientOptions(includeAccountId?: string | null): Promise<ActionResult<AccountOption[]>> {
+  return loadActiveAccountOptions(includeAccountId)
 }
 
-export async function loadTaskUserOptions(): Promise<ActionResult<UserOption[]>> {
-  return loadUserOptions()
+/**
+ * The three people pickers (Owner, Claimed By, Current Assignment): Rose & Co
+ * ACTIVE personnel — the same list as the Meeting form's Host / Booker
+ * (lib/crm-write.ts loadPersonnelOptions). `keepIds` = the people already on
+ * the task being edited, kept (marked "(inactive)") so an edit never loses them.
+ */
+export async function loadTaskUserOptions(keepIds: (string | null)[] = []): Promise<ActionResult<UserOption[]>> {
+  return loadPersonnelOptions(keepIds)
 }
 
 export async function loadTaskEventOptions(accountId: string) {
@@ -398,25 +412,32 @@ export async function loadTaskEventOptions(accountId: string) {
 /**
  * Validate + build the FLATTENED task columns — shared by create and edit.
  * `defaultOwnerId` is the caller, used when the form leaves Owner blank.
+ * `currentPeople` (edit only) = the people already on the task, who may stay
+ * even if no longer active personnel.
  */
 async function buildTaskColumns(
   input: NewTaskInput,
   defaultOwnerId: string | null,
+  currentPeople: ReadonlySet<string> = new Set(),
 ): Promise<ActionResult<Record<string, unknown>>> {
-  if (!cleanText(input.clientAccountId)) return fail("Pick a client.")
-  const clientRes = await resolveAccount(input.clientAccountId)
-  if (!clientRes.ok) return fail(clientRes.error)
-  const client = clientRes.data!
+  // REQUIRED: Subject, Task Type, Task Subtype — the same rule the form
+  // applies before submit (lib/tasks/create.ts validateTaskRequired).
+  // Client is OPTIONAL.
+  const missing = Object.values(validateTaskRequired(input))
+  if (missing.length) return fail(missing.join(" "))
 
-  const subject = cleanText(input.subject)
-  if (!subject) return fail("Enter a subject.")
+  let client: { account_id: string; name: string | null } | null = null
+  if (cleanText(input.clientAccountId)) {
+    const clientRes = await resolveAccount(input.clientAccountId)
+    if (!clientRes.ok) return fail(clientRes.error)
+    client = clientRes.data!
+  }
 
-  const type = TASK_TYPE_OPTIONS.find((t) => t.code === input.typeCode)
-  if (!type) return fail("Pick a task type.")
+  const subject = cleanText(input.subject)!
+  const type = TASK_TYPE_OPTIONS.find((t) => t.code === input.typeCode)!
   const subtype = (type.subtypes as readonly { code: number; label: string }[]).find(
     (s) => s.code === input.subtypeCode,
-  )
-  if (!subtype) return fail("Pick a sub-type for that task type.")
+  )!
 
   const priority =
     input.priorityCode == null ? null : TASK_PRIORITY_OPTIONS.find((p) => p.code === input.priorityCode)
@@ -429,11 +450,17 @@ async function buildTaskColumns(
   if (due && !isIsoDate(due)) return fail("The due date isn't a valid date.")
 
   // The Event link: the Regarding event when Regarding is one, else the
-  // optional Event picker. Either way it must be one of the client's events.
-  const regardingEvent = input.regarding && input.regarding !== "client" ? input.regarding : null
-  const evRes = await resolveClientEvent(regardingEvent ?? input.eventId, client.account_id)
-  if (!evRes.ok) return fail(evRes.error)
-  const event = evRes.data
+  // optional Event picker. Either way it must be one of the client's events —
+  // so with no client there is no event and no Regarding.
+  const regardingEvent = client && input.regarding && input.regarding !== "client" ? input.regarding : null
+  let event: { event_id: string; name: string | null } | null = null
+  if (client) {
+    const evRes = await resolveClientEvent(regardingEvent ?? input.eventId, client.account_id)
+    if (!evRes.ok) return fail(evRes.error)
+    event = evRes.data
+  } else if (cleanText(input.eventId)) {
+    return fail("Pick a client to link an event.")
+  }
 
   const pctText = cleanText(input.percentComplete)
   const pct = pctText === null ? null : Number(pctText)
@@ -448,6 +475,18 @@ async function buildTaskColumns(
     const v = cleanText(input[k])
     if (v && !isIsoDate(v)) return fail(`${label} isn't a valid date.`)
     days[k] = v ? easternLocalToIso(`${v}T00:00`) : null
+  }
+
+  // People: active Rose & Co personnel only (an already-assigned person may
+  // stay even if now inactive) — the same rule as the form's pickers and the
+  // Meeting form. A blank Owner defaults to the caller.
+  for (const [v, label] of [
+    [input.ownerId, "Owner"],
+    [input.claimedById, "Claimed By"],
+    [input.currentAssignmentId, "Current Assignment"],
+  ] as const) {
+    const p = await requireActivePersonnel(v, currentPeople, label)
+    if (!p.ok) return fail(p.error)
   }
 
   const claimedRes = await resolveUser(input.claimedById)
@@ -478,13 +517,14 @@ async function buildTaskColumns(
     bcs_task_priority_code: priority?.code ?? null,
     bcs_task_priority_label: priority?.label ?? null,
     scheduled_end: due ? easternLocalToIso(`${due}T00:00`) : null,
-    bcs_account_id: client.account_id,
-    bcs_account_name: client.name,
+    bcs_account_id: client?.account_id ?? null,
+    bcs_account_name: client?.name ?? null,
     bcs_event_id: event?.event_id ?? null,
     bcs_event_name: event?.name ?? null,
-    regarding_id: regardingEvent && event ? event.event_id : client.account_id,
-    regarding_name: regardingEvent && event ? event.name : client.name,
-    regarding_type: regardingEvent && event ? "bcs_event" : "account",
+    // No client -> no Regarding at all (a client-less task stands alone).
+    regarding_id: regardingEvent && event ? event.event_id : (client?.account_id ?? null),
+    regarding_name: regardingEvent && event ? event.name : (client?.name ?? null),
+    regarding_type: regardingEvent && event ? "bcs_event" : client ? "account" : null,
     percent_complete: pct,
     scheduled_start: days.scheduledStart,
     actual_start: days.actualStart,
@@ -580,8 +620,8 @@ export async function loadTaskForEdit(id: string): Promise<ActionResult<NewTaskI
     clientAccountId: (r.bcs_account_id as string | null) ?? null,
     subject: asText(r.subject),
     description: asText(r.description),
-    typeCode: Number(r.bcs_task_type_code),
-    subtypeCode: Number(r.bcs_task_subtype_code),
+    typeCode: r.bcs_task_type_code == null ? null : Number(r.bcs_task_type_code),
+    subtypeCode: r.bcs_task_subtype_code == null ? null : Number(r.bcs_task_subtype_code),
     priorityCode: r.bcs_task_priority_code == null ? null : Number(r.bcs_task_priority_code),
     statusKey: status.key,
     dueDate: isoToEasternDate(r.scheduled_end),
@@ -611,7 +651,18 @@ export async function loadTaskForEdit(id: string): Promise<ActionResult<NewTaskI
 export async function updateTask(id: string, input: NewTaskInput): Promise<ActionResult<{ changed: number }>> {
   const gate = await requireCrmWriter("editing tasks")
   if (!gate.ok) return fail(gate.error)
-  const built = await buildTaskColumns(input, gate.userId)
+  // The people already on the task may stay even if no longer active personnel.
+  const { data: cur, error: curErr } = await getSupabaseServer()
+    .from("tasks")
+    .select("owner_id, bcs_claimed_by_id, bcs_current_assignment_id")
+    .eq("task_id", id)
+    .maybeSingle()
+  if (curErr) return fail(describeError(curErr))
+  const c = (cur ?? {}) as { owner_id?: string | null; bcs_claimed_by_id?: string | null; bcs_current_assignment_id?: string | null }
+  const people = new Set(
+    [c.owner_id, c.bcs_claimed_by_id, c.bcs_current_assignment_id].filter((v): v is string => !!v),
+  )
+  const built = await buildTaskColumns(input, gate.userId, people)
   if (!built.ok) return fail(built.error)
   return updateDashboardRow({
     table: "tasks",

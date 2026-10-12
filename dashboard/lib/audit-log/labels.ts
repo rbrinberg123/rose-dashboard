@@ -75,7 +75,7 @@ export const ENTITY_LABELS: Record<string, string> = {
   meeting_saved_views: "Saved View · Meetings",
   event_saved_views: "Saved View · Events",
   task_saved_views: "Saved View · Tasks",
-  touchpoint_saved_views: "Saved View · Touches",
+  touchpoint_saved_views: "Saved View · Touchpoints",
   note_saved_views: "Saved View · Notes",
 
   // Financial
@@ -101,7 +101,8 @@ export const ENTITY_LABELS: Record<string, string> = {
   meetings: "Meeting",
   events: "Event",
   tasks: "Task",
-  touchpoints: "Touch",
+  touchpoints: "Touchpoint",
+  touchpoint_contacts: "Touchpoint · Client Contacts",
   client_notes: "Client Note",
   contracts: "Contract",
   users: "User",

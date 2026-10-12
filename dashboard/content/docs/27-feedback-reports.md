@@ -5,7 +5,7 @@
 Every **dashboard-created event** now gets its **feedback report** automatically, and the report moves through its life on its own:
 
 1. **Event created → report created.** The moment an event is created in the dashboard, a **Feedback report** task appears for it: Open, owned by **System** (unclaimed), *feedback not received yet*. Every meeting of the event belongs to it.
-2. **Waiting for feedback → FB Coming Soon.** While no feedback has been received, the report is listed on **Logistics → FB Coming Soon** (work in progress, super users only). It **can't be claimed yet**. That page also shows the Dynamics Feedback tasks still waiting on feedback, marked *Dynamics*, read-only.
+2. **Waiting for feedback → FB Coming Soon.** While no feedback has been received, the report is listed on **FB Coming Soon** (`/fb-coming-soon`; work in progress, super users only; removed from the nav 2026-10-12, so reached by URL). It **can't be claimed yet**. That page also shows the Dynamics Feedback tasks still waiting on feedback, marked *Dynamics*, read-only.
 3. **Feedback received → claimable.** When someone sets the report's **Feedback Received Date** (Tasks page → Edit, for now), it leaves FB Coming Soon and appears on **Feedback Reports**, where a person with the *Claim feedback* permission can claim it (see [14 — Tasks → Feedback claiming](14-tasks.md#feedback-claiming-feedback-reports--claim--release--reassign--close)).
 4. **Closed → Pending Review.** When the owner (or an admin) **Closes** the report, a **"Feedback Report Pending Review – <event>"** task is created automatically, due **2 days** later, and the report moves to **Pending Review** on Feedback Reports. The claimer's My Dashboard item clears.
 

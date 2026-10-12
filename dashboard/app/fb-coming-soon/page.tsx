@@ -161,7 +161,7 @@ export default async function FbComingSoonPage() {
       <div className="mb-4">
         <ListTitleCard
           compact
-          eyebrow="Logistics"
+          eyebrow="Workflows"
           title="FB Coming Soon"
           subtitle={`Feedback reports waiting on feedback — ${rows.length} shown (${dashboardCount} dashboard, ${dynamicsCount} Dynamics); ${hiddenCount} hidden by the event filters.`}
         />

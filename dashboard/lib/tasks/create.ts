@@ -79,21 +79,49 @@ export const TASK_OUTREACH_STATUS_OPTIONS = [
   { code: 755860006, label: "Awaiting Feedback" },
 ] as const
 
+export type TaskFieldErrors = Partial<Record<"subject" | "typeCode" | "subtypeCode", string>>
+
+/**
+ * REQUIRED fields — Subject, Task Type, Task Subtype. Client is deliberately
+ * OPTIONAL (2026-10-12). Pure: the form calls it to block submit and mark the
+ * fields; createTask / updateTask call it again server-side. Empty = valid.
+ * The subtype must belong to the picked type.
+ */
+export function validateTaskRequired(
+  input: Pick<NewTaskInput, "subject" | "typeCode" | "subtypeCode">,
+): TaskFieldErrors {
+  const errors: TaskFieldErrors = {}
+  if (!(input.subject ?? "").trim()) errors.subject = "Enter a subject."
+  const type = TASK_TYPE_OPTIONS.find((t) => t.code === input.typeCode)
+  if (input.typeCode == null || !type) errors.typeCode = "Pick a task type."
+  if (
+    input.subtypeCode == null ||
+    (type && !(type.subtypes as readonly { code: number }[]).some((s) => s.code === input.subtypeCode))
+  ) {
+    errors.subtypeCode = "Pick a task subtype."
+  }
+  return errors
+}
+
 export type NewTaskInput = {
-  /** accounts.account_id — REQUIRED (bcs_account on every Dynamics task). */
+  /** accounts.account_id — OPTIONAL (2026-10-12). Blank = a task with no client. */
   clientAccountId: string | null
+  /** REQUIRED. */
   subject: string
   description?: string
-  typeCode: number
-  subtypeCode: number
+  /** REQUIRED — starts blank on a new task so it is a deliberate choice. */
+  typeCode: number | null
+  /** REQUIRED — one of the picked type's subtypes; blank until chosen. */
+  subtypeCode: number | null
   /** TASK_PRIORITY_OPTIONS code, or null for none. */
   priorityCode: number | null
   statusKey: (typeof TASK_STATUS_OPTIONS)[number]["key"]
   /** YYYY-MM-DD, Eastern — stored as scheduled_end (the "due date"). */
   dueDate?: string
-  /** "client" = regarding the account; else an events.event_id of that client. */
+  /** "client" = regarding the account; else an events.event_id of that client.
+   *  Ignored when no client is picked (the task then has no Regarding). */
   regarding: "client" | string
-  /** users.user_id */
+  /** users.user_id — active Rose & Co personnel (loadPersonnelOptions). */
   ownerId: string | null
 
   // ---- the rest of the drawer's editable fields ("form = drawer") ----
@@ -105,7 +133,7 @@ export type NewTaskInput = {
   scheduledStart?: string
   actualStart?: string
   actualEnd?: string
-  /** users.user_id */
+  /** users.user_id — active Rose & Co personnel, like Owner. */
   claimedById?: string | null
   currentAssignmentId?: string | null
   outreachStatusCode?: number | null

@@ -10,7 +10,9 @@
 export const SIDEBAR_COLLAPSED_COOKIE = "sidebar_collapsed"
 
 /** Icon-rail width, in px — fits a 40px icon button plus 9px of gutter. */
-export const SIDEBAR_COLLAPSED_WIDTH = 58
+// 62px (2026-10-12; was 58) — a touch wider for the 45px tiles. Shared:
+// TOP_BAR_HEIGHT below derives from it, so the top section strip grew 4px too.
+export const SIDEBAR_COLLAPSED_WIDTH = 62
 /**
  * Height, in px, of the top band — shared by the rail's IQ logo box and the
  * page's sectional-nav strip so the two line up across the top of the app.

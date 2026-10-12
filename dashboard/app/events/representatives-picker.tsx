@@ -15,6 +15,11 @@
  * Nothing is saved here — the list rides on the form and createEvent /
  * updateEvent write it to event_contacts (sql/patches/2026-10-07g),
  * server-side gated and audited.
+ *
+ * ALSO the touchpoint form's CLIENT CONTACTS field (2026-10-12), with
+ * `allowAll={false}`: no "All contacts" toggle, so only the picked client's
+ * contacts are offered, and the field is disabled until a client is chosen.
+ * Defaults keep the event form exactly as it was.
  */
 
 import * as React from "react"
@@ -35,12 +40,21 @@ export function RepresentativesPicker({
   clientAccountId,
   value,
   onChange,
+  allowAll = true,
+  inputId,
 }: {
   clientAccountId: string | null
   value: EventRepresentative[]
   onChange: (next: EventRepresentative[]) => void
+  /** Offer the "All contacts" toggle (event form). false = this client only. */
+  allowAll?: boolean
+  /** id for the search input, so a <Label htmlFor> can point at it. */
+  inputId?: string
 }) {
-  const [all, setAll] = React.useState(false)
+  const [allToggle, setAll] = React.useState(false)
+  const all = allowAll && allToggle
+  // Client-only mode with no client: nothing to offer, so the field is locked.
+  const disabled = !allowAll && !clientAccountId
   const [loaded, setLoaded] = React.useState<{ key: string; items: EventRepresentative[] } | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const anchorRef = React.useRef<HTMLDivElement>(null)
@@ -74,17 +88,22 @@ export function RepresentativesPicker({
   const emptyText = error
     ? error
     : !all && !clientAccountId
-      ? "Pick the client first — or tick All contacts."
+      ? allowAll
+        ? "Pick the client first — or tick All contacts."
+        : "Pick the client first."
       : !ready
         ? "Loading contacts…"
         : all
           ? "No matching contacts."
-          : "No matching contacts at this client — try All contacts."
+          : allowAll
+            ? "No matching contacts at this client — try All contacts."
+            : "No matching contacts at this client."
 
   return (
     <div className="flex items-start gap-3">
       <Combobox.Root
         multiple
+        disabled={disabled}
         items={items}
         value={value}
         onValueChange={(next) => onChange(next as EventRepresentative[])}
@@ -100,7 +119,10 @@ export function RepresentativesPicker({
       >
         <Combobox.Chips
           ref={anchorRef}
-          className="flex min-h-8 min-w-0 flex-1 flex-wrap items-center gap-1 rounded-lg border border-input bg-transparent px-1.5 py-1 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50"
+          className={cn(
+            "flex min-h-8 min-w-0 flex-1 flex-wrap items-center gap-1 rounded-lg border border-input bg-transparent px-1.5 py-1 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+            disabled && "cursor-not-allowed opacity-50",
+          )}
         >
           <Search className="mx-0.5 size-3.5 shrink-0 text-muted-foreground" />
           <Combobox.Value>
@@ -122,7 +144,16 @@ export function RepresentativesPicker({
                   </Combobox.Chip>
                 ))}
                 <Combobox.Input
-                  placeholder={selected.length ? "Add another…" : all ? "Search all contacts…" : "Add existing contact — search by name…"}
+                  id={inputId}
+                  placeholder={
+                    disabled
+                      ? "Pick a client first"
+                      : selected.length
+                        ? "Add another…"
+                        : all
+                          ? "Search all contacts…"
+                          : "Add existing contact — search by name…"
+                  }
                   className="h-6 min-w-[160px] flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"
                 />
               </>
@@ -156,10 +187,12 @@ export function RepresentativesPicker({
         </Combobox.Portal>
       </Combobox.Root>
 
-      <label className="flex h-8 shrink-0 items-center gap-1.5 text-xs text-muted-foreground" title="Search every active contact, not just this client's">
-        <Checkbox checked={all} onCheckedChange={(c) => setAll(c === true)} />
-        All contacts
-      </label>
+      {allowAll && (
+        <label className="flex h-8 shrink-0 items-center gap-1.5 text-xs text-muted-foreground" title="Search every active contact, not just this client's">
+          <Checkbox checked={all} onCheckedChange={(c) => setAll(c === true)} />
+          All contacts
+        </label>
+      )}
     </div>
   )
 }

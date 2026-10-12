@@ -45,7 +45,7 @@ export type TouchpointColumnDef = ColumnDef & { renderer: TouchpointRenderer }
  */
 export const TOUCHPOINT_COLUMN_GROUPS = [
   "Client",
-  "Touch",
+  "Touchpoint",
   "Classification",
   "People",
   "System",
@@ -101,23 +101,23 @@ const SOURCE: Partial<
     column: "touchpoint_date",
     width: "104px",
     renderer: "date",
-    group: "Touch",
+    group: "Touchpoint",
     header: "Date",
-    title: "Scheduled Start — what the CRM treats as the date of the touch",
+    title: "Scheduled Start — what the CRM treats as the date of the touchpoint",
   },
   subject: {
     column: "subject",
     width: "300px",
     renderer: "subject",
-    group: "Touch",
+    group: "Touchpoint",
     header: "Subject",
-    title: "Click to open the touch record",
+    title: "Click to open the touchpoint record",
   },
   description: {
     column: "description",
     width: "280px",
     renderer: "text",
-    group: "Touch",
+    group: "Touchpoint",
     header: "Notes",
     title: "The free-text call notes — 93% of rows carry one, often several paragraphs",
   },
@@ -163,7 +163,7 @@ const SOURCE: Partial<
     renderer: "text",
     group: "Classification",
     header: "Direction",
-    title: "Outgoing on every live row today — the CRM logs no inbound touches",
+    title: "Outgoing on every live row today — the CRM logs no inbound touchpoints",
   },
 
   // ---- People ----
@@ -173,7 +173,7 @@ const SOURCE: Partial<
     renderer: "people",
     group: "People",
     header: "Created By",
-    title: "The staff member who logged the touch — the real person on this record",
+    title: "The staff member who logged the touchpoint — the real person on this record",
   },
   modified_by_name: {
     column: "modified_by_name",
@@ -448,7 +448,7 @@ export const TOUCHPOINT_DEFAULT_SORT: ViewSort = { field: "touchpoint_date", dir
 export const TOUCHPOINT_BUILTIN_VIEWS: BuiltinView[] = [
   {
     id: `${BUILTIN_PREFIX}recent`,
-    name: "Recent touches",
+    name: "Recent touchpoints",
     isFallbackDefault: true,
     config: {
       columns: TOUCHPOINT_DEFAULT_COLUMNS,
@@ -491,7 +491,7 @@ export const TOUCHPOINT_BUILTIN_VIEWS: BuiltinView[] = [
   },
   {
     id: `${BUILTIN_PREFIX}all`,
-    name: "All touches",
+    name: "All touchpoints",
     config: {
       columns: TOUCHPOINT_DEFAULT_COLUMNS,
       filters: [],

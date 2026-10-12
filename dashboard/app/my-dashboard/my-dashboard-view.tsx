@@ -17,6 +17,8 @@ import { fmtDay, type Feed, type MyDashboardData, type TodoItem } from "./load"
 import { OpenTaskRow, TaskDrawerHost } from "./task-drawer"
 import { MeetingDrawerHost, OpenMeetingRow } from "./meeting-drawer"
 import { TimeOffApprovalRow, TimeOffDrawerHost } from "./time-off-drawer"
+import { EventDrawerHost, OpenEventRow } from "./event-drawer"
+import { OnboardingDrawerHost, OpenOnboardingRow } from "./onboarding-drawer"
 
 /**
  * The My Dashboard surface — a SERVER component; only the two drawer hosts
@@ -32,7 +34,7 @@ import { TimeOffApprovalRow, TimeOffDrawerHost } from "./time-off-drawer"
  * grid under light group labels — every card has a fixed home:
  *   Feedback Tasks           Feedback to Collect → Reports · Pending Review → Reports · Open / Claimed
  *   Other Tasks and Activity Other Open Tasks → Hosting · Next 7 Days → Profiles to Review → Onboarding
- *   Administrative           Time Off Approvals → Active Marketing → Contracts Expiring
+ *   Administrative & Planning Time Off Approvals → Active Marketing → Contracts Expiring
  * A card's count takes the same colour as its KPI tile (cardTone).
  */
 
@@ -379,7 +381,8 @@ function CollectCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
       }
     >
       {f.rows.slice(0, ROW_LIMIT).map((r) => (
-        <ItemTarget key={r.key} data={data} href={r.href}>
+        // Row → the meeting drawer in place (not Feedback Collection).
+        <ItemTarget key={r.key} data={data} meetingId={r.meetingId} href={r.href}>
           <Line
             critical={isCritical(r.due, data.today)}
             title={r.subject}
@@ -541,27 +544,34 @@ function MarketingCard({ data }: { data: MyDashboardData }) {
     >
       {f.rows.map((m) => {
         const pct = m.required > 0 ? Math.min(100, Math.round((m.booked / m.required) * 100)) : 0
-        return (
-          <RowLink key={m.key} href={m.href}>
-            <div className="px-3 py-1.5" style={{ borderBottom: "1px solid " + RULE }}>
-              <div className="truncate font-medium" style={{ fontSize: 12.5, color: TEXT_PRIMARY }}>
-                {m.ticker ?? m.client}
-                {m.eventName && (
-                  <span className="font-normal" style={{ color: TEXT_MUTED }}>
-                    {" "}
-                    · {m.eventName}
-                  </span>
-                )}
-              </div>
-              <div className="mt-1 h-[5px] overflow-hidden rounded-full" style={{ background: NEUTRAL.bg }}>
-                <span className="block h-full rounded-full" style={{ width: pct + "%", background: TEXT_TERTIARY }} />
-              </div>
-              <div className="mt-0.5 truncate tabular-nums" style={{ fontSize: 11.5, color: TEXT_MUTED }}>
-                {m.booked} of {m.required} booked · {m.open > 0 ? `${m.open} open` : "fully booked"}
-                {m.dates && <> · {m.dates}</>}
-              </div>
+        const body = (
+          <div className="px-3 py-1.5" style={{ borderBottom: "1px solid " + RULE }}>
+            <div className="truncate font-medium" style={{ fontSize: 12.5, color: TEXT_PRIMARY }}>
+              {m.ticker ?? m.client}
+              {m.eventName && (
+                <span className="font-normal" style={{ color: TEXT_MUTED }}>
+                  {" "}
+                  · {m.eventName}
+                </span>
+              )}
             </div>
-          </RowLink>
+            <div className="mt-1 h-[5px] overflow-hidden rounded-full" style={{ background: NEUTRAL.bg }}>
+              <span className="block h-full rounded-full" style={{ width: pct + "%", background: TEXT_TERTIARY }} />
+            </div>
+            <div className="mt-0.5 truncate tabular-nums" style={{ fontSize: 11.5, color: TEXT_MUTED }}>
+              {m.booked} of {m.required} booked · {m.open > 0 ? `${m.open} open` : "fully booked"}
+              {m.dates && <> · {m.dates}</>}
+            </div>
+          </div>
+        )
+        // Row → the event drawer for the Live Outreach event this row is built
+        // from, in place (not the Live Outreach page). No id → plain row.
+        return m.eventId ? (
+          <OpenEventRow key={m.key} eventId={m.eventId}>
+            {body}
+          </OpenEventRow>
+        ) : (
+          <div key={m.key}>{body}</div>
         )
       })}
     </Card>
@@ -623,7 +633,8 @@ function OnboardingCard({ data }: { data: MyDashboardData }) {
       {f.rows.slice(0, ROW_LIMIT).map((o) => {
         const done = o.steps.filter((s) => s.done).length
         return (
-          <RowLink key={o.accountId} href={o.href}>
+          // Row → the onboarding card in place (not the Onboarding page).
+          <OpenOnboardingRow key={o.accountId} accountId={o.accountId}>
             <Line
               title={<ClientName name={o.name} ticker={o.ticker} />}
               sub={
@@ -649,7 +660,7 @@ function OnboardingCard({ data }: { data: MyDashboardData }) {
               }
               right={o.days != null ? "Day " + o.days : undefined}
             />
-          </RowLink>
+          </OpenOnboardingRow>
         )
       })}
     </Card>
@@ -850,6 +861,8 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
     <TaskDrawerHost>
       <TimeOffDrawerHost>
         <MeetingDrawerHost crmBase={data.crmBase} canEdit={data.canOpenMeetings}>
+          <EventDrawerHost showAdminPanels={data.canOpenEvents}>
+          <OnboardingDrawerHost allHref={data.links.onboarding}>
           <div className="mx-auto max-w-[1500px]">
             <div className="mb-4">
               <ListTitleCard
@@ -861,7 +874,7 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                 {/* ONE top banner (2026-10-08, mockup my-dashboard-topbanner): greeting + pill
                     (above), the KPI tiles (original white StatCards), then My Book under a thin rule. */}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-                  <Kpi href="#collect" value={overdue} label="Overdue" tone="over" />
+                  <Kpi href="#collect" value={overdue} label="Overdue Items" tone="over" />
                   <Kpi href="#collect" value={total(data.collect)} label="To collect" tone={t.collect} />
                   <Kpi href="#review" value={total(data.review)} label="Pending review" tone={t.review} />
                   <Kpi href="#hosting" value={total(data.hosting)} label="Host · 7d" tone={t.hosting} />
@@ -937,7 +950,7 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                       className="ml-auto shrink-0 pl-2 font-semibold hover:underline"
                       style={{ fontSize: 11, color: "#0355A7" }}
                     >
-                      Open all in Portfolio →
+                      Open all in My Portfolio →
                     </Link>
                   )}
                 </div>
@@ -1001,13 +1014,15 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                 <OnboardingCard data={data} />
               </div>
               <div className="flex min-w-0 flex-col gap-3">
-                <GroupLabel label="Administrative" />
+                <GroupLabel label="Administrative & Planning" />
                 <TimeOffCard data={data} tone={t.approvals} />
                 <MarketingCard data={data} />
                 <ContractsCard data={data} tone={t.contracts} />
               </div>
             </div>
           </div>
+          </OnboardingDrawerHost>
+          </EventDrawerHost>
         </MeetingDrawerHost>
       </TimeOffDrawerHost>
     </TaskDrawerHost>

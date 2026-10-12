@@ -1,4 +1,8 @@
-# 15 — Touches (all CRM)
+# 15 — Touchpoints (all CRM)
+
+> **Renamed 2026-10-12: "Touches" → "Touchpoints" on screen.** Display labels only — see [Naming](#naming-touchpoints-on-screen-touchpoints-underneath) for the full list. Older sections of this doc and other docs still say "Touches"; read it as the same page.
+>
+> **Spelling standardised to ONE word, "Touchpoint" / "Touchpoints" (2026-10-12).** The first rename that day used two words ("Touch Point" / "Touch Points"). Every user-facing string was then changed to the single word, keeping its casing: title case stays title case ("Add New Touchpoint", "Create Touchpoint", "Last Touchpoint"), sentence case stays lower ("touchpoint", "No touchpoints returned."). The Excel file became `crm-touchpoints_<date>.xlsx`. Routes, tables, columns and identifiers were never renamed. When adding text, write **Touchpoint**, never "Touch Point" or "Touches".
 
 > **Status: built, SQL PENDING.** The page is at `/touchpoints`, reached from the **CRM** block at the bottom of the main nav rail, inside its collapsible **Actions** submenu (super-user-only).
 >
@@ -8,9 +12,33 @@
 
 > **"+ Add New Touch" is a placeholder.** The button top-right of the masthead — and the matching entry in the nav's CRM quick-add menu — create nothing yet. No form, no write, no navigation: clicking shows a "Coming soon" toast. Both route through the single stub `onAddNew("touch")` in `dashboard/components/crm-add-new.tsx`, staged for the CRM cutover. See [02 — Pages](02-pages.md#add-new-buttons-and-the-quick-add-menu--placeholders-not-wired-up).
 
-## Naming: "Touches" on screen, "touchpoints" underneath
+## Naming: "Touchpoints" on screen, "touchpoints" underneath
 
-The page is called **Touches** everywhere a person sees it — the nav rail label, the page and browser-tab title, the built-in view names ("Recent touches", "All touches"), the `Touch` column band, the drawer's `Touch` section and header, and the Excel export (sheet **Touches**, file `crm-touches_<date>.xlsx`).
+The page is called **Touchpoints** everywhere a person sees it. It was called **Touches** from 2026-09-15 until the 2026-10-12 rename. These labels changed:
+
+| Where | Was | Now |
+|---|---|---|
+| CRM nav item (Actions submenu) — `lib/access-control.ts` `CRM_NAV_ITEMS` | Touches | **Touchpoints** |
+| Page header, browser-tab title, loading skeleton — `app/touchpoints/page.tsx`, `loading.tsx`, `touchpoints-view.tsx` | Touches | **Touchpoints** |
+| "Add New …" button and the nav "+" quick-add item — `components/crm-add-new.tsx` `CRM_ENTITY_LABELS.touch` | Add New Touch / New Touch | **Add New Touchpoint / New Touchpoint** |
+| Form title / submit button — `app/touchpoints/new-touch-dialog.tsx` | Add new touch · Edit touch / Create touch | **Add New Touchpoint · Edit Touchpoint / Create Touchpoint** |
+| Form section and field — same file | Touch · Touch type | **Touchpoint · Touchpoint type** |
+| Toasts — same file | Touch for {client} created / Test touch … | **Touchpoint for {client} created / Test touchpoint …** |
+| Purge button and its prompts — same file | Delete test touches | **Delete test touchpoints** |
+| Row count, keyword box label, empty states, row aria-label — `touchpoints-view.tsx` | touch(es) · "No touches returned." · "No touches match …" | **touchpoint(s) · "No touchpoints returned." · "No touchpoints match …"** |
+| Built-in view names — `lib/touchpoints/spec.ts` | Recent touches · All touches | **Recent touchpoints · All touchpoints** |
+| Column band and drawer section — `spec.ts`, `lib/touchpoints/record.ts` | Touch | **Touchpoint** |
+| Column tooltips — `spec.ts` | "…date of the touch", "open the touch record", "inbound touches", "logged the touch" | "…touchpoint" in each |
+| Drawer eyebrow, fallback title, aria-label — `touchpoint-record-pane.tsx` | Touch · Touch record | **Touchpoint · Touchpoint record** |
+| Excel export — `touchpoints-view.tsx` | sheet *Touches*, file `crm-touches_<date>.xlsx` | sheet **Touchpoints**, file **`crm-touch-points_<date>.xlsx`** |
+| Server messages — `app/touchpoints/actions.ts`, `lib/touchpoints/create.ts` | No touch id · Touch not found · Pick a touch type · "…creating or deleting touches" / "…editing touches" | the same with **touchpoint(s)** |
+| Audit log entity labels — `lib/audit-log/labels.ts` | Touch · Saved View · Touches | **Touchpoint · Saved View · Touchpoints** (plus new **Touchpoint · Client Contacts**) |
+| Client Detail — `client-detail-view.tsx` | Client Touchpoints & Notes · Recent Touchpoints · No touchpoints on record · fallback "Touchpoint" | **Touchpoints** in each |
+| CRM Clients table / drawer — `lib/accounts/spec.ts`, `lib/accounts/record.ts`, `new-client-dialog.tsx` | Last Touch · Next Touch · "Last/next touch" | **Last Touchpoint · Next Touchpoint · "Last/next touchpoint"** |
+| Outreach Status — `app/clients/to-do/todo-table.tsx`, `lib/client-todo-excel.ts` | Last touch · Last Touch · Last Touch (CRM) | **Last touchpoint · Last Touchpoint · Last Touchpoint (CRM)** |
+| Notes column tooltip — `lib/notes/spec.ts` | "unlike Touches" | "unlike Touchpoints" |
+
+**Deliberately NOT renamed:** the audit-log **context** strings written with each change (`/touchpoints · Add New Touch`, `· Edit touch`, `· Delete test touches`). They are stored with every audit row, and renaming them would split one action's history across two spellings.
 
 **Every internal name is still `touchpoint(s)`**, deliberately, so nothing in the data layer had to move:
 
@@ -23,7 +51,7 @@ The page is called **Touches** everywhere a person sees it — the nav rail labe
 | Code | `TOUCHPOINTS_SPEC`, `AdminTouchpointRow`, `TouchpointsView`, `app/touchpoints/*`, `lib/touchpoints/*` |
 | URL params | `?client=`, `?type=`, `?contact=`, `?by=`, `?status=` |
 
-This was a **display-label change only**. Saved views survive it: a built-in view is keyed by its `id` (`builtin:recent`, `builtin:all`), not its name, so renaming the labels does not orphan anyone's default.
+Both renames were **display-label changes only**. Saved views survive them: a built-in view is keyed by its `id` (`builtin:recent`, `builtin:all`), not its name, and a saved config stores column keys, not band labels, so renaming the labels does not orphan anyone's default.
 
 ## What it is
 
@@ -221,6 +249,20 @@ Nothing about filtering, validation, paging or authorisation is written again fo
 **Add New Touch** and the drawer's **Edit** button (dashboard-created records only; Dynamics records stay read-only until cutover) use **one form that covers every field the drawer shows**, grouped the same way. That's the "form field set = drawer field set" principle; see [22 — Cutover](22-cutover-ownership-boundary.md). Created / modified by and on are display-only system fields. No field on this drawer is read from `_raw`, so **no columns needed flattening**.
 
 **Editable:** client, subject, notes, type, date & time, direction, duration, contact type, and **status** (Open / Made / Received, which sets the state/status pair).
+
+**Required fields (2026-10-12):** **Client** (already required), **Date & time**, **Subject**, **Touch Type** and **Contact Type** (at least one box ticked). Each is marked with a red \*. Saving with any of them empty is blocked and the field shows an inline error. The rule lives in one place, `validateTouchRequired` in `lib/touchpoints/create.ts` (tested in `create.test.ts`): the form calls it before submitting, and `buildTouchColumns` in `app/touchpoints/actions.ts` calls it again on the server. On a new touch, **Type starts blank** so it is picked on purpose; it used to default to *Virtual*. Date still starts at "now". Everything else stays optional.
+
+**Client picker = active clients only (2026-10-12).** It uses `loadTouchClientOptions` → `loadActiveAccountOptions` in `lib/crm-write.ts`, the shared `accounts.state_label = 'Active'` rule used by the Event, Meeting, Note and Task forms. An edited touchpoint, or a Client Detail quick-add, keeps its own client in the list even if that client has since gone inactive, so a historical value is never blanked. This is a picker scope only. Client is still **required** on touchpoints. Contact Name is not a separate field. **Client Contact** (below) is the contact-person field.
+
+**Client Contact (2026-10-12): multi-select, depends on the client.** Below Client on the form. It lists the picked client's **active contacts** (`contacts.parent_customer_id` = the client) and you can add several, shown as chips. It is **disabled** ("Pick a client first") until a Client is chosen. **Changing the client clears** any contacts already picked, because they belong to the old client. It is **optional**.
+- **Reused:** the event form's Company Representatives picker (`app/events/representatives-picker.tsx`) with its contact lookup (`loadEventContactOptions`), in a new client-only mode, `allowAll={false}`. That mode has no "All contacts" toggle and is disabled until a client is picked. The event form's defaults are unchanged.
+- **Stored in** `public.touchpoint_contacts`, a dashboard-owned junction (touchpoint ↔ existing contact) shaped like `event_contacts`. **Needs `sql/patches/2026-10-12_touchpoint_contacts.sql` run first.** Until then, saving with no contacts works and saving with contacts says the patch is needed.
+- **Server:** `saveTouchContacts` in `app/touchpoints/actions.ts` makes the stored set exactly what the form sent, adding and removing rows, gated and audited as entity `touchpoint_contacts`. It re-reads each contact and refuses any that isn't at the touchpoint's client.
+- **Edit** loads the saved contacts back into the field. The **drawer** shows a *Client contacts* section when there are any.
+- **Relationship to Contact Type:** Contact Type is the **role** spoken to (CEO / CFO / IRO / Other, required). Client Contact is **who** it was. The two are not cross-checked.
+- **Dynamics touchpoints have no client contacts.** The `phonecall` sync carries no contact link, so only dashboard-created touchpoints can have them. A Client Contact filter or column on the list would therefore only ever match dashboard rows.
+
+**Layout:** the form is the large two-column dialog used for events, meetings and tasks (`max-h-[92vh] w-[96vw] sm:max-w-[960px]`). Column 1 has *Touch*: client, subject, type, direction and contact type. Column 2 has *When & Status*, Description and the Test toggle. Below the `lg` breakpoint it collapses to one scrolling column. Only the field area scrolls; the header and footer stay fixed.
 
 **Display-only:**
 - **Owner Team** is a per-client Dynamics team, not a person. It's **filled in automatically** from the team the client's own synced touches use.

@@ -67,7 +67,7 @@ type Step = { key: StepKey; short: string; full: string; dateKey?: StepDateKey }
 // `dateKey` is set only on the three date-backed steps — the two Dynamics date
 // fields, plus Meeting History, which is derived from the client's latest
 // completed Outreach → Data Upload task rather than a flag on the account.
-const STEPS: readonly Step[] = [
+export const STEPS: readonly Step[] = [
   {
     key: "f_onboarding_call",
     short: "Onb. Call",

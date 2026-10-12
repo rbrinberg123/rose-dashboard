@@ -17,7 +17,7 @@ import { PortfolioTable } from "./portfolio-table"
 // don't want stale margin numbers hanging around in the static cache.
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = { title: "Client Portfolio" }
+export const metadata: Metadata = { title: "My Portfolio" }
 
 export default async function ClientPortfolioPage() {
   const sb = getSupabaseServer()
@@ -37,7 +37,7 @@ export default async function ClientPortfolioPage() {
   ])
   if (scope && scope.size === 0) {
     return (
-      <PageShell title="Client Portfolio" description="Clients on your account team">
+      <PageShell title="My Portfolio" description="Clients on your account team">
         <NoClientsAssigned />
       </PageShell>
     )
@@ -52,7 +52,7 @@ export default async function ClientPortfolioPage() {
 
   if (error) {
     return (
-      <PageShell title="Client Portfolio" description="One row per client — health at a glance">
+      <PageShell title="My Portfolio" description="One row per client — health at a glance">
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
           <div className="font-medium text-destructive">Could not load v_client_portfolio</div>
           <div className="mt-1 text-muted-foreground">{error.message}</div>
@@ -177,7 +177,7 @@ export default async function ClientPortfolioPage() {
 
   return (
     <PageShell
-      title="Client Portfolio"
+      title="My Portfolio"
       description={`${rows.length.toLocaleString()} clients — health at a glance`}
       hideHeader
       canvas

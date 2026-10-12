@@ -17,7 +17,8 @@
  */
 
 import { getSupabaseServer } from "@/lib/supabase"
-import { getEffectiveRole } from "@/lib/effective-identity"
+import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { resolveAccountTeamScope } from "@/lib/access/account-team-scope"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
@@ -224,7 +225,37 @@ export async function loadEventRecord(eventId: string): Promise<ActionResult<Eve
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
   if (role !== "super_user") return fail("Not authorised.")
+  return readEventRecord(eventId)
+}
 
+/**
+ * The event drawer for My Dashboard's Active Marketing card, for ANY signed-in
+ * user — but only for that card's scope: an event in Live Outreach
+ * (v_live_outreach) whose client is on the viewer's account team. Anything
+ * else is refused. Super users pass.
+ */
+export async function loadDashboardEventRecord(eventId: string): Promise<ActionResult<EventRecord>> {
+  // ---- GATE (must stay first) ----
+  if (!eventId) return fail("No event id.")
+  const role = await getEffectiveRole()
+  if (role !== "super_user") {
+    if (!role) return fail("Not authorised.")
+    const scope = await resolveAccountTeamScope(await getEffectiveIdentity())
+    if (scope.mode !== "filter" || scope.accountIds.size === 0) return fail("Not authorised.")
+    const { data, error } = await getSupabaseServer()
+      .from("v_live_outreach")
+      .select("event_id, client_account_id")
+      .eq("event_id", eventId)
+      .limit(1)
+    if (error) return fail(describeError(error))
+    const row = (data ?? [])[0] as { client_account_id: string | null } | undefined
+    if (!row?.client_account_id || !scope.accountIds.has(row.client_account_id)) return fail("Not authorised.")
+  }
+  return readEventRecord(eventId)
+}
+
+/** UNGATED body shared by the two loaders above — never export it. */
+async function readEventRecord(eventId: string): Promise<ActionResult<EventRecord>> {
   if (!eventId) return fail("No event id.")
 
   const sb = getSupabaseServer()

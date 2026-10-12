@@ -129,7 +129,7 @@ export type TouchpointSectionDef = {
 export const TOUCHPOINT_SECTIONS: TouchpointSectionDef[] = [
   {
     key: "touchpoint",
-    title: "Touch",
+    title: "Touchpoint",
     fields: [
       { label: "Subject", sourceKey: "subject", type: "text" },
       { label: "Notes", sourceKey: "description", type: "notes" },

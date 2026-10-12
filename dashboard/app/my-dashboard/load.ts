@@ -77,8 +77,11 @@ export const FEEDBACK_SUBTYPES = ["Feedback", "Feedback Report Sent"] as const
 
 /** The "Jump to" bar's destinations, in order (approved mockup quicklinks-v3, variant D·). */
 export const JUMP_LINKS = [
-  { href: "/portfolio", label: "Portfolio" },
+  { href: "/portfolio", label: "My Portfolio" },
   { href: "/clients/to-do", label: "Outreach Status" },
+  // Shown only to viewers who may open Client Health (super users today) —
+  // the same canAccessRoute filter as every link here.
+  { href: "/client-health", label: "Client Health" },
   { href: "/live-outreach", label: "Live Outreach" },
   { href: "/feedback-manager", label: "Feedback Reports" },
   { href: "/feedback-collection", label: "Feedback Collection" },
@@ -146,6 +149,8 @@ export type TaskItem = {
 }
 
 export type MarketingItem = {
+  /** The Live Outreach event this card row is built from — opens the event drawer. */
+  eventId: string
   key: string
   client: string
   ticker: string | null
@@ -231,6 +236,8 @@ export type MyDashboardData = {
   canReviewTimeOff: boolean
   /** May the viewer open the meeting drawer? Same gate as CRM → Meetings. */
   canOpenMeetings: boolean
+  /** CRM → Events is open to the viewer (super user): the event drawer then also shows its Feedback reports panel. */
+  canOpenEvents: boolean
   /** Dynamics deep-link base for the meeting drawer (as on /meetings). */
   crmBase: string
   /**
@@ -545,7 +552,9 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
     collect.push({
       taskId: null,
       key: "collect:" + r.meeting_id,
-      meetingId: null,
+      // Opens the meeting drawer (loadHostedMeetingRecord admits outstanding
+      // feedback assigned to the viewer — this card's scope).
+      meetingId: r.meeting_id,
       kind: "collect",
       urgency: feedbackUrgency(day, today),
       due: feedbackDueDay(day),
@@ -751,6 +760,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
     event_dates: string | null; urgency: string | null
   }>(marketingRes)
     .map((e) => ({
+      eventId: e.event_id,
       key: e.event_id,
       client: e.client_account_name ?? "Client",
       ticker: e.ticker,
@@ -846,6 +856,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
     canOpenTasks: can("/tasks"),
     canReviewTimeOff: !identity.impersonated,
     canOpenMeetings: can("/meetings"),
+    canOpenEvents: can("/events"),
     crmBase: process.env.NEXT_PUBLIC_DYNAMICS_URL?.replace(/\/$/, "") || "https://clientcrm.crm.dynamics.com",
     jumpLinks: JUMP_LINKS.filter((l) => can(l.href)).map((l) => ({ href: l.href, label: l.label })),
     links: {

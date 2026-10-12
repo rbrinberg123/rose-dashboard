@@ -6,6 +6,9 @@ import { CARD_CLASS, BRAND_NAVY, TEXT_PRIMARY, ACCENT_STRIP } from "@/lib/design
 import { cn } from "@/lib/utils"
 import type { TimeOffRow } from "@/lib/types"
 import { SendTimeOffControls } from "./send-time-off-button"
+import Link from "next/link"
+import { ListChecks } from "lucide-react"
+import { NewTimeOffButton } from "@/app/time-off-requests/time-off-form-dialog"
 import { personNameCore } from "@/lib/team-initials"
 
 // Two time-off styles — differentiated by BOTH color and fill style:
@@ -103,10 +106,13 @@ export function TimeOffView({
   entries,
   userEmail,
   isSuperUser,
+  canCreateRequest = false,
 }: {
   entries: TimeOffRow[]
   userEmail?: string
   isSuperUser?: boolean
+  /** May create a time-off request (createTimeOffRequest's own gate). */
+  canCreateRequest?: boolean
 }) {
   const today = React.useMemo(() => startOfDay(new Date()), [])
   const [viewMonth, setViewMonth] = React.useState<Date>(() => {
@@ -241,7 +247,23 @@ export function TimeOffView({
         <ListTitleCard
           title="Time Off"
           subtitle="Approved time off across the team — today at a glance, plus the month ahead."
-          rightSlot={isSuperUser ? <SendTimeOffControls userEmail={userEmail} /> : undefined}
+          rightSlot={
+            // Actions (2026-10-11): "New Time Off Request" (primary — only for
+            // whoever may create one) + "Manage Time Off" (secondary — the
+            // requests table, row-scoped server-side: own ∪ approver-for ∪
+            // super-user all). The digest send controls stay super-user only.
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {isSuperUser && <SendTimeOffControls userEmail={userEmail} />}
+              <Link
+                href="/time-off-requests"
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#D5DBE7] bg-white px-3.5 py-2 text-sm font-semibold text-[#1E2858] shadow-sm transition-colors hover:bg-[#F3F5F8] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0355A7]/40"
+              >
+                <ListChecks className="size-4 shrink-0" aria-hidden="true" />
+                Manage Time Off
+              </Link>
+              {canCreateRequest && <NewTimeOffButton label="New Time Off Request" />}
+            </div>
+          }
         />
       </div>
 

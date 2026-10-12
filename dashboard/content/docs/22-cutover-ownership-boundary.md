@@ -312,7 +312,7 @@ The event **Add Meeting** button (drawer + edit dialog; see [13 — Events](13-e
 - **Status:** ☐ open — do not flip before the dashboard owns Dynamics events.
 
 ## Contracts: dashboard-authored contracts (2026-09-29; moved to Admin 2026-09-30)
-**Admin → Contract Management** (`/admin/contracts`) is a card on the Admin hub. It's not in the CRM nav or the CRM "+" menu. It's live on the same plumbing: origin guard on edit, a guarded single-row **Delete** (`DELETE … WHERE contract_id AND origin='dashboard'`, must hit exactly 1 row), audit, the TEST badge, and purge. The fence was already on `contracts` (Part A/B of this doc's patch, `hasOrigin: true`).
+**Contract Management** (`/admin/contracts`) is a card on the Admin hub. It's not in the CRM "+" menu. It's live on the same plumbing: origin guard on edit, a guarded single-row **Delete** (`DELETE … WHERE contract_id AND origin='dashboard'`, must hit exactly 1 row), audit, the TEST badge, and purge. The fence was already on `contracts` (Part A/B of this doc's patch, `hasOrigin: true`).
 - **Different from the other seven:** the dashboard writes its **own new columns** (`contract_name`, `account_id`, `start_date`, `term_length_months`, `termination_notice_days`, `contract_status`, `scope`, `currency`, …), not the Dynamics-mirror columns. Term End and Notice Date are **DB-generated**. The list view falls back to the Dynamics twin of each field for display.
 - **Consequence:** dashboard contracts do **not** reach Portfolio / Margin / `v_contract_management` / Client Statistics, which still read the Dynamics columns. Moving those reports over is a separate cutover step.
 - Needs `sql/patches/2026-09-29_contracts_crm.sql` run first.

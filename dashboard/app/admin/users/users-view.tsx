@@ -397,14 +397,14 @@ export function UsersView({
         <p>
           <span className="font-medium">Data scope — enforced.</span>{" "}
           <span className="font-medium">Account Management</span> now controls which clients a
-          person sees on the client pages (Portfolio, Client Detail, NDRS Calendar, Onboarding):
+          person sees on the client pages (My Portfolio, Client Detail, NDRS Calendar, Onboarding):
           nothing checked = no client rows (deny-by-default); Super Users always see everything.
           Changes take effect on the user&apos;s next page load.{" "}
           <span className="font-medium">Booker / Host / Feedback</span> (meeting-level) are recorded
           here but enforced in a later pass.{" "}
           <span className="font-medium">Financials</span> is not a row scope: it is a separate
           field-level grant deciding whether the person sees retainer / fee dollar figures at all
-          (Portfolio&apos;s Retainer column and contract doc link, Client Detail&apos;s Annualized
+          (My Portfolio&apos;s Retainer column and contract doc link, Client Detail&apos;s Annualized
           Retainer and $ per Meeting). Ungranted users never receive those values. It composes with
           row scoping — row scoping picks the clients, Financials picks whether their dollars show.
         </p>
@@ -549,7 +549,7 @@ export function UsersView({
                         |
                       </span>
                       <label
-                        title="Financials — may see retainer / fee dollar figures (Portfolio Retainer column + contract doc, Client Detail Annualized Retainer and $ per Meeting). Independent of the row scopes."
+                        title="Financials — may see retainer / fee dollar figures (My Portfolio Retainer column + contract doc, Client Detail Annualized Retainer and $ per Meeting). Independent of the row scopes."
                         className={cn(
                           "flex items-center gap-1",
                           superLock ? "cursor-default" : "cursor-pointer",

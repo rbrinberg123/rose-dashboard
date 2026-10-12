@@ -34,7 +34,8 @@ import {
   cleanText,
   countTestRows,
   easternLocalToIso,
-  loadAccountOptions,
+  isUuid,
+  loadActiveAccountOptions,
   purgeTestRows,
   requireCrmWriter,
   updateDashboardRow,
@@ -47,7 +48,9 @@ import {
   TOUCH_CONTACT_TYPE_OPTIONS,
   TOUCH_STATUS_OPTIONS,
   TOUCH_TYPE_OPTIONS,
+  validateTouchRequired,
   type NewTouchInput,
+  type TouchContact,
 } from "@/lib/touchpoints/create"
 import type { AccountOption } from "@/lib/types"
 import { getEffectiveRole } from "@/lib/effective-identity"
@@ -225,7 +228,7 @@ export async function loadTouchpointRecord(
   const role = await getEffectiveRole()
   if (role !== "super_user") return fail("Not authorised.")
 
-  if (!touchpointId) return fail("No touch id.")
+  if (!touchpointId) return fail("No touchpoint id.")
 
   const sb = getSupabaseServer()
   const { data, error } = await sb
@@ -235,7 +238,7 @@ export async function loadTouchpointRecord(
     .maybeSingle()
 
   if (error) return fail(describeError(error))
-  if (!data) return fail("Touch not found.")
+  if (!data) return fail("Touchpoint not found.")
 
   // is_test for the drawer TEST badge, read off the table (not the view) so the
   // drawer does not depend on the view patch. Non-fatal if it fails.
@@ -253,13 +256,151 @@ export async function loadTouchpointRecord(
 // gate, client re-read, ownership stamp, guarded edit, audited purge.
 
 /** Clients for the form's picker: every account, by name. */
-export async function loadTouchClientOptions(): Promise<ActionResult<AccountOption[]>> {
-  return loadAccountOptions()
+/**
+ * The Client picker: ACTIVE clients only (accounts.state_label = 'Active') —
+ * the same shared helper as the Event, Meeting, Note and Task forms. An edited
+ * touchpoint keeps its own client listed even if that client has since gone
+ * inactive. Client stays REQUIRED on touchpoints.
+ */
+export async function loadTouchClientOptions(includeAccountId?: string | null): Promise<ActionResult<AccountOption[]>> {
+  return loadActiveAccountOptions(includeAccountId)
+}
+
+/* ------------------------------------------------------ client contacts */
+
+const TOUCH_CONTACTS_PATCH_MSG =
+  "Client contacts need the 2026-10-12 touchpoint_contacts SQL patch run first."
+
+/** Before sql/patches/2026-10-12_touchpoint_contacts.sql runs, the table is missing. */
+function isMissingTouchContacts(message: string): boolean {
+  return /touchpoint_contacts|does not exist/.test(message)
+}
+
+type ContactRow = { contact_id: string; full_name: string | null; job_title: string | null; parent_customer_name: string | null }
+
+/** "Job title · Company" — the chips' / list's second line (as on events). */
+function touchContactDetail(c: { job_title: string | null; parent_customer_name: string | null }): string | null {
+  return [c.job_title, c.parent_customer_name].map((v) => (v ?? "").trim()).filter(Boolean).join(" · ") || null
+}
+
+/** A touchpoint's client contacts, joined to their contact records. UNGATED — callers gate. */
+async function readTouchContacts(touchpointId: string): Promise<ActionResult<TouchContact[]>> {
+  const sb = getSupabaseServer()
+  const { data: links, error } = await sb
+    .from("touchpoint_contacts")
+    .select("contact_id, added_at")
+    .eq("touchpoint_id", touchpointId)
+    .order("added_at")
+  if (error) {
+    if (isMissingTouchContacts(error.message)) return ok([])
+    return fail(describeError(error))
+  }
+  const ids = (links ?? []).map((l) => l.contact_id as string)
+  if (ids.length === 0) return ok([])
+  const { data: contacts, error: cErr } = await sb
+    .from("contacts")
+    .select("contact_id, full_name, job_title, parent_customer_name")
+    .in("contact_id", ids)
+  if (cErr) return fail(describeError(cErr))
+  const byId = new Map(((contacts ?? []) as ContactRow[]).map((c) => [c.contact_id, c]))
+  return ok(
+    ids.map((id) => {
+      const c = byId.get(id)
+      return { contactId: id, name: c?.full_name ?? "(deleted contact)", detail: c ? touchContactDetail(c) : null }
+    }),
+  )
+}
+
+/** The drawer's Client Contacts list (any origin; always empty for Dynamics rows). */
+export async function loadTouchContacts(touchpointId: string): Promise<ActionResult<TouchContact[]>> {
+  const role = await getEffectiveRole()
+  if (role !== "super_user") return fail("Not authorised.")
+  if (!isUuid(touchpointId)) return fail("Unknown touchpoint.")
+  return readTouchContacts(touchpointId)
+}
+
+/**
+ * Make the touchpoint's client contacts exactly `wanted` (adds + removes,
+ * audited) — the touchpoint twin of the event form's saveRepresentatives.
+ * Contact ids are re-read, and each must belong to `clientAccountId`, so a
+ * tampered request can only attach real contacts at this touchpoint's client.
+ * Caller has already passed requireCrmWriter for this dashboard touchpoint.
+ */
+async function saveTouchContacts(
+  touchpointId: string,
+  clientAccountId: string | null,
+  wanted: TouchContact[],
+  actor: { userId: string | null; name: string | null },
+  context: string,
+): Promise<ActionResult<{ added: number; removed: number }>> {
+  const sb = getSupabaseServer()
+  const want = [...new Set((wanted ?? []).map((c) => c.contactId))]
+  if (want.some((id) => !isUuid(id))) return fail("Unknown contact.")
+  if (want.length > 100) return fail("Too many client contacts.")
+  if (want.length) {
+    const { data: found, error } = await sb
+      .from("contacts")
+      .select("contact_id, parent_customer_id")
+      .in("contact_id", want)
+    if (error) return fail(describeError(error))
+    const rows = (found ?? []) as { contact_id: string; parent_customer_id: string | null }[]
+    if (rows.length !== want.length) return fail("A selected contact no longer exists.")
+    if (rows.some((r) => !clientAccountId || r.parent_customer_id !== clientAccountId)) {
+      return fail("Every client contact must be a contact at this touchpoint's client.")
+    }
+  }
+
+  const { data: current, error: curErr } = await sb
+    .from("touchpoint_contacts")
+    .select("contact_id")
+    .eq("touchpoint_id", touchpointId)
+  if (curErr) {
+    if (isMissingTouchContacts(curErr.message)) {
+      return want.length ? fail(TOUCH_CONTACTS_PATCH_MSG) : ok({ added: 0, removed: 0 })
+    }
+    return fail(describeError(curErr))
+  }
+  const have = new Set((current ?? []).map((r) => r.contact_id as string))
+  const toAdd = want.filter((id) => !have.has(id))
+  const toRemove = [...have].filter((id) => !want.includes(id))
+
+  if (toAdd.length) {
+    const { error } = await sb.from("touchpoint_contacts").insert(
+      toAdd.map((contact_id) => ({
+        touchpoint_id: touchpointId,
+        contact_id,
+        added_by_id: actor.userId,
+        added_by_name: actor.name,
+      })),
+    )
+    if (error) return fail(describeError(error))
+  }
+  if (toRemove.length) {
+    const { error } = await sb
+      .from("touchpoint_contacts")
+      .delete()
+      .eq("touchpoint_id", touchpointId)
+      .in("contact_id", toRemove)
+    if (error) return fail(describeError(error))
+  }
+  if (toAdd.length || toRemove.length) {
+    await recordAudit({
+      action: "update",
+      entity: "touchpoint_contacts",
+      recordId: touchpointId,
+      changes: { added: toAdd, removed: toRemove },
+      context,
+    })
+  }
+  return ok({ added: toAdd.length, removed: toRemove.length })
 }
 
 /** Validate + build the FLATTENED touch columns — shared by create and edit. */
 async function buildTouchColumns(input: NewTouchInput): Promise<ActionResult<Record<string, unknown>>> {
-  if (!cleanText(input.clientAccountId)) return fail("Pick a client.")
+  // REQUIRED: Client, Date, Subject, Type, Contact Type — the same rule the
+  // form applies before submit (lib/touchpoints/create.ts validateTouchRequired).
+  const missing = Object.values(validateTouchRequired(input))
+  if (missing.length) return fail(missing.join(" "))
   const clientRes = await resolveAccount(input.clientAccountId)
   if (!clientRes.ok) return fail(clientRes.error)
   const client = clientRes.data!
@@ -268,7 +409,7 @@ async function buildTouchColumns(input: NewTouchInput): Promise<ActionResult<Rec
   if (!subject) return fail("Enter a subject.")
 
   const type = TOUCH_TYPE_OPTIONS.find((o) => o.code === input.typeCode)
-  if (!type) return fail("Pick a touch type.")
+  if (!type) return fail("Pick a touchpoint type.")
 
   const picked = new Set(input.contactTypeCodes ?? [])
   const contactTypes = TOUCH_CONTACT_TYPE_OPTIONS.filter((o) => picked.has(o.code))
@@ -336,7 +477,7 @@ async function buildTouchColumns(input: NewTouchInput): Promise<ActionResult<Rec
  */
 export async function createTouch(input: NewTouchInput): Promise<ActionResult<{ touchpointId: string }>> {
   // ---- GATE (must stay first) ----
-  const gate = await requireCrmWriter("creating or deleting touches")
+  const gate = await requireCrmWriter("creating or deleting touchpoints")
   if (!gate.ok) return fail(gate.error)
 
   const built = await buildTouchColumns(input)
@@ -369,7 +510,16 @@ export async function createTouch(input: NewTouchInput): Promise<ActionResult<{ 
     context: "/touchpoints · Add New Touch",
   })
 
+  // Client contacts — saved after the touchpoint exists (FK).
+  const links = await saveTouchContacts(
+    row.touchpoint_id,
+    input.clientAccountId,
+    input.contacts ?? [],
+    { userId: gate.userId, name: gate.name },
+    "/touchpoints · Add New Touch · client contacts",
+  )
   revalidatePath("/touchpoints")
+  if (!links.ok) return fail(`The touchpoint was created, but its client contacts were not saved: ${links.error}`)
   return ok({ touchpointId: row.touchpoint_id })
 }
 
@@ -383,7 +533,10 @@ export async function loadTouchForEdit(id: string): Promise<ActionResult<NewTouc
   )
   if (!res.ok) return fail(res.error)
   const r = res.data
+  const contacts = await readTouchContacts(id)
+  if (!contacts.ok) return fail(contacts.error)
   return ok({
+    contacts: contacts.data!,
     clientAccountId: (r.client_account_id as string | null) ?? null,
     subject: asText(r.subject),
     description: asText(r.description),
@@ -399,19 +552,32 @@ export async function loadTouchForEdit(id: string): Promise<ActionResult<NewTouc
 
 /** Edit a DASHBOARD touch. The origin guard lives in updateDashboardRow. */
 export async function updateTouch(id: string, input: NewTouchInput): Promise<ActionResult<{ changed: number }>> {
-  const gate = await requireCrmWriter("editing touches")
+  const gate = await requireCrmWriter("editing touchpoints")
   if (!gate.ok) return fail(gate.error)
   const built = await buildTouchColumns(input)
   if (!built.ok) return fail(built.error)
-  return updateDashboardRow({
+  // updateDashboardRow holds the origin guard, so contacts are only saved for
+  // a row it actually let through.
+  const res = await updateDashboardRow({
     table: "touchpoints",
     pk: "touchpoint_id",
     id,
     patch: built.data,
     path: "/touchpoints",
     context: "/touchpoints · Edit touch",
-    verb: "editing touches",
+    verb: "editing touchpoints",
   })
+  if (!res.ok) return res
+  const links = await saveTouchContacts(
+    id,
+    input.clientAccountId,
+    input.contacts ?? [],
+    { userId: gate.userId, name: gate.name },
+    "/touchpoints · Edit touch · client contacts",
+  )
+  if (!links.ok) return fail(`Changes saved, but client contacts were not: ${links.error}`)
+  if (links.data!.added || links.data!.removed) revalidatePath("/touchpoints")
+  return res
 }
 
 /** How many test touches the purge would remove — for the confirm prompt. */

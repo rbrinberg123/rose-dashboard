@@ -159,7 +159,7 @@ export function AccountTeamsView({
       <div className="mb-3 rounded-lg border border-amber-300/60 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
         <span className="font-semibold">Where a team edit applies depends on who owns the client.</span>{" "}
         For a client <strong>created in the dashboard</strong>, this page IS the account team: an edit
-        here shows everywhere (Clients, Portfolio, Client Detail, the avatars) and decides who sees the
+        here shows everywhere (Clients, My Portfolio, Client Detail, the avatars) and decides who sees the
         client on their scoped pages. For a client <strong>from Dynamics</strong>, the CRM still owns the
         team — an edit here changes this page only, and the app keeps showing the Dynamics team until
         cutover. The Active/Inactive status here changes this page only, for every client.

@@ -22,7 +22,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { X } from "lucide-react"
+import { UserRound, X } from "lucide-react"
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { BRAND_BLUE, STATUS_PILL_LIGHT } from "@/lib/design"
@@ -35,6 +35,8 @@ import { isPersonName } from "@/lib/touchpoints/spec"
 import { TestBadge } from "@/components/test-badge"
 import { RecordEditBar } from "@/components/record-edit-bar"
 import { cn } from "@/lib/utils"
+import type { TouchContact } from "@/lib/touchpoints/create"
+import { loadTouchContacts } from "./actions"
 
 /** Eastern, matching every other date on the page. */
 const EASTERN = new Intl.DateTimeFormat("en-US", {
@@ -79,6 +81,41 @@ function Pill({ children, bg, text }: { children: React.ReactNode; bg: string; t
 }
 
 /** The gradient underline every section header in the app carries. */
+/**
+ * The touchpoint's CLIENT CONTACTS (touchpoint_contacts, 2026-10-12) — the
+ * same list the event drawer draws for its Company Representatives. Only
+ * dashboard-created touchpoints can carry any; hidden when there are none.
+ */
+function ClientContacts({ touchpointId }: { touchpointId: string }) {
+  const [contacts, setContacts] = React.useState<TouchContact[] | null>(null)
+  React.useEffect(() => {
+    let live = true
+    loadTouchContacts(touchpointId).then((r) => {
+      if (live) setContacts(r.ok ? (r.data ?? []) : [])
+    })
+    return () => {
+      live = false
+    }
+  }, [touchpointId])
+  if (!contacts || contacts.length === 0) return null
+  return (
+    <section className="mb-6">
+      <SectionHeader title="Client contacts" />
+      <ul className="grid gap-1.5">
+        {contacts.map((c) => (
+          <li key={c.contactId} className="flex items-center gap-2">
+            <UserRound className="size-4 shrink-0 text-[#5B6472]" />
+            <span className="leading-tight">
+              <span className="block text-[13px] text-[#1A2233]">{c.name}</span>
+              {c.detail && <span className="block text-[11px] text-muted-foreground">{c.detail}</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function SectionHeader({ title }: { title: string }) {
   return (
     <div className="mb-2">
@@ -202,18 +239,18 @@ export function TouchpointRecordPane({
       <aside
         role="dialog"
         aria-modal="true"
-        aria-label="Touch record"
+        aria-label="Touchpoint record"
         className="fixed right-0 top-0 z-50 flex h-screen w-[560px] max-w-[94vw] flex-col border-l border-[#E5E8EC] bg-white shadow-2xl"
       >
         <header className="border-b border-[#E5E8EC] px-5 py-4">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
-              <div className="text-[11px] uppercase tracking-wider text-[#9AA1AD]">Touch</div>
+              <div className="text-[11px] uppercase tracking-wider text-[#9AA1AD]">Touchpoint</div>
               {/* The Subject is the headline. It wraps to at most two lines
                   rather than truncating — a subject carries the whole point of
                   the row, and half of one is not useful. */}
               <h2 className="line-clamp-2 text-[17px] font-semibold text-[#1A2233]">
-                {record?.subject ?? (loading ? "Loading…" : "Touch")}
+                {record?.subject ?? (loading ? "Loading…" : "Touchpoint")}
               </h2>
               {record && (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -267,11 +304,14 @@ export function TouchpointRecordPane({
               </section>
             ))}
 
+          {record && <ClientContacts key={`contacts-${record.touchpoint_id}`} touchpointId={record.touchpoint_id} />}
+
           {record && (
             <p className="pb-4 text-[11px] text-muted-foreground">
               View only — Dynamics is the system of record. Owner Team is a per-account team named
-              after the client, not a staff member; Created By is the person. This entity holds no
-              contact NAME — Contact Type is the role that was spoken to.
+              after the client, not a staff member; Created By is the person. Dynamics touchpoints
+              carry no contact NAME — Contact Type is the role that was spoken to. Client Contacts
+              exist only on touchpoints created in the dashboard.
             </p>
           )}
         </div>

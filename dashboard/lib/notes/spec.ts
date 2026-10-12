@@ -169,7 +169,7 @@ const SOURCE: Partial<
     group: "People",
     header: "Owner",
     title:
-      "The note's author — a real person here, unlike Touches. Sourced from _raw: " +
+      "The note's author — a real person here, unlike Touchpoints. Sourced from _raw: " +
       "the mirror keeps owner_id but never flattened the name",
   },
   created_by_name: {

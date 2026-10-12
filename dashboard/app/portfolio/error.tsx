@@ -11,7 +11,7 @@ export default function PortfolioError({
 }) {
   return (
     <ErrorState
-      title="Client Portfolio"
+      title="My Portfolio"
       description="One row per client — health at a glance"
       error={error}
       reset={reset}

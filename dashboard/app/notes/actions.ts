@@ -35,17 +35,18 @@ import {
   cleanText,
   countTestRows,
   isIsoDate,
-  loadAccountOptions,
+  loadActiveAccountOptions,
   purgeTestRows,
   requireCrmWriter,
-  loadUserOptions,
+  loadPersonnelOptions,
+  requireActivePersonnel,
   resolveUser,
   updateDashboardRow,
   loadDashboardRowForEdit,
   asText,
   resolveAccount,
 } from "@/lib/crm-write"
-import { defaultReviewCycle, type NewNoteInput } from "@/lib/notes/create"
+import { validateNoteRequired, type NewNoteInput } from "@/lib/notes/create"
 import type { AccountOption, UserOption } from "@/lib/types"
 import { getEffectiveRole } from "@/lib/effective-identity"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
@@ -243,21 +244,37 @@ export async function loadNoteRecord(noteId: string): Promise<ActionResult<NoteR
 // gate, client re-read, ownership stamp, guarded edit, audited purge.
 
 /** Clients for the form's picker: every account, by name. */
-export async function loadNoteClientOptions(): Promise<ActionResult<AccountOption[]>> {
-  return loadAccountOptions()
+/**
+ * The Client picker: ACTIVE clients only (accounts.state_label = 'Active') —
+ * the same shared helper as the Event and Meeting forms. An edited note keeps
+ * its own client listed even if that client has since gone inactive.
+ */
+export async function loadNoteClientOptions(includeAccountId?: string | null): Promise<ActionResult<AccountOption[]>> {
+  return loadActiveAccountOptions(includeAccountId)
 }
 
 /** People for the Owner picker. */
-export async function loadNoteUserOptions(): Promise<ActionResult<UserOption[]>> {
-  return loadUserOptions()
+/**
+ * The Owner picker: Rose & Co ACTIVE personnel — the same list as the Meeting
+ * form's Host / Booker and the Task form's people (loadPersonnelOptions).
+ * `keepIds` = the owner already on the note being edited, kept (marked
+ * "(inactive)") so an edit never loses them.
+ */
+export async function loadNoteUserOptions(keepIds: (string | null)[] = []): Promise<ActionResult<UserOption[]>> {
+  return loadPersonnelOptions(keepIds)
 }
 
 /** Validate + build the FLATTENED note columns — shared by create and edit. */
 async function buildNoteColumns(
   input: NewNoteInput,
   defaultOwnerId: string | null,
+  /** Edit only: the owner already on the note — may stay even if now inactive. */
+  currentPeople: ReadonlySet<string> = new Set(),
 ): Promise<ActionResult<Record<string, unknown>>> {
-  if (!cleanText(input.clientAccountId)) return fail("Pick a client.")
+  // REQUIRED: Client, Date, Title (review cycle), Note — the same rule the form
+  // applies before submit (lib/notes/create.ts validateNoteRequired).
+  const missing = Object.values(validateNoteRequired(input))
+  if (missing.length) return fail(missing.join(" "))
   const clientRes = await resolveAccount(input.clientAccountId)
   if (!clientRes.ok) return fail(clientRes.error)
   const client = clientRes.data!
@@ -271,7 +288,11 @@ async function buildNoteColumns(
   const deadline = cleanText(input.actionDeadline)
   if (deadline && !isIsoDate(deadline)) return fail("The action deadline isn't a valid date.")
 
-  // Owner = the note's AUTHOR on this entity (see mapClientNote).
+  // Owner = the note's AUTHOR on this entity (see mapClientNote). Active Rose &
+  // Co personnel only — the same rule as the form's picker; a blank Owner
+  // defaults to the person saving.
+  const ownerCheck = await requireActivePersonnel(input.ownerId, currentPeople, "Owner")
+  if (!ownerCheck.ok) return fail(ownerCheck.error)
   const ownerRes = await resolveUser(input.ownerId ?? defaultOwnerId)
   if (!ownerRes.ok) return fail(ownerRes.error)
   const owner = ownerRes.data
@@ -279,7 +300,7 @@ async function buildNoteColumns(
   return ok({
     owner_id: owner?.user_id ?? null,
     owner_name: owner?.display_name ?? null,
-    name: cleanText(input.reviewCycle) ?? defaultReviewCycle(noteDate),
+    name: cleanText(input.reviewCycle)!,
     note_date: noteDate,
     // note_body keeps line breaks; notes_text is Dynamics' collapsed copy.
     note_body: body,
@@ -377,7 +398,15 @@ export async function loadNoteForEdit(id: string): Promise<ActionResult<NewNoteI
 export async function updateNote(id: string, input: NewNoteInput): Promise<ActionResult<{ changed: number }>> {
   const gate = await requireCrmWriter("editing notes")
   if (!gate.ok) return fail(gate.error)
-  const built = await buildNoteColumns(input, gate.userId)
+  // The owner already on the note may stay even if no longer active personnel.
+  const { data: cur, error: curErr } = await getSupabaseServer()
+    .from("client_notes")
+    .select("owner_id")
+    .eq("note_id", id)
+    .maybeSingle()
+  if (curErr) return fail(describeError(curErr))
+  const currentOwner = (cur as { owner_id?: string | null } | null)?.owner_id
+  const built = await buildNoteColumns(input, gate.userId, new Set(currentOwner ? [currentOwner] : []))
   if (!built.ok) return fail(built.error)
   return updateDashboardRow({
     table: "client_notes",

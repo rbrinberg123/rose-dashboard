@@ -280,18 +280,20 @@ export const CRM_NAV_ITEMS: readonly CrmNavItem[] = [
   // below. NOT the Portfolio client table: that is a separate,
   // matrix-grantable reporting page and is unaffected by this entry.
   { href: "/accounts", label: "Clients" },
-  { href: "/meetings", label: "Meetings" },
+  // Events before Meetings (2026-10-11): an event is the container its
+  // meetings belong to.
   { href: "/events", label: "Events" },
+  { href: "/meetings", label: "Meetings" },
   { href: "/tasks", label: "Tasks" },
-  // DISPLAY NAME is "Touches"; everything internal stays "touchpoints" — the
-  // route, v_admin_touchpoints_all, public.touchpoints, the spec key and the
-  // file names. Label only.
-  { href: "/touchpoints", label: "Touches" },
+  // DISPLAY NAME is "Touchpoints" (2026-10-12; was "Touches"); everything
+  // internal stays "touchpoints" — the route, v_admin_touchpoints_all,
+  // public.touchpoints, the spec key and the file names. Label only.
+  { href: "/touchpoints", label: "Touchpoints" },
   { href: "/notes", label: "Notes" },
   { href: "/contacts", label: "Contacts" },
-  // /time-off is the Logistics calendar (matrix-grantable); this is the CRM
-  // request list with the approval workflow, on its own super-user-only route.
-  { href: "/time-off-requests", label: "Time Off" },
+  // Time Off requests (/time-off-requests) left the CRM block 2026-10-11: it is
+  // reached from the Logistics Time Off page's "Manage Time Off" button instead
+  // (route unchanged, still row-scoped — see ALWAYS_ALLOWED_ROUTES).
 ]
 
 /**

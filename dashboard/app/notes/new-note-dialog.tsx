@@ -38,15 +38,26 @@ import {
   NOTE_RISK_SUGGESTIONS,
   NOTE_STATUS_OPTIONS,
   defaultReviewCycle,
+  validateNoteRequired,
   type NewNoteInput,
+  type NoteFieldErrors,
 } from "@/lib/notes/create"
 import type { AccountOption, UserOption } from "@/lib/types"
 import { UserCombobox } from "@/components/user-combobox"
-import { FormSection } from "@/components/crm-form-kit"
+import { FieldError, FormSection } from "@/components/crm-form-kit"
 import { countTestNotes, createNote, loadNoteClientOptions, loadNoteUserOptions, purgeTestNotes } from "./actions"
 import { loadNoteForEdit, updateNote } from "./actions"
 
 type TextField = "reviewCycle" | "primaryRiskDriver" | "actionStep" | "actionOwner" | "actionDeadline" | "noteDate"
+
+/** The red "required" asterisk after a label (same as the other CRM forms). */
+function Req() {
+  return (
+    <span className="text-destructive" aria-label="required">
+      *
+    </span>
+  )
+}
 
 /** Today as YYYY-MM-DD in Eastern — every date on these pages is Eastern. */
 function todayEastern(): string {
@@ -98,15 +109,21 @@ function NoteFormDialog({
   const [error, setError] = React.useState<string | null>(null)
   const [pending, startTransition] = React.useTransition()
 
-  // Load the client list the first time the form opens.
+  // Load the pickers the first time the form opens. Clients: ACTIVE only (an
+  // edited note keeps its own client). Owner: Rose & Co active personnel (an
+  // edited note keeps its own owner, marked "(inactive)" if so).
   React.useEffect(() => {
     if (!open || clients) return
-    loadNoteClientOptions().then((r) => {
+    loadNoteClientOptions(initial?.clientAccountId ?? null).then((r) => {
       if (r.ok) setClients(r.data)
       else setError(`Could not load clients: ${r.error}`)
     })
-    loadNoteUserOptions().then((r) => (r.ok ? setUsers(r.data) : setError(r.error)))
-  }, [open, clients])
+    loadNoteUserOptions([initial?.ownerId ?? null]).then((r) => (r.ok ? setUsers(r.data) : setError(r.error)))
+  }, [open, clients, initial])
+
+  // REQUIRED fields: shown once the user has tried to submit, then live.
+  const [showErrors, setShowErrors] = React.useState(false)
+  const fieldErrors: NoteFieldErrors = showErrors ? validateNoteRequired(form) : {}
 
   const set = (k: TextField) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value
@@ -121,9 +138,10 @@ function NoteFormDialog({
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    if (!form.clientAccountId) return setError("Pick a client.")
-    if (!form.noteDate) return setError("Enter a note date.")
-    if (!form.body.trim()) return setError("Write the note.")
+    setShowErrors(true)
+    if (Object.keys(validateNoteRequired(form)).length) {
+      return setError("Fill in the required fields marked below.")
+    }
     startTransition(async () => {
       const r = editId ? await updateNote(editId, form) : await createNote(form)
       if (!r.ok) {
@@ -138,10 +156,23 @@ function NoteFormDialog({
     })
   }
 
-  const field = (id: TextField, label: string, props?: React.ComponentProps<typeof Input>) => (
+  const field = (
+    id: TextField,
+    label: React.ReactNode,
+    props?: React.ComponentProps<typeof Input>,
+    error?: string,
+  ) => (
     <div className="grid gap-1.5">
       <Label htmlFor={`nn-${id}`}>{label}</Label>
-      <Input id={`nn-${id}`} value={(form[id] as string) ?? ""} onChange={set(id)} {...props} />
+      <Input
+        id={`nn-${id}`}
+        value={(form[id] as string) ?? ""}
+        onChange={set(id)}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `nn-${id}-error` : undefined}
+        {...props}
+      />
+      <FieldError id={`nn-${id}-error`} message={error} />
     </div>
   )
 
@@ -157,7 +188,7 @@ function NoteFormDialog({
               ) : (
                 <>
               Created directly in the dashboard (not in Dynamics). It appears on this page right away and
-              flows everywhere a note does — Portfolio, Client Detail, the AI summary and Live Outreach.
+              flows everywhere a note does — My Portfolio, Client Detail, the AI summary and Live Outreach.
                 </>
               )}
             </DialogDescription>
@@ -165,28 +196,39 @@ function NoteFormDialog({
 
           <form onSubmit={onSubmit} className="grid max-h-[70vh] gap-3 overflow-y-auto pr-1">
             <div className="grid gap-1.5">
-              <Label>Client</Label>
+              <Label>
+                Client <Req />
+              </Label>
               <ClientCombobox
                 options={clients ?? []}
                 value={form.clientAccountId}
                 onChange={(v) => setForm((f) => ({ ...f, clientAccountId: v }))}
-                placeholder={clients ? "Select a client" : "Loading clients…"}
+                placeholder={clients ? "Select an active client" : "Loading clients…"}
+                invalid={!!fieldErrors.clientAccountId}
               />
+              <FieldError message={fieldErrors.clientAccountId} />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              {field("noteDate", "Note date", { type: "date" })}
-              {field("reviewCycle", "Review cycle")}
+              {field("noteDate", <>Note date <Req /></>, { type: "date" }, fieldErrors.noteDate)}
+              {/* The note's TITLE — a note has no title column; client_notes.name
+                  holds the review cycle. */}
+              {field("reviewCycle", <>Title (review cycle) <Req /></>, undefined, fieldErrors.reviewCycle)}
             </div>
 
             <div className="grid gap-1.5">
-              <Label htmlFor="nn-body">Note</Label>
+              <Label htmlFor="nn-body">
+                Note <Req />
+              </Label>
               <Textarea
                 id="nn-body"
                 rows={5}
                 value={form.body}
                 onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
+                aria-invalid={fieldErrors.body ? true : undefined}
+                aria-describedby={fieldErrors.body ? "nn-body-error" : undefined}
               />
+              <FieldError id="nn-body-error" message={fieldErrors.body} />
             </div>
 
             <div className="grid grid-cols-2 gap-3">

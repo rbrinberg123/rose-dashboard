@@ -45,18 +45,60 @@ export const TOUCH_STATUS_OPTIONS = [
   { key: "received", state: 1, stateLabel: "Completed", status: 4, statusLabel: "Received" },
 ] as const
 
+export type TouchFieldErrors = Partial<
+  Record<"clientAccountId" | "start" | "subject" | "typeCode" | "contactTypeCodes", string>
+>
+
+/**
+ * REQUIRED fields — Client (already required), Date, Subject, Type and Contact
+ * Type (at least one; 2026-10-12). Pure: the form calls it to block submit and
+ * mark the fields; createTouch / updateTouch call it again server-side.
+ * Empty object = valid.
+ */
+export function validateTouchRequired(
+  input: Pick<NewTouchInput, "clientAccountId" | "start" | "subject" | "typeCode" | "contactTypeCodes">,
+): TouchFieldErrors {
+  const errors: TouchFieldErrors = {}
+  if (!(input.clientAccountId ?? "").trim()) errors.clientAccountId = "Pick a client."
+  if (!(input.start ?? "").trim()) errors.start = "Enter the date and time."
+  if (!(input.subject ?? "").trim()) errors.subject = "Enter a subject."
+  if (!TOUCH_TYPE_OPTIONS.some((o) => o.code === input.typeCode)) errors.typeCode = "Pick a touchpoint type."
+  if (!(input.contactTypeCodes ?? []).length) errors.contactTypeCodes = "Pick at least one contact type."
+  return errors
+}
+
+/**
+ * One CLIENT CONTACT on a touchpoint — an existing contact at the touch
+ * point's client, linked through public.touchpoint_contacts
+ * (sql/patches/2026-10-12_touchpoint_contacts.sql). The same shape as an
+ * event's representative, so the form reuses the event RepresentativesPicker.
+ */
+export type TouchContact = {
+  contactId: string
+  name: string
+  /** Job title · company, for the picker / chips. */
+  detail: string | null
+}
+
 export type NewTouchInput = {
   /** accounts.account_id — REQUIRED. */
   clientAccountId: string | null
+  /** REQUIRED. */
   subject: string
   description?: string
-  /** One of TOUCH_TYPE_OPTIONS[].code. */
+  /** REQUIRED — one of TOUCH_TYPE_OPTIONS[].code; "" until picked on a new touch. */
   typeCode: string
-  /** Any of TOUCH_CONTACT_TYPE_OPTIONS[].code. */
+  /** REQUIRED — at least one of TOUCH_CONTACT_TYPE_OPTIONS[].code. */
   contactTypeCodes: string[]
+  /**
+   * OPTIONAL, MULTI — the client's contacts on this touchpoint (2026-10-12).
+   * Only contacts of `clientAccountId`; the form clears them when the client
+   * changes and the server re-checks each one. Saved to touchpoint_contacts.
+   */
+  contacts?: TouchContact[]
   /** true = Outgoing (every live touch is), false = Incoming. */
   outgoing: boolean
-  /** Eastern wall clock, "YYYY-MM-DDTHH:mm" (datetime-local). */
+  /** REQUIRED — Eastern wall clock, "YYYY-MM-DDTHH:mm" (datetime-local). */
   start: string
   /** Minutes; blank = none. */
   durationMinutes?: string

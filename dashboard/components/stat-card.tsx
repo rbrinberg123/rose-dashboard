@@ -40,7 +40,7 @@ export function StatCard({
 }) {
   if (floating) {
     return (
-      <div className={`relative overflow-hidden ${compact ? "px-4 py-2.5" : "p-4"} ${KPI_CARD_CLASS}`}>
+      <div className={`relative overflow-hidden ${compact ? "px-3 py-2" : "p-4"} ${KPI_CARD_CLASS}`}>
         <div
           className="font-semibold leading-tight tracking-tight tabular-nums"
           style={{

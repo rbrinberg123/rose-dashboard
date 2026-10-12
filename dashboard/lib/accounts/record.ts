@@ -322,8 +322,8 @@ export const ACCOUNT_SECTIONS: AccountSectionDef[] = [
       // used as reporting figures.
       { label: "Current Event", sourceKey: "current_event_name", type: "text" },
       { label: "Current Project", sourceKey: "current_project_name", type: "text" },
-      { label: "Last Touch", sourceKey: "last_touchpoint_date", type: "date" },
-      { label: "Next Touch", sourceKey: "next_touchpoint_date", type: "date" },
+      { label: "Last Touchpoint", sourceKey: "last_touchpoint_date", type: "date" },
+      { label: "Next Touchpoint", sourceKey: "next_touchpoint_date", type: "date" },
       { label: "Last Event", sourceKey: "last_event_date", type: "date" },
       { label: "Next Event", sourceKey: "next_event_date", type: "date" },
       { label: "Ongoing Event", sourceKey: "ongoing_event_date", type: "date" },

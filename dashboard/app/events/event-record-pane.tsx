@@ -480,6 +480,7 @@ export function EventRecordPane({
   error,
   onClose,
   onEdit,
+  showFeedbackReports = true,
 }: {
   record: EventRecord | null
   loading: boolean
@@ -487,6 +488,9 @@ export function EventRecordPane({
   onClose: () => void
   /** Opens the edit form — shown only for origin='dashboard' records. */
   onEdit?: () => void
+  /** The Feedback reports panel (its loader is super-user only). My Dashboard
+   *  hides it for other viewers. Default on, as on the Events page. */
+  showFeedbackReports?: boolean
 }) {
   const open = loading || !!record || !!error
   if (!open) return null
@@ -587,7 +591,7 @@ export function EventRecordPane({
           {record && <CompanyRepresentatives key={`reps-${record.event_id}`} eventId={record.event_id} />}
           {/* Feedback reports — the automation's 1–3 report tasks and their
               meetings (dashboard-origin events; see feedback-reports-panel). */}
-          {record && isAutomationOrigin(record.origin) && (
+          {record && showFeedbackReports && isAutomationOrigin(record.origin) && (
             <FeedbackReportsPanel key={record.event_id} eventId={record.event_id} />
           )}
           {record &&

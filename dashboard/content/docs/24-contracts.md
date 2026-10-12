@@ -4,6 +4,8 @@
 >
 > **Moved 2026-09-30:** first built as a CRM tab at `/contracts`. It now lives in the **Admin** section at **`/admin/contracts`**, reached from the **Contract Management** card on the Admin hub (`/admin`, the gear in the rail). It's no longer in the CRM nav or the CRM "+" menu. Only its location and navigation changed; the data, fence, form and actions are the same.
 
+> **Not to be confused with** the `/contract-management` *report*. That report moved (2026-10-11) from its own top-level "Contracts" nav item to the last link of the **Clients/Insights** section, and (2026-10-12) on to the last link of **Workflows**. This Admin page did **not** move: it is still the **Contract Management** card on the Admin hub.
+
 ## What it does (plain language)
 
 **Admin → Contract Management** (route **`/admin/contracts`**) lists every client contract in one table:

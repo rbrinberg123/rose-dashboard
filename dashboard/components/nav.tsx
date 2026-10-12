@@ -5,19 +5,15 @@ import { createPortal } from "react-dom"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
-  Building2,
-  Landmark,
-  Users,
-  CalendarDays,
+  ChartColumn,
+  Workflow,
   CalendarRange,
   Database,
-  FileText,
   ListChecks,
   MessagesSquare,
   StickyNote,
   Contact2,
   Briefcase,
-  TreePalm,
   Settings,
   Menu,
   Plus,
@@ -40,6 +36,7 @@ import {
   CRM_TEAL,
   CRM_TEAL_HOVER_TINT,
   CRM_TEAL_TINT,
+  CRM_TEAL_BORDER,
   RAIL_ACCENT_FILL,
   RAIL_ACCENT_UNDERLINE,
   RAIL_ACTIVE_TINT,
@@ -72,12 +69,18 @@ import {
 import { signOutAction } from "@/app/auth/actions"
 
 type NavItem = { href: string; label: string }
+/** A labelled sub-section nested INSIDE a section (e.g. Productivity under
+ *  Insights): its own small header, its items indented one level deeper. */
+type NavSubgroup = { label: string; items: NavItem[] }
 type NavSection = {
   label: string
   icon: React.ComponentType<{ className?: string }>
   // A section either lists child links (`items`) OR is itself a single clickable
   // link (`href`, no items) — the category row navigates directly.
   items?: NavItem[]
+  /** Nested sub-sections, rendered after `items` (expanded sidebar, rail
+   *  fly-out); each is access-filtered like `items`, and dropped when empty. */
+  subgroups?: NavSubgroup[]
   href?: string
   // COLLAPSED RAIL ONLY: the sub-page this section's rail icon links to when
   // clicked. Must be one of `items`; if the user can't reach it the rail falls
@@ -90,52 +93,66 @@ const sections: NavSection[] = [
     // FIRST in the rail: the personal home page. Single clickable item.
     // Open to every signed-in user (ALWAYS_ALLOWED_ROUTES); each sees only
     // their own data.
-    label: "My Dashboard",
+    // Nav label "My Dash" (2026-10-12) — label only; the page is still My Dashboard.
+    label: "My Dash",
     icon: LayoutDashboard,
     href: "/my-dashboard",
   },
   {
-    label: "Clients",
-    icon: Building2,
+    // Displayed as "Client Insights" (2026-10-12; was "Insights", before that
+    // "Clients"). Label only — same items and routes. Not the CRM block's
+    // "Clients" (/accounts) record table. The collapsed-rail caption stays
+    // "Insights" (RAIL_SHORT_LABEL below) until that is decided separately.
+    label: "Client Insights",
+    // ChartColumn (= bar-chart-3): reporting / analytics (2026-10-11; was Building2).
+    icon: ChartColumn,
     defaultHref: "/portfolio",
     items: [
-      { href: "/client-statistics", label: "Statistics" },
-      { href: "/portfolio", label: "Portfolio" },
-      { href: "/client-detail", label: "Detail" },
+      { href: "/client-statistics", label: "Client Statistics" },
+      // Directly below Client Statistics (2026-10-12).
+      // Super-user only (ADMIN_ONLY_ROUTES): canAccessRoute hides it from every
+      // other role, matching the proxy.
+      { href: "/client-health", label: "Client Health" },
+      { href: "/portfolio", label: "My Portfolio" },
+      // Client Detail (/client-detail) is NOT a nav item (2026-10-11): it is
+      // reached by clicking a client name / ticker (My Portfolio, Outreach
+      // Status, the CRM tables …). Route and page unchanged.
       // Display name only — the route stays /clients/to-do (see the note in
       // app/clients/to-do/page.tsx). This label also drives the Clients tab in
       // the sectional nav strip, which reads the same `sections` array.
       { href: "/clients/to-do", label: "Outreach Status" },
       { href: "/clients/alerts", label: "Alerts" },
-      // Super-user only (ADMIN_ONLY_ROUTES): canAccessRoute hides it from every
-      // other role, matching the proxy.
-      { href: "/client-health", label: "Client Health" },
+      // (/contract-management moved to the END of Workflows, 2026-10-12.)
+      // LAST (2026-10-11) — moved here from its own top-level item. Route and
+      // grant unchanged. /institution-detail stays unlinked (reached by
+      // drilling in from the Directory); /institution-style ("Finder") is
+      // reached from the Directory banner.
+      { href: "/institutions", label: "Institutions" },
+    ],
+    // Productivity is NESTED inside Insights (2026-10-11), not a top-level
+    // group: an indented sub-section with its own header. Menu nesting only —
+    // the same four routes, each still filtered by canAccessRoute.
+    // Labels renamed 2026-10-12 (routes unchanged): "Productivity" →
+    // "Productivity Insights"; Statistics → Resource Statistics; Summary →
+    // Summary by Person; Detail → Person Detail.
+    subgroups: [
+      {
+        label: "Productivity Insights",
+        items: [
+          { href: "/people-statistics", label: "Resource Statistics" },
+          { href: "/productivity", label: "Summary by Person" },
+          { href: "/productivity-detail", label: "Person Detail" },
+          { href: "/capacity", label: "Capacity" },
+        ],
+      },
     ],
   },
   {
-    // Single clickable top-level item — the category row itself links to
-    // /institutions (no child rows).
-    // /institution-detail route kept but unlinked from the nav — reached by
-    // drilling in from the Directory (same pattern as the old /planning).
-    // /institution-style ("Finder") is reached from the Directory banner.
-    label: "Institutions",
-    icon: Landmark,
-    href: "/institutions",
-  },
-  {
-    label: "Productivity",
-    icon: Users,
-    defaultHref: "/people-statistics",
-    items: [
-      { href: "/people-statistics", label: "Statistics" },
-      { href: "/productivity", label: "Summary" },
-      { href: "/productivity-detail", label: "Detail" },
-      { href: "/capacity", label: "Capacity" },
-    ],
-  },
-  {
-    label: "Logistics",
-    icon: CalendarDays,
+    // Displayed as "Workflows" (2026-10-11; was "Logistics"). Label only — the
+    // same items and routes.
+    label: "Workflows",
+    // Workflow: connected process steps (2026-10-11; was CalendarDays).
+    icon: Workflow,
     defaultHref: "/planning-v2",
     items: [
       // The original /planning page is hidden from the nav (route kept, unlinked);
@@ -151,17 +168,16 @@ const sections: NavSection[] = [
       { href: "/feedback-collection", label: "Feedback Collection" },
       { href: "/onboarding", label: "Onboarding" },
       { href: "/time-off", label: "Time Off" },
-      // Work in progress; super-user only via ADMIN_ONLY_ROUTES, so canAccessRoute
-      // hides it from every other role (matching the proxy).
-      { href: "/fb-coming-soon", label: "FB Coming Soon" },
+      // LAST (2026-10-12) — the /contract-management REPORT, moved here from the
+      // end of Client Insights. Nav location only: the route and its
+      // Roles-matrix grant are unchanged (canAccessRoute hides it from roles
+      // without it). NOT Admin → Contract Management (/admin/contracts), which
+      // stays a card on the Admin hub.
+      { href: "/contract-management", label: "Contract Management" },
+      // FB Coming Soon (/fb-coming-soon) was removed from the nav 2026-10-12.
+      // The route, page and its ADMIN_ONLY_ROUTES gate are unchanged — it is
+      // simply unlinked (reachable by URL, super-user only).
     ],
-  },
-  {
-    // Single clickable top-level item — the category row itself links to
-    // /contract-management (no child rows).
-    label: "Contracts",
-    icon: FileText,
-    href: "/contract-management",
   },
 ]
 
@@ -175,12 +191,11 @@ const sections: NavSection[] = [
  * ------------------------------------------------------------------------ */
 
 /** Icon per CRM href. Kept here because lib/nav-crm.ts stays React-free.
- *  Database, not CalendarDays: CalendarDays already means "Logistics" in this
- *  rail, and this entry is the CRM store rather than another scheduling view. */
+ *  Database: this entry is the CRM store of meetings, not another scheduling
+ *  view. */
 const CRM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   "/meetings": Database,
-  // CalendarRange, not CalendarDays: CalendarDays already means "Logistics" in
-  // this rail, and an event is a date RANGE rather than a single day.
+  // CalendarRange: an event is a date RANGE rather than a single day.
   "/events": CalendarRange,
   // ListChecks: a worklist of things to tick off, and the only checkbox-shaped
   // icon in the rail — nothing else here could be mistaken for it.
@@ -198,15 +213,9 @@ const CRM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   // "People" in the reporting section of this rail, and a contact is one named
   // individual rather than a group — so the card, not the crowd.
   "/contacts": Contact2,
-  // Briefcase: the client BOOK — one company Rose works for. Building2 would be
-  // the obvious choice and is deliberately NOT reused: it already means the
-  // "Clients" REPORTING section in this same rail (Statistics / Portfolio /
-  // Detail / Outreach Status), and the whole point of this entry is that it is a
-  // different thing — the CRM record, not the analytics view. Two rows sharing
-  // one icon would say they are the same page.
+  // Briefcase: the client BOOK — one company Rose works for: the CRM record, as
+  // distinct from the Insights (analytics) section's chart icon.
   "/accounts": Briefcase,
-  // TreePalm: time away. CalendarDays / CalendarRange are already taken above.
-  "/time-off-requests": TreePalm,
 }
 
 type CrmItem = CrmNavItem & { icon: React.ComponentType<{ className?: string }> }
@@ -443,25 +452,47 @@ function visibleSections(
   role: ViewAsRole | null,
   allowedRoutes: readonly string[],
 ) {
+  // Hidden (retired) pages are off the nav for EVERYONE, super users
+  // included — reached only from Admin → Hidden Pages (isHiddenRoute).
+  const allowed = (item: NavItem) =>
+    !isHiddenRoute(item.href) && canAccessRoute(role, item.href, allowedRoutes)
   return sections
     .map((section) => ({
       ...section,
-      // Hidden (retired) pages are off the nav for EVERYONE, super users
-      // included — reached only from Admin → Hidden Pages (isHiddenRoute).
-      items: (section.items ?? []).filter(
-        (item) => !isHiddenRoute(item.href) && canAccessRoute(role, item.href, allowedRoutes),
-      ),
+      items: (section.items ?? []).filter(allowed),
+      subgroups: (section.subgroups ?? [])
+        .map((g) => ({ ...g, items: g.items.filter(allowed) }))
+        .filter((g) => g.items.length > 0),
     }))
     .filter((section) =>
       // Header-link sections (href, no items) show if the target is allowed;
-      // list sections show only when at least one child survived the filter.
+      // list sections show only when at least one child (own or nested)
+      // survived the filter.
       section.href
         ? canAccessRoute(role, section.href, allowedRoutes)
-        : section.items.length > 0,
+        : section.items.length > 0 || section.subgroups.length > 0,
     )
 }
 
-export { visibleSections as visibleNavSections }
+/** Every link a (visible) section holds — its own items, then each sub-group's. */
+function allItemsOf(section: { items: NavItem[]; subgroups: NavSubgroup[] }): NavItem[] {
+  return [...section.items, ...section.subgroups.flatMap((g) => g.items)]
+}
+
+/**
+ * The groups the top-of-page section strip can show, flattened: each section's
+ * own items as one group, and each nested sub-group as its own group labelled
+ * "Section · Sub-group" — so a Productivity page's strip lists the four
+ * Productivity tabs, not the Insights ones. Same access filtering as the nav.
+ */
+function visibleNavGroups(role: ViewAsRole | null, allowedRoutes: readonly string[]) {
+  return visibleSections(role, allowedRoutes).flatMap((section) => [
+    { label: section.label, items: section.items, defaultHref: section.defaultHref },
+    ...section.subgroups.map((g) => ({ label: `${section.label} · ${g.label}`, items: g.items, defaultHref: undefined })),
+  ])
+}
+
+export { visibleSections as visibleNavSections, visibleNavGroups }
 
 function Section({
   section,
@@ -472,24 +503,24 @@ function Section({
   current: string
   onNavigate?: () => void
 }) {
-  const { label, icon: Icon, items, href } = section
+  const { label, icon: Icon, items, href, subgroups } = section
   const alertCount = React.useContext(AlertCountContext)
   const dashCount = React.useContext(MyDashboardCountContext)
 
   // Header-as-link: a section with an href and no child items renders the
   // category row itself as a clickable Link, with the same active/hover
   // styling as the child links (active-accent bar included).
-  if (href && (!items || items.length === 0)) {
+  if (href && (!items || items.length === 0) && (!subgroups || subgroups.length === 0)) {
     const active = isActive(current, href)
     return (
-      <div className="px-3 py-[5px]">
+      <div className="px-3 py-[2px]">
         <Link
           href={href}
           onClick={onNavigate}
           aria-current={active ? "page" : undefined}
           aria-label={alertsAriaLabel(label, href === MY_DASHBOARD_ROUTE ? dashCount : 0)}
           className={cn(
-            "relative flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium uppercase tracking-wider transition-colors",
+            "relative flex items-center gap-2 rounded-md px-2 py-1 text-[12px] font-medium uppercase tracking-wider transition-colors",
             active
               ? "bg-[#EEF2FB] text-[#1E2858]"
               : "text-[#9AA1AD] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
@@ -511,13 +542,13 @@ function Section({
   }
 
   return (
-    <div className="px-3 py-[5px]">
+    <div className="px-3 py-[2px]">
       {/* Non-clickable category label — static, no hover/navigation */}
-      <div className="mb-[3px] flex items-center gap-2 px-2 text-[12px] font-medium uppercase tracking-wider text-[#9AA1AD]">
+      <div className="mb-px flex items-center gap-2 px-2 text-[12px] font-medium uppercase tracking-wider text-[#9AA1AD]">
         <Icon className="size-[18px] shrink-0" />
         <span>{label}</span>
       </div>
-      <ul className="space-y-0.5">
+      <ul>
         {(items ?? []).map(({ href: itemHref, label: itemLabel }) => {
           const active = isActive(current, itemHref)
           const badge = itemHref === ALERTS_ROUTE ? alertCount : 0
@@ -529,7 +560,7 @@ function Section({
                 aria-current={active ? "page" : undefined}
                 aria-label={badge > 0 ? alertsAriaLabel(itemLabel, badge) : undefined}
                 className={cn(
-                  "relative flex items-center gap-2 rounded-md py-[3px] pl-6 pr-2 text-sm transition-colors",
+                  "relative flex items-center gap-2 rounded-md py-px pl-6 pr-2 text-sm transition-colors",
                   active
                     ? "bg-[#EEF2FB] font-medium text-[#1E2858]"
                     : "text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
@@ -549,6 +580,44 @@ function Section({
           )
         })}
       </ul>
+      {/* Nested sub-sections (e.g. Productivity inside Insights): a small,
+          indented header, then its links indented one level deeper. */}
+      {(subgroups ?? []).map((g) => (
+        <div key={g.label} className="mt-0.5">
+          <div className="mb-px pl-6 pr-2 text-[11px] font-medium uppercase tracking-wider text-[#9AA1AD]">
+            {g.label}
+          </div>
+          <ul>
+            {g.items.map(({ href: itemHref, label: itemLabel }) => {
+              const active = isActive(current, itemHref)
+              return (
+                <li key={itemHref}>
+                  <Link
+                    href={itemHref}
+                    onClick={onNavigate}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "relative flex items-center gap-2 rounded-md py-px pl-9 pr-2 text-sm transition-colors",
+                      active
+                        ? "bg-[#EEF2FB] font-medium text-[#1E2858]"
+                        : "text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
+                    )}
+                  >
+                    {active && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-y-1 left-0 w-[3px] rounded-full"
+                        style={{ background: "linear-gradient(180deg, #1E2858, #0355A7)" }}
+                      />
+                    )}
+                    <span className="truncate">{itemLabel}</span>
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ))}
     </div>
   )
 }
@@ -581,7 +650,7 @@ function NavContents({
           `flex flex-col`. Renders nothing at all for a non-super-user: no
           divider, no label, no item. */}
       {crm.length > 0 ? (
-        <div className="mt-auto pt-2">
+        <div className="mt-auto pt-1">
           <CrmDivider />
           {groupCrmItems(crm).map((entry) =>
             entry.kind === "group" ? (
@@ -657,13 +726,13 @@ function CrmNavRow({
 }) {
   const { href, label, icon: Icon } = item
   return (
-    <div className={nested ? "py-[5px] pl-7 pr-3" : "px-3 py-[5px]"}>
+    <div className={nested ? "py-px pl-7 pr-3" : "px-3 py-px"}>
       <Link
         href={href}
         onClick={onNavigate}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium uppercase tracking-wider transition-colors",
+          "flex items-center gap-2 rounded-md px-2 py-1 text-[12px] font-medium uppercase tracking-wider transition-colors",
           // Mild hover wash on the NON-active row only — the active row already
           // carries the (stronger) CRM_TEAL_TINT and must not shift on hover.
           !active && "hover:bg-[var(--crm-hover)]",
@@ -678,14 +747,14 @@ function CrmNavRow({
       >
         <span
           aria-hidden="true"
-          className="flex size-[26px] shrink-0 items-center justify-center rounded-md"
+          className="flex size-[22px] shrink-0 items-center justify-center rounded-md"
           style={{
-            border: `1.5px solid ${CRM_TEAL}`,
+            border: `1px solid ${CRM_TEAL_BORDER}`,
             backgroundColor: "transparent",
             opacity: active ? 1 : 0.85,
           }}
         >
-          <Icon className="size-[15px]" />
+          <Icon className="size-[13px]" />
         </span>
         <span>{label}</span>
       </Link>
@@ -728,14 +797,14 @@ function CrmNavGroup({
 
   return (
     <>
-      <div className="px-3 py-[5px]">
+      <div className="px-3 py-px">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-controls={listId}
           className={cn(
-            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium uppercase tracking-wider transition-colors",
+            "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] font-medium uppercase tracking-wider transition-colors",
             !headerActive && "hover:bg-[var(--crm-hover)]",
           )}
           style={{
@@ -746,13 +815,13 @@ function CrmNavGroup({
         >
           <span
             aria-hidden="true"
-            className="flex size-[26px] shrink-0 items-center justify-center rounded-md"
+            className="flex size-[22px] shrink-0 items-center justify-center rounded-md"
             style={{
-              border: `1.5px solid ${CRM_TEAL}`,
+              border: `1px solid ${CRM_TEAL_BORDER}`,
               opacity: childActive ? 1 : 0.85,
             }}
           >
-            <Layers className="size-[15px]" />
+            <Layers className="size-[13px]" />
           </span>
           <span>{CRM_ACTIONS_LABEL}</span>
           <Chevron className="ml-auto size-4 shrink-0" aria-hidden="true" />
@@ -966,19 +1035,128 @@ function FlyoutPanel({
   )
 }
 
+/** A fly-out's category heading: navy uppercase label over the blue→teal rule.
+ *  Shared by a section's own heading and its nested sub-groups (Productivity
+ *  inside Insights) so the two can never drift apart. */
+function FlyoutHeading({ label }: { label: string }) {
+  return (
+    <>
+      {/* Navy, not the muted gray the in-rail category labels use — inside
+          the fly-out this is the panel's own heading. */}
+      <div className="px-2 pb-1 pt-0.5 text-[12px] font-medium uppercase tracking-wider text-[#1E2858]">
+        {label}
+      </div>
+      {/* Blue→teal rule under the heading — the panel's one piece of brand
+          colour, carrying the same two stops as the active rail icon. */}
+      <div
+        aria-hidden="true"
+        className="mx-2 mb-1.5 h-0.5 rounded-full"
+        style={{ backgroundImage: RAIL_ACCENT_UNDERLINE }}
+      />
+    </>
+  )
+}
+
 /**
  * ClassName + style for a rail icon tile. The ACTIVE tile is filled with the
  * blue→teal gradient (white glyph on top) rather than the old flat blue tint, so
  * it matches the spine on the fly-out it opens. A gradient can't be expressed as
  * a background-color utility, hence the paired inline style.
  */
+/* ---------------------------------------------------------------------------
+ * TRIAL (2026-10-12) — icon-over-label TILES for the NON-CRM collapsed-rail
+ * items (My Dashboard, Insights, Workflows, Admin): the same 42px box as the CRM
+ * tiles, with a short caption under the icon. CRM tiles are untouched.
+ *
+ * WIDER-RAIL VARIANT — OFF (RAIL_FIT_WIDTH = false, reverted 2026-10-12 by
+ * request; the labelled tiles stay). When true, the collapsed rail is sized to
+ * its content (`width: max-content`) so the longest caption fits at a readable
+ * 8px with light padding (~70px rail, every tile stretched to ~59px). Off = the
+ * 58px rail, 42px tiles and 6.75px captions.
+ *
+ * TO REVERT IN ONE EDIT: set RAIL_LABEL_TILES = false. That restores the
+ * previous rail exactly — the old values, kept here:
+ *   rail width   SIDEBAR_COLLAPSED_WIDTH (58px, lib/sidebar.ts)
+ *   non-CRM box  "flex size-9 items-center justify-center rounded-md transition-colors" (36px), icon size-[18px], no caption
+ *   CRM box      "flex size-[42px] flex-col items-center justify-center gap-[1.5px] rounded-md transition-colors"
+ *   CRM caption  "text-[6.75px] font-semibold uppercase leading-none tracking-[0.04em]"
+ *   row          "flex justify-center py-px"
+ *   rail footer  "px-1 py-2" (collapsed)
+ * ------------------------------------------------------------------------- */
+const RAIL_LABEL_TILES = true
+/** The wider, content-sized rail with 8px captions (see above). Off. */
+const RAIL_FIT_WIDTH = false
+const RAIL_WIDE = RAIL_LABEL_TILES && RAIL_FIT_WIDTH
+/** Captions under the icon — full single words that fit the 42px tile on one
+ *  line (shorten one only if it genuinely won't fit; none of these need it). */
+const RAIL_SHORT_LABEL: Record<string, string> = {
+  "My Dash": "My Dash",
+  // Section renamed "Client Insights" (2026-10-12); the rail caption is
+  // deliberately still "Insights" — pending a separate decision.
+  "Client Insights": "Insights",
+  Workflows: "Workflow",
+  Admin: "Admin",
+}
+const RAIL_ICON_CLASS = RAIL_LABEL_TILES ? "size-[17px]" : "size-[18px]"
+/** One row of the rail: light side gutter in the trial. */
+// Row padding py-px (2026-10-12: was py-[2px]) — 2px less per item so the
+// full rail fits shorter, non-maximised windows without the scroll arrows.
+const RAIL_ROW_CLASS = RAIL_WIDE ? "flex justify-center px-[5px] py-px" : "flex justify-center py-px"
+const CRM_TILE_BOX_OLD =
+  "flex size-[42px] flex-col items-center justify-center gap-[1.5px] rounded-md transition-colors"
+/** The tile box: the fixed 42px CRM box; in the wider variant it fills the row
+ *  and the widest caption sets the rail width. */
+/* SIZING (2026-10-12): rail 58 -> 62px; tiles 42 -> 45px (square); glyphs
+ * 16/15 -> 17/16px; captions 6.75 -> 7px; logo 40 -> 43px; rows py-px -> py-[2px];
+ * footer avatar 28 -> 30px. Old values in the comments beside each. */
+const RAIL_TILE_SIZED =
+  "flex size-[45px] flex-col items-center justify-center gap-[1.5px] rounded-md transition-colors" // was size-[42px]
+const RAIL_TILE_BOX = RAIL_FIT_WIDTH
+  ? "flex h-[42px] w-full min-w-[42px] flex-col items-center justify-center gap-[2px] rounded-md px-[4px] transition-colors"
+  : RAIL_TILE_SIZED
+const CRM_CAPTION_OLD = "text-[6.75px] font-semibold uppercase leading-none tracking-[0.04em]"
+/** Wider variant: one readable 8px caption style for every tile. */
+const RAIL_CAPTION_WIDE = "whitespace-nowrap text-[8px] font-semibold uppercase leading-none tracking-[0.02em]"
+/** Non-CRM caption: 6.75px with normal tracking so "DASHBOARD" fits 42px. */
+const RAIL_CAPTION_CLASS = RAIL_FIT_WIDTH
+  ? RAIL_CAPTION_WIDE
+  : "whitespace-nowrap text-[7px] font-semibold uppercase leading-none tracking-normal" // was 6.75px
+/** CRM caption at the current size (was CRM_CAPTION_OLD's 6.75px). */
+const CRM_CAPTION = "text-[7px] font-semibold uppercase leading-none tracking-[0.04em]"
+
+/** The caption under a non-CRM rail icon (trial) — nothing when the trial is off. */
+function RailTileCaption({ label, active }: { label: string; active: boolean }) {
+  if (!RAIL_LABEL_TILES) return null
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        RAIL_CAPTION_CLASS,
+        // Non-active caption (2026-10-12): one step deeper than the tile's
+        // #9AA1AD (the icon keeps that) so it reads on the #F8F9FB resting fill;
+        // on hover it follows the tile's #1E2858; active inherits white.
+        !active && "text-[#7F8795] group-hover/railtile:text-[#1E2858]",
+      )}
+    >
+      {RAIL_SHORT_LABEL[label] ?? label}
+    </span>
+  )
+}
+
 function railIconProps(active: boolean, extraClass?: string) {
   return {
     className: cn(
-      "flex size-10 items-center justify-center rounded-md transition-colors",
+      RAIL_LABEL_TILES
+        ? // Trial: the same tile as the CRM items, icon over a caption.
+          RAIL_TILE_BOX
+        : // 36px: a compact rail that still clears a comfortable tap target.
+          "flex size-9 items-center justify-center rounded-md transition-colors",
       active
         ? "text-white"
-        : "text-[#9AA1AD] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
+        : // Non-active (2026-10-12): a soft resting fill one shade lighter than
+          // the old hover (#F4F6F9), and a hover one shade darker — three gentle
+          // steps: #F8F9FB rest → #EBEEF2 hover → active gradient (unchanged).
+          "group/railtile bg-[#F8F9FB] text-[#9AA1AD] hover:bg-[#EBEEF2] hover:text-[#1E2858]",
       // `relative` is passed in by the one caller that pins a badge to the icon.
       extraClass,
     ),
@@ -1004,31 +1182,22 @@ function RailIconLink({
   /** Red count bubble pinned to the icon; 0 hides it. */
   badge?: number
 }) {
-  const { open, triggerProps, panelProps } = useFlyout(align)
-  const tooltipId = React.useId()
-
+  // A LEAF (no sub-menu): a plain native tooltip, not a fly-out panel that
+  // would only repeat the name (2026-10-12). Fly-outs are for sub-menus.
+  void align
   return (
-    <div className="flex justify-center py-[3px]" {...triggerProps}>
+    <div className={RAIL_ROW_CLASS}>
       <Link
         href={href}
+        title={label}
         aria-label={alertsAriaLabel(label, badge)}
         aria-current={active ? "page" : undefined}
-        aria-describedby={open ? tooltipId : undefined}
         {...railIconProps(active, "relative")}
       >
-        <Icon className="size-[18px]" />
+        <Icon className={RAIL_ICON_CLASS} />
+        <RailTileCaption label={label} active={active} />
         <RailAlertBubble count={badge} />
       </Link>
-      {open ? (
-        <FlyoutPanel
-          id={tooltipId}
-          role="tooltip"
-          panelProps={panelProps}
-          className="min-w-0 whitespace-nowrap px-3 py-1.5 text-sm text-[#1E2858]"
-        >
-          {label}
-        </FlyoutPanel>
-      ) : null}
     </div>
   )
 }
@@ -1042,13 +1211,14 @@ function RailSection({
   section,
   current,
 }: {
-  section: NavSection & { items: NavItem[] }
+  section: NavSection & { items: NavItem[]; subgroups: NavSubgroup[] }
   current: string
 }) {
-  const { label, icon: Icon, items, defaultHref } = section
-  const active = items.some((item) => isActive(current, item.href))
+  const { label, icon: Icon, items, defaultHref, subgroups } = section
+  const every = allItemsOf(section)
+  const active = every.some((item) => isActive(current, item.href))
   const target =
-    items.find((item) => item.href === defaultHref)?.href ?? items[0].href
+    every.find((item) => item.href === defaultHref)?.href ?? every[0].href
   const { open, setOpen, triggerProps, panelProps } = useFlyout()
   const panelId = React.useId()
 
@@ -1060,7 +1230,7 @@ function RailSection({
   const badge = items.some((item) => item.href === ALERTS_ROUTE) ? alertCount : 0
 
   return (
-    <div className="flex justify-center py-[3px]" {...triggerProps}>
+    <div className={RAIL_ROW_CLASS} {...triggerProps}>
       <Link
         href={target}
         aria-label={badge > 0 ? `${label} — ${badge} critical alerts` : label}
@@ -1071,23 +1241,13 @@ function RailSection({
         onClick={() => setOpen(false)}
         {...railIconProps(active, "relative")}
       >
-        <Icon className="size-[18px]" />
+        <Icon className={RAIL_ICON_CLASS} />
+        <RailTileCaption label={label} active={active} />
         <RailAlertBubble count={badge} />
       </Link>
       {open ? (
         <FlyoutPanel id={panelId} panelProps={panelProps}>
-          {/* Navy, not the muted gray the in-rail category labels use — inside
-              the fly-out this is the panel's own heading. */}
-          <div className="px-2 pb-1 pt-0.5 text-[12px] font-medium uppercase tracking-wider text-[#1E2858]">
-            {label}
-          </div>
-          {/* Blue→teal rule under the heading — the panel's one piece of brand
-              colour, carrying the same two stops as the active rail icon. */}
-          <div
-            aria-hidden="true"
-            className="mx-2 mb-1.5 h-0.5 rounded-full"
-            style={{ backgroundImage: RAIL_ACCENT_UNDERLINE }}
-          />
+          <FlyoutHeading label={label} />
           <ul className="space-y-0.5">
             {items.map(({ href, label: itemLabel }) => {
               const itemActive = isActive(current, href)
@@ -1136,6 +1296,48 @@ function RailSection({
               )
             })}
           </ul>
+          {/* Nested sub-groups (Productivity inside Insights) get the SAME
+              heading as the section, after a thin divider and extra top space
+              so they read as their own group. Items keep the section's style. */}
+          {subgroups.map((g) => (
+            <div key={g.label}>
+              <div aria-hidden="true" className="mx-2 mb-2.5 mt-2.5 h-px bg-[#E6E9EF]" />
+              <FlyoutHeading label={g.label} />
+              <ul className="space-y-0.5">
+                {g.items.map(({ href, label: itemLabel }) => {
+                  const itemActive = isActive(current, href)
+                  return (
+                    <li key={href}>
+                      <Link
+                        href={href}
+                        aria-current={itemActive ? "page" : undefined}
+                        className={cn(
+                          "group/nav-item relative flex items-center gap-2 overflow-hidden rounded-md py-1 pl-3 pr-2 text-sm transition-colors",
+                          itemActive
+                            ? "font-medium text-[#1E2858]"
+                            : "text-[#5B6472] hover:bg-[var(--rail-hover)] hover:text-[#1E2858]",
+                        )}
+                        style={{
+                          ...({ "--rail-hover": RAIL_HOVER_TINT } as React.CSSProperties),
+                          ...(itemActive ? { backgroundColor: RAIL_ACTIVE_TINT } : null),
+                        }}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={cn(
+                            "absolute inset-y-0 left-0 w-[3px] transition-transform duration-150 ease-out motion-reduce:transition-none",
+                            itemActive ? "translate-x-0" : "-translate-x-full group-hover/nav-item:translate-x-0",
+                          )}
+                          style={{ backgroundColor: TEAL }}
+                        />
+                        <span className="truncate">{itemLabel}</span>
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ))}
         </FlyoutPanel>
       ) : null}
     </div>
@@ -1156,20 +1358,25 @@ function RailContents({
 
   return (
     <>
-      {visibleSections(role, allowedRoutes).map((section) =>
-        section.items.length > 0 ? (
-          <RailSection key={section.label} section={section} current={pathname} />
-        ) : (
-          <RailIconLink
-            key={section.label}
-            href={section.href!}
-            label={section.label}
-            icon={section.icon}
-            active={isActive(pathname, section.href!)}
-            badge={section.href === MY_DASHBOARD_ROUTE ? dashCount : 0}
-          />
-        ),
-      )}
+      {/* The non-CRM items (My Dash · Insights · Workflow) get a little extra
+          breathing room between them — `gap-1` (4px) on this wrapper only; the
+          CRM block below and the Admin row keep their own spacing. */}
+      <div className="flex flex-col gap-1">
+        {visibleSections(role, allowedRoutes).map((section) =>
+          section.items.length > 0 || section.subgroups.length > 0 ? (
+            <RailSection key={section.label} section={section} current={pathname} />
+          ) : (
+            <RailIconLink
+              key={section.label}
+              href={section.href!}
+              label={section.label}
+              icon={section.icon}
+              active={isActive(pathname, section.href!)}
+              badge={section.href === MY_DASHBOARD_ROUTE ? dashCount : 0}
+            />
+          ),
+        )}
+      </div>
 
       {/* CRM, pinned to the bottom of the rail — same gate, same treatment, just
           the icon and a 3-letter caption at 58px wide. Nothing renders here for
@@ -1209,14 +1416,9 @@ function RailCrmDivider() {
         className="block h-px w-full"
         style={{ backgroundColor: CRM_TEAL, opacity: 0.35 }}
       />
-      <span
-        aria-hidden="true"
-        className="mt-1 block text-center text-[9px] font-semibold uppercase tracking-[0.12em]"
-        style={{ color: CRM_TEAL }}
-      >
-        CRM
-      </span>
-      <div className="mt-1 flex justify-center">
+      {/* No "CRM" caption on the collapsed rail (2026-10-11) — the teal rule
+          alone marks the block; the expanded sidebar keeps its label. */}
+      <div className="mt-1.5 flex justify-center">
         <CrmQuickAdd variant="rail" />
       </div>
     </div>
@@ -1244,24 +1446,23 @@ function RailCrmDivider() {
  */
 function RailCrmIconLink({ item, active }: { item: CrmItem; active: boolean }) {
   const { href, label, icon: Icon } = item
-  const { open, triggerProps, panelProps } = useFlyout("bottom")
-  const tooltipId = React.useId()
-
+  // A LEAF: native tooltip only — its name is already printed on the tile, so a
+  // fly-out panel would just repeat it (2026-10-12).
   return (
-    <div className="flex justify-center py-[3px]" {...triggerProps}>
+    <div className={RAIL_ROW_CLASS}>
       <Link
         href={href}
+        title={label}
         aria-label={label}
         aria-current={active ? "page" : undefined}
-        aria-describedby={open ? tooltipId : undefined}
         className={cn(
-          "flex size-10 flex-col items-center justify-center gap-[1px] rounded-md transition-colors",
+          RAIL_LABEL_TILES ? RAIL_TILE_BOX : CRM_TILE_BOX_OLD,
           // Mild hover wash on the NON-active tile only.
           !active && "hover:bg-[var(--crm-hover)]",
         )}
         style={{
           ...({ "--crm-hover": CRM_TEAL_HOVER_TINT } as React.CSSProperties),
-          border: `1.5px solid ${CRM_TEAL}`,
+          border: `1px solid ${CRM_TEAL_BORDER}`,
           // `undefined`, NOT "transparent", for the inactive tile: an inline
           // background-color outranks the `hover:bg-*` class above and would
           // silently cancel the hover wash.
@@ -1270,24 +1471,14 @@ function RailCrmIconLink({ item, active }: { item: CrmItem; active: boolean }) {
           opacity: active ? 1 : 0.85,
         }}
       >
-        <Icon className="size-[14px]" />
+        <Icon className="size-4" />
         <span
           aria-hidden="true"
-          className="text-[6px] font-semibold uppercase leading-none tracking-[0.04em]"
+          className={RAIL_WIDE ? RAIL_CAPTION_WIDE : RAIL_LABEL_TILES ? CRM_CAPTION : CRM_CAPTION_OLD}
         >
           {label}
         </span>
       </Link>
-      {open ? (
-        <FlyoutPanel
-          id={tooltipId}
-          role="tooltip"
-          panelProps={panelProps}
-          className="min-w-0 whitespace-nowrap px-3 py-1.5 text-sm text-[#1E2858]"
-        >
-          {label}
-        </FlyoutPanel>
-      ) : null}
     </div>
   )
 }
@@ -1306,7 +1497,7 @@ function RailCrmGroup({ items, current }: { items: CrmItem[]; current: string })
   const panelId = React.useId()
 
   return (
-    <div className="flex justify-center py-[3px]" {...triggerProps}>
+    <div className={RAIL_ROW_CLASS} {...triggerProps}>
       <button
         type="button"
         aria-label={CRM_ACTIONS_LABEL}
@@ -1314,21 +1505,21 @@ function RailCrmGroup({ items, current }: { items: CrmItem[]; current: string })
         aria-controls={open ? panelId : undefined}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex size-10 flex-col items-center justify-center gap-[1px] rounded-md transition-colors",
+          RAIL_LABEL_TILES ? RAIL_TILE_BOX : CRM_TILE_BOX_OLD,
           !active && "hover:bg-[var(--crm-hover)]",
         )}
         style={{
           ...({ "--crm-hover": CRM_TEAL_HOVER_TINT } as React.CSSProperties),
-          border: `1.5px solid ${CRM_TEAL}`,
+          border: `1px solid ${CRM_TEAL_BORDER}`,
           backgroundColor: active ? CRM_TEAL_TINT : undefined,
           color: CRM_TEAL,
           opacity: active ? 1 : 0.85,
         }}
       >
-        <Layers className="size-[14px]" />
+        <Layers className="size-4" />
         <span
           aria-hidden="true"
-          className="text-[6px] font-semibold uppercase leading-none tracking-[0.04em]"
+          className={RAIL_WIDE ? RAIL_CAPTION_WIDE : RAIL_LABEL_TILES ? CRM_CAPTION : CRM_CAPTION_OLD}
         >
           {CRM_ACTIONS_LABEL}
         </span>
@@ -1429,17 +1620,61 @@ function RailExpandTab({
   )
 }
 
-/** Collapsed counterpart of <UserPanel/>: an avatar whose fly-out carries the
- *  email + sign-out, with the admin gear stacked underneath — the user cluster
- *  reduced to icons. The collapse chevron sits above the rule, not in here. */
+/**
+ * The profile / sign-out menu body — ONE definition shared by the collapsed
+ * rail's avatar fly-out and the expanded footer's upward menu, so both read the
+ * same (2026-10-12).
+ */
+function ProfileMenuBody({ email }: { email: string }) {
+  return (
+    <>
+      <div className="px-2 pb-1.5 pt-0.5 text-xs text-[#9AA1AD]">
+        Signed in as
+        <div className="truncate text-[#5B6472]">{email}</div>
+      </div>
+      <form action={signOutAction}>
+        <Button
+          type="submit"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]"
+        >
+          <LogOut className="size-4" />
+          Sign out
+        </Button>
+      </form>
+    </>
+  )
+}
+
+/**
+ * FOOTER LAYOUT (2026-10-12): the profile control and the collapse / expand
+ * chevron share ONE row (was stacked). On the collapsed rail that row is
+ * avatar (28px) + gap (3px) + chevron (20px) = 51px; it is used when the rail
+ * gives at least 56px of usable width (the row plus a little air either side),
+ * otherwise it falls back to the old stack (expand tab above the rule, avatar
+ * below). The rail is 58px — 57px inside its border, the footer adds no side
+ * padding in this layout — so the row is used.
+ */
+const RAIL_FOOTER_MIN_ROW_WIDTH = 56
+const RAIL_FOOTER_SIDE_BY_SIDE = RAIL_WIDE || SIDEBAR_COLLAPSED_WIDTH - 1 >= RAIL_FOOTER_MIN_ROW_WIDTH
+
+/** Collapsed counterpart of <UserPanel/>: an avatar whose fly-out (to the
+ *  right) carries the email + sign-out, with the admin gear underneath. With
+ *  `onExpand`, the expand chevron sits beside the avatar in the same row. */
 function RailUserPanel({
   email,
   showAdmin,
   pathname,
+  onExpand,
+  controls,
 }: {
   email: string
   showAdmin?: boolean
   pathname?: string
+  /** Side-by-side footer: render the expand chevron next to the avatar. */
+  onExpand?: () => void
+  controls?: string
 }) {
   const { open, setOpen, triggerProps, panelProps } = useFlyout("bottom")
   const panelId = React.useId()
@@ -1447,36 +1682,40 @@ function RailUserPanel({
 
   return (
     <div className="space-y-0.5">
-      <div className="flex justify-center py-[3px]" {...triggerProps}>
+      <div className={cn("flex items-center justify-center py-[3px]", onExpand && "gap-[3px]")}>
+      <div className="flex" {...triggerProps}>
         <button
           type="button"
           aria-label={`Signed in as ${email}`}
           aria-expanded={open}
           aria-controls={open ? panelId : undefined}
           onClick={() => setOpen((v) => !v)}
-          className="flex size-8 items-center justify-center rounded-full bg-[#EEF2FB] text-sm font-medium text-[#1E2858] transition-colors hover:bg-[#E2E9F7]"
+          className={cn(
+            "flex items-center justify-center rounded-full bg-[#EEF2FB] font-medium text-[#1E2858] transition-colors hover:bg-[#E2E9F7]",
+            onExpand ? "size-[30px] text-xs" : "size-8 text-sm", // was size-7 (28px)
+          )}
         >
           {initial}
         </button>
         {open ? (
           <FlyoutPanel id={panelId} panelProps={panelProps}>
-            <div className="px-2 pb-1.5 pt-0.5 text-xs text-[#9AA1AD]">
-              Signed in as
-              <div className="truncate text-[#5B6472]">{email}</div>
-            </div>
-            <form action={signOutAction}>
-              <Button
-                type="submit"
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]"
-              >
-                <LogOut className="size-4" />
-                Sign out
-              </Button>
-            </form>
+            <ProfileMenuBody email={email} />
           </FlyoutPanel>
         ) : null}
+      </div>
+      {onExpand ? (
+        <button
+          type="button"
+          onClick={onExpand}
+          aria-label="Expand menu"
+          aria-expanded={false}
+          aria-controls={controls}
+          title="Expand menu"
+          className="flex h-7 w-5 shrink-0 items-center justify-center rounded-md border border-[#CFDBEF] bg-[#EEF2FB] text-[#1E2858] transition-colors hover:border-[#1E2858] hover:bg-[#1E2858] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0355A7]"
+        >
+          <ChevronsRight className="size-3.5" />
+        </button>
+      ) : null}
       </div>
       {showAdmin ? (
         <RailIconLink
@@ -1504,7 +1743,7 @@ function BrandMark() {
     <img
       src="/favicon-512.png"
       alt="Rose &amp; Co IQ"
-      className="size-10 shrink-0 object-contain"
+      className="size-[43px] shrink-0 object-contain" // was size-10 (40px)
     />
   )
 }
@@ -1516,7 +1755,7 @@ function Brand() {
     <img
       src="/roseco-iq-logo_3.png"
       alt="Rose &amp; Co IQ Dashboards"
-      className="h-auto w-full max-w-[160px] object-contain"
+      className="h-auto w-full max-w-[136px] object-contain"
     />
   )
 }
@@ -1636,7 +1875,10 @@ export function Sidebar({
           between the full width and the icon rail. */}
       <aside
         style={{
-          width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH,
+          // Trial: collapsed = as wide as the longest caption needs (max-content);
+          // interpolate-size lets the width transition animate to/from it.
+          width: collapsed ? (RAIL_WIDE ? "max-content" : SIDEBAR_COLLAPSED_WIDTH) : SIDEBAR_EXPANDED_WIDTH,
+          ...({ interpolateSize: "allow-keywords" } as React.CSSProperties),
         }}
         className="z-40 hidden shrink-0 flex-col border-r border-[#EDEFF3] bg-white transition-[width] duration-200 ease-in-out motion-reduce:transition-none md:sticky md:top-0 md:flex md:h-screen"
       >
@@ -1654,7 +1896,7 @@ export function Sidebar({
           style={collapsed ? { height: TOP_BAR_HEIGHT } : undefined}
           className={cn(
             "flex items-center justify-center border-b border-[#EDEFF3] bg-white",
-            collapsed ? "px-2" : "px-4 pb-4 pt-5",
+            collapsed ? "px-2" : "px-4 pb-2.5 pt-3",
           )}
         >
           {collapsed ? <BrandMark /> : <Brand />}
@@ -1678,14 +1920,18 @@ export function Sidebar({
             (not centered on the edge), mounted at the rail's right border.
             Expanded keeps its chevron inline in the Sign out · gear · chevron
             row below the rule. */}
-        {collapsed ? (
+        {/* Stacked fallback (narrow rail) or no signed-in user: the expand tab
+            stays above the rule. Otherwise it sits beside the avatar below. */}
+        {collapsed && (!RAIL_FOOTER_SIDE_BY_SIDE || !userEmail) ? (
           <RailExpandTab onExpand={toggleCollapsed} controls={navId} />
         ) : null}
         {userEmail ? (
           <div
             className={cn(
               "border-t border-[#EDEFF3]",
-              collapsed ? "px-1 py-2" : "px-3 py-3",
+              // Trial: no extra side padding, so the Admin tile lines up with
+              // the rest (its row brings its own gutter). Old: "px-1 py-2".
+              collapsed ? (RAIL_WIDE || RAIL_FOOTER_SIDE_BY_SIDE ? "py-2" : "px-1 py-2") : "px-3 py-2",
             )}
           >
             {collapsed ? (
@@ -1693,6 +1939,8 @@ export function Sidebar({
                 email={userEmail}
                 showAdmin={showAdmin}
                 pathname={pathname}
+                onExpand={RAIL_FOOTER_SIDE_BY_SIDE ? toggleCollapsed : undefined}
+                controls={navId}
               />
             ) : (
               <UserPanel
@@ -1740,44 +1988,74 @@ function UserPanel({
 }) {
   const adminActive =
     pathname === "/admin" || (pathname?.startsWith("/admin/") ?? false)
+  const [open, setOpen] = React.useState(false)
+  const rootRef = React.useRef<HTMLDivElement>(null)
+  const menuId = React.useId()
+  const initial = email.trim().charAt(0).toUpperCase() || "?"
+
+  // Close on an outside click or Escape. Listeners only while open.
+  React.useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false)
+    }
+    document.addEventListener("mousedown", onDown)
+    document.addEventListener("keydown", onKey)
+    return () => {
+      document.removeEventListener("mousedown", onDown)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [open])
+
+  // ONE row (2026-10-12; was "Signed in as" + a Sign out row): avatar + email
+  // on the left opening the profile menu UPWARD (the footer is at the bottom,
+  // so a downward menu would clip), the Admin gear, and the collapse chevron
+  // pushed to the right edge.
   return (
-    <div className="space-y-2">
-      <div className="px-2 text-xs text-[#9AA1AD]" title={email}>
-        Signed in as
-        <div className="truncate text-[#5B6472]">{email}</div>
-      </div>
-      {/* Sign out takes the remaining width; the Admin gear (super-users only)
-          and the collapse chevron sit at the far right — bottom-right of the
-          sidebar. */}
-      <div className="flex items-center gap-1.5">
-        <form action={signOutAction} className="flex-1">
-          <Button
-            type="submit"
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]"
+    <div className="flex items-center gap-1.5">
+      <div ref={rootRef} className="relative min-w-0 flex-1">
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          onClick={() => setOpen((v) => !v)}
+          title={email}
+          className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[#F4F6F9]"
+        >
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#EEF2FB] text-xs font-medium text-[#1E2858]">
+            {initial}
+          </span>
+          <span className="min-w-0 truncate text-xs text-[#5B6472]">{email}</span>
+        </button>
+        {open ? (
+          <div
+            id={menuId}
+            className="absolute bottom-full left-0 z-50 mb-1.5 w-56 rounded-md border border-[#EDEFF3] bg-white p-1.5 shadow-lg"
           >
-            <LogOut className="size-4" />
-            Sign out
-          </Button>
-        </form>
-        {showAdmin ? (
-          <Link
-            href="/admin"
-            aria-label="Admin"
-            aria-current={adminActive ? "page" : undefined}
-            className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-md transition-colors",
-              adminActive
-                ? "bg-[#EEF2FB] text-[#1E2858]"
-                : "text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
-            )}
-          >
-            <Settings className="size-4" />
-          </Link>
+            <ProfileMenuBody email={email} />
+          </div>
         ) : null}
-        {collapseToggle}
       </div>
+      {showAdmin ? (
+        <Link
+          href="/admin"
+          aria-label="Admin"
+          aria-current={adminActive ? "page" : undefined}
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-md transition-colors",
+            adminActive
+              ? "bg-[#EEF2FB] text-[#1E2858]"
+              : "text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
+          )}
+        >
+          <Settings className="size-4" />
+        </Link>
+      ) : null}
+      {collapseToggle ? <div className="ml-auto shrink-0">{collapseToggle}</div> : null}
     </div>
   )
 }

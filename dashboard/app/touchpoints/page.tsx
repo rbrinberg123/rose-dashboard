@@ -19,7 +19,7 @@ import { TouchpointsView } from "./touchpoints-view"
 
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = { title: "Touches" }
+export const metadata: Metadata = { title: "Touchpoints" }
 
 const PATCH = "sql/patches/2026-09-15_admin_touchpoints.sql"
 
@@ -108,7 +108,7 @@ export default async function TouchpointsPage({
 
   if (!viewsResult.ok) {
     return (
-      <PageShell title="Touches">
+      <PageShell title="Touchpoints">
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
           <div className="font-medium text-destructive">Could not load saved views</div>
           <div className="mt-1 text-muted-foreground">{viewsResult.error}</div>
@@ -144,7 +144,7 @@ export default async function TouchpointsPage({
 
   if (loadError) {
     return (
-      <PageShell title="Touches">
+      <PageShell title="Touchpoints">
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
           <div className="font-medium text-destructive">
             Could not load v_admin_touchpoints_all
@@ -175,7 +175,7 @@ export default async function TouchpointsPage({
     : rows.length
 
   return (
-    <PageShell title="Touches" hideHeader canvas>
+    <PageShell title="Touchpoints" hideHeader canvas>
       <TouchpointsView
         rows={rows}
         views={views}

@@ -42,13 +42,36 @@ export function defaultReviewCycle(isoDate: string): string {
   return `Client Review ${month} ${d.getUTCFullYear()}`
 }
 
+export type NoteFieldErrors = Partial<Record<"clientAccountId" | "noteDate" | "reviewCycle" | "body", string>>
+
+/**
+ * REQUIRED fields (2026-10-12) — Client, Date and Title. A note has no title
+ * column of its own: its "title" is the REVIEW CYCLE, client_notes.name (the
+ * Dynamics primary name). The note body was already required and still is.
+ * Pure: the form calls it to block submit and mark the fields; createNote /
+ * updateNote call it again server-side. Empty object = valid.
+ */
+export function validateNoteRequired(
+  input: Pick<NewNoteInput, "clientAccountId" | "noteDate" | "reviewCycle" | "body">,
+): NoteFieldErrors {
+  const errors: NoteFieldErrors = {}
+  if (!(input.clientAccountId ?? "").trim()) errors.clientAccountId = "Pick a client."
+  if (!/^\d{4}-\d{2}-\d{2}$/.test((input.noteDate ?? "").trim())) errors.noteDate = "Enter a note date."
+  if (!(input.reviewCycle ?? "").trim()) errors.reviewCycle = "Enter a title (review cycle)."
+  if (!(input.body ?? "").trim()) errors.body = "Write the note."
+  return errors
+}
+
 export type NewNoteInput = {
-  /** accounts.account_id — REQUIRED (notes are per-client reviews). */
+  /** accounts.account_id — REQUIRED (notes are per-client reviews). ACTIVE
+   *  clients only in the picker (loadActiveAccountOptions). */
   clientAccountId: string | null
-  /** YYYY-MM-DD */
+  /** REQUIRED — YYYY-MM-DD */
   noteDate: string
-  /** The review cycle (client_notes.name). */
+  /** REQUIRED — the note's TITLE: the review cycle (client_notes.name).
+   *  Prefilled from the date ("Client Review October 2026"), editable. */
   reviewCycle?: string
+  /** REQUIRED (unchanged). */
   body: string
   statusText?: string
   primaryRiskDriver?: string
@@ -57,7 +80,8 @@ export type NewNoteInput = {
   actionOwner?: string
   /** YYYY-MM-DD or empty. */
   actionDeadline?: string
-  /** users.user_id — the note's author/owner; blank = you. */
+  /** users.user_id — the note's author/owner; blank = you. Active Rose & Co
+   *  personnel only (loadPersonnelOptions); a stored owner may stay. */
   ownerId?: string | null
   isTest: boolean
 }
