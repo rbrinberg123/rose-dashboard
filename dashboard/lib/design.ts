@@ -36,7 +36,7 @@ export const TEAL_LIGHT = "#4FC6BC"
  * nav and the avatar circles are built from. Used as a 1.5px outline with a
  * transparent fill, never as a filled background — outlined is the whole point.
  */
-export const CRM_TEAL = "#159A8C" // 2026-10-12: a touch deeper than the original #1FB6A5
+export const CRM_TEAL = "#13897D" // 2026-10-12: deepened twice — #1FB6A5 → #159A8C → #13897D
 
 /** The faintest wash of CRM_TEAL, for the active state of that outlined entry. */
 export const CRM_TEAL_TINT = `color-mix(in srgb, ${CRM_TEAL} 10%, white)`

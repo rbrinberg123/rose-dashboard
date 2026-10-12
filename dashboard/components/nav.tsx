@@ -31,6 +31,7 @@ import {
   SIDEBAR_EXPANDED_WIDTH,
   TOP_BAR_HEIGHT,
   persistSidebarCollapsed,
+  stampSidebarCookieIfStale,
 } from "@/lib/sidebar"
 import {
   CRM_TEAL,
@@ -1794,6 +1795,13 @@ export function Sidebar({
     setCollapsed(next)
     persistSidebarCollapsed(next)
   }
+
+  // One-time collapse reset: a cookie from before SIDEBAR_COLLAPSE_RESET_EPOCH
+  // was already rendered collapsed by the layout; re-stamp it under the current
+  // epoch so the reset never fires again and a later expand sticks.
+  React.useEffect(() => {
+    stampSidebarCookieIfStale()
+  }, [])
 
   // EXPANDED only. A quiet ghost chevron that sits inline in the footer control
   // row, a peer of Sign out and the admin gear. Desktop only: the mobile sheet
