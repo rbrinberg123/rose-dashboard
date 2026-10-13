@@ -272,8 +272,9 @@ function groupCrmItems(crm: CrmItem[]): CrmEntry[] {
  * Escape closes and returns focus. No new pattern, no second set of timings.
  *
  * `align="bottom"` matches the CRM icons beside it: the block is pinned to the
- * bottom of the rail, so the panel is anchored from the bottom and grows upward
- * instead of running off-screen.
+ * bottom of the rail, so the panel PREFERS to grow upward. It is only a
+ * preference — useFlyout measures the panel and flips it downward, or shifts
+ * it, so the whole menu is always on screen with no internal scroll.
  *
  * FILLED teal, where the CRM destinations are OUTLINED teal — outlined means "a
  * place to go", filled means "a thing to do".
@@ -860,6 +861,9 @@ const FLYOUT_PANEL =
 /** Gap, in px, between the rail's right edge and the fly-out. */
 const FLYOUT_GAP = 6
 
+/** Minimum clearance, in px, kept between a fly-out and the viewport edges. */
+const FLYOUT_VIEWPORT_MARGIN = 8
+
 /** Tab-order members of a subtree, in document order. */
 function focusablesIn(root: Element | null | undefined) {
   return root
@@ -887,12 +891,24 @@ function focusablesIn(root: Element | null | undefined) {
  * The portal costs us the containment the handlers relied on: DOM `contains()`
  * no longer sees the panel, and native hover doesn't either. So the panel gets
  * its own copy of the handlers (`panelProps`) and `close()` checks both refs.
+ *
+ * VERTICAL PLACEMENT is measured, not assumed. `align` is only the PREFERRED
+ * side: "top" lines the panel's top up with the row and grows down, "bottom"
+ * lines its bottom up with the row and grows up. Once the panel is mounted we
+ * read its natural height and, before paint, (1) keep the preferred side if the
+ * whole panel fits, else (2) flip to the other side if it fits there, else
+ * (3) shift it so it sits fully inside the viewport. Only when the panel is
+ * taller than the viewport itself does it get a max-height and scroll. (It used
+ * to be a fixed `max-height` measured from the anchor, which forced an internal
+ * scrollbar — e.g. on the CRM "+" quick-add — whenever the preferred side was
+ * short of room, even with plenty of room on the other side.)
  */
 function useFlyout(align: "top" | "bottom" = "top") {
   const rowRef = React.useRef<HTMLDivElement>(null)
   const panelRef = React.useRef<HTMLDivElement>(null)
   const [open, setOpen] = React.useState(false)
-  const [pos, setPos] = React.useState({ left: 0, offset: 0 })
+  // The trigger row's measured rect — the anchor the panel is placed against.
+  const [pos, setPos] = React.useState({ left: 0, top: 0, bottom: 0 })
   const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const cancelClose = () => {
@@ -907,11 +923,7 @@ function useFlyout(align: "top" | "bottom" = "top") {
     cancelClose()
     const rect = rowRef.current?.getBoundingClientRect()
     if (rect) {
-      setPos({
-        left: rect.right + FLYOUT_GAP,
-        offset:
-          align === "bottom" ? window.innerHeight - rect.bottom : rect.top,
-      })
+      setPos({ left: rect.right + FLYOUT_GAP, top: rect.top, bottom: rect.bottom })
     }
     setOpen(true)
   }
@@ -995,6 +1007,34 @@ function useFlyout(align: "top" | "bottom" = "top") {
     onBlur,
   }
 
+  // Flip / shift (see the doc comment above). Runs before paint, so the panel
+  // never flashes at a wrong position. Written straight to the element's style
+  // rather than through state: `top` and `maxHeight` are deliberately NOT in
+  // the React `style` below, so re-renders never overwrite them.
+  React.useLayoutEffect(() => {
+    const el = panelRef.current
+    if (!open || !el) return
+    const margin = FLYOUT_VIEWPORT_MARGIN
+    const vh = window.innerHeight
+    el.style.maxHeight = ""
+    const h = el.offsetHeight
+    const down = pos.top // panel top aligned to the row's top, growing down
+    const up = pos.bottom - h // panel bottom aligned to the row's bottom, growing up
+    const fitsDown = down + h <= vh - margin
+    const fitsUp = up >= margin
+    let top: number
+    if (align === "top") top = fitsDown ? down : fitsUp ? up : down
+    else top = fitsUp ? up : fitsDown ? down : up
+    if (h > vh - 2 * margin) {
+      // Last resort: taller than the viewport itself.
+      top = margin
+      el.style.maxHeight = `${vh - 2 * margin}px`
+    } else {
+      top = Math.min(Math.max(top, margin), vh - margin - h)
+    }
+    el.style.top = `${top}px`
+  }, [open, align, pos.top, pos.bottom])
+
   const triggerProps = { ref: rowRef, ...hoverAndFocus, onKeyDown: onTriggerKeyDown }
   const panelProps = {
     ref: panelRef,
@@ -1003,8 +1043,7 @@ function useFlyout(align: "top" | "bottom" = "top") {
     style: {
       position: "fixed" as const,
       left: pos.left,
-      maxHeight: `calc(100vh - ${pos.offset + 12}px)`,
-      ...(align === "bottom" ? { bottom: pos.offset } : { top: pos.offset }),
+      // Vertical placement (top / maxHeight) is set by the layout effect above.
     },
   }
 
