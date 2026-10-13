@@ -11,12 +11,13 @@ Either way there are **no passwords stored in this app**, and either way your id
 
 Once signed in, access is controlled entirely from **two Admin screens** — no code change needed:
 
-- **Admin → Users** gives each person a **role**: Super User, Client Manager, Logistics, **Associate**, User, or **None**.
+- **Admin → Users** gives each person a **role**: Super User, **Admin**, Client Manager, Logistics, **Associate**, User, or **None**.
 - **Admin → Roles** is a grid that says, for each role, **which pages that role can see**.
 
 So a person's access = *their role* (from the Users page) → *the pages that role is allowed* (from the Roles grid). Put together:
 
 - **Super User** — sees everything, always (a hard rule the grid can't turn off).
+- **Admin** (2026-10-13) — a near-Super-User: everything a Super User can see and do (all CRM tables and edits, sends, client deactivation, money figures, every client's data), **except** managing users and roles, **View as**, the Admin hub's Hidden Pages, Client Statistics, the Productivity pages, and the Sync / Reconciliation / Database screens. Set in code; the grid can't change it. See [Admin role](#admin-role-2026-10-13).
 - **Any other role** — sees exactly the pages checked for it in the Roles grid, and nothing else.
 - **None / no role** — can't see any real page; they land on a "request access" screen.
 
@@ -66,9 +67,53 @@ To keep a page Super-User-only, leave every other role's box unchecked — that'
 
 ### The roles (now driven by the Admin UI tables)
 
-`Role = "super_user" | "user" | "associate" | "client_manager" | "logistics"` (`dashboard/lib/access-control.ts`). A person's role is read at request time from **`public.user_role_grants`** by `getRealRole()` (`dashboard/lib/user-role.ts`), keyed by lower-cased email. No grant row → `null` → no access beyond the always-allowed infra routes.
+`Role = "super_user" | "admin" | "user" | "associate" | "client_manager" | "logistics"` (`dashboard/lib/access-control.ts`). A person's role is read at request time from **`public.user_role_grants`** by `getRealRole()` (`dashboard/lib/user-role.ts`), keyed by lower-cased email. No grant row → `null` → no access beyond the always-allowed infra routes.
 
 **Associate** is a first-class role with **no built-in access of its own**. It is denied everywhere until a super-user ticks boxes for it in the **Admin → Roles** matrix — exactly like User, Client Manager and Logistics, and unlike Super User, which is a hard backstop in code. Nothing in `canAccessRoute`, `getAllowedRoutes` or `proxy.ts` enumerates roles, so Associate is enforced by the same matrix lookup as every other non-super role; `dashboard/lib/access-control.test.ts` pins that down (denied everywhere with no grants, reachable only where the matrix grants it, `/no-access` always reachable, Super still bypassing).
+
+### Admin role (2026-10-13)
+
+**What it is.** `admin` passes every check that used to read `role === "super_user"`, except a short, explicit list of carve-outs. Like Super User it is **code-defined**: never gated by, and never written to, `role_page_access`. Its **Admin → Roles** column is **locked** and shows exactly the pages it reaches, with excluded ones unchecked. Grant it on **Admin → Users** (label **Admin**, navy-tint pill, sorted right after Super User). **Requires `sql/patches/2026-10-13_admin_role.sql`**, which widens `user_role_grants_role_check` to allow `'admin'`. Until it runs, saving Admin fails at the database.
+
+**The two helpers** in `lib/access-control.ts`. Every former `super_user` check now calls one of them, so the boundary is greppable and moving a power is a one-call-site change:
+
+| Helper | True for | Used for |
+|---|---|---|
+| `hasSuperUserPrivileges(role)` | `super_user`, `admin` | every "may do everything" check (the default) |
+| `isStrictSuperUser(role)` | `super_user` only | the carve-outs below |
+
+Both are pure: they take a role. Real vs effective role stays the caller's choice, as before. Checks that read the **real** role (`getRealRole` / `getUserRole`: the API guards, data scopes, financials, impersonation) still do. Page and action checks still read the **effective** role, so a super user **viewing as Admin** sees exactly what an admin sees.
+
+API and server-action guards in `lib/api-auth.ts` both read the **real** role:
+- `requireSuperUserPrivileges()`: sends, previews, Admin-hub refreshes, account-team edits.
+- `requireStrictSuperUser()`: Users & Roles actions, Roles-matrix actions, View as.
+
+`requireSuperUser()` is gone; every caller moved to one of the two.
+
+**Admin CAN** (`hasSuperUserPrivileges`):
+- **Pages.** Reach every page through the `canAccessRoute` backstop **except** `ADMIN_EXCLUDED_ROUTES` and hidden pages. That includes every `ADMIN_ONLY_ROUTES` page: CRM Clients / Events / Meetings / Tasks / Touchpoints / Notes / Contacts, Account Teams, Audit Log, Contract Management (admin), Time Off Reviewers, Automations, Client Health, FB Coming Soon, plus the Admin hub and Documentation. The CRM nav block (`canSeeCrmNav`) shows, and `getAllowedRoutes` short-circuits as it does for Super User.
+- **CRM writes.** Everything behind `lib/crm-write.ts` (`requireCrmWriter` etc.), including Client Detail **Quick Add**, Client Health actions and Time Off Reviewers actions, plus every CRM page and action check. Can manage shared (system) saved views.
+- **Client Detail.** The super-user blocks: Key Contacts, Events · Tasks, and the Last-25 shortcuts.
+- **Feedback admin powers.** Lock override, reassignment and `isAdmin` in report splitting and claims, and closing anyone's task.
+- **Emails.** Sends, previews and the `canSend` flags for Feedback, Live Outreach, Time Off and Week Ahead, plus the Admin-hub refresh buttons.
+- **Time Off.** The page's flags, create / edit / delete requests, and see-all (`lib/time-off-requests/visibility.ts`). Also My Dashboard actions.
+- **Row-visibility bypass.** `getUserScopes` returns `{ all, financials, claimFeedback }` (`lib/access/data-scope.ts`), so every client and meeting is in scope. This also covers the **Onboarding** cells, which use `resolveClientScope`. On Admin → Users the scope boxes are implied and locked for an Admin, as for a Super User.
+- **Financials.** `canSeeFinancials` (`lib/access/financials.ts`) is always true.
+- **Client deactivate / reactivate.** Via `lib/accounts/deactivation-gate.ts`.
+
+**Admin CANNOT** (strict super user, or excluded):
+- **Users & Roles.** `/admin/users` and `/admin/roles` are in `ADMIN_EXCLUDED_ROUTES`. Their server actions use `requireStrictSuperUser` and refuse with *"Not authorized — only a super user can manage users and roles."*. The Admin-hub **Users** / **Roles** tiles are drawn only when `canAccessRoute` allows them.
+- **View as.** `app/view-as-actions.ts` uses `requireStrictSuperUser`, and `resolveEffective` (`lib/impersonation.ts`) checks `isStrictSuperUser(realRole)`, so an admin's view-as cookies are ignored. The only entry point is on `/admin/users`, which an admin can't open anyway.
+- **Hidden Pages.** The Admin hub section (`app/admin/page.tsx`) renders only for `isStrictSuperUser(effective role)`. Hidden / retired routes (`HIDDEN_PAGE_REGISTRY`, today `/clients/alerts`) are refused to admin by `canAccessRoute`.
+- **`ADMIN_EXCLUDED_ROUTES`** (`lib/access-control.ts`): `/admin/users`, `/admin/roles`, `/client-statistics`, `/people-statistics`, `/productivity`, `/productivity-detail`, `/capacity`, `/admin/sync`, `/admin/reconciliation`, `/admin/database`.
+  - They're refused even with a matrix grant.
+  - The nav drops them because it uses the same `canAccessRoute`, and the Admin hub hides the Sync / Reconciliation / Database tile links.
+  - An admin who opens one by URL is redirected to My Dashboard (`proxy.ts` → `homeRouteFor`).
+- **Pending Review.** Unchanged for everyone: closing a review there stays **account-team only**, with no super or admin bypass.
+
+**Messaging.** Only the carve-outs say "super user": the Users / Roles refusal above, and the Users / Roles tiles and Hidden Pages blurb on the Admin hub. Shared-power messages are unchanged ("Only an admin can override a claimed report's lock", task close / reassign wording), since "admin" there now literally includes the Admin role.
+
+**To change the boundary:** for a page, edit `ADMIN_EXCLUDED_ROUTES`; for a power, swap `hasSuperUserPrivileges` ↔ `isStrictSuperUser` at that call site. `lib/access-control.test.ts` pins the exclusion list, the helpers and the locked column.
 
 > The old `user_roles` table is left in place as a **backup** but is no longer read. Copy its rows into `user_role_grants` before relying on this (see **Go-live migration** below) — otherwise nobody, not even a super-user, has a role.
 
@@ -181,13 +226,13 @@ A super-user can preview the app as an abstract **role** or as a specific **pers
   - **`view_as` (role) is now read-only.** Since the Admin dropdown was removed on 2026-09-16 nothing can *set* it, but `resolveEffective` still honours it, the banner still labels it, and `exitViewAsAction` still clears it. That is deliberate: it lets a **stale cookie** left in a browser from before the removal be seen and exited normally. Deleting the read path would have stranded those cookies as a silent, unexplained role downgrade.
 - **Entry point** — the per-row **"View as"** button on **Admin → Users** (`dashboard/app/admin/users/users-view.tsx` → `setViewAsUserAction`). Not in the main nav. **This is the only way to START impersonation.** The Admin hub's `ViewAsControl` dropdown and its `setViewAsAction` handler were both deleted on 2026-09-16.
 - **Banner** — while either cookie is active, `dashboard/components/view-as-banner.tsx` renders a slim banner pinned to the top of every page, from the **root layout** (outside the sidebar, which hides itself on some pages). The layout builds the label ("Viewing as {Name} — {role or 'No role'}"). Its **Exit view** button posts to `exitViewAsAction`.
-- **Actions** — `dashboard/app/view-as-actions.ts`. `setViewAsUserAction` and `exitViewAsAction` both authorize off `getRealRole` (via `requireSuperUser`), **never** the effective role — so you can always exit even while viewing as someone with no access, and a non-super holding a stray cookie is ignored. Exit clears **both** cookies.
+- **Actions** — `dashboard/app/view-as-actions.ts`. `setViewAsUserAction` and `exitViewAsAction` both authorize off `getRealRole` (via `requireStrictSuperUser`, so an **Admin** cannot View as), **never** the effective role — so you can always exit even while viewing as someone with no access, and a non-super holding a stray cookie is ignored. Exit clears **both** cookies.
 
 **Guardrails.** Only a real `super_user` can set or hold either cookie; `resolveEffective` ignores them for anyone else, and a stale/bogus `view_as_user` email that matches no active mirror row is safely ignored. When the effective role can't reach the requested route, the proxy redirects to that role's first allowed page, or the always-allowed `/no-access` when it has none — so previewing a no-access person lands on the request-access screen (with the banner's Exit still present) instead of a redirect loop.
 
 ### Admin pages
 
-`/admin` and everything under `/admin/*` have no `role_page_access` grants for any non-super role, so they're Super-User-only by the deny-by-default rule. Don't tick them on for another role unless you truly mean to.
+`/admin` and everything under `/admin/*` have no `role_page_access` grants for any non-super role, so they're Super-User-only by the deny-by-default rule. The exception is **Admin**, which reaches `/admin` and every `/admin/*` page other than Users, Roles, Sync, Reconciliation and Database (see [Admin role](#admin-role-2026-10-13)). The hub's Hidden Pages section is strict super-user only. Don't tick them on for another role unless you truly mean to.
 
 The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx`, the `HIDDEN_PAGES` array) that links to routes parked off the main nav — currently `/pipeline`, `/relationships`, `/conference-rooms` and `/ooo-summary`. Those pages are super-user-only purely because Admin is; the pages themselves keep their own routes. To park another page later, add one `{ href, label }` line to `HIDDEN_PAGES`.
 

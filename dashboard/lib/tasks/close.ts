@@ -41,7 +41,7 @@ export type CloseTask = {
 export type CloseActor = {
   /** Every user_id of the actor (duplicate CRM records unioned). */
   myIds: ReadonlySet<string>
-  /** super_user. */
+  /** super_user or admin (hasSuperUserPrivileges). */
   isAdmin: boolean
 }
 

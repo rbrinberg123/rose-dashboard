@@ -65,6 +65,7 @@ import { CONTRACTS_SPEC } from "@/lib/contracts/spec"
 import { applyContractQuickFilters, type ContractQuickFilters } from "@/lib/contracts/filters"
 import type { ContractRecord } from "@/lib/contracts/record"
 import type { AdminContractRow } from "@/lib/types"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 const TABLE = "contracts"
 const PK = "contract_id"
@@ -108,7 +109,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
 /** Client / Scope / Status / Currency / Auto-Renew choices, fetched after render. */
 export async function loadContractFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(getSupabaseServer(), CONTRACTS_SPEC, "contract_count")
   return ok({
@@ -128,7 +129,7 @@ export async function loadContractRowsForExport(input: {
   quick?: ContractQuickFilters
 }): Promise<ActionResult<AdminContractRow[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const parsed = parseConfig(CONTRACTS_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -184,7 +185,7 @@ const RECORD_COLUMNS = [
 export async function loadContractRecord(id: string): Promise<ActionResult<ContractRecord>> {
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   if (!id) return fail("No contract id.")
 
   const { data, error } = await getSupabaseServer()

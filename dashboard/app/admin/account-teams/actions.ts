@@ -4,13 +4,13 @@
  * Account Team management — the write path.
  *
  * ══ SECURITY ═══════════════════════════════════════════════════════════════
- * Every function re-checks super_user via `requireSuperUser()` before it builds
+ * Every function re-checks super_user via `requireSuperUserPrivileges()` before it builds
  * a query. `account_team_members` is read and written with the service-role key
  * (RLS bypassed, zero policies on the table), so a successful call is fully
  * privileged. The page gate and the proxy gate are not enough on their own: a
  * server action is its own entry point and can be invoked directly.
  *
- * `requireSuperUser` resolves the REAL role, not the effective one — the same
+ * `requireSuperUserPrivileges` resolves the REAL role, not the effective one — the same
  * guard admin/users and the admin API routes use. That is deliberate for a
  * WRITE path: a super-user previewing the app through "View as" should not be
  * able to save, and the real identity is what gets stamped into updated_by.
@@ -35,7 +35,7 @@ import { revalidatePath } from "next/cache"
 
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { getSupabaseServer } from "@/lib/supabase"
-import { requireSuperUser } from "@/lib/api-auth"
+import { requireSuperUserPrivileges } from "@/lib/api-auth"
 import { buildIdentityIndex } from "@/lib/access/identity-index"
 import { diffRows, recordAudit, snapshot } from "@/lib/audit"
 import {
@@ -71,7 +71,7 @@ const TABLE = "account_team_members"
  * the UI shows the email alongside a duplicated name to tell them apart.
  */
 export async function loadRoster(): Promise<ActionResult<RosterPerson[]>> {
-  const auth = await requireSuperUser()
+  const auth = await requireSuperUserPrivileges()
   if (!auth.ok) return fail("Not authorised.")
 
   const sb = getSupabaseServer()
@@ -111,7 +111,7 @@ type MemberRow = {
 export async function loadAccountTeam(
   accountId: string,
 ): Promise<ActionResult<AccountTeamAssignment[]>> {
-  const auth = await requireSuperUser()
+  const auth = await requireSuperUserPrivileges()
   if (!auth.ok) return fail("Not authorised.")
   if (!accountId) return fail("No account id.")
 
@@ -149,7 +149,7 @@ async function guard(
   accountId: string,
   role: string,
 ): Promise<{ ok: true; email: string } | { ok: false; error: string }> {
-  const auth = await requireSuperUser()
+  const auth = await requireSuperUserPrivileges()
   if (!auth.ok) return { ok: false, error: "Not authorised." }
 
   if (!isAccountTeamRole(role)) return { ok: false, error: `Invalid role: ${role}` }
@@ -330,7 +330,7 @@ export async function setAccountStatus(input: {
   isActive: boolean
 }): Promise<ActionResult> {
   // ---- GATE (must stay first) ----
-  const auth = await requireSuperUser()
+  const auth = await requireSuperUserPrivileges()
   if (!auth.ok) return fail("Not authorised.")
 
   if (!input.accountId) return fail("No account id.")

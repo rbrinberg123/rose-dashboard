@@ -26,6 +26,7 @@ import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import type { AccountOption, UserOption } from "@/lib/types"
 import { easternOffsetMs } from "@/lib/table-views/query"
 import { classifyUser } from "@/lib/access/identity-index"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /**
  * The WRITE gate. Stricter than the read gates: the effective role must be
@@ -38,7 +39,7 @@ export async function requireCrmWriter(
   verb = "creating or deleting records",
 ): Promise<{ ok: true; userId: string | null; name: string | null } | { ok: false; error: string }> {
   const [role, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
-  if (role !== "super_user") return { ok: false, error: "Not authorised." }
+  if (!hasSuperUserPrivileges(role)) return { ok: false, error: "Not authorised." }
   if (identity.impersonated) return { ok: false, error: `Exit “View as” before ${verb}.` }
   return { ok: true, userId: identity.userId, name: identity.name }
 }
@@ -62,7 +63,7 @@ export const isIsoDate = (v: string): boolean =>
 /** Clients for a form's picker: every account, by name. Read gate only. */
 export async function loadAccountOptions(): Promise<ActionResult<AccountOption[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const { data, error } = await getSupabaseServer()
     .from("accounts")
@@ -83,7 +84,7 @@ export async function loadActiveAccountOptions(
   includeAccountId?: string | null,
 ): Promise<ActionResult<AccountOption[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   return readActiveAccountOptions(includeAccountId)
 }
 
@@ -130,7 +131,7 @@ export async function resolveAccount(
 /** How many test rows the purge would remove — for the confirm prompt. */
 export async function countTestRows(table: string, pk: string): Promise<ActionResult<number>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   const { count, error } = await getSupabaseServer()
     .from(table)
     .select(pk, { count: "exact", head: true })
@@ -199,7 +200,7 @@ export function easternLocalToIso(local: string | null | undefined): string | nu
 /** People for owner / host / booker pickers: active mirror users, by name. */
 export async function loadUserOptions(): Promise<ActionResult<UserOption[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   const { data, error } = await getSupabaseServer()
     .from("users")
     .select("user_id, display_name")
@@ -231,7 +232,7 @@ function isActivePersonnel(r: PersonnelRow): boolean {
  */
 export async function loadPersonnelOptions(keepIds: readonly (string | null | undefined)[] = []): Promise<ActionResult<UserOption[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   const { data, error } = await getSupabaseServer()
     .from("users")
     .select("user_id, display_name, email, is_active")
@@ -296,7 +297,7 @@ export async function loadClientEventOptions(
   opts?: { stages?: readonly string[]; keepEventId?: string | null },
 ): Promise<ActionResult<{ event_id: string; name: string | null; event_state_label: string | null }[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   if (!isUuid(accountId)) return ok([])
   let q = getSupabaseServer()
     .from("events")
@@ -321,7 +322,7 @@ export async function searchInstitutionOptions(
   query: string,
 ): Promise<ActionResult<{ institution_id: string; institution_name: string }[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   const q = cleanText(query)
   if (!q || q.length < 2) return ok([])
   const escaped = q.replace(/([%_\\])/g, "\\$1")
@@ -532,7 +533,7 @@ export async function loadDashboardRowForEdit(
   columns: string,
 ): Promise<ActionResult<Record<string, unknown>>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   return readDashboardRowForEdit(table, pk, id, columns)
 }
 

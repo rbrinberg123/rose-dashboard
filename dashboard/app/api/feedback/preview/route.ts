@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { requireSuperUser } from "@/lib/api-auth"
+import { requireSuperUserPrivileges } from "@/lib/api-auth"
 import { loadFeedbackOutstandingRows, loadFeedbackPipelineRows } from "@/app/feedback/load"
 import { buildFeedbackEmailHtml } from "@/app/feedback/feedback-email-html"
 
@@ -28,7 +28,7 @@ function todayLabel(): string {
 }
 
 export async function GET() {
-  const auth = await requireSuperUser()
+  const auth = await requireSuperUserPrivileges()
   if (!auth.ok) return auth.response
 
   const { rows, error } = await loadFeedbackOutstandingRows()

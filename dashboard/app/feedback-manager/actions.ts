@@ -20,6 +20,7 @@ import { TASK_STATUS_OPTIONS } from "@/lib/tasks/create"
 import { getEffectiveIdentity } from "@/lib/effective-identity"
 import { resolveAccountTeamScope } from "@/lib/access/account-team-scope"
 import { isAutomationOrigin } from "@/lib/feedback-reports/policy"
+import { assignReviewTaskToAssociate } from "@/lib/feedback-reports/review-owner"
 import { closeMode } from "@/lib/tasks/close"
 
 /**
@@ -264,6 +265,9 @@ export async function closeFeedbackTask(taskId: string): Promise<ActionResult> {
     state_label: { from: "Open", to: COMPLETED.stateLabel },
     closed_by_name: { from: null, to: actor.name },
   })
+  // The completion just created the Pending Review task (database trigger);
+  // default its owner to the client's associate.
+  await assignReviewTaskToAssociate(task.task_id)
   revalidate()
   return ok()
 }

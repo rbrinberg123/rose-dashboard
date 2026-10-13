@@ -126,9 +126,7 @@ function emptyForm(): NewEventInput {
     eventParameters: "",
     urgencyCode: null,
     launchWeek: "",
-    targetingNotRequired: false,
     memoNotRequired: false,
-    targetingUrl: "",
     profileLink: "",
     targetingNotes: "",
     launch: false,
@@ -183,9 +181,9 @@ function EventFormDialog({
     ? buildEventName(pickedClient.ticker_symbol?.trim() || pickedClient.name, form.location, form.dates)
     : ""
 
-  // Last Data Upload / Memo Date / Targeting Date are LOOKED UP for the picked
-  // client (its latest completed task of each sub-type) and shown read-only;
-  // the server re-reads them on save.
+  // Last Data Upload / Memo Date are LOOKED UP for the picked client (its
+  // latest completed task of each sub-type) and shown read-only; the server
+  // re-reads them (and Targeting Date, no longer on the form) on save.
   const [taskDates, setTaskDates] = React.useState<{ clientId: string; dates: EventTaskDates } | null>(null)
   React.useEffect(() => {
     const clientId = form.clientAccountId
@@ -469,13 +467,6 @@ function EventFormDialog({
                       value={taskDateText("lastDataUpload", "No data upload on record")}
                       title="The client's most recent completed Data Upload task — looked up, not typed"
                     />
-                    <ReadOnlyField
-                      id="ne-targetingDate"
-                      label="Targeting Date"
-                      value={taskDateText("targetingDate", "No targeting on record")}
-                      title="The client's most recent completed Targeting task — looked up, not typed"
-                    />
-                    <TextField id="ne-turl" label="Targeting URL" value={form.targetingUrl} onChange={(v) => set({ targetingUrl: v })} />
                     <TextField id="ne-plink" label="Profile Link" value={form.profileLink} onChange={(v) => set({ profileLink: v })} />
                   </div>
                   <div className="grid gap-1.5">
@@ -488,7 +479,6 @@ function EventFormDialog({
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <YesNo label="Targeting Not Required" checked={form.targetingNotRequired} onChange={(v) => set({ targetingNotRequired: v })} />
                     <YesNo label="Memo Not Required" checked={form.memoNotRequired} onChange={(v) => set({ memoNotRequired: v })} />
                   </div>
                 </FormSection>

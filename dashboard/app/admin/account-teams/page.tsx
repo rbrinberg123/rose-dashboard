@@ -12,6 +12,7 @@ import {
 } from "@/lib/account-teams/roles"
 import { toAccountStatusSource, type AccountStatus } from "@/lib/account-teams/status"
 import { AccountTeamsView, type AccountOption, type PersonLookup } from "./account-teams-view"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 export const dynamic = "force-dynamic"
 
@@ -49,14 +50,14 @@ const STATUS_PATCH = "sql/patches/2026-09-15b_account_status.sql"
  *
  * The READ gate uses the EFFECTIVE role, so a super-user using "View as"
  * previews the denial as the impersonated person would see it. The WRITE gate
- * in ./actions.ts uses the REAL role (`requireSuperUser`) — previewing must not
+ * in ./actions.ts uses the REAL role (`requireSuperUserPrivileges`) — previewing must not
  * be able to save, and the real identity is what gets stamped into updated_by.
  * That asymmetry is deliberate and matches the CRM pages' `readOnlyViews`.
  */
 export default async function AccountTeamsPage() {
   // ---- GATE (must stay first — nothing above this line may touch data) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") redirect("/no-access")
+  if (!hasSuperUserPrivileges(role)) redirect("/no-access")
 
   const sb = getSupabaseServer()
 
@@ -219,7 +220,7 @@ export default async function AccountTeamsPage() {
         statuses={statuses}
         statusTableMissing={statusTableMissing}
         statusPatchPath={STATUS_PATCH}
-        /* Writes are refused while impersonating — the action's requireSuperUser
+        /* Writes are refused while impersonating — the action's requireSuperUserPrivileges
            resolves the REAL role. Hide the controls rather than offer a doomed
            click, matching the CRM pages. */
         readOnly={identity.impersonated}

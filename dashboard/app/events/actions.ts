@@ -74,6 +74,7 @@ import { EVENTS_SPEC } from "@/lib/events/spec"
 import { applyEventQuickFilters, type EventQuickFilters } from "@/lib/events/filters"
 import type { EventRecord } from "@/lib/events/record"
 import type { AdminEventRow } from "@/lib/types"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -119,7 +120,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  */
 export async function loadEventFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(getSupabaseServer(), EVENTS_SPEC, "event_count")
   return ok({
@@ -144,7 +145,7 @@ export async function loadEventRowsForExport(input: {
   quick?: EventQuickFilters
 }): Promise<ActionResult<AdminEventRow[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const parsed = parseConfig(EVENTS_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -224,7 +225,7 @@ const RECORD_COLUMNS = [
 export async function loadEventRecord(eventId: string): Promise<ActionResult<EventRecord>> {
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   return readEventRecord(eventId)
 }
 
@@ -238,7 +239,7 @@ export async function loadDashboardEventRecord(eventId: string): Promise<ActionR
   // ---- GATE (must stay first) ----
   if (!eventId) return fail("No event id.")
   const role = await getEffectiveRole()
-  if (role !== "super_user") {
+  if (!hasSuperUserPrivileges(role)) {
     if (!role) return fail("Not authorised.")
     const scope = await resolveAccountTeamScope(await getEffectiveIdentity())
     if (scope.mode !== "filter" || scope.accountIds.size === 0) return fail("Not authorised.")
@@ -361,7 +362,7 @@ async function latestTaskDates(accountId: string): Promise<ActionResult<EventTas
 /** The form's read-only task-derived dates, for the picked client. */
 export async function loadClientTaskDates(accountId: string): Promise<ActionResult<EventTaskDates>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   if (!isUuid(accountId)) return fail("Unknown client.")
   return latestTaskDates(accountId)
 }
@@ -380,7 +381,7 @@ export async function loadEventContactOptions(input: {
   all: boolean
 }): Promise<ActionResult<EventContactOption[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   let q = getSupabaseServer()
     .from("contacts")
     .select("contact_id, full_name, job_title, parent_customer_name")
@@ -427,7 +428,7 @@ async function loadRepresentatives(eventId: string): Promise<ActionResult<EventR
 /** The drawer's Company Representatives list (any origin; empty for Dynamics). */
 export async function loadEventRepresentatives(eventId: string): Promise<ActionResult<EventRepresentative[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   if (!isUuid(eventId)) return fail("Unknown event.")
   return loadRepresentatives(eventId)
 }
@@ -574,9 +575,7 @@ async function buildEventColumns(input: NewEventInput): Promise<ActionResult<Rec
     teaser_date: taskDates.data!.memoDate,
     last_data_upload: taskDates.data!.lastDataUpload,
     targeting_date: taskDates.data!.targetingDate,
-    targeting_not_required: input.targetingNotRequired === true,
     teaser_not_required: input.memoNotRequired === true,
-    targeting_url: cleanText(input.targetingUrl),
     profile_link: cleanText(input.profileLink),
     targeting_notes: cleanText(input.targetingNotes),
     launch: input.launch === true,
@@ -697,7 +696,7 @@ export async function loadEventForEdit(id: string): Promise<
     "events",
     "event_id",
     id,
-    "client_account_id, dates, event_location, event_start_actual, event_end_actual, of_slots, event_notes, tbc, team, mining, leads_codes, event_parameters, urgency_code, proposed_launch_date, targeting_not_required, teaser_not_required, targeting_url, profile_link, targeting_notes, launch, outreach_complete, paused, event_state_label",
+    "client_account_id, dates, event_location, event_start_actual, event_end_actual, of_slots, event_notes, tbc, team, mining, leads_codes, event_parameters, urgency_code, proposed_launch_date, teaser_not_required, profile_link, targeting_notes, launch, outreach_complete, paused, event_state_label",
   )
   if (!res.ok) return fail(res.error)
   const r = res.data
@@ -725,9 +724,7 @@ export async function loadEventForEdit(id: string): Promise<
     eventParameters: asText(r.event_parameters),
     urgencyCode: r.urgency_code == null ? null : Number(r.urgency_code),
     launchWeek: isoToEasternDate(r.proposed_launch_date),
-    targetingNotRequired: r.targeting_not_required === true,
     memoNotRequired: r.teaser_not_required === true,
-    targetingUrl: asText(r.targeting_url),
     profileLink: asText(r.profile_link),
     targetingNotes: asText(r.targeting_notes),
     launch: r.launch === true,

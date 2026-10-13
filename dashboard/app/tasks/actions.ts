@@ -21,6 +21,7 @@ import { getSupabaseServer } from "@/lib/supabase"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { idsForEmail } from "@/lib/time-off-requests/reviewers"
 import { closeMode, decideTaskClose } from "@/lib/tasks/close"
+import { assignReviewTaskToAssociate } from "@/lib/feedback-reports/review-owner"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
@@ -78,9 +79,10 @@ import type { TaskRecord } from "@/lib/tasks/record"
 async function closeActor() {
   const [role, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
   const ids = [...new Set([...(await idsForEmail(identity.email)), identity.userId ?? ""])].filter(Boolean)
-  return { role, identity, actor: { myIds: new Set(ids), isAdmin: role === "super_user" } }
+  return { role, identity, actor: { myIds: new Set(ids), isAdmin: hasSuperUserPrivileges(role) } }
 }
 import type { AdminTaskRow } from "@/lib/types"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -127,7 +129,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  */
 export async function loadTaskFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(getSupabaseServer(), TASKS_SPEC, "task_count")
   return ok({
@@ -155,7 +157,7 @@ export async function loadTaskRowsForExport(input: {
   quick?: TaskQuickFilters
 }): Promise<ActionResult<AdminTaskRow[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const parsed = parseConfig(TASKS_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -237,7 +239,7 @@ const RECORD_COLUMNS = [
 export async function loadTaskRecord(taskId: string): Promise<ActionResult<TaskRecord>> {
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   if (!taskId) return fail("No task id.")
 
@@ -317,7 +319,7 @@ export async function closeTask(taskId: string): Promise<ActionResult<{ mode: "n
   const sb = getSupabaseServer()
   const { data: t, error } = await sb
     .from("tasks")
-    .select("task_id, origin, state_label, owner_id, closed_at, subject, is_test")
+    .select("task_id, origin, state_label, owner_id, closed_at, subject, is_test, bcs_task_subtype_label")
     .eq("task_id", taskId)
     .maybeSingle()
   if (error) return fail(describeError(error))
@@ -325,6 +327,7 @@ export async function closeTask(taskId: string): Promise<ActionResult<{ mode: "n
   const task = t as {
     task_id: string; origin: string | null; state_label: string | null; owner_id: string | null
     closed_at: string | null; subject: string | null; is_test: boolean | null
+    bcs_task_subtype_label: string | null
   }
   const refused = decideTaskClose(
     { origin: task.origin, stateLabel: task.state_label, closedAt: task.closed_at, ownerId: task.owner_id },
@@ -375,6 +378,11 @@ export async function closeTask(taskId: string): Promise<ActionResult<{ mode: "n
         ? `/tasks · Close task · ${task.origin} row${task.is_test ? " · test" : ""}`
         : `/tasks · Close task · dynamics row · SIDECAR ONLY — native completion write-through pending cutover`,
   })
+  // A completed Feedback task gets its Pending Review task from a database
+  // trigger; default that task's owner to the client's associate.
+  if (mode === "native" && task.bcs_task_subtype_label === "Feedback") {
+    await assignReviewTaskToAssociate(task.task_id)
+  }
 
   revalidatePath("/tasks")
   revalidatePath("/my-dashboard")
@@ -664,7 +672,7 @@ export async function updateTask(id: string, input: NewTaskInput): Promise<Actio
   )
   const built = await buildTaskColumns(input, gate.userId, people)
   if (!built.ok) return fail(built.error)
-  return updateDashboardRow({
+  const res = await updateDashboardRow({
     table: "tasks",
     pk: "task_id",
     id,
@@ -673,6 +681,13 @@ export async function updateTask(id: string, input: NewTaskInput): Promise<Actio
     context: "/tasks · Edit task",
     verb: "editing tasks",
   })
+  // Edit → Status: Completed on a Feedback task fires the same Pending Review
+  // trigger; default that task's owner to the client's associate (fills an
+  // empty owner only, so re-saving never overrides a later choice).
+  if (res.ok && built.data.bcs_task_subtype_label === "Feedback" && built.data.state_label === "Completed") {
+    await assignReviewTaskToAssociate(id)
+  }
+  return res
 }
 
 export async function countTestTasks(): Promise<ActionResult<number>> {

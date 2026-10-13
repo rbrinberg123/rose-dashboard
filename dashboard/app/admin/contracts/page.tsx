@@ -12,6 +12,7 @@ import { CONTRACTS_SPEC } from "@/lib/contracts/spec"
 import { applyContractQuickFilters, type ContractQuickFilters } from "@/lib/contracts/filters"
 import { listSavedViews } from "./actions"
 import { ContractsView } from "./contracts-view"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 export const dynamic = "force-dynamic"
 
@@ -55,7 +56,7 @@ export default async function ContractsPage({
 }) {
   // ---- GATE (must stay first — nothing above this line may touch data) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") redirect("/no-access")
+  if (!hasSuperUserPrivileges(role)) redirect("/no-access")
 
   const sp = await searchParams
   const requestedId = typeof sp.view === "string" ? sp.view : null
@@ -141,7 +142,7 @@ export default async function ContractsPage({
         savedConfig={active.config}
         activeConfig={effectiveConfig}
         viewCounts={viewCounts}
-        canManageSystemViews={role === "super_user"}
+        canManageSystemViews={hasSuperUserPrivileges(role)}
         /* Writes are refused while impersonating; hide the save controls. */
         readOnlyViews={identity.impersonated}
         availableColumns={available ? [...available] : null}

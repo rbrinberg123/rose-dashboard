@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 import { CARD_CLASS, CONTROL_STYLE, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
 import { setUserRole, setUserDataScopes, type DataScopes } from "./actions"
 import { setViewAsUserAction } from "@/app/view-as-actions"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /** null === "None" (no staged grant). */
 export type RoleValue =
@@ -16,6 +17,7 @@ export type RoleValue =
   | "associate"
   | "client_manager"
   | "logistics"
+  | "admin"
   | "super_user"
   | null
 
@@ -75,6 +77,7 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "associate", label: "Associate" },
   { value: "client_manager", label: "Client Manager" },
   { value: "logistics", label: "Logistics" },
+  { value: "admin", label: "Admin" },
   { value: "super_user", label: "Super User" },
 ]
 
@@ -87,17 +90,19 @@ const ROLE_META: Record<
   { label: string; rank: number; bg: string; text: string }
 > = {
   super_user: { label: "Super User", rank: 0, bg: "#E6E9F5", text: "#1E2858" },
-  logistics: { label: "Logistics", rank: 1, bg: "#E7F1FB", text: "#0355A7" },
-  client_manager: { label: "Client Manager", rank: 2, bg: "#F3ECFB", text: "#6B3FA0" },
+  // Navy, one step lighter than Super User — the near-super-user tier.
+  admin: { label: "Admin", rank: 1, bg: "#EEF0F8", text: "#3D5599" },
+  logistics: { label: "Logistics", rank: 2, bg: "#E7F1FB", text: "#0355A7" },
+  client_manager: { label: "Client Manager", rank: 3, bg: "#F3ECFB", text: "#6B3FA0" },
   // Teal tint — the one site colour not already spoken for by another pill.
-  associate: { label: "Associate", rank: 3, bg: "#E3F2F3", text: "#0E8A7C" },
-  user: { label: "User", rank: 4, bg: "#EAF3EE", text: "#0E7C56" },
+  associate: { label: "Associate", rank: 4, bg: "#E3F2F3", text: "#0E8A7C" },
+  user: { label: "User", rank: 5, bg: "#EAF3EE", text: "#0E7C56" },
 }
 
-/** Sort key: granted roles first (Super User → Logistics → Client Manager →
- *  Associate → User), then None. */
+/** Sort key: granted roles first (Super User → Admin → Logistics → Client
+ *  Manager → Associate → User), then None. */
 function rank(role: RoleValue): number {
-  return role === null ? 5 : ROLE_META[role].rank
+  return role === null ? 6 : ROLE_META[role].rank
 }
 
 // Identity-mapping badge colors (reuse the site status palette).
@@ -456,9 +461,11 @@ export function UsersView({
               const value = u.role
               const meta = value ? ROLE_META[value] : null
               const state = saveState[key] ?? "idle"
-              // Level-2 data scopes (staging). Super User → All implied + locked.
+              // Level-2 data scopes (staging). Super User / Admin → All implied +
+              // locked: getUserScopes bypasses the scopes table for both
+              // (hasSuperUserPrivileges), so a box here would do nothing.
               const rowScopes = scopes[key] ?? u.scopes
-              const superLock = value === "super_user"
+              const superLock = hasSuperUserPrivileges(value)
               const allOn = superLock || rowScopes.all
               const scState = scopeSave[key] ?? "idle"
               return (
@@ -590,7 +597,7 @@ export function UsersView({
                       </label>
 
                       {superLock ? (
-                        <span style={{ color: TEXT_MUTED }}>· implied by Super User</span>
+                        <span style={{ color: TEXT_MUTED }}>· implied by {meta?.label ?? "Super User"}</span>
                       ) : null}
 
                       <span className="flex items-center text-[11px]" style={{ color: TEXT_MUTED }}>

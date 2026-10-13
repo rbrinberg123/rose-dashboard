@@ -71,6 +71,7 @@ import {
   isReviewerOf,
   reviewerNamesFor,
 } from "@/lib/time-off-requests/reviewers"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 const TABLE = "time_off_requests"
 const PATH = "/time-off-requests"
@@ -224,7 +225,7 @@ export async function loadTimeOffUserOptions(keepId: string | null = null): Prom
 /** The chosen person's reviewing team, resolved live — shown on the form. */
 export async function loadReviewingTeam(personId: string | null): Promise<ActionResult<string[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   let id = personId
   if (!id) id = (await getEffectiveIdentity()).userId
   if (!id || !isUuid(id)) return ok([])
@@ -337,7 +338,7 @@ export async function loadTimeOffApprovalRecord(id: string): Promise<ActionResul
   const role = await getEffectiveRole()
   if (!role) return fail("Not authorised.")
   if (!isUuid(id)) return fail("Unknown request.")
-  if (role !== "super_user") {
+  if (!hasSuperUserPrivileges(role)) {
     const identity = await getEffectiveIdentity()
     const viewerIds = await idsForEmail(identity.email)
     if (viewerIds.length === 0) return fail("Not authorised.")
@@ -407,7 +408,7 @@ async function readTimeOffRecord(
     reviewBlockedReason: review.reason,
     // Hides the buttons only — updateTimeOffRequest / deleteTimeOffRequest
     // re-check this server-side.
-    canEdit: role === "super_user" && !identity.impersonated,
+    canEdit: hasSuperUserPrivileges(role) && !identity.impersonated,
   })
 }
 

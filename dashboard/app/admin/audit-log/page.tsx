@@ -14,6 +14,7 @@ import {
   type ResolveContext,
 } from "@/lib/audit-log/labels"
 import { AuditLogView, type AuditFilters } from "./audit-log-view"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 export const dynamic = "force-dynamic"
 
@@ -79,7 +80,7 @@ export default async function AuditLogPage({
 }) {
   // ---- GATE (must stay first — nothing above this line may touch data) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") redirect("/no-access")
+  if (!hasSuperUserPrivileges(role)) redirect("/no-access")
 
   const sp = await searchParams
   const one = (v: string | string[] | undefined) =>

@@ -561,6 +561,8 @@ Display is compact: the leading **`TICKER - ` is stripped** with the shared `str
 
 ### Admin (pinned nav row, super-user only)
 
+> **Admin role (2026-10-13):** an **Admin** also reaches this section except Users, Roles, Sync, Reconciliation and Database, and never sees the hub's Hidden Pages. See [01 — Access & Users → Admin role](01-access-and-users.md#admin-role-2026-10-13).
+
 | Route | Reads | Purpose |
 |-------|-------|---------|
 | `/admin` | `sync_runs`, `sync_errors`, `deletion_candidates`, `cron_send_log` (+ table counts) | Admin hub — system-health tiles + links. |

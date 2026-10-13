@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { getSupabaseServer } from "@/lib/supabase"
-import { requireSuperUser } from "@/lib/api-auth"
+import { requireStrictSuperUser } from "@/lib/api-auth"
 import { diffRows, recordAudit } from "@/lib/audit"
 import {
   isDataPermissionKey,
@@ -17,7 +17,9 @@ const PATH = "/admin/roles"
 /**
  * Roles whose page access is editable in public.role_page_access. Deliberately
  * excludes "super_user" — super always sees everything (a hard backstop in
- * canAccessRoute), so its column is locked on in the UI and never written here.
+ * canAccessRoute), so its column is locked on in the UI and never written here —
+ * and "admin", whose page set is code-defined the same way (canAccessRoute minus
+ * ADMIN_EXCLUDED_ROUTES, lib/access-control.ts); its column is locked too.
  *
  * This table is now LIVE: getAllowedRoutes/canAccessRoute read it to gate the
  * proxy, nav, and API guards. A toggle here changes what the role can access on
@@ -33,7 +35,7 @@ const EDITABLE_ROLES: AssignableRole[] = [
 /**
  * Stage whether `role` may access `route` in public.role_page_access.
  *
- *   - Super-user gated (reuses requireSuperUser, like the other admin actions).
+ *   - Super-user gated (reuses requireStrictSuperUser, like the other admin actions).
  *   - Validates the role is editable (never "super_user") and the route is a
  *     real registered page — never trust the client.
  *   - UPSERTs one (role, route) row (the composite PRIMARY KEY) with `allowed`.
@@ -44,8 +46,8 @@ export async function setRolePageAccess(
   route: string,
   allowed: boolean,
 ): Promise<ActionResult> {
-  const auth = await requireSuperUser()
-  if (!auth.ok) return fail("Not authorized.")
+  const auth = await requireStrictSuperUser()
+  if (!auth.ok) return fail("Not authorized — only a super user can manage users and roles.")
 
   if (!EDITABLE_ROLES.includes(role as AssignableRole)) {
     return fail(`Role is not editable here: ${role}`)
@@ -104,8 +106,8 @@ export async function setRoleDataPermission(
   key: string,
   allowed: boolean,
 ): Promise<ActionResult> {
-  const auth = await requireSuperUser()
-  if (!auth.ok) return fail("Not authorized.")
+  const auth = await requireStrictSuperUser()
+  if (!auth.ok) return fail("Not authorized — only a super user can manage users and roles.")
 
   if (!EDITABLE_ROLES.includes(role as AssignableRole)) {
     return fail(`Role is not editable here: ${role}`)

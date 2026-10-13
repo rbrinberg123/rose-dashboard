@@ -26,7 +26,9 @@ import { ListTitleCard } from "@/components/page-masthead"
 import { getSupabaseServer } from "@/lib/supabase"
 import { formatRelative, formatDate } from "@/lib/format"
 import { KPI_CARD_CLASS, CARD_CLASS, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
-import { HIDDEN_PAGE_REGISTRY } from "@/lib/access-control"
+import { HIDDEN_PAGE_REGISTRY, canAccessRoute, isStrictSuperUser } from "@/lib/access-control"
+import { getEffectiveRole } from "@/lib/effective-identity"
+import { getAllowedRoutes } from "@/lib/page-access"
 import { RefreshSummariesCard } from "./refresh-summaries-card"
 
 export const dynamic = "force-dynamic"
@@ -432,6 +434,16 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 // ---------------------------------------------------------------------------
 
 export default async function AdminHubPage() {
+  // The EFFECTIVE role, so a super user viewing as Admin sees the admin hub.
+  // Links to pages the role cannot open (an admin: Users, Roles, Sync,
+  // Reconciliation, Database — ADMIN_EXCLUDED_ROUTES) are not drawn, and the
+  // Hidden Pages section is strict super-user only (isStrictSuperUser). The
+  // proxy still refuses those routes; this only stops advertising them.
+  const role = await getEffectiveRole()
+  const allowedRoutes = await getAllowedRoutes(role)
+  const canOpen = (href: string) => canAccessRoute(role, href, allowedRoutes)
+  const showHiddenPages = isStrictSuperUser(role)
+
   const [sync, syncErrors, recon, emails, db, activeClients] = await Promise.all([
     loadSyncHealth(),
     loadSyncErrors(),
@@ -480,7 +492,7 @@ export default async function AdminHubPage() {
               icon={RefreshCw}
               label="Sync"
               health={syncHealth}
-              footer={<TileLink href="/admin/sync">Sync status &amp; manual run</TileLink>}
+              footer={canOpen("/admin/sync") ? <TileLink href="/admin/sync">Sync status &amp; manual run</TileLink> : undefined}
             >
               {!sync ? (
                 <Unavailable />
@@ -550,7 +562,7 @@ export default async function AdminHubPage() {
               icon={Trash2}
               label="Reconciliation"
               health={reconHealth}
-              footer={<TileLink href="/admin/reconciliation">Review queue</TileLink>}
+              footer={canOpen("/admin/reconciliation") ? <TileLink href="/admin/reconciliation">Review queue</TileLink> : undefined}
             >
               {!recon ? (
                 <Unavailable />
@@ -604,7 +616,7 @@ export default async function AdminHubPage() {
               icon={Database}
               label="Database"
               health={dbHealth}
-              footer={<TileLink href="/admin/database">Database health</TileLink>}
+              footer={canOpen("/admin/database") ? <TileLink href="/admin/database">Database health</TileLink> : undefined}
             >
               {!db ? (
                 <Unavailable />
@@ -652,18 +664,22 @@ export default async function AdminHubPage() {
         <section>
           <SectionTitle>In-app tools</SectionTitle>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <InternalCard
-              icon={Users}
-              title="Users"
-              description="Set each staff member's role — live, controls what they can access."
-              href="/admin/users"
-            />
-            <InternalCard
-              icon={ShieldCheck}
-              title="Roles"
-              description="Pages × roles matrix — live, controls which pages each role can reach."
-              href="/admin/roles"
-            />
+            {canOpen("/admin/users") && (
+              <InternalCard
+                icon={Users}
+                title="Users"
+                description="Set each staff member's role — live, controls what they can access. Super user only."
+                href="/admin/users"
+              />
+            )}
+            {canOpen("/admin/roles") && (
+              <InternalCard
+                icon={ShieldCheck}
+                title="Roles"
+                description="Pages × roles matrix — live, controls which pages each role can reach. Super user only."
+                href="/admin/roles"
+              />
+            )}
             <InternalCard
               icon={UsersRound}
               title="Account Teams"
@@ -712,12 +728,13 @@ export default async function AdminHubPage() {
           <RefreshSummariesCard clientCount={activeClients} />
         </section>
 
-        {/* ---- Hidden Pages ---- */}
+        {/* ---- Hidden Pages (strict super user only — not admin) ---- */}
+        {showHiddenPages && (
         <section>
           <SectionTitle>Hidden Pages</SectionTitle>
           <p className="-mt-2 mb-3 text-xs" style={{ color: TEXT_MUTED }}>
-            Parked pages — off the main nav, kept reachable here. <strong>Retired</strong> pages are also
-            super-user only while hidden; to restore one, set <code>hidden: false</code> on its entry in{" "}
+            Parked pages — off the main nav, kept reachable here. Super user only (not Admin).{" "}
+            <strong>Retired</strong> pages are also super-user only while hidden; to restore one, set <code>hidden: false</code> on its entry in{" "}
             <code>HIDDEN_PAGE_REGISTRY</code> (lib/access-control.ts).
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -765,6 +782,7 @@ export default async function AdminHubPage() {
             ))}
           </div>
         </section>
+        )}
 
         {/* ---- External dashboards ---- */}
         <section>

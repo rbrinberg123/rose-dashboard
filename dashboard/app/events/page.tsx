@@ -14,6 +14,7 @@ import { EVENTS_SPEC } from "@/lib/events/spec"
 import { applyEventQuickFilters, type EventQuickFilters } from "@/lib/events/filters"
 import { listSavedViews } from "./actions"
 import { EventsView } from "./events-view"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 export const dynamic = "force-dynamic"
 
@@ -64,7 +65,7 @@ export default async function EventsPage({
 }) {
   // ---- GATE (must stay first — nothing above this line may touch data) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") redirect("/no-access")
+  if (!hasSuperUserPrivileges(role)) redirect("/no-access")
 
   const sp = await searchParams
   const requestedId = typeof sp.view === "string" ? sp.view : null
@@ -200,7 +201,7 @@ export default async function EventsPage({
         savedConfig={active.config}
         activeConfig={effectiveConfig}
         viewCounts={viewCounts}
-        canManageSystemViews={role === "super_user"}
+        canManageSystemViews={hasSuperUserPrivileges(role)}
         /* Writes are refused while impersonating (saved-views invariant 4); the
            UI hides the save controls rather than offering a doomed click. */
         readOnlyViews={identity.impersonated}

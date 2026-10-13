@@ -3,6 +3,7 @@ import { getUserScopes } from "@/lib/access/data-scope"
 import { loadIdentity } from "@/lib/access/identity"
 import { viewerUserIds } from "@/app/clients/alerts/load"
 import type { ClaimActor } from "./policy"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /**
  * Server-side identity for Feedback claiming. Two flavours:
@@ -37,7 +38,7 @@ export async function loadClaimViewer(): Promise<ClaimViewer> {
   if (identity.userId) myIds.add(identity.userId)
   return {
     myIds,
-    isAdmin: identity.role === "super_user",
+    isAdmin: hasSuperUserPrivileges(identity.role),
     hasCapability: scopes.claimFeedback,
     impersonated: identity.impersonated,
     userId: identity.userId,

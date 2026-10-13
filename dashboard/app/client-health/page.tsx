@@ -7,6 +7,7 @@ import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity
 import { isFrameworkConfigured } from "@/lib/client-health-prompt"
 import { HEALTH_TABLE, newEvidenceSince } from "@/lib/client-health"
 import { HealthView, type HealthRow } from "./health-view"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 export const dynamic = "force-dynamic"
 
@@ -30,7 +31,7 @@ const PATCH =
 export default async function ClientHealthPage() {
   // ---- GATE (must stay first — nothing above this line may touch data) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") redirect("/no-access")
+  if (!hasSuperUserPrivileges(role)) redirect("/no-access")
 
   // Firm-order dragging is a WRITE: same rule as every action here — not while
   // in "View as" (reorderHealthCategory re-checks server-side).

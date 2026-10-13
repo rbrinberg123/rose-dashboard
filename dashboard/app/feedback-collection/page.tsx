@@ -11,7 +11,7 @@ import { FeedbackView } from "@/app/feedback/feedback-view"
 import { SendEmailControls } from "@/app/feedback/send-email-controls"
 import { getSupabaseServer } from "@/lib/supabase"
 import { getEffectiveRole } from "@/lib/effective-identity"
-import { canAccessRoute } from "@/lib/access-control"
+import { hasSuperUserPrivileges, canAccessRoute } from "@/lib/access-control"
 import { getAllowedRoutes } from "@/lib/page-access"
 import { loadClaimViewer } from "@/lib/feedback-claims/server"
 import { decideSetMeetingFeedback, type FeedbackCollectionExtras } from "@/lib/feedback-collection/policy"
@@ -63,7 +63,7 @@ export default async function FeedbackCollectionPage() {
     data: { user },
   } = await supabase.auth.getUser()
   const userEmail = user?.email ?? undefined
-  const canSend = (await getUserRole(userEmail)) === "super_user"
+  const canSend = hasSuperUserPrivileges(await getUserRole(userEmail))
 
   const extras = await loadRowExtras(rows.map((r) => r.meeting_id))
 

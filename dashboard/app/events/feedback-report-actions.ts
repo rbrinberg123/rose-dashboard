@@ -21,6 +21,7 @@ import {
   validateReceivedDay,
   type ReportLock,
 } from "@/lib/feedback-reports/policy"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /**
  * Events drawer → "Feedback reports" panel: view, Split (add a report),
@@ -95,7 +96,7 @@ function missingSetup(message: string): boolean {
 }
 
 export async function loadEventFeedbackReports(eventId: string): Promise<ActionResult<EventFeedbackReports>> {
-  if ((await getEffectiveRole()) !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(await getEffectiveRole())) return fail("Not authorised.")
   if (!isUuid(eventId)) return fail("Unknown event.")
   const sb = getSupabaseServer()
 
@@ -261,7 +262,7 @@ export async function saveFeedbackReportAssignments(
   const before = Object.fromEntries(meetings.filter((m) => m.reportTaskId).map((m) => [m.meetingId, m.reportTaskId]))
   // LOCKS, judged on the freshly loaded reports — never on what the browser sent.
   const check = checkReallocation(reports, before, assignments)
-  const isAdmin = (await getEffectiveRole()) === "super_user"
+  const isAdmin = hasSuperUserPrivileges(await getEffectiveRole())
   const lockReason = decideReallocation(check, { ...opts, isAdmin })
   if (lockReason) return fail(lockReason)
   const { error } = await getSupabaseServer().rpc("feedback_report_set_assignments", {
@@ -322,7 +323,7 @@ export async function deleteFeedbackReport(
       if (!opts.overrideLock) {
         return fail("Every other report is claimed or closed, so its meetings have nowhere to go. An admin can override.")
       }
-      if ((await getEffectiveRole()) !== "super_user") return fail("Only an admin can override a claimed report's lock.")
+      if (!hasSuperUserPrivileges(await getEffectiveRole())) return fail("Only an admin can override a claimed report's lock.")
       target = reports.find((r) => r.taskId !== reportTaskId)?.taskId ?? null
       if (!target) return fail("An event must keep at least one feedback report.")
       await auditOverride(eventId, "delete report into a locked report", {

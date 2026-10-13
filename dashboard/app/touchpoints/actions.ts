@@ -63,6 +63,7 @@ import {
   readTouchRecord,
   updateTouchRow,
 } from "@/lib/touchpoints/write"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -113,7 +114,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  */
 export async function loadTouchpointFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(
     getSupabaseServer(),
@@ -145,7 +146,7 @@ export async function loadTouchpointRowsForExport(input: {
   quick?: TouchpointQuickFilters
 }): Promise<ActionResult<AdminTouchpointRow[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const parsed = parseConfig(TOUCHPOINTS_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -177,7 +178,7 @@ export async function loadTouchpointRecord(
 ): Promise<ActionResult<TouchpointRecord>> {
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   return readTouchRecord(touchpointId)
 }
 
@@ -201,7 +202,7 @@ export async function loadTouchClientOptions(includeAccountId?: string | null): 
 /** The drawer's Client Contacts list (any origin; always empty for Dynamics rows). */
 export async function loadTouchContacts(touchpointId: string): Promise<ActionResult<TouchContact[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   if (!isUuid(touchpointId)) return fail("Unknown touchpoint.")
   return readTouchContacts(touchpointId)
 }
@@ -217,7 +218,7 @@ export async function createTouch(input: NewTouchInput): Promise<ActionResult<{ 
 /** A DASHBOARD touch, as form input — Dynamics rows are refused. */
 export async function loadTouchForEdit(id: string): Promise<ActionResult<NewTouchInput>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   return readTouchForEdit(id)
 }
 

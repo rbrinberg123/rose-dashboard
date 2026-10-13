@@ -3,6 +3,7 @@ import { cache } from "react"
 import { getSupabaseServer } from "@/lib/supabase"
 import { getRealRole } from "@/lib/user-role"
 import {
+  isStrictSuperUser,
   isViewAsRole,
   type Role,
   type ViewAsRole,
@@ -105,7 +106,8 @@ export async function resolveEffective(
 ): Promise<EffectiveResolution> {
   // Only a REAL super-user may impersonate — everyone else gets their own role,
   // and any stray cookie is ignored.
-  if (realRole !== "super_user") {
+  // Strict: an admin can never View as (lib/access-control.ts carve-outs).
+  if (!isStrictSuperUser(realRole)) {
     return { effectiveRole: realRole, person: null, roleView: null }
   }
 

@@ -69,6 +69,7 @@ import {
 } from "@/lib/notes/filters"
 import type { NoteRecord } from "@/lib/notes/record"
 import type { AdminNoteRow } from "@/lib/types"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -118,7 +119,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  */
 export async function loadNoteFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(getSupabaseServer(), NOTES_SPEC, "note_count")
   return ok({
@@ -146,7 +147,7 @@ export async function loadNoteRowsForExport(input: {
   quick?: NoteQuickFilters
 }): Promise<ActionResult<AdminNoteRow[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const parsed = parseConfig(NOTES_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -214,7 +215,7 @@ const RECORD_COLUMNS = [
 export async function loadNoteRecord(noteId: string): Promise<ActionResult<NoteRecord>> {
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   if (!noteId) return fail("No note id.")
 

@@ -29,6 +29,7 @@ import {
   type NameLookup,
   type ResolveContext,
 } from "@/lib/audit-log/labels"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /** One entry, with its diff already rendered into readable lines. */
 export type AuditRecordDetail = {
@@ -63,7 +64,7 @@ export type AuditRecordDetail = {
  */
 export async function loadAuditRecord(id: number): Promise<ActionResult<AuditRecordDetail>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   if (!Number.isFinite(id)) return fail("No audit id.")
 
   const sb = getSupabaseServer()
@@ -148,7 +149,7 @@ const ACTOR_SCAN_CAP = 20000
 
 export async function loadAuditActors(): Promise<ActionResult<string[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const sb = getSupabaseServer()
   const { data, error } = await sb

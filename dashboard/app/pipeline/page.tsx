@@ -6,6 +6,7 @@ import { getUserRole } from "@/lib/user-role"
 import type { Pipeline30dRow, SchedulerMeetingRow, SchedulerTimeOffRow } from "@/lib/types"
 import { PipelineView } from "./pipeline-view"
 import { SendWeekAheadControls } from "./send-week-ahead-button"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 export const dynamic = "force-dynamic"
 
@@ -22,7 +23,7 @@ export default async function PipelinePage() {
     data: { user },
   } = await supabaseAuth.auth.getUser()
   const userEmail = user?.email ?? undefined
-  const isSuperUser = (await getUserRole(userEmail)) === "super_user"
+  const isSuperUser = hasSuperUserPrivileges(await getUserRole(userEmail))
 
   // Upcoming meetings (next 30 days) — small set, single fetch.
   const pipelineRes = await sb

@@ -4,7 +4,7 @@ import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
 
-import { requireSuperUser } from "@/lib/api-auth"
+import { requireStrictSuperUser } from "@/lib/api-auth"
 import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE } from "@/lib/access-control"
 
 /**
@@ -16,7 +16,7 @@ import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE } from "@/lib/access-control"
  * EXIT: the sticky banner in the root layout (exitViewAsAction).
  *
  * SECURITY: both actions authorize off the caller's REAL role
- * (requireSuperUser → getRealRole, a service-role DB lookup that ignores the
+ * (requireStrictSuperUser → getRealRole, a service-role DB lookup that ignores the
  * view_as cookies), NEVER the effective/impersonated role. So:
  *   - only a real super_user can ever set or clear a view_as cookie, and
  *   - a super who is currently viewing as someone who can't reach Admin can
@@ -57,7 +57,7 @@ const SECURE = process.env.NODE_ENV === "production"
  * exclusive), then redirects into the impersonated view.
  */
 export async function setViewAsUserAction(formData: FormData) {
-  const auth = await requireSuperUser()
+  const auth = await requireStrictSuperUser()
   if (!auth.ok) return // silently ignore — not a real super-user
 
   const email = formData.get("email")
@@ -85,7 +85,7 @@ export async function setViewAsUserAction(formData: FormData) {
  * natural home for these controls).
  */
 export async function exitViewAsAction() {
-  const auth = await requireSuperUser()
+  const auth = await requireStrictSuperUser()
   if (!auth.ok) return
 
   const cookieStore = await cookies()

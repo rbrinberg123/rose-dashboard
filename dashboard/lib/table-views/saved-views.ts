@@ -60,6 +60,7 @@ import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { builtinSavedViews, parseConfig } from "./config"
 import type { EntitySpec, SavedView, SavedViewScope } from "./types"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 type ViewRow = {
   id: string
@@ -121,7 +122,7 @@ export async function requireCaller(): Promise<
   { ok: true; caller: Caller } | { ok: false; error: string }
 > {
   const [role, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
-  if (role !== "super_user") return { ok: false, error: "Not authorised." }
+  if (!hasSuperUserPrivileges(role)) return { ok: false, error: "Not authorised." }
 
   const canon = await canonicalise(identity.userId)
   if (canon.error) return { ok: false, error: canon.error }
@@ -130,7 +131,7 @@ export async function requireCaller(): Promise<
     ok: true,
     caller: {
       userId: safeUserId(canon.id),
-      isSuperUser: role === "super_user",
+      isSuperUser: hasSuperUserPrivileges(role),
       impersonated: identity.impersonated,
     },
   }

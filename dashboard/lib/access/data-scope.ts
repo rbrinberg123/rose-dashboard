@@ -16,6 +16,7 @@ import {
   type MeetingRow,
   type MeetingScopeFilter,
 } from "./meeting-scope-policy"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 export type { ClientScope, UserScopes } from "./client-scope-policy"
 
@@ -50,7 +51,7 @@ const DENY_SCOPES: UserScopes = {
  * Also carries the FIELD-level `financials` grant (see ./financials.ts) so the
  * one read serves both; it is NOT a row scope and no row filter consults it.
  *
- * LOCKOUT GUARD: a Super User is ALWAYS `{ all: true }` regardless of any row
+ * LOCKOUT GUARD: a Super User (or Admin — hasSuperUserPrivileges) is ALWAYS `{ all: true }` regardless of any row
  * (short-circuits before the table read), so activating scope enforcement can
  * never lock a super out. No row (and not super) → all false (deny-by-default),
  * and that denial is LOGGED — never silent — so a mass "nobody assigned" state
@@ -61,9 +62,9 @@ export async function getUserScopes(
 ): Promise<UserScopes> {
   if (!email) return DENY_SCOPES
 
-  // Super User → sees everything, no matter what the scopes table says.
+  // Super User / Admin → sees everything, no matter what the scopes table says.
   const role = await getRealRole(email)
-  if (role === "super_user") return { ...DENY_SCOPES, all: true, financials: true, claimFeedback: true }
+  if (hasSuperUserPrivileges(role)) return { ...DENY_SCOPES, all: true, financials: true, claimFeedback: true }
 
   return loadScopesForEmail(email.trim().toLowerCase())
 }

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { after, type NextRequest, NextResponse } from "next/server"
 import Anthropic from "@anthropic-ai/sdk"
 import { getSupabaseServer } from "@/lib/supabase"
-import { requireSuperUser } from "@/lib/api-auth"
+import { requireSuperUserPrivileges } from "@/lib/api-auth"
 import { hasCronBearer } from "@/lib/cron-auth"
 import { isUuid } from "@/lib/crm-write"
 import { AI_BATCH_CONFIG, runThrottled, sleep } from "@/lib/ai-batch"
@@ -70,7 +70,7 @@ async function authorize(request: NextRequest): Promise<Caller | NextResponse> {
   if (hasCronBearer(request.headers.get("authorization"), process.env.CRON_SECRET)) {
     return { kind: "cron" }
   }
-  const auth = await requireSuperUser()
+  const auth = await requireSuperUserPrivileges()
   return auth.ok ? { kind: "user", email: auth.email } : auth.response
 }
 

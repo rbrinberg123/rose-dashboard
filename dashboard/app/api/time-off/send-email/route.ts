@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { requireSuperUser } from "@/lib/api-auth"
+import { requireSuperUserPrivileges } from "@/lib/api-auth"
 import { sendMail, GraphError } from "@/lib/graph"
 import { loadTimeOffData } from "@/lib/time-off/load"
 import { buildTimeOffEmailHtml } from "@/lib/time-off/email-html"
@@ -10,7 +10,7 @@ import { claimDailySend, releaseDailySend } from "@/lib/live-outreach-send-log"
  * app/api/week-ahead/send-email):
  *
  *  • POST — manual send from the dashboard. Gated to a signed-in **super_user**
- *    (requireSuperUser). Body picks the recipients:
+ *    (requireSuperUserPrivileges). Body picks the recipients:
  *      { mode: "team" }                 → the four server-owned TIME_OFF_RECIPIENTS
  *      { mode: "test", recipient: "…" } → a single typed address (test only)
  *    The team list is ALWAYS the server constant; the test box can never override
@@ -114,7 +114,7 @@ function errorResponse(err: unknown): NextResponse {
 
 // ---- POST: manual send (super_user) ----------------------------------------
 export async function POST(request: NextRequest) {
-  const auth = await requireSuperUser()
+  const auth = await requireSuperUserPrivileges()
   if (!auth.ok) return auth.response
 
   // Choose recipient(s) from the body. An explicit mode is required.

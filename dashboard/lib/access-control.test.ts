@@ -2,11 +2,15 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 
 import {
+  ADMIN_EXCLUDED_ROUTES,
   ALWAYS_ALLOWED_ROUTES,
   HIDDEN_PAGE_REGISTRY,
   VIEW_AS_ROLE_OPTIONS,
   canAccessRoute,
+  canSeeCrmNav,
+  hasSuperUserPrivileges,
   isHiddenRoute,
+  isStrictSuperUser,
   isViewAsRole,
   viewAsLabel,
   type Role,
@@ -144,4 +148,54 @@ test("Alerts is retired; neighbouring routes are unaffected", () => {
   assert.equal(isHiddenRoute("/clients/to-do"), false)
   assert.equal(isHiddenRoute("/my-dashboard"), false)
   assert.equal(canAccessRoute("user", "/clients/to-do", ["/clients/to-do"]), true)
+})
+
+// ---------------------------------------------------------------------------
+// Admin — super_user minus the carve-outs (2026-10-13).
+// ---------------------------------------------------------------------------
+
+test("the two privilege helpers split super_user and admin exactly", () => {
+  assert.equal(hasSuperUserPrivileges("super_user"), true)
+  assert.equal(hasSuperUserPrivileges("admin"), true)
+  assert.equal(isStrictSuperUser("super_user"), true)
+  assert.equal(isStrictSuperUser("admin"), false)
+  for (const r of ["user", "associate", "client_manager", "logistics", null, undefined] as const) {
+    assert.equal(hasSuperUserPrivileges(r), false)
+    assert.equal(isStrictSuperUser(r), false)
+  }
+})
+
+test("Admin is a real, View-as-able role with a locked Roles-matrix column", () => {
+  assert.equal(isViewAsRole("admin"), true)
+  assert.equal(viewAsLabel("admin"), "Admin")
+  const col = ASSIGNABLE_ROLES.find((r) => r.value === "admin")
+  assert.ok(col)
+  assert.equal(col.locked, true)
+})
+
+test("Admin reaches the CRM tables and super-user-only pages without any grant", () => {
+  for (const route of [
+    "/accounts", "/events", "/meetings", "/tasks", "/touchpoints", "/notes", "/contacts",
+    "/admin", "/admin/account-teams", "/admin/audit-log", "/admin/contracts",
+    "/admin/time-off-reviewers", "/admin/automations", "/admin/docs",
+    "/client-health", "/fb-coming-soon", "/portfolio", "/client-detail/123", "/onboarding",
+  ]) {
+    assert.equal(canAccessRoute("admin", route, []), true, `admin should reach ${route}`)
+  }
+  assert.equal(canSeeCrmNav("admin", []), true)
+})
+
+test("Admin is refused every excluded route and every hidden page; super_user is not", () => {
+  const refused = [
+    "/admin/users", "/admin/roles", "/client-statistics", "/people-statistics",
+    "/productivity", "/productivity-detail", "/capacity",
+    "/admin/sync", "/admin/reconciliation", "/admin/database",
+  ]
+  assert.deepEqual([...ADMIN_EXCLUDED_ROUTES].sort(), [...refused].sort())
+  for (const route of [...refused, "/admin/users/x", ...HIDDEN_PAGE_REGISTRY.filter((p) => p.hidden).map((p) => p.route)]) {
+    assert.equal(canAccessRoute("admin", route, []), false, `admin must not reach ${route}`)
+    // A stray matrix grant cannot open it either.
+    assert.equal(canAccessRoute("admin", route, [route]), false, `a grant must not open ${route} to admin`)
+    assert.equal(canAccessRoute("super_user", route, []), true, `super_user still reaches ${route}`)
+  }
 })

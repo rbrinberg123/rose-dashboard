@@ -172,10 +172,11 @@ export type NewEventInput = {
   launchWeek?: string
   // Last Data Upload, Memo Date and Targeting Date are LOOKED UP from the
   // client's tasks (EVENT_TASK_DATE_SUBTYPES), never typed. Shareholder Report
-  // Received is no longer on the form; its column is kept.
-  targetingNotRequired: boolean
+  // Received is no longer on the form; its column is kept. Targeting Date,
+  // Targeting URL and Targeting Not Required were removed from the form
+  // (2026-10-13, UI only): the columns stay, an edit leaves them untouched, and
+  // Targeting Date is still looked up on save.
   memoNotRequired: boolean
-  targetingUrl?: string
   profileLink?: string
   targetingNotes?: string
   /** The three lifecycle toggles. With the event's meetings and feedback

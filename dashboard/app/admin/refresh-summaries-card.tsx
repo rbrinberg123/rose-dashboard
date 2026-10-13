@@ -41,7 +41,7 @@ import {
  * Short requests mean no single call can hit a serverless timeout.
  *
  * Auth: the fetches carry the session cookie and the route authorizes them with
- * requireSuperUser(), so the cron bearer token never touches the browser. The
+ * requireSuperUserPrivileges(), so the cron bearer token never touches the browser. The
  * server is the gate — this card being rendered is not.
  *
  * Safety: paid action, so it asks first. A ref-based lock (not just the

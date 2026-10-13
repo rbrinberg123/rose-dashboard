@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { getSupabaseServer } from "@/lib/supabase"
-import { requireSuperUser } from "@/lib/api-auth"
+import { requireStrictSuperUser } from "@/lib/api-auth"
 import { diffRows, recordAudit } from "@/lib/audit"
 
 const PATH = "/admin/users"
@@ -25,6 +25,7 @@ const STAGED_ROLES = [
   "associate",
   "client_manager",
   "logistics",
+  "admin",
   "super_user",
 ] as const
 export type StagedRole = (typeof STAGED_ROLES)[number]
@@ -36,7 +37,7 @@ export type RoleSelection = StagedRole | null
  * Set the live role for one @roseandco.com user in public.user_role_grants.
  *
  *   - Super-user gated (mirrors admin/sync + reconciliation: reuses the same
- *     requireSuperUser guard the API routes use).
+ *     requireStrictSuperUser guard the API routes use).
  *   - Validates the @roseandco.com domain server-side — never trust the client.
  *   - role === null → DELETE the row ("None").
  *   - otherwise UPSERT (email is the PRIMARY KEY), stamping updated_by/at.
@@ -46,8 +47,8 @@ export async function setUserRole(
   email: string,
   role: RoleSelection,
 ): Promise<ActionResult> {
-  const auth = await requireSuperUser()
-  if (!auth.ok) return fail("Not authorized.")
+  const auth = await requireStrictSuperUser()
+  if (!auth.ok) return fail("Not authorized — only a super user can manage users and roles.")
 
   const normalizedEmail = email.trim().toLowerCase()
   if (!normalizedEmail.endsWith("@roseandco.com")) {
@@ -164,7 +165,7 @@ export type DataScopes = {
  * Persist one @roseandco.com user's Level-2 data scopes to
  * public.user_data_scopes — the LIVE table `getUserScopes` reads to enforce.
  *
- *   - Super-user gated (reuses requireSuperUser, like setUserRole).
+ *   - Super-user gated (reuses requireStrictSuperUser, like setUserRole).
  *   - Validates the @roseandco.com domain server-side.
  *   - UPSERTs the full scope set (email is the PRIMARY KEY), stamping
  *     updated_by/at. All-false is stored explicitly (deny-by-default).
@@ -174,8 +175,8 @@ export async function setUserDataScopes(
   email: string,
   scopes: DataScopes,
 ): Promise<ActionResult> {
-  const auth = await requireSuperUser()
-  if (!auth.ok) return fail("Not authorized.")
+  const auth = await requireStrictSuperUser()
+  if (!auth.ok) return fail("Not authorized — only a super user can manage users and roles.")
 
   const normalizedEmail = email.trim().toLowerCase()
   if (!normalizedEmail.endsWith("@roseandco.com")) {

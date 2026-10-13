@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { getUserRole } from "@/lib/user-role"
-import { canAccessRoute, type Role } from "@/lib/access-control"
+import { canAccessRoute, hasSuperUserPrivileges, isStrictSuperUser, type Role } from "@/lib/access-control"
 import { getAllowedRoutes } from "@/lib/page-access"
 
 /**
@@ -22,7 +22,24 @@ export type ApiAuthResult =
   | { ok: true; email: string; role: Role }
   | { ok: false; response: NextResponse }
 
-export async function requireSuperUser(): Promise<ApiAuthResult> {
+/**
+ * Two guards, one per side of the admin line (lib/access-control.ts →
+ * hasSuperUserPrivileges / isStrictSuperUser). Both read the REAL role
+ * (getUserRole), never a "View as" one:
+ *   requireSuperUserPrivileges  super_user OR admin — sends, previews, refreshes,
+ *                               account-team edits.
+ *   requireStrictSuperUser      super_user ONLY — Users & Roles, the Roles matrix,
+ *                               View as.
+ */
+export async function requireSuperUserPrivileges(): Promise<ApiAuthResult> {
+  return requireRole(hasSuperUserPrivileges)
+}
+
+export async function requireStrictSuperUser(): Promise<ApiAuthResult> {
+  return requireRole(isStrictSuperUser)
+}
+
+async function requireRole(allowed: (role: Role | null) => boolean): Promise<ApiAuthResult> {
   const supabase = await getSupabaseServerAuth()
   const {
     data: { user },
@@ -36,7 +53,7 @@ export async function requireSuperUser(): Promise<ApiAuthResult> {
   }
 
   const role = await getUserRole(user.email)
-  if (role !== "super_user") {
+  if (!role || !allowed(role)) {
     return {
       ok: false,
       response: NextResponse.json({ error: "Forbidden" }, { status: 403 }),

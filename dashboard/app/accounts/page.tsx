@@ -17,7 +17,7 @@ import {
 import { listSavedViews } from "./actions"
 import { perfTimer } from "@/lib/perf-log"
 import { AccountsView } from "./accounts-view"
-import { canAccessRoute } from "@/lib/access-control"
+import { hasSuperUserPrivileges, canAccessRoute } from "@/lib/access-control"
 import { getAllowedRoutes } from "@/lib/page-access"
 
 export const dynamic = "force-dynamic"
@@ -87,7 +87,7 @@ export default async function AccountsPage({
   const perf = perfTimer("/accounts")
   // ---- GATE (must stay first — nothing above this line may touch data) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") redirect("/no-access")
+  if (!hasSuperUserPrivileges(role)) redirect("/no-access")
   perf.step("gate (role)")
 
   const sp = await searchParams
@@ -197,7 +197,7 @@ export default async function AccountsPage({
         savedConfig={active.config}
         activeConfig={effectiveConfig}
         viewCounts={viewCounts}
-        canManageSystemViews={role === "super_user"}
+        canManageSystemViews={hasSuperUserPrivileges(role)}
         /* Name / ticker link to Client Detail only for a role that can open it —
            the SAME rule proxy.ts applies; Client Detail itself re-checks access
            and the client's Level-2 scope server-side. */

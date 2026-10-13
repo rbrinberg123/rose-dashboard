@@ -5,7 +5,7 @@ import "server-only"
  * the individual-requests list and its drawer. 2026-10-09.
  *
  *   visible = my own requests
- *           ∪ (super_user ? EVERY request : ∅)
+ *           ∪ (super_user / admin ? EVERY request : ∅)
  *           ∪ requests of every person whose reviewing team I am on
  *             (time_off_reviewers — the designated approver), ALL statuses
  *
@@ -29,6 +29,7 @@ import "server-only"
 
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { idsForEmail, idsForUser, personIdsReviewedBy } from "./reviewers"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 export type TimeOffVisibility =
   | { all: true; error: null }
@@ -37,7 +38,7 @@ export type TimeOffVisibility =
 export async function resolveTimeOffVisibility(): Promise<TimeOffVisibility> {
   const [role, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
   if (!role) return { all: false, requesterIds: [], error: null }
-  if (role === "super_user") return { all: true, error: null }
+  if (hasSuperUserPrivileges(role)) return { all: true, error: null }
 
   const own = new Set(await idsForEmail(identity.email))
   if (identity.userId) for (const id of await idsForUser(identity.userId)) own.add(id)

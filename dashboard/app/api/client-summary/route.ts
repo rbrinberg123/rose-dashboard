@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import Anthropic from "@anthropic-ai/sdk"
 import { getSupabaseServer } from "@/lib/supabase"
-import { requireSuperUser } from "@/lib/api-auth"
+import { requireSuperUserPrivileges } from "@/lib/api-auth"
 import { recordAudit } from "@/lib/audit"
 import {
   ClientSummaryError,
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
   // /api/* bypasses the proxy, so THIS check is the security boundary. This
   // route exposes client data, which is Super-User-only elsewhere, so gate it
   // the same way. Runs first — no data is touched before auth passes.
-  const auth = await requireSuperUser()
+  const auth = await requireSuperUserPrivileges()
   if (!auth.ok) return auth.response
 
   const accountId = new URL(request.url).searchParams.get("account_id")

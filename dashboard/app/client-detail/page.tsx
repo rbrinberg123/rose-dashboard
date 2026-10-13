@@ -26,6 +26,7 @@ import { ClientDetailView } from "./client-detail-view"
 import { loadClientCrmLists } from "./crm-lists"
 import { loadDeactivationState } from "@/lib/accounts/deactivation-gate"
 import { DeactivatedClientNotice } from "./deactivated-notice"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 export const dynamic = "force-dynamic"
 
@@ -243,7 +244,7 @@ export default async function ClientDetailPage({
   // that block adds no extra round trip.
   const [confirmedMeetingsByEvent, crmLists] = await Promise.all([
     loadConfirmedMeetingsByEvent(marketingEvents.map((e) => e.event_id)),
-    role === "super_user"
+    hasSuperUserPrivileges(role)
       ? loadClientCrmLists(sb, selected.account_id)
       : Promise.resolve(null),
   ])

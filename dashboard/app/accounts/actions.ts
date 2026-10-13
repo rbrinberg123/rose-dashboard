@@ -92,6 +92,7 @@ import {
   requireDeactivationWriter,
 } from "@/lib/accounts/deactivation-gate"
 import type { AdminAccountRow } from "@/lib/types"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -143,7 +144,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  */
 export async function loadAccountFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(
     getSupabaseServer(),
@@ -180,7 +181,7 @@ export async function loadAccountRowsForExport(input: {
   quick?: AccountQuickFilters
 }): Promise<ActionResult<AdminAccountRow[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const parsed = parseConfig(ACCOUNTS_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -341,7 +342,7 @@ export async function loadAccountRecord(
 ): Promise<ActionResult<AccountRecord>> {
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   if (!accountId) return fail("No client id.")
 
@@ -392,7 +393,7 @@ export async function loadClientContactOptions(
   accountId: string,
 ): Promise<ActionResult<{ contact_id: string; full_name: string | null }[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   if (!isUuid(accountId)) return ok([])
   const { data, error } = await getSupabaseServer()
     .from("contacts")
@@ -440,7 +441,7 @@ async function clientChoiceOptions(): Promise<ActionResult<ClientChoiceOptions>>
 
 export async function loadClientChoiceOptions(): Promise<ActionResult<ClientChoiceOptions>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   return clientChoiceOptions()
 }
 

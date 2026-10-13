@@ -1,6 +1,6 @@
 import { getSupabaseServer } from "@/lib/supabase"
 import { PAGE_REGISTRY } from "@/lib/page-registry"
-import { isHiddenRoute, type Role } from "@/lib/access-control"
+import { hasSuperUserPrivileges, isHiddenRoute, type Role } from "@/lib/access-control"
 
 /**
  * Load the routes a role is allowed to reach, from public.role_page_access
@@ -15,10 +15,12 @@ import { isHiddenRoute, type Role } from "@/lib/access-control"
  * any error (including the table not existing yet) returns [] — a missing
  * matrix denies access rather than leaking it. super_user is never gated by
  * the matrix (see the canAccessRoute backstop), so this short-circuits to []
- * for supers and skips the query.
+ * for supers (and admins) and skips the query.
  */
 export async function getAllowedRoutes(role: Role | null): Promise<string[]> {
-  if (!role || role === "super_user") return []
+  // admin is code-defined too (canAccessRoute + ADMIN_EXCLUDED_ROUTES), never
+  // matrix-gated, so it skips the query like super_user.
+  if (!role || hasSuperUserPrivileges(role)) return []
   try {
     const sb = getSupabaseServer()
     const { data, error } = await sb

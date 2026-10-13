@@ -78,6 +78,7 @@ import {
 } from "@/lib/contacts/filters"
 import type { ContactRecord } from "@/lib/contacts/record"
 import type { AdminContactRow } from "@/lib/types"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -127,7 +128,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  */
 export async function loadContactFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(
     getSupabaseServer(),
@@ -160,7 +161,7 @@ export async function loadContactRowsForExport(input: {
   quick?: ContactQuickFilters
 }): Promise<ActionResult<AdminContactRow[]>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const parsed = parseConfig(CONTACTS_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -259,7 +260,7 @@ export async function loadContactRecord(
 ): Promise<ActionResult<ContactRecord>> {
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   if (!contactId) return fail("No contact id.")
 

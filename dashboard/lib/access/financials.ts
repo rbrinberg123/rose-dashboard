@@ -6,6 +6,7 @@ import {
   decideFinancials,
   FINANCIALS_PERMISSION_KEY,
 } from "./financials-policy"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /**
  * The "Financials" field permission — may this person see dollar figures
@@ -18,7 +19,7 @@ import {
  * get to see, because they have no rows).
  *
  * Granted when ANY of:
- *   - the person's REAL role is super_user (always — same lockout guard as
+ *   - the person's REAL role is super_user or admin (always — same lockout guard as
  *     getUserScopes: a super can never be locked out of their own data), or
  *   - their `user_data_scopes.financials` flag is on (Admin → Users), or
  *   - their ROLE has the Financials data permission (Admin → Roles), stored in
@@ -37,7 +38,7 @@ export async function canSeeFinancials(
   if (!email) return false
 
   const role = await getRealRole(email)
-  if (role === "super_user") return true
+  if (hasSuperUserPrivileges(role)) return true
 
   // Per-person flag. getUserScopes reads user_data_scopes and already fails
   // closed (a read error / missing row → all-deny), so this needs no extra

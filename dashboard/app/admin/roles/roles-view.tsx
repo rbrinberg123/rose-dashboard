@@ -15,7 +15,17 @@ import {
   type DataPermissionEntry,
   type PageEntry,
 } from "@/lib/page-registry"
+import { canAccessRoute } from "@/lib/access-control"
 import { setRolePageAccess, setRoleDataPermission } from "./actions"
+
+/**
+ * A LOCKED column's cell — code-defined, never stored: super_user = every page,
+ * admin = every page except ADMIN_EXCLUDED_ROUTES / hidden pages. Asked through
+ * canAccessRoute (no grants), the same predicate the proxy enforces with.
+ */
+function lockedAllows(role: AssignableRole, route: string): boolean {
+  return canAccessRoute(role, route, [])
+}
 
 /** Flat key into the grant/override maps. */
 function keyFor(role: string, route: string): string {
@@ -118,7 +128,9 @@ export function RolesView({
 
   // Per-role tally across all pages (super_user is always every page).
   const totals = ASSIGNABLE_ROLES.map((r) => {
-    if (r.locked) return { role: r, count: PAGE_REGISTRY.length }
+    // Locked columns are code-defined: super_user = every page, admin = all but
+    // ADMIN_EXCLUDED_ROUTES / hidden pages (lockedAllows → canAccessRoute).
+    if (r.locked) return { role: r, count: PAGE_REGISTRY.filter((e) => lockedAllows(r.value, e.route)).length }
     const count = PAGE_REGISTRY.filter((e) => allow[keyFor(r.value, e.route)]).length
     return { role: r, count }
   })
@@ -158,7 +170,9 @@ export function RolesView({
         <p>
           <span className="font-medium">Live.</span> A page is allowed for a role only when its box
           is checked here — default deny, so a role with nothing checked can reach nothing.
-          Super&nbsp;User always sees everything (locked). Changes take effect on the user&apos;s
+          Super&nbsp;User always sees everything (locked). Admin is locked too: everything except
+          Users &amp; Roles, Client Statistics, Productivity, Sync, Reconciliation, Database and
+          hidden pages — set in code, not here. Changes take effect on the user&apos;s
           next page load. The <span className="font-medium">Data permissions</span> rows at the
           bottom are not pages — they gate which <span className="font-medium">fields</span> a role
           receives. A person is also granted a data permission individually on{" "}
@@ -229,7 +243,7 @@ export function RolesView({
                     </td>
                     {ASSIGNABLE_ROLES.map((r) => {
                       const k = keyFor(r.value, entry.route)
-                      const checked = r.locked ? true : allow[k]
+                      const checked = r.locked ? lockedAllows(r.value, entry.route) : allow[k]
                       const isPending = pending.has(k)
                       return (
                         <td key={r.value} className="px-3 py-1.5 text-center">

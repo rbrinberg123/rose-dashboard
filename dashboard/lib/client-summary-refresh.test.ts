@@ -178,7 +178,7 @@ test("cron bearer check fails CLOSED when the secret is unset", () => {
 
 test("a browser request carries no bearer — it must fall through to the session check", () => {
   // The Admin button fetches with cookies and no Authorization header. The
-  // header check must reject it so the route's requireSuperUser() path runs.
+  // header check must reject it so the route's requireSuperUserPrivileges() path runs.
   assert.equal(hasCronBearer(null, "s3cret"), false)
   assert.equal(hasCronBearer(undefined, "s3cret"), false)
 })

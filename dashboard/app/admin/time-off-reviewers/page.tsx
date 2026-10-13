@@ -6,6 +6,7 @@ import { getSupabaseServer } from "@/lib/supabase"
 import { getEffectiveRole } from "@/lib/effective-identity"
 import { buildIdentityIndex } from "@/lib/access/identity-index"
 import { ReviewersView, type ReviewerPerson, type ReviewerAssignment } from "./reviewers-view"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 export const dynamic = "force-dynamic"
 
@@ -25,7 +26,7 @@ const PATCH = "sql/patches/2026-09-24_time_off_requests.sql"
 export default async function TimeOffReviewersPage() {
   // ---- GATE (must stay first — nothing above this line may touch data) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") redirect("/no-access")
+  if (!hasSuperUserPrivileges(role)) redirect("/no-access")
 
   const sb = getSupabaseServer()
   const [usersRes, mapRes] = await Promise.all([

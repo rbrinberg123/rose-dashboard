@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import Anthropic from "@anthropic-ai/sdk"
 import { getSupabaseServer } from "@/lib/supabase"
-import { requireSuperUser } from "@/lib/api-auth"
+import { requireSuperUserPrivileges } from "@/lib/api-auth"
 import { hasCronBearer } from "@/lib/cron-auth"
 import { AI_BATCH_CONFIG, runThrottled, withBackoff } from "@/lib/ai-batch"
 import {
@@ -51,7 +51,7 @@ import {
  *     regenerate.
  *   - The Admin hub's "Refresh all AI summaries" button, which POSTs here from
  *     the browser with the caller's SESSION and no token — authorized by
- *     requireSuperUser() instead (same guard the other admin-triggered routes
+ *     requireSuperUserPrivileges() instead (same guard the other admin-triggered routes
  *     use). See hasCronBearer/authorize below.
  *
  * Costs Anthropic API money per client, so it MUST stay non-public: without a
@@ -115,7 +115,7 @@ async function authorize(request: NextRequest): Promise<NextResponse | null> {
   if (hasCronBearer(request.headers.get("authorization"), process.env.CRON_SECRET)) {
     return null
   }
-  const auth = await requireSuperUser()
+  const auth = await requireSuperUserPrivileges()
   return auth.ok ? null : auth.response
 }
 

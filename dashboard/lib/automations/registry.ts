@@ -82,12 +82,13 @@ export const AUTOMATIONS: readonly Automation[] = [
     kind: "Event-driven",
     trigger: "A Feedback task changes to Completed (Close on Feedback Reports, or Tasks → Edit).",
     effect:
-      "Creates “Feedback Report Pending Review – <event>” (sub-type Feedback Report Sent, Open, due close date + 2 days), linked to that exact report, so the report moves to Pending Review.",
+      "Creates “Feedback Report Pending Review – <event>” (sub-type Feedback Report Sent, Open, due close date + 2 days), linked to that exact report, so the report moves to Pending Review. Its owner defaults to the client's Associate (accounts.associate_id); with no Associate it stays unowned.",
     scope: "origin = 'dashboard' Feedback tasks. One review task per report, ever — re-closing does nothing; reopening leaves it as is.",
     applicability: "Dashboard now · Dynamics at cutover",
     status: "Active",
     where: [
       "sql/patches/2026-10-07b_feedback_report_automation.sql — trg_tasks_feedback_close_review; v_feedback_pipeline pairs by tasks.review_of_task_id",
+      "lib/feedback-reports/review-owner.ts — assignReviewTaskToAssociate (owner → Associate; called by closeFeedbackTask, closeTask, updateTask)",
     ],
   },
   {

@@ -41,7 +41,7 @@ export function financialsFromRow(
 
 /** The three independent inputs to the decision. */
 export type FinancialsInputs = {
-  /** The person's REAL role is super_user — always sees financials. */
+  /** The person's REAL role has super-user privileges (super_user / admin) — always sees financials. */
   isSuper: boolean
   /** Their `user_data_scopes.financials` flag. */
   userFlag: boolean

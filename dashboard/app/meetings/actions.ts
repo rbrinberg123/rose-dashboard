@@ -51,6 +51,7 @@ import {
   loadHostAliasGroups,
   type FilterOptions,
 } from "@/lib/meetings/query"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /**
  * Load ONE meeting's full record for the Meetings drawer.
@@ -156,7 +157,7 @@ export async function loadMeetingRecord(
 ): Promise<ActionResult<MeetingRecord>> {
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   return readMeetingRecord(meetingId)
 }
@@ -176,7 +177,7 @@ export async function loadHostedMeetingRecord(
   // ---- GATE (must stay first) ----
   if (!meetingId) return fail("No meeting id.")
   const role = await getEffectiveRole()
-  if (role !== "super_user") {
+  if (!hasSuperUserPrivileges(role)) {
     if (!role) return fail("Not authorised.")
     const identity = await getEffectiveIdentity()
     const viewer = await viewerUserIds(identity.email)
@@ -316,7 +317,7 @@ export async function loadRowsForExport(input: {
 }): Promise<ActionResult<AdminMeetingRow[]>> {
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   const parsed = parseConfig(input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -361,7 +362,7 @@ export async function loadRowsForExport(input: {
 export async function loadMeetingFilterOptions(): Promise<ActionResult<FilterOptions>> {
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   return ok(await loadFilterOptions(getSupabaseServer()))
 }
@@ -447,7 +448,7 @@ async function meetingChoiceOptions(): Promise<ActionResult<MeetingChoiceOptions
 
 export async function loadMeetingChoiceOptions(): Promise<ActionResult<MeetingChoiceOptions>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   return meetingChoiceOptions()
 }
 

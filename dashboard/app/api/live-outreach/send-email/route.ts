@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { requireSuperUser } from "@/lib/api-auth"
+import { requireSuperUserPrivileges } from "@/lib/api-auth"
 import { sendMail, GraphError } from "@/lib/graph"
 import { loadLiveOutreachRows } from "@/app/live-outreach/load"
 import { buildEmailHtml } from "@/app/live-outreach/email-html"
@@ -9,7 +9,7 @@ import { claimDailySend, releaseDailySend } from "@/lib/live-outreach-send-log"
  * Live Outreach digest email — two entry points, two auth models:
  *
  *  • POST — manual send from the dashboard. Gated to a signed-in **super_user**
- *    (requireSuperUser). Body picks the recipient:
+ *    (requireSuperUserPrivileges). Body picks the recipient:
  *      { mode: "team" }                 → the server-owned TEAM_RECIPIENT const
  *      { mode: "test", recipient: "…" } → a single typed address (test only)
  *    The team address is ALWAYS the server constant; the test box can never
@@ -117,7 +117,7 @@ function errorResponse(err: unknown): NextResponse {
 
 // ---- POST: manual send (super_user) ----------------------------------------
 export async function POST(request: NextRequest) {
-  const auth = await requireSuperUser()
+  const auth = await requireSuperUserPrivileges()
   if (!auth.ok) return auth.response
 
   // Choose recipient from the body. Anything other than an explicit, valid

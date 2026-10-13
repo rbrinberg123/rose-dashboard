@@ -137,13 +137,17 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
  * The roles offered as columns in the Roles matrix. Mirrors the roles offered
  * in the Users grid selector, minus "None". `super_user` is LOCKED — it always
  * has access to everything, so its column is all-checked and non-editable and
- * is never written to role_page_access.
+ * is never written to role_page_access. `admin` is LOCKED too: its page set is
+ * code-defined (canAccessRoute minus ADMIN_EXCLUDED_ROUTES, lib/access-control.ts),
+ * so its column shows exactly that — excluded pages unchecked — and is never
+ * written either.
  */
 export type AssignableRole =
   | "user"
   | "associate"
   | "client_manager"
   | "logistics"
+  | "admin"
   | "super_user"
 
 export const ASSIGNABLE_ROLES: readonly {
@@ -155,6 +159,7 @@ export const ASSIGNABLE_ROLES: readonly {
   { value: "associate", label: "Associate" },
   { value: "client_manager", label: "Client Manager" },
   { value: "logistics", label: "Logistics" },
+  { value: "admin", label: "Admin", locked: true },
   { value: "super_user", label: "Super User", locked: true },
 ] as const
 
@@ -209,6 +214,8 @@ export function isDataPermissionKey(key: string): boolean {
  * (default deny), so the grid can never imply un-enforced access. This helper
  * remains as documentation of the recommended starting grants:
  *   - super_user  → everything (a hard backstop; never written to the table).
+ *   - admin       → not seeded: everything except ADMIN_EXCLUDED_ROUTES / hidden
+ *                   pages, code-defined via canAccessRoute; never written.
  *   - client_manager → all Clients + Institutions pages.
  *   - logistics   → all Logistics pages.
  *   - associate   → nothing (deny-by-default; set in the Roles matrix).
@@ -218,6 +225,11 @@ export function seedDefaultAllowed(role: AssignableRole, entry: PageEntry): bool
   switch (role) {
     case "super_user":
       return true
+    // Admin is never seeded: its column is code-defined (canAccessRoute minus
+    // ADMIN_EXCLUDED_ROUTES) and the Roles matrix draws it from canAccessRoute.
+    // This module stays import-free so its tests run under plain node.
+    case "admin":
+      return false
     case "client_manager":
       return entry.section === "Clients" || entry.section === "Institutions"
     case "logistics":

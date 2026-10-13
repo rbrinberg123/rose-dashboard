@@ -8,7 +8,7 @@ import {
 import { getRealRole } from "@/lib/user-role"
 import { resolveEffective } from "@/lib/impersonation"
 import { getAllowedRoutes } from "@/lib/page-access"
-import { landingRouteFor } from "@/lib/access-control"
+import { homeRouteFor, landingRouteFor } from "@/lib/access-control"
 import { perfTimer } from "@/lib/perf-log"
 import {
   ANONYMOUS_IDENTITY,
@@ -145,7 +145,9 @@ export async function proxy(request: NextRequest) {
     // by the page registry), else the always-allowed "request access" screen —
     // from which the View-as banner's Exit is still reachable. This replaces the
     // old fixed USER_HOME_ROUTE and can never redirect-loop.
-    url.pathname = allowedRoutes[0] ?? "/no-access"
+    // An admin has no matrix grants (code-defined), so it lands on its home
+    // (My Dashboard) when it hits one of ADMIN_EXCLUDED_ROUTES.
+    url.pathname = allowedRoutes[0] ?? (role === "admin" ? homeRouteFor(role, allowedRoutes) : "/no-access")
     return NextResponse.redirect(url)
   }
 

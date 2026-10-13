@@ -5,6 +5,7 @@ import { getSupabaseServer } from "@/lib/supabase"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { resolveAccountTeamScope } from "@/lib/access/account-team-scope"
 import type { ClientOnboardingRow } from "@/lib/types"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /**
  * The onboarding card on My Dashboard (Onboarding feed → click a client). One
@@ -20,7 +21,7 @@ export async function loadOnboardingDetail(accountId: string): Promise<ActionRes
   // ---- GATE (must stay first) ----
   if (!accountId) return fail("No client id.")
   const role = await getEffectiveRole()
-  if (role !== "super_user") {
+  if (!hasSuperUserPrivileges(role)) {
     if (!role) return fail("Not authorised.")
     const scope = await resolveAccountTeamScope(await getEffectiveIdentity())
     if (scope.mode !== "filter" || !scope.accountIds.has(accountId)) return fail("Not authorised.")

@@ -9,6 +9,7 @@ import {
   deactivationAllowedForOrigin,
   type ClientDeactivationState,
 } from "./deactivation"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /**
  * The SERVER-SIDE permission gate for deactivating / reactivating a client.
@@ -16,7 +17,8 @@ import {
  * this is the only real gate — the UI merely hides the button.
  *
  * ══ WHO IS PERMISSIONED (widen / narrow HERE) ═══════════════════════════════
- *   1. Effective role `super_user` (there is no separate "admin" role), OR
+ *   1. Effective role with super-user privileges — `super_user` or `admin`
+ *      (hasSuperUserPrivileges), OR
  *   2. the client's PRIMARY MANAGER: `accounts.sales_lead_primary_id` is one of
  *      the viewer's user ids. "One of" because a person can carry several CRM
  *      user records — the same unioned id set the data-scope resolver uses
@@ -30,7 +32,7 @@ import {
 /** Edit this to change who may deactivate. Kept as one function on purpose. */
 async function isPermissioned(salesLeadPrimaryId: string | null): Promise<boolean> {
   const [role, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
-  if (role === "super_user") return true
+  if (hasSuperUserPrivileges(role)) return true
   if (!salesLeadPrimaryId) return false
   if (identity.userId && identity.userId === salesLeadPrimaryId) return true
   const index = await loadIdentity()

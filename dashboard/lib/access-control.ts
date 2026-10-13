@@ -33,12 +33,13 @@
  * EDITABLE_ROLES in app/admin/roles/actions.ts, STAGED_ROLES in
  * app/admin/users/actions.ts, RoleValue/ROLE_OPTIONS/ROLE_META in
  * app/admin/users/users-view.tsx — and the user_role_grants CHECK constraint in
- * Supabase. Nothing in canAccessRoute, getAllowedRoutes or proxy.ts enumerates
+ * Supabase (latest: sql/patches/2026-10-13_admin_role.sql). Nothing in canAccessRoute, getAllowedRoutes or proxy.ts enumerates
  * roles, so gating picks a new role up for free: it is denied everywhere until
  * the Roles matrix grants it a page.
  */
 export type Role =
   | "super_user"
+  | "admin"
   | "user"
   | "associate"
   | "client_manager"
@@ -59,6 +60,7 @@ export const VIEW_AS_USER_COOKIE = "view_as_user"
 /** Roles offered in the Admin "View as" dropdown, in display order. */
 export const VIEW_AS_ROLE_OPTIONS: readonly { value: ViewAsRole; label: string }[] = [
   { value: "super_user", label: "Super User" },
+  { value: "admin", label: "Admin" },
   { value: "client_manager", label: "Client Manager" },
   { value: "logistics", label: "Logistics" },
   { value: "associate", label: "Associate" },
@@ -69,11 +71,52 @@ export const VIEW_AS_ROLE_OPTIONS: readonly { value: ViewAsRole; label: string }
 export function isViewAsRole(value: string | null | undefined): value is ViewAsRole {
   return (
     value === "super_user" ||
+    value === "admin" ||
     value === "user" ||
     value === "associate" ||
     value === "client_manager" ||
     value === "logistics"
   )
+}
+
+/* ---------------------------------------------------------------------------
+ * SUPER-USER PRIVILEGES vs STRICT SUPER USER (2026-10-13)
+ *
+ * `admin` is a near-super-user: it passes every check that used to read
+ * `role === "super_user"` EXCEPT a short list of carve-outs. Every such check
+ * now goes through one of these two helpers, so the boundary is greppable:
+ *
+ *   hasSuperUserPrivileges(role)  super_user OR admin. The default for any
+ *                                 "may do everything" check — CRM tables, CRM
+ *                                 writes, row-scope / financials bypass, client
+ *                                 deactivation, sends, feedback / task admin
+ *                                 powers, time-off admin, the canAccessRoute
+ *                                 backstop (minus ADMIN_EXCLUDED_ROUTES).
+ *   isStrictSuperUser(role)       super_user ONLY. The carve-outs: Users & Roles
+ *                                 (+ their actions and the matrix), View as
+ *                                 (impersonation), the Admin hub's Hidden Pages
+ *                                 section and its Users / Roles tiles.
+ *
+ * Both are PURE — they take a role, not a request. Real vs "View as" is the
+ * CALLER's choice, exactly as before: pass getRealRole/getUserRole where the
+ * old check read the real role (requireSuperUser*, data-scope, financials,
+ * impersonation) and getEffectiveRole where it read the effective one (pages,
+ * actions), so a super user viewing as "Admin" sees precisely what an admin
+ * sees, and an admin can never start a View as.
+ *
+ * To move a power across the line, swap the helper at that one call site; to
+ * change admin's page set, edit ADMIN_EXCLUDED_ROUTES. See docs
+ * 01-access-and-users.md → Admin role.
+ * ------------------------------------------------------------------------ */
+
+/** super_user or admin — the "may do (almost) everything" check. */
+export function hasSuperUserPrivileges(role: Role | null | undefined): boolean {
+  return role === "super_user" || role === "admin"
+}
+
+/** super_user only — user/role management, View as, Hidden Pages. */
+export function isStrictSuperUser(role: Role | null | undefined): boolean {
+  return role === "super_user"
 }
 
 /** Human label for a role (used by the "Viewing as …" banner). */
@@ -175,6 +218,29 @@ export const ADMIN_ONLY_ROUTES = [
   "/admin/automations",
 ] as const
 
+/**
+ * Routes an `admin` may NOT reach although it otherwise passes the super-user
+ * backstop in canAccessRoute. Super users still reach all of them; other roles
+ * are unaffected (matrix as usual). Hidden (retired) pages — HIDDEN_PAGE_REGISTRY
+ * — are excluded for admin too, without being listed here. Because the nav draws
+ * only what canAccessRoute allows, an entry here removes the link as well.
+ */
+export const ADMIN_EXCLUDED_ROUTES = [
+  // User / role management stays super-user only.
+  "/admin/users",
+  "/admin/roles",
+  // Client Statistics and every Productivity page.
+  "/client-statistics",
+  "/people-statistics",
+  "/productivity",
+  "/productivity-detail",
+  "/capacity",
+  // Admin maintenance screens.
+  "/admin/sync",
+  "/admin/reconciliation",
+  "/admin/database",
+] as const
+
 /** True when `pathname` is `route` or a sub-path of it (segment-aware). */
 function matchesRoute(pathname: string, route: string): boolean {
   return pathname === route || pathname.startsWith(route + "/")
@@ -234,6 +300,8 @@ export function isHiddenRoute(pathname: string): boolean {
  * Order of checks (backstops first):
  *   1. Always-allowed infra routes → yes, for anyone signed in.
  *   2. super_user → yes, everything (never gated by the matrix).
+ *      admin → yes, everything EXCEPT ADMIN_EXCLUDED_ROUTES and hidden pages
+ *      (never gated by the matrix either).
  *   3. ADMIN_ONLY_ROUTES, or a HIDDEN page (HIDDEN_PAGE_REGISTRY) → no, for
  *      everyone who got past step 2.
  *   4. No role → no.
@@ -246,7 +314,10 @@ export function canAccessRoute(
   allowedRoutes: readonly string[],
 ): boolean {
   if (ALWAYS_ALLOWED_ROUTES.some((r) => matchesRoute(pathname, r))) return true
-  if (role === "super_user") return true
+  if (isStrictSuperUser(role)) return true
+  if (role === "admin") {
+    return !ADMIN_EXCLUDED_ROUTES.some((r) => matchesRoute(pathname, r)) && !isHiddenRoute(pathname)
+  }
   // Super-user-only routes are never delegable through the matrix (see
   // ADMIN_ONLY_ROUTES). Deny before the grant lookup, so a stray role_page_access
   // row cannot open one.
@@ -303,7 +374,7 @@ export const CRM_NAV_ITEMS: readonly CrmNavItem[] = [
  *
  * TWO conditions, deliberately, although today either alone would do:
  *
- *   role === "super_user"  an explicit floor. This is the requirement — the CRM
+ *   hasSuperUserPrivileges an explicit floor (super_user or admin). This is the requirement — the CRM
  *                          block is super-user-only — stated where it cannot be
  *                          weakened from somewhere else. Were /meetings ever
  *                          taken out of ADMIN_ONLY_ROUTES, the second check
@@ -325,7 +396,7 @@ export function canSeeCrmNav(
   role: Role | null,
   allowedRoutes: readonly string[],
 ): boolean {
-  if (role !== "super_user") return false
+  if (!hasSuperUserPrivileges(role)) return false
   return CRM_NAV_ITEMS.some((item) => canAccessRoute(role, item.href, allowedRoutes))
 }
 

@@ -27,6 +27,7 @@ import {
 import type { SavedView, SavedViewScope } from "@/lib/table-views/types"
 import { MEETINGS_SPEC } from "@/lib/meetings/spec"
 import { loadFilterOptions, type FilterOptions } from "@/lib/meetings/query"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 export async function listSavedViews(): Promise<ActionResult<SavedView[]>> {
   return sharedList(MEETINGS_SPEC)
@@ -69,6 +70,6 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  */
 export async function loadMeetingFilterOptions(): Promise<ActionResult<FilterOptions>> {
   const role = await getEffectiveRole()
-  if (role !== "super_user") return fail("Not authorised.")
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   return ok(await loadFilterOptions(getSupabaseServer()))
 }
