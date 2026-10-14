@@ -54,3 +54,44 @@ export async function loadConfirmedMeetingsByEvent(
   }
   return byEvent
 }
+
+/** One meeting row of the event drawer / Edit Event "Meetings & Reports" lists. */
+export type EventMeetingRow = {
+  meeting_id: string
+  meeting_date: string | null
+  institution_name: string | null
+  investor_text: string | null
+  host_name: string | null
+  booker_name: string | null
+  meeting_status_label: string | null
+  state_label: string | null
+  feedback_status_label: string | null
+  fb_received_date: string | null
+  /** 'dashboard' | 'dynamics' — decides editable form vs read-only record on click. */
+  origin: string | null
+}
+
+/**
+ * EVERY meeting of ONE event — all statuses (Confirmed, Pending, TBR,
+ * Cancelled) and both origins — for the event drawer's Meetings & Reports tab
+ * (the read-only list on Dynamics events) and the tab count badges. Unlike
+ * loadConfirmedMeetingsByEvent above it is NOT confirmed-only: an event's
+ * meeting list has to show pending and cancelled meetings too. Same link
+ * (`meetings.event_id`, from Dynamics `_bcs_event_value`).
+ *
+ * The CALLER gates access (super user) — no scoping here. Unlike the batch
+ * read above it reports a query error, so the list can say it failed.
+ */
+export async function loadEventMeetings(
+  eventId: string,
+): Promise<{ ok: true; rows: EventMeetingRow[] } | { ok: false; error: string }> {
+  const { data, error } = await getSupabaseServer()
+    .from("meetings")
+    .select(
+      "meeting_id, meeting_date, institution_name, investor_text, host_name, booker_name, meeting_status_label, state_label, feedback_status_label, fb_received_date, origin",
+    )
+    .eq("event_id", eventId)
+    .order("meeting_date", { ascending: true, nullsFirst: false })
+  if (error) return { ok: false, error: error.message }
+  return { ok: true, rows: (data ?? []) as EventMeetingRow[] }
+}

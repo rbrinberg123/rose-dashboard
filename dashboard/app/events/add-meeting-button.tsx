@@ -1,21 +1,27 @@
 "use client"
 
 import * as React from "react"
-import { CalendarPlus } from "lucide-react"
+import { Plus } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
+import { AddNewButton } from "@/components/crm-add-new"
+import { cn } from "@/lib/utils"
 import { canAddMeetingFromEvent } from "@/lib/meetings/create"
 import { NewMeetingForEventDialog } from "@/app/meetings/new-meeting-dialog"
 
 /**
- * "Add Meeting" on an event — the event drawer header and the event edit
- * dialog. Opens the existing Add New Meeting form with Client + Event locked to
- * this event (NewMeetingForEventDialog).
+ * "Add Meeting" on an event — the PROMINENT create action: top-right of the
+ * Meetings & Reports panel (event drawer + Edit Event dialog) and the Edit
+ * Event dialog's header. It IS the shared CRM primary button, AddNewButton
+ * (components/crm-add-new.tsx — the blue→teal RAIL_ACCENT_FILL "+ Add New …"
+ * button on every CRM page), just a size smaller. Opens the existing Add New
+ * Meeting form with Client + Event locked to this event
+ * (NewMeetingForEventDialog).
  *
- * CUTOVER GATE: canAddMeetingFromEvent(origin) — dashboard-origin only until
- * ADD_MEETING_FROM_EVENT_INCLUDES_DYNAMICS flips. A Dynamics event shows the
- * button disabled with an "available at cutover" tooltip. createMeeting applies
- * the same check server-side, so this only decides what is offered.
+ * ORIGIN GATE: canAddMeetingFromEvent(origin) — ON for dashboard AND Dynamics
+ * events (ADD_MEETING_FROM_EVENT_INCLUDES_DYNAMICS, see lib/meetings/create.ts
+ * for why that is safe). The new meeting is always origin='dashboard'.
+ * createMeeting applies the same check server-side, so this only decides what
+ * is offered.
  */
 export function AddMeetingFromEventButton({
   origin,
@@ -24,36 +30,55 @@ export function AddMeetingFromEventButton({
   clientAccountId,
   location,
   className,
-  compact = true,
+  onAdded,
+  variant = "primary",
 }: {
   origin: string | null | undefined
   eventId: string
   eventName: string | null
   clientAccountId: string | null
   location: string | null
-  /** Wrapper class (e.g. mr-auto in a dialog footer). */
+  /** Wrapper class (e.g. ml-auto to pin it right). */
   className?: string
-  /** Small header-chip size (drawer); false = normal button (dialog footer). */
-  compact?: boolean
+  /** After a meeting is saved — the caller reloads its meeting lists. */
+  onAdded?: () => void
+  /**
+   * "primary" = the shared AddNewButton (panels). "icon" = a small, quiet "+"
+   * for the event drawer's Meetings KPI tile — same action, same pre-fill.
+   */
+  variant?: "primary" | "icon"
 }) {
   const [open, setOpen] = React.useState(false)
-  const allowed = canAddMeetingFromEvent(origin)
-  if (!clientAccountId || (!allowed && origin !== "dynamics")) return null
+  if (!clientAccountId || !canAddMeetingFromEvent(origin)) return null
 
   return (
     <>
-      <span className={className} title={allowed ? "Add a meeting to this event" : "Adding meetings to Dynamics events is available at cutover"}>
-        <Button
+      {variant === "icon" ? (
+        <button
           type="button"
-          size="sm"
-          variant="outline"
-          className={compact ? "h-6 px-2 text-[11px]" : undefined}
-          disabled={!allowed}
+          title="Add meeting"
+          aria-label="Add meeting"
           onClick={() => setOpen(true)}
+          className={cn(
+            "inline-flex size-5 cursor-pointer items-center justify-center rounded-md border border-[#E4E9F4] bg-white text-[#5B6472]",
+            "transition-colors hover:border-[#0355A7] hover:bg-[#0355A7] hover:text-white",
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0355A7]/40",
+            className,
+          )}
         >
-          <CalendarPlus className={compact ? "size-3" : "size-4"} /> Add Meeting
-        </Button>
-      </span>
+          <Plus className="size-3.5" strokeWidth={2.5} aria-hidden="true" />
+        </button>
+      ) : (
+        <span className={className} title="Add a meeting to this event">
+          <AddNewButton
+            entity="meeting"
+            label="Add Meeting"
+            // A size down from the page-masthead button.
+            className="gap-1 px-2.5 py-1 text-xs [&>svg]:size-3.5"
+            onClick={() => setOpen(true)}
+          />
+        </span>
+      )}
       {open && (
         // React bubbles events through the PORTAL along the component tree, so
         // inside the event edit dialog the meeting form's submit would also
@@ -62,6 +87,7 @@ export function AddMeetingFromEventButton({
           <NewMeetingForEventDialog
             event={{ eventId, eventName, clientAccountId, location }}
             onClose={() => setOpen(false)}
+            onSaved={onAdded}
           />
         </div>
       )}

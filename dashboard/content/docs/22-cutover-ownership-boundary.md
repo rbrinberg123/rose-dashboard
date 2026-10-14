@@ -309,7 +309,7 @@ Each item in the CRM **"+" quick-add menu** (New Client, Meeting, Event, Task, T
 ### Cutover TODO: "Add Meeting" from Dynamics events (recorded 2026-10-09)
 The event **Add Meeting** button (drawer + edit dialog; see [13 — Events](13-events.md)) is live for **dashboard-origin events only**. Dynamics events show it disabled ("available at cutover"), and `createMeeting` refuses a `fromEventId` whose event is not dashboard-origin.
 - **At cutover:** set `ADD_MEETING_FROM_EVENT_INCLUDES_DYNAMICS = true` in `lib/meetings/create.ts`. That single switch drives both the button (`canAddMeetingFromEvent` in `app/events/add-meeting-button.tsx`) and the server check in `createMeeting`. No other change is needed.
-- **Status:** ☐ open — do not flip before the dashboard owns Dynamics events.
+- **Status:** ☑ flipped early, **2026-10-14**, by request: Add Meeting is now offered on Dynamics events. It is safe because the new meeting is dashboard-origin (fenced from the sync and the sweep), `meetings.event_id` has no foreign key, and the feedback and lifecycle triggers write nothing for a Dynamics event. See [13 — Events](13-events.md). `FEEDBACK_AUTOMATION_INCLUDES_DYNAMICS` was **not** flipped.
 
 ## Contracts: dashboard-authored contracts (2026-09-29; moved to Admin 2026-09-30)
 **Contract Management** (`/admin/contracts`) is a card on the Admin hub. It's not in the CRM "+" menu. It's live on the same plumbing: origin guard on edit, a guarded single-row **Delete** (`DELETE … WHERE contract_id AND origin='dashboard'`, must hit exactly 1 row), audit, the TEST badge, and purge. The fence was already on `contracts` (Part A/B of this doc's patch, `hasOrigin: true`).

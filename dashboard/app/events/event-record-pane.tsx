@@ -26,8 +26,15 @@ import Link from "next/link"
 import { Check, ExternalLink, Lock, Pause, UserRound, X } from "lucide-react"
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
-import { FeedbackReportsPanel } from "./feedback-reports-panel"
+import { MeetingsReportsPanel } from "./meetings-reports-panel"
 import { AddMeetingFromEventButton } from "./add-meeting-button"
+import {
+  EventMeetingsReadOnlyList,
+  EventTabBar,
+  eventMeetingCount,
+  useEventMeetings,
+  type EventTabKey,
+} from "./event-meetings-tabs"
 import { loadEventRepresentatives } from "./actions"
 import type { EventRepresentative } from "@/lib/events/create"
 import { isAutomationOrigin } from "@/lib/feedback-reports/policy"
@@ -111,7 +118,7 @@ function Pill({ children, bg, text }: { children: React.ReactNode; bg: string; t
  *     would be hiding the common case. Portfolio floors this at 0 because it
  *     SUMS across events; a single event does not need that floor.
  */
-function StatRow({ record }: { record: EventRecord }) {
+function StatRow({ record, addMeeting }: { record: EventRecord; addMeeting?: React.ReactNode }) {
   const meetings = record.confirmed_meetings ?? 0
   const slots = record.of_slots
   const remaining = record.slots_remaining
@@ -119,7 +126,7 @@ function StatRow({ record }: { record: EventRecord }) {
 
   return (
     <div className="mb-5 grid grid-cols-3 gap-2">
-      <Stat label="Meetings" value={meetings} hint="Confirmed meetings on this event" />
+      <Stat label="Meetings" value={meetings} hint="Confirmed meetings on this event" action={addMeeting} />
       <Stat
         label="Meeting Slots"
         value={slots ?? null}
@@ -146,18 +153,22 @@ function Stat({
   value,
   hint,
   tone,
+  action,
 }: {
   label: string
   /** null renders an em dash — see StatRow's note on unknown vs zero. */
   value: number | null
   hint?: string
   tone?: "bad"
+  /** A small control pinned to the tile's top-right corner (Meetings: "+"). */
+  action?: React.ReactNode
 }) {
   return (
     <div
-      className={cn(KPI_CARD_CLASS, "px-3 py-2")}
+      className={cn(KPI_CARD_CLASS, "relative px-3 py-2")}
       title={hint}
     >
+      {action && <div className="absolute right-1.5 top-1.5">{action}</div>}
       <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9AA1AD]">
         {label}
       </div>
@@ -474,6 +485,40 @@ function Field({
   )
 }
 
+/**
+ * Which TAB each field lives on. Fields stay defined in EVENT_SECTIONS; the
+ * tabs only partition them: Targeting takes the keys below (in this order),
+ * Details keeps everything else in its section.
+ */
+const TARGETING_KEYS: (keyof EventRecord)[] = [
+  "targeting_date",
+  "targeting_url",
+  "profile_link",
+  "targeting_not_required",
+  "memo_date",
+  "memo_not_required",
+  "last_data_upload",
+  "shareholder_report_received_date",
+  "targeting_notes",
+]
+const ALL_FIELDS = EVENT_SECTIONS.flatMap((s) => s.fields)
+const pickFields = (keys: (keyof EventRecord)[]) =>
+  keys.map((k) => ALL_FIELDS.find((f) => f.sourceKey === k)).filter((f): f is EventFieldDef => !!f)
+
+function FieldSection({ title, fields, record }: { title: string; fields: EventFieldDef[]; record: EventRecord }) {
+  if (fields.length === 0) return null
+  return (
+    <section className="mb-6">
+      <SectionHeader title={title} />
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+        {fields.map((f) => (
+          <Field key={String(f.sourceKey)} def={f} record={record} clientAccountId={record.client_account_id} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export function EventRecordPane({
   record,
   loading,
@@ -488,14 +533,42 @@ export function EventRecordPane({
   onClose: () => void
   /** Opens the edit form — shown only for origin='dashboard' records. */
   onEdit?: () => void
-  /** The Feedback reports panel (its loader is super-user only). My Dashboard
-   *  hides it for other viewers. Default on, as on the Events page. */
+  /** The Meetings & Reports content (its loaders are super-user only). My
+   *  Dashboard hides it for other viewers. Default on, as on the Events page. */
   showFeedbackReports?: boolean
 }) {
+  // Tab + meeting-list reload, both reset per event (tab back to Details).
+  const eventId = record?.event_id ?? null
+  const [tabState, setTabState] = React.useState<{ id: string | null; tab: EventTabKey }>({ id: null, tab: "details" })
+  const tab: EventTabKey = tabState.id === eventId ? tabState.tab : "details"
+  const [reload, setReload] = React.useState(0)
+  // The meeting list (all statuses) — the Dynamics read-only list and the
+  // badge. Its loader is super-user only, so it follows showFeedbackReports.
+  const meetings = useEventMeetings(eventId, showFeedbackReports, reload)
+  const meetingCount = eventMeetingCount(meetings.rows)
+
   const open = loading || !!record || !!error
   if (!open) return null
 
   const statePill = eventStatePill(record?.event_state_label ?? null)
+  const team = (record?.client_team ?? []).filter((m) => m.name && m.name.trim())
+
+  // Add Meeting — offered where the host offers Edit (a write-capable page).
+  // Lives in the Meetings & Reports panel header (not the drawer header), plus a
+  // small "+" on the Meetings KPI tile — same action, same pre-fill.
+  const addMeeting = (where: string, variant: "primary" | "icon" = "primary") =>
+    record && onEdit ? (
+      <AddMeetingFromEventButton
+        key={`${where}-${record.event_id}`}
+        variant={variant}
+        origin={record.origin}
+        eventId={record.event_id}
+        eventName={record.event_title}
+        clientAccountId={record.client_account_id}
+        location={record.event_location}
+        onAdded={() => setReload((n) => n + 1)}
+      />
+    ) : null
 
   return (
     <>
@@ -505,13 +578,16 @@ export function EventRecordPane({
         onClick={onClose}
         className="fixed inset-0 z-40 bg-black/10"
       />
+      {/* FIXED SIZE: full-height column; header, stat row and tab strip never
+          move, and only the active tab's body scrolls — so switching tabs never
+          resizes or jumps the drawer. */}
       <aside
         role="dialog"
         aria-modal="true"
         aria-label="Event record"
         className="fixed right-0 top-0 z-50 flex h-screen w-[560px] max-w-[94vw] flex-col border-l border-[#E5E8EC] bg-white shadow-2xl"
       >
-        <header className="border-b border-[#E5E8EC] px-5 py-4">
+        <header className="shrink-0 border-b border-[#E5E8EC] px-5 py-4">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <div className="text-[11px] uppercase tracking-wider text-[#9AA1AD]">Event</div>
@@ -531,17 +607,6 @@ export function EventRecordPane({
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {record?.is_test && <TestBadge />}
                   <RecordEditBar origin={record?.origin} onEdit={onEdit} />
-                  {/* Offered where the host offers Edit (a write-capable page). */}
-                  {onEdit && (
-                    <AddMeetingFromEventButton
-                      key={record.event_id}
-                      origin={record.origin}
-                      eventId={record.event_id}
-                      eventName={record.event_title}
-                      clientAccountId={record.client_account_id}
-                      location={record.event_location}
-                    />
-                  )}
                   <Pill bg={statePill.bg} text={statePill.text}>
                     {record.event_state_label ?? "No state"}
                   </Pill>
@@ -559,66 +624,118 @@ export function EventRecordPane({
                   )}
                 </div>
               )}
-              {record && <LifecycleStepper record={record} onEdit={onEdit} />}
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="cursor-pointer text-muted-foreground hover:text-foreground"
-            >
-              <X className="size-4" />
-            </button>
+            {/* Upper-right: the client's account team (avatars; hover = role +
+                name), then close. */}
+            <div className="flex shrink-0 items-center gap-2">
+              {team.length > 0 && (
+                <TeamAvatars
+                  members={team.map((m) => {
+                    const c = TEAM_ROLE_COLOURS[m.role] ?? { bg: "#1E2858", fg: "#FFFFFF" }
+                    return { role: m.role, name: m.name, bg: c.bg, fg: c.fg }
+                  })}
+                />
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="cursor-pointer text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
           </div>
+          {record && <LifecycleStepper record={record} onEdit={onEdit} />}
         </header>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          {error && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-              {error}
+        {error && (
+          <div className="mx-5 mt-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
+        {loading && !record && (
+          <div className="py-10 text-center text-sm text-muted-foreground">Loading record…</div>
+        )}
+
+        {record && (
+          <>
+            {/* Capacity — the question people open an event to answer. */}
+            <div className="shrink-0 px-5 pt-4 [&>div]:mb-3">
+              <StatRow record={record} addMeeting={addMeeting("kpi", "icon")} />
             </div>
-          )}
-          {loading && !record && (
-            <div className="py-10 text-center text-sm text-muted-foreground">Loading record…</div>
-          )}
-          {/* Capacity first — it is the question people open an event to answer,
-              and it sits above General as a compact three-tile row. */}
-          {record && <StatRow record={record} />}
-          {record?.client_team && <AccountTeamStrip team={record.client_team} />}
-          {/* Dashboard-added company representatives (event_contacts). Keyed per
-              event so it reloads on switch — prefixed, because it is a SIBLING of
-              the feedback panel below and sibling keys must differ. */}
-          {record && <CompanyRepresentatives key={`reps-${record.event_id}`} eventId={record.event_id} />}
-          {/* Feedback reports — the automation's 1–3 report tasks and their
-              meetings (dashboard-origin events; see feedback-reports-panel). */}
-          {record && showFeedbackReports && isAutomationOrigin(record.origin) && (
-            <FeedbackReportsPanel key={record.event_id} eventId={record.event_id} />
-          )}
-          {record &&
-            EVENT_SECTIONS.map((section) => (
-              <section key={section.key} className="mb-6">
-                <SectionHeader title={section.title} />
-                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-                  {section.fields.map((f) => (
-                    <Field
-                      key={String(f.sourceKey)}
-                      def={f}
+
+            {/* ── TABS: Details · Meetings & Reports · Targeting & Other Prep ── */}
+            <EventTabBar
+              className="shrink-0 px-5"
+              active={tab}
+              onChange={(t) => setTabState({ id: eventId, tab: t })}
+              tabs={[
+                { key: "details", label: "Details" },
+                { key: "meetings", label: "Meetings & Reports", count: meetingCount },
+                { key: "targeting", label: "Targeting & Other Prep" },
+              ]}
+            />
+
+            {/* The only scrolling region. */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              {tab === "details" && (
+                <>
+                  {record.client_team && <AccountTeamStrip team={record.client_team} />}
+                  {/* Dashboard-added company representatives (event_contacts).
+                      Keyed per event so it reloads on switch. */}
+                  <CompanyRepresentatives key={`reps-${record.event_id}`} eventId={record.event_id} />
+                  {EVENT_SECTIONS.map((section) => (
+                    <FieldSection
+                      key={section.key}
+                      title={section.title}
                       record={record}
-                      clientAccountId={record.client_account_id}
+                      fields={section.fields.filter((f) => !TARGETING_KEYS.includes(f.sourceKey))}
                     />
                   ))}
-                </div>
-              </section>
-            ))}
+                </>
+              )}
 
-          {record && (
-            <p className="pb-4 text-[11px] text-muted-foreground">
-              View only — Dynamics is the system of record. Company Representatives added in the
-              dashboard are listed above; Dynamics-side representatives and Company Preferences
-              are not synced.
-            </p>
-          )}
-        </div>
+              {tab === "meetings" &&
+                (!showFeedbackReports ? (
+                  <>
+                    {onEdit && <div className="mb-3 flex justify-end">{addMeeting("panel")}</div>}
+                    <p className="text-[12px] text-muted-foreground">The meeting list is available to super users.</p>
+                  </>
+                ) : isAutomationOrigin(record.origin) ? (
+                  // Dashboard-origin: the combined meetings + reports + feedback
+                  // panel (report line items, stages, feedback chips, split/move).
+                  <MeetingsReportsPanel
+                    key={`${record.event_id}-${reload}`}
+                    eventId={record.event_id}
+                    eventName={record.event_title}
+                    action={addMeeting("panel")}
+                  />
+                ) : (
+                  // Dynamics-origin: flat read-only list — the automation switch is
+                  // deliberately NOT flipped, so no report grouping or controls.
+                  // Rows still open each meeting (form or read-only record).
+                  <EventMeetingsReadOnlyList
+                    rows={meetings.rows}
+                    error={meetings.error}
+                    action={addMeeting("panel")}
+                    eventName={record.event_title}
+                    onChanged={() => setReload((n) => n + 1)}
+                  />
+                ))}
+
+              {tab === "targeting" && (
+                <FieldSection title="Targeting" fields={pickFields(TARGETING_KEYS)} record={record} />
+              )}
+
+              <p className="pt-4 text-[11px] text-muted-foreground">
+                View only — Dynamics is the system of record. Company Representatives added in the
+                dashboard are listed on Details; Dynamics-side representatives and Company Preferences
+                are not synced.
+              </p>
+            </div>
+          </>
+        )}
       </aside>
     </>
   )

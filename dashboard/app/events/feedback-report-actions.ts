@@ -77,6 +77,8 @@ export type FeedbackReportMeeting = {
   /** The meeting's OWN feedback status (meetings.feedback_status_label) + FB Received date. */
   feedbackStatus: string | null
   feedbackReceivedDate: string | null
+  /** 'dashboard' | 'dynamics' — decides editable form vs read-only record on click. */
+  origin: string | null
   eligible: boolean
   reportTaskId: string | null
   autoRouted: boolean
@@ -117,7 +119,7 @@ export async function loadEventFeedbackReports(eventId: string): Promise<ActionR
       .order("feedback_report_seq"),
     sb
       .from("meetings")
-      .select("meeting_id, meeting_date, institution_name, investor_text, meeting_status_label, state_label, feedback_status_label, fb_received_date")
+      .select("meeting_id, meeting_date, institution_name, investor_text, meeting_status_label, state_label, feedback_status_label, fb_received_date, origin")
       .eq("event_id", eventId)
       .order("meeting_date", { ascending: true, nullsFirst: false }),
     sb.from("feedback_report_meetings").select("meeting_id, report_task_id, auto_routed").eq("event_id", eventId),
@@ -172,6 +174,7 @@ export async function loadEventFeedbackReports(eventId: string): Promise<ActionR
       fb_received_date: string | null
       meeting_status_label: string | null
       state_label: string | null
+      origin: string | null
     }[]
   ).map((m) => ({
     meetingId: m.meeting_id,
@@ -180,6 +183,7 @@ export async function loadEventFeedbackReports(eventId: string): Promise<ActionR
     investor: m.investor_text,
     feedbackStatus: m.feedback_status_label,
     feedbackReceivedDate: m.fb_received_date,
+    origin: m.origin,
     status: m.meeting_status_label,
     eligible: isEligibleMeeting(m.meeting_status_label, m.state_label),
     reportTaskId: map.get(m.meeting_id)?.report_task_id ?? null,

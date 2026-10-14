@@ -116,14 +116,14 @@ The feedback-pipeline **working hub**: every Open Feedback task with no `crdfa_f
 
 ### Per-meeting feedback flag + re-allocation locks (2026-10-10)
 
-**Per-meeting flag.** Every meeting row in both panels shows a compact pill from the definitive `meetings.feedback_status_label`, with the received date in the tooltip. The panels are the event drawer's *Feedback reports* and Edit Event's *Meetings & Reports*. The component is `FeedbackFlagPill`.
+**Per-meeting flag.** Every meeting row in both panels shows a compact pill from the definitive `meetings.feedback_status_label`, with the received date in the tooltip. Since 2026-10-14 there is one combined panel, *Meetings & Reports* (`meetings-reports-panel.tsx`), used by both the event drawer and Edit Event, with a distinct report line item per report and a stage pill on each report header; see [13 — Events](13-events.md#combined-meetings--reports--feedback-dashboard-events-2026-10-14). The component is `FeedbackFlagPill`.
 
 | `feedback_status_label` | Pill |
 |---|---|
 | *(blank)* | Not in (grey) |
-| Awaiting Additional | Waiting (amber) |
+| Awaiting Additional | Awaiting (amber) |
 | Closed - No Feedback | No feedback (grey) |
-| Closed - All in | Feedback in (green) |
+| Closed - All in | All in (green) |
 
 **Report locks.** The rule is `reportLock` in `lib/feedback-reports/policy.ts`, and it is unit-tested.
 

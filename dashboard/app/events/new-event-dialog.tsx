@@ -59,6 +59,12 @@ import { loadEventForEdit, updateEvent } from "./actions"
 import { LifecycleStepper } from "./event-record-pane"
 import { MeetingsReportsPanel } from "./meetings-reports-panel"
 import { AddMeetingFromEventButton } from "./add-meeting-button"
+import {
+  EventTabBar,
+  eventMeetingCount,
+  useEventMeetings,
+  type EventTabKey,
+} from "./event-meetings-tabs"
 
 /** The stored stage the edit form's stepper shows (read from the row, never recomputed). */
 type StoredStage = React.ComponentProps<typeof LifecycleStepper>["record"]
@@ -166,6 +172,13 @@ function EventFormDialog({
   const [error, setError] = React.useState<string | null>(null)
   const [pending, startTransition] = React.useTransition()
 
+  // Tabs (see the tab strip below). The meeting list feeds the Meetings &
+  // Reports badge; `reload` refreshes it and the panel after Add Meeting.
+  const [tab, setTab] = React.useState<EventTabKey>("details")
+  const [reload, setReload] = React.useState(0)
+  const meetings = useEventMeetings(editId, !!editId, reload)
+  const meetingCount = eventMeetingCount(meetings.rows)
+
   React.useEffect(() => {
     if (!open || clients) return
     // Active clients only; an edited event keeps its own client listed.
@@ -212,6 +225,8 @@ function EventFormDialog({
     setError(null)
     setShowErrors(true)
     if (Object.keys(validateEventRequired(form)).length) {
+      // Every required field is on Details — show it.
+      setTab("details")
       return setError("Fill in the required fields marked below.")
     }
     startTransition(async () => {
@@ -227,21 +242,38 @@ function EventFormDialog({
     })
   }
 
+  // Add Meeting (edit only; always a dashboard-origin row) — the SAME button in
+  // two spots: the dialog header's upper-right and the Meetings & Reports
+  // panel. Client + location come from the SAVED event, not unsaved edits here.
+  const addMeeting = () =>
+    editId ? (
+      <AddMeetingFromEventButton
+        origin="dashboard"
+        eventId={editId}
+        eventName={generatedName || null}
+        clientAccountId={initial?.clientAccountId ?? null}
+        location={initial?.location ?? null}
+        onAdded={() => setReload((n) => n + 1)}
+      />
+    ) : null
+
   return (
     <>
       <Dialog open={open} onOpenChange={(o) => !pending && setOpen(o)}>
         {/* Large, multi-column: most of the screen on desktop, one scrolling
-            column on small screens. Header and footer stay put; only the
-            field area scrolls. */}
+            column on small screens. FIXED HEIGHT (sized for the tallest tab,
+            Details): header, tab strip and footer stay put and only the active
+            tab scrolls, so switching tabs never resizes or jumps the dialog. */}
         <DialogContent
           className={cn(
-            "flex max-h-[92vh] w-[96vw] flex-col gap-0 p-0",
-            // Edit adds a 4th column (Meetings & Reports): a little wider, each
-            // column a little narrower.
-            editId ? "sm:max-w-[1480px]" : "sm:max-w-[1280px]",
+            "flex h-[min(92vh,880px)] w-[96vw] flex-col gap-0 p-0",
+            // Meetings & Reports now has its own tab, so both modes share a width.
+            "sm:max-w-[1280px]",
           )}
         >
-          <DialogHeader className="border-b px-5 py-4">
+          <DialogHeader className="relative border-b px-5 py-4">
+            {/* Upper-right, clear of the dialog's close button. */}
+            {editId && <div className="absolute right-12 top-3.5">{addMeeting()}</div>}
             <DialogTitle>{editId ? "Edit event" : "Add new event"}</DialogTitle>
             <DialogDescription>
               {editId ? (
@@ -256,28 +288,53 @@ function EventFormDialog({
           </DialogHeader>
 
           <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
-            <div
-              className={cn(
-                "grid min-h-0 flex-1 gap-y-4 overflow-y-auto px-5 py-4",
-                editId ? "gap-x-5 md:grid-cols-2 xl:grid-cols-4" : "gap-x-6 lg:grid-cols-3",
-              )}
-            >
-              {/* ---- Lifecycle, full width: the drawer's own stepper, READ-ONLY,
-                  showing the STORED stage — it does not preview the toggles
-                  below (the database computes the stage on save). Create mode
-                  gets a one-line hint instead. ---- */}
+            {/* ---- Above the tabs (does not scroll): the lifecycle stepper and
+                the generated name. ---- */}
+            <div className="grid gap-3 px-5 pt-4">
+              {/* The drawer's own stepper, READ-ONLY, showing the STORED stage —
+                  it does not preview the toggles (the database computes the
+                  stage on save). Create mode gets a one-line hint instead. */}
               {editId ? (
                 stage && (
-                  <div className="col-span-full [&>div]:mt-0">
+                  <div className="[&>div]:mt-0">
                     <LifecycleStepper record={stage} />
                   </div>
                 )
               ) : (
-                <p className="text-xs text-muted-foreground col-span-full">
+                <p className="text-xs text-muted-foreground">
                   Starts in Pre-Launch — the stage advances automatically as you launch, close outreach, and meetings occur.
                 </p>
               )}
+              <div className="max-w-md">
+                <ReadOnlyField
+                  id="ne-name"
+                  label="Event name"
+                  value={generatedName}
+                  placeholder="Generated from client, location and dates"
+                  title="Generated automatically: TICKER - Location - Dates"
+                />
+              </div>
+              {/* TABS: Details · Meetings & Reports · Targeting & Other Prep. Meetings &
+                  Reports needs a saved event, so create mode has Details +
+                  Targeting. Every panel stays MOUNTED (hidden when inactive) so
+                  nothing typed — or a panel's draft — is lost. */}
+              <EventTabBar
+                className="-mx-5 px-5"
+                active={tab}
+                onChange={setTab}
+                tabs={[
+                  { key: "details", label: "Details" },
+                  ...(editId
+                    ? [{ key: "meetings" as const, label: "Meetings & Reports", count: meetingCount }]
+                    : []),
+                  { key: "targeting", label: "Targeting & Other Prep" },
+                ]}
+              />
+            </div>
 
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            {/* ======== Details ======== */}
+            <div className={cn("grid gap-x-6 gap-y-4 lg:grid-cols-3", tab !== "details" && "hidden")}>
               {/* ---- Column 1: the event itself ---- */}
               <div className="grid content-start gap-3">
                 <div className="grid gap-1.5">
@@ -318,14 +375,6 @@ function EventFormDialog({
                     />
                   </div>
                 </div>
-
-                <ReadOnlyField
-                  id="ne-name"
-                  label="Event name"
-                  value={generatedName}
-                  placeholder="Generated from client, location and dates"
-                  title="Generated automatically: TICKER - Location - Dates"
-                />
 
                 <div className="grid grid-cols-3 gap-3">
                   <div className="grid gap-1.5">
@@ -455,31 +504,6 @@ function EventFormDialog({
                       error={fieldErrors.urgencyCode}
                     />
                     <TextField id="ne-launchWeek" label="Launch Week" type="date" value={form.launchWeek} onChange={(v) => set({ launchWeek: v })} />
-                    <ReadOnlyField
-                      id="ne-memoDate"
-                      label="Memo Date"
-                      value={taskDateText("memoDate", "No memo on record")}
-                      title="The client's most recent completed Marketing Memo task — looked up, not typed"
-                    />
-                    <ReadOnlyField
-                      id="ne-lastDataUpload"
-                      label="Last Data Upload"
-                      value={taskDateText("lastDataUpload", "No data upload on record")}
-                      title="The client's most recent completed Data Upload task — looked up, not typed"
-                    />
-                    <TextField id="ne-plink" label="Profile Link" value={form.profileLink} onChange={(v) => set({ profileLink: v })} />
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="ne-tnotes">Targeting Notes</Label>
-                    <Textarea
-                      id="ne-tnotes"
-                      rows={3}
-                      value={form.targetingNotes ?? ""}
-                      onChange={(e) => set({ targetingNotes: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <YesNo label="Memo Not Required" checked={form.memoNotRequired} onChange={(v) => set({ memoNotRequired: v })} />
                   </div>
                 </FormSection>
 
@@ -501,17 +525,6 @@ function EventFormDialog({
                 )}
               </div>
 
-              {/* ---- Column 4 (edit only): Meetings & Reports — meetings by
-                  feedback report, per-meeting feedback flag, and the same
-                  split / move controls as the drawer (same server actions).
-                  Capped height, scrolls on its own; its writes are immediate
-                  and separate from this form's save. ---- */}
-              {editId && (
-                <div className="grid content-start">
-                  <MeetingsReportsPanel eventId={editId} />
-                </div>
-              )}
-
               {/* ---- Full width, at the bottom: company representatives ---- */}
               <div className="col-span-full">
                 <FormSection title="Company representatives">
@@ -524,22 +537,59 @@ function EventFormDialog({
               </div>
             </div>
 
+            {/* ======== Targeting ======== */}
+            <div className={cn("max-w-3xl", tab !== "targeting" && "hidden")}>
+              <FormSection title="Targeting">
+                <div className="grid grid-cols-2 gap-3">
+                  <ReadOnlyField
+                    id="ne-memoDate"
+                    label="Memo Date"
+                    value={taskDateText("memoDate", "No memo on record")}
+                    title="The client's most recent completed Marketing Memo task — looked up, not typed"
+                  />
+                  <ReadOnlyField
+                    id="ne-lastDataUpload"
+                    label="Last Data Upload"
+                    value={taskDateText("lastDataUpload", "No data upload on record")}
+                    title="The client's most recent completed Data Upload task — looked up, not typed"
+                  />
+                  <TextField id="ne-plink" label="Profile Link" value={form.profileLink} onChange={(v) => set({ profileLink: v })} />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="ne-tnotes">Targeting Notes</Label>
+                  <Textarea
+                    id="ne-tnotes"
+                    rows={3}
+                    value={form.targetingNotes ?? ""}
+                    onChange={(e) => set({ targetingNotes: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <YesNo label="Memo Not Required" checked={form.memoNotRequired} onChange={(v) => set({ memoNotRequired: v })} />
+                </div>
+              </FormSection>
+            </div>
+
+            {/* ======== Meetings & Reports (edit only) — the combined meetings +
+                feedback-report view (report line items, stages, per-meeting
+                feedback chips) with the same split / move controls as the
+                drawer (same server actions). Its writes are immediate and
+                separate from this form's save. ======== */}
+            {editId && (
+              <div className={cn(tab !== "meetings" && "hidden")}>
+                <MeetingsReportsPanel
+                  key={reload}
+                  eventId={editId}
+                  eventName={generatedName || null}
+                  action={addMeeting()}
+                />
+              </div>
+            )}
+            </div>
+
             {error &&<div className="border-t px-5 py-2 text-sm text-destructive">{error}</div>}
 
             <DialogFooter className="mx-0 mb-0">
-              {/* Edit only (always a dashboard-origin row). Client + location come
-                  from the SAVED event, not unsaved edits in this form. */}
-              {editId && (
-                <AddMeetingFromEventButton
-                  origin="dashboard"
-                  eventId={editId}
-                  eventName={generatedName || null}
-                  clientAccountId={initial?.clientAccountId ?? null}
-                  location={initial?.location ?? null}
-                  className="mr-auto"
-                  compact={false}
-                />
-              )}
               <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
                 Cancel
               </Button>

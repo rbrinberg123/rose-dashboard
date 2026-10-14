@@ -36,13 +36,20 @@ export const MEETING_EVENT_STAGES = ["Pre-Launch", "Live Outreach", "Meetings On
 /**
  * "Add Meeting" from an event (drawer + edit dialog): the new meeting is locked
  * to that event and may link to it WHATEVER its stage — the user picked the event
- * explicitly. Pre-cutover only dashboard-origin events offer it.
+ * explicitly.
  *
- * CUTOVER TODO: flip to true to offer it on every event, Dynamics-origin too.
- * This one switch drives both the button (UI) and createMeeting's check (server).
+ * ON for Dynamics-origin events too since 2026-10-14 (ahead of cutover). Safe:
+ * the new meeting is origin='dashboard' with its own uuid, so the sync never
+ * overwrites it and the deletion sweep skips it; meetings.event_id has no FK, so
+ * a Dynamics-side event delete cannot cascade into it; the feedback-routing
+ * trigger finds no automation report on a Dynamics event and writes nothing; the
+ * lifecycle trigger skips Dynamics events. (The plain Add New Meeting form could
+ * already link a dashboard meeting to a Dynamics event.) Caveat: Dynamics itself
+ * never sees the meeting until write-through. This one switch drives both the
+ * button (UI) and createMeeting's check (server).
  * See content/docs/22-cutover-ownership-boundary.md.
  */
-export const ADD_MEETING_FROM_EVENT_INCLUDES_DYNAMICS = false
+export const ADD_MEETING_FROM_EVENT_INCLUDES_DYNAMICS = true
 
 export function canAddMeetingFromEvent(origin: string | null | undefined): boolean {
   return origin === "dashboard" || (ADD_MEETING_FROM_EVENT_INCLUDES_DYNAMICS && origin === "dynamics")

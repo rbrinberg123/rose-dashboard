@@ -3,11 +3,12 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, FileText } from "lucide-react"
 
 import { STATUS_PILL_LIGHT, TEXT_MUTED, TEXT_PRIMARY, TEXT_TERTIARY } from "@/lib/design"
 import { reportAccent } from "@/lib/feedback-reports/accents"
 import { cn } from "@/lib/utils"
+import { formatMeetingWhen } from "@/lib/meeting-time"
 import { MAX_REPORTS_PER_EVENT } from "@/lib/feedback-reports/policy"
 import {
   addFeedbackReport,
@@ -25,12 +26,19 @@ import {
   confirmReallocation,
   reportSelectable,
 } from "./report-locks"
+import { MarkReceivedControl } from "./mark-received-control"
+import { MEETING_ROW_CLICKABLE, OpenMeetingIcon, useMeetingOpener } from "./meeting-opener"
 
 /**
- * Edit Event dialog → 4th column, "Meetings & Reports". The event's meetings
- * grouped under the feedback report each belongs to (A → B → C), with the SAME
- * split / move controls as the drawer's Feedback reports section
- * (feedback-reports-panel.tsx) — same model, same server actions, same guards:
+ * "Meetings & Reports" — the COMBINED meetings + feedback view, used by BOTH the
+ * event drawer's Meetings & Reports tab and the Edit Event dialog's (dashboard-
+ * origin events only; Dynamics events get the read-only list in
+ * event-meetings-tabs.tsx). The event's meetings grouped under the feedback
+ * report each belongs to (A → B → C). Each group opens with a visually distinct
+ * REPORT LINE ITEM (tinted, accent bar, dashed border, report icon): owner,
+ * due date and "Mark received" (what the drawer's old Feedback reports section,
+ * feedback-reports-panel.tsx, showed per report). The group header carries the
+ * report's feedback STAGE pill. Same model, same server actions, same guards:
  *   - Split = addFeedbackReport (max MAX_REPORTS_PER_EVENT, server-checked);
  *   - move = a per-meeting A / B / C selector held as a draft, applied with
  *     saveFeedbackReportAssignments (every eligible meeting in exactly one
@@ -45,10 +53,10 @@ import {
  * (= SQL feedback_meeting_is_eligible): cancelled / inactive meetings sit in a
  * subtle "Cancelled / inactive" group, never in a report.
  *
- * FEEDBACK FLAG per meeting = the meeting's OWN feedback status, from the
- * definitive meetings.feedback_status_label (FeedbackFlagPill): blank → Not in ·
- * Awaiting Additional → Waiting · Closed - No Feedback → No feedback ·
- * Closed - All in → Feedback in.
+ * FEEDBACK CHIP per meeting = the meeting's OWN feedback status, from the
+ * definitive meetings.feedback_status_label (FeedbackFlagPill, existing
+ * colours): blank → Not in (grey) · Awaiting Additional → Awaiting (amber) ·
+ * Closed - No Feedback → No feedback (grey) · Closed - All in → All in (green).
  *
  * LOCKS (report-locks.tsx; enforced server-side): a CLAIMED / closed report is
  * hard-locked (lock icon; its rows' pickers and its option are disabled), an
@@ -60,7 +68,6 @@ import {
  * changes the event save.
  */
 
-const ET_DAY = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })
 
 /* Report accents, A / B / C — shared with Feedback Reports (lib/feedback-reports/accents.ts). */
 
@@ -76,13 +83,27 @@ function statusDot(m: FeedbackReportMeeting, now: number): { color: string; labe
   return { color: TEXT_TERTIARY, label: m.status ?? "Pending" }
 }
 
-/** The report's status line — the same wording as the Feedback reports section. */
+/** The report's feedback STAGE — the same wording as the old Feedback reports section. */
 function reportStatus(r: FeedbackReportSummary): string {
   if (r.state !== "Open") return r.state ?? "—"
   return r.receivedDate ? "Feedback received" : "Awaiting feedback"
 }
+function stagePill(r: FeedbackReportSummary): { bg: string; text: string } {
+  if (r.state !== "Open") return STATUS_PILL_LIGHT.neutral
+  return r.receivedDate ? STATUS_PILL_LIGHT.positive : STATUS_PILL_LIGHT.watch
+}
 
-export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
+export function MeetingsReportsPanel({
+  eventId,
+  action,
+  eventName = null,
+}: {
+  eventId: string
+  /** Pinned top-right of the panel header — the Add Meeting button. */
+  action?: React.ReactNode
+  /** Shown in the read-only meeting record's header. */
+  eventName?: string | null
+}) {
   const [data, setData] = React.useState<EventFeedbackReports | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [draft, setDraft] = React.useState<Record<string, string> | null>(null)
@@ -92,6 +113,15 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
   const [now] = React.useState(() => Date.now())
   const [override, setOverride] = React.useState(false)
   const router = useRouter()
+  // Click a meeting row → its Edit Meeting form (dashboard) or the read-only
+  // record (Dynamics). After an edit, reload this panel.
+  const opener = useMeetingOpener({
+    eventName,
+    onSaved: () => {
+      setReloadKey((k) => k + 1)
+      router.refresh()
+    },
+  })
 
   // The effect owns only the async fetch — every setState is in its callback.
   React.useEffect(() => {
@@ -136,15 +166,16 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
   }
 
   const shell = (body: React.ReactNode, header?: React.ReactNode, footer?: React.ReactNode) => (
-    <div className="flex max-h-[62vh] min-h-0 flex-col overflow-hidden rounded-lg border border-[#E5E8EC] bg-[#FBFCFD]">
-      <div className="flex items-baseline gap-2 border-b border-[#E5E8EC] px-3 py-2.5">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-[#E5E8EC] bg-[#FBFCFD]">
+      <div className="flex items-center gap-2 border-b border-[#E5E8EC] px-3 py-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: TEXT_MUTED }}>
           Meetings &amp; Reports
         </h3>
         {header}
+        {action && <span className="ml-auto shrink-0">{action}</span>}
       </div>
-      {/* Scrolls on its own — never lengthens the form. */}
-      <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
+      {/* No height cap: the host tab scrolls (fixed-height drawer / dialog). */}
+      <div>{body}</div>
       {footer}
     </div>
   )
@@ -181,7 +212,7 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
     }))
 
   const header = (
-    <span className="ml-auto text-[11px] tabular-nums" style={{ color: TEXT_TERTIARY }}>
+    <span className="text-[11px] tabular-nums" style={{ color: TEXT_TERTIARY }}>
       {eligible.length} meeting{eligible.length === 1 ? "" : "s"} · {data.reports.length} report
       {data.reports.length === 1 ? "" : "s"}
     </span>
@@ -309,6 +340,15 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
             />
             {open && (
               <ul>
+                {r && (
+                  <ReportLineItem
+                    report={r}
+                    accent={g.accent}
+                    count={g.rows.length}
+                    disabled={busy || dirty}
+                    onDone={reload}
+                  />
+                )}
                 {g.rows.length === 0 && (
                   <li className="px-4 py-1.5 text-[11px]" style={{ color: TEXT_TERTIARY }}>
                     No meetings in this report.
@@ -319,10 +359,15 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
                   return (
                     <li
                       key={m.meetingId}
-                      className={cn("flex items-center gap-1.5 py-1 pl-3 pr-2 text-xs hover:bg-[#F3F5F8]", muted && "opacity-60")}
+                      // The whole row opens the meeting; the A/B/C picker and
+                      // the open icon stop their own clicks.
+                      onClick={() => opener.open(m.meetingId, m.origin)}
+                      title={m.origin === "dashboard" ? "Open meeting (edit)" : "Open meeting (read-only)"}
+                      className={cn("flex items-center gap-1.5 py-1 pl-3 pr-2 text-xs", MEETING_ROW_CLICKABLE, muted && "opacity-60")}
                     >
-                      <span className="w-10 shrink-0 tabular-nums" style={{ color: TEXT_MUTED }}>
-                        {m.date ? ET_DAY.format(new Date(m.date)) : "—"}
+                      {/* Date + Eastern time; a midnight placeholder prints the date only. */}
+                      <span className="w-[104px] shrink-0 tabular-nums" style={{ color: TEXT_MUTED }}>
+                        {formatMeetingWhen(m.date)}
                       </span>
                       <span
                         className="min-w-0 flex-1 truncate"
@@ -346,6 +391,7 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
                           disabled={busy || (!!savedLocked(m.reportTaskId) && !override)}
                           title={savedLocked(m.reportTaskId) && !override ? "Its report is claimed — locked" : undefined}
                           onChange={(e) => move(m.meetingId, e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
                           className="h-6 shrink-0 rounded border border-input bg-background px-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {!current(m.meetingId) && <option value="">—</option>}
@@ -368,6 +414,7 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
                         className="size-2 shrink-0 rounded-full"
                         style={{ backgroundColor: dot.color }}
                       />
+                      <OpenMeetingIcon origin={m.origin} onOpen={() => opener.open(m.meetingId, m.origin)} />
                     </li>
                   )
                 })}
@@ -378,7 +425,12 @@ export function MeetingsReportsPanel({ eventId }: { eventId: string }) {
       })
     )
 
-  return shell(body, header, footer)
+  return (
+    <>
+      {shell(body, header, footer)}
+      {opener.element}
+    </>
+  )
 }
 
 function GroupHeader({
@@ -407,10 +459,13 @@ function GroupHeader({
           {g.title}
         </span>
         {g.report && <ReportLockMark report={g.report} />}
+        {/* The report's feedback STAGE. */}
         {g.report && (
-          <span className="truncate text-[11px]" style={{ color: TEXT_MUTED }}>
-            · {reportStatus(g.report)}
-            {g.report.claimed && g.report.claimedByName ? ` · ${g.report.claimedByName}` : ""}
+          <span
+            className="shrink-0 whitespace-nowrap rounded-full px-1.5 text-[10px] font-medium leading-4"
+            style={{ backgroundColor: stagePill(g.report).bg, color: stagePill(g.report).text }}
+          >
+            {reportStatus(g.report)}
           </span>
         )}
       </button>
@@ -422,5 +477,57 @@ function GroupHeader({
         {count}
       </span>
     </div>
+  )
+}
+
+const ET_DAY = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })
+
+/**
+ * The FEEDBACK-REPORT line item at the top of its group — styled to read as a
+ * different kind of row from the meetings below it: tinted with the report's
+ * accent, a left accent bar, a dashed border and a report icon. Owner (claimer,
+ * or "System (unclaimed)"), meeting count, due date, and — while Open and still
+ * awaiting feedback — "Mark received" (moved here from the drawer's old
+ * Feedback reports section).
+ */
+function ReportLineItem({
+  report: r,
+  accent,
+  count,
+  disabled,
+  onDone,
+}: {
+  report: FeedbackReportSummary
+  accent: string
+  count: number
+  disabled: boolean
+  onDone: () => void
+}) {
+  return (
+    <li
+      className="mx-2 my-1.5 flex items-center gap-1.5 rounded-md border border-dashed border-l-[3px] py-1.5 pl-2 pr-2 text-xs"
+      style={{
+        backgroundColor: `color-mix(in srgb, ${accent} 7%, white)`,
+        borderColor: `color-mix(in srgb, ${accent} 45%, white)`,
+        borderLeftColor: accent,
+        borderLeftStyle: "solid",
+      }}
+    >
+      <FileText className="size-3.5 shrink-0" style={{ color: accent }} aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate" style={{ color: TEXT_PRIMARY }} title={r.subject ?? undefined}>
+        <span className="font-semibold">Feedback report {r.letter}</span>
+        <span style={{ color: TEXT_MUTED }}>
+          {" · "}
+          {r.claimedByName ?? "System (unclaimed)"} · {count} meeting{count === 1 ? "" : "s"} · due{" "}
+          {r.dueDate ? ET_DAY.format(new Date(r.dueDate)) : "—"}
+        </span>
+      </span>
+      {r.state === "Open" && !r.receivedDate && (
+        // Enter in its date box must not submit the Edit Event form around it.
+        <span onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}>
+          <MarkReceivedControl taskId={r.taskId} disabled={disabled} onDone={onDone} />
+        </span>
+      )}
+    </li>
   )
 }

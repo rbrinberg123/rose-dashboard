@@ -75,6 +75,7 @@ import { applyEventQuickFilters, type EventQuickFilters } from "@/lib/events/fil
 import type { EventRecord } from "@/lib/events/record"
 import type { AdminEventRow } from "@/lib/types"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { loadEventMeetings, type EventMeetingRow } from "@/lib/event-meetings"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -227,6 +228,20 @@ export async function loadEventRecord(eventId: string): Promise<ActionResult<Eve
   const role = await getEffectiveRole()
   if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   return readEventRecord(eventId)
+}
+
+/**
+ * The event's meetings — ALL statuses, either origin — for the drawer's and
+ * Edit Event's tabs (Dynamics read-only list + count badges). Super user only,
+ * like the drawer's other on-demand reads. lib/event-meetings.ts.
+ */
+export async function loadEventMeetingsList(eventId: string): Promise<ActionResult<EventMeetingRow[]>> {
+  // ---- GATE (must stay first) ----
+  const role = await getEffectiveRole()
+  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!isUuid(eventId)) return fail("Unknown event.")
+  const res = await loadEventMeetings(eventId)
+  return res.ok ? ok(res.rows) : fail(res.error)
 }
 
 /**

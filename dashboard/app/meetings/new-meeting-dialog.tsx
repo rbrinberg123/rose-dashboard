@@ -810,9 +810,12 @@ export function EditMeetingDialog({
 export function NewMeetingForEventDialog({
   event,
   onClose,
+  onSaved,
 }: {
   event: { eventId: string; eventName: string | null; clientAccountId: string; location: string | null }
   onClose: () => void
+  /** After a successful save — the event's meeting lists reload. */
+  onSaved?: () => void
 }) {
   const [initial] = React.useState<NewMeetingInput>(() => ({
     ...emptyForm(),
@@ -828,7 +831,7 @@ export function NewMeetingForEventDialog({
       }}
       initial={initial}
       editId={null}
-      onSaved={() => {}}
+      onSaved={() => onSaved?.()}
       lockedEvent={{ id: event.eventId, name: event.eventName }}
     />
   )

@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import { STATUS_PILL_LIGHT, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
 import { MAX_REPORTS_PER_EVENT } from "@/lib/feedback-reports/policy"
+import { formatMeetingWhen } from "@/lib/meeting-time"
 import {
   addFeedbackReport,
   deleteFeedbackReport,
@@ -35,7 +36,6 @@ import {
  * icon; Save / Delete ask to confirm).
  */
 
-const UTC_DAY = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" })
 const ET_DAY = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })
 const BTN =
   "inline-flex h-7 items-center rounded-md border border-input bg-background px-2 text-xs font-medium " +
@@ -188,8 +188,9 @@ export function FeedbackReportsPanel({ eventId }: { eventId: string }) {
         <div className="mb-2 overflow-hidden rounded-md border border-[#E5E8EC]">
           {eligible.map((m) => (
             <div key={m.meetingId} className="flex items-center gap-2 border-b border-[#E5E8EC] px-2.5 py-1.5 text-xs last:border-0">
-              <span className="w-12 shrink-0 tabular-nums" style={{ color: TEXT_MUTED }}>
-                {m.date ? UTC_DAY.format(new Date(m.date)) : "—"}
+              {/* Date + Eastern time; a midnight placeholder prints the date only. */}
+              <span className="w-[104px] shrink-0 tabular-nums" style={{ color: TEXT_MUTED }}>
+                {formatMeetingWhen(m.date)}
               </span>
               <span className="min-w-0 flex-1 truncate" style={{ color: TEXT_PRIMARY }}>
                 {m.institution ?? "Meeting"}

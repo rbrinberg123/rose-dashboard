@@ -22,6 +22,18 @@ const FLAG_STYLE: Record<ReturnType<typeof meetingFeedbackFlag>["key"], { bg: st
   in: { bg: STATUS_PILL_LIGHT.positive.bg, fg: STATUS_PILL_LIGHT.positive.text },
 }
 
+/**
+ * Chip wording on the event panels (2026-10-14): amber "Awaiting", green
+ * "All in", grey "No feedback" / "Not in". Colours unchanged (FLAG_STYLE); the
+ * shared policy labels (meetingFeedbackFlag) are left as they are.
+ */
+const FLAG_LABEL: Record<ReturnType<typeof meetingFeedbackFlag>["key"], string> = {
+  not_in: "Not in",
+  waiting: "Awaiting",
+  no_feedback: "No feedback",
+  in: "All in",
+}
+
 /** Compact pill from the definitive meetings.feedback_status_label. */
 export function FeedbackFlagPill({ status, receivedDate }: { status: string | null; receivedDate?: string | null }) {
   const flag = meetingFeedbackFlag(status)
@@ -33,7 +45,7 @@ export function FeedbackFlagPill({ status, receivedDate }: { status: string | nu
       style={{ backgroundColor: bg, color: fg }}
       title={`Feedback: ${status ?? "nothing recorded yet"}${when}`}
     >
-      {flag.label}
+      {FLAG_LABEL[flag.key]}
     </span>
   )
 }
