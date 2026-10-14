@@ -13,13 +13,9 @@
  */
 export const NEW_NOTE_TEST_DEFAULT = true
 
-/**
- * Health status choices. status_text is FREE TEXT in Dynamics; these are the
- * five values downstream views recognise (v_client_portfolio / v_live_outreach
- * normalise by prefix to exactly these). Blank = "no status change" — the
- * portfolio flag carries the last non-blank status forward.
- */
-export const NOTE_STATUS_OPTIONS = ["Stable", "At Risk", "New Client", "Lost", "Strong"] as const
+// (NOTE_STATUS_OPTIONS — the note "Status" choices — was removed 2026-10-15.
+// A client's status is now its Client Health rating; client_notes.status_text
+// is kept as read-only history and is no longer collected.)
 
 /** Suggestions for the free-text risk driver — the most-used live values (2026-09-23). */
 export const NOTE_RISK_SUGGESTIONS = [
@@ -73,7 +69,6 @@ export type NewNoteInput = {
   reviewCycle?: string
   /** REQUIRED (unchanged). */
   body: string
-  statusText?: string
   primaryRiskDriver?: string
   actionStep?: string
   /** Initials, as Dynamics stores them. */

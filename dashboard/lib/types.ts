@@ -424,12 +424,13 @@ export type ClientPortfolioRow = {
   next_meeting_date: string | null
   last_event_date: string | null
   last_note_date: string | null
-  // Latest client-note status flag (At Risk / Stable / Lost / New Client /
-  // Strong), normalized in v_client_portfolio; null when the client has no note.
-  // note_status_date is that note's own date (a different source from
-  // last_note_date above, which is the last touchpoint).
-  note_status: string | null
-  note_status_date: string | null
+  /**
+   * The client's STATUS: the effective Client Health rating (override ?? AI),
+   * v_client_portfolio.health_rating — "3" / "2" / "Management / IR Change" /
+   * "1", null = No Rating. Label / colour / order via lib/client-status.ts.
+   * (Replaced the retired notes-driven note_status, 2026-10-15.)
+   */
+  health_rating: string | null
   account_state: string | null
   // Contract fields. Not exposed by v_client_portfolio; merged in page-side from
   // v_contract_management, keyed by account_id. Mirrors the Contract tab's source.
@@ -1063,12 +1064,12 @@ export type LiveOutreachRow = {
   event_dates: string | null
   event_location: string | null
   event_mode: "Virtual" | "Live" | "Hybrid" | null
-  // Canonical client health flag (At Risk / Stable / Lost / New Client / Strong),
-  // sourced the same way as v_client_portfolio's note-derived status. null when the
-  // client has no note. earliest_contract_start is the client's first contract
-  // start ('YYYY-MM-DD'), null when none; is_new_client is true when that start is
+  // The client's effective Client Health rating (override ?? AI; same source as
+  // Portfolio). "3" = High Risk drives the client-level "High Priority" flag +
+  // tier. earliest_contract_start is the client's first contract start
+  // ('YYYY-MM-DD'), null when none; is_new_client is true when that start is
   // within the last 6 months. Together they drive the priority tier + flag.
-  client_status_label: string | null
+  health_rating: string | null
   earliest_contract_start: string | null
   is_new_client: boolean
   confirmed_meeting_count: number
@@ -1356,13 +1357,12 @@ export type ClientTodoTableRow = ClientTodoRow & {
   /** accounts.sales_lead_primary_name — the client's account/Client Manager. */
   client_manager_name: string | null
   /**
-   * Client status flag + its date, from the SAME source Portfolio's "Status
-   * (latest note)" column reads: v_client_portfolio.note_status /
-   * .note_status_date. Not on v_client_todo, so it is merged in page-side by
-   * account_id, the same pattern client_manager_name uses.
+   * Client status — the effective Client Health rating, from the SAME source
+   * Portfolio's Status column reads (v_client_portfolio.health_rating). Not on
+   * v_client_todo, so it is merged in page-side by account_id, the same pattern
+   * client_manager_name uses.
    */
-  note_status: string | null
-  note_status_date: string | null
+  health_rating: string | null
 }
 
 /** One open Feedback Reports item, for the To-Do List's Feedback tooltip. */

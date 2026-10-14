@@ -22,16 +22,15 @@ import {
 import {
   CARD_CLASS,
   MONEY_GREEN,
-  NOTE_STATUS_PILL,
-  NOTE_STATUS_PILL_FALLBACK,
   DAYS_LEFT_PILL,
 } from "@/lib/design"
+import { NO_RATING, clientStatusLabel, clientStatusOf, clientStatusStyle } from "@/lib/client-status"
 import { EXPIRY_KEY_BY_LABEL } from "@/lib/contract-expiry"
 import { formatCurrency } from "@/lib/format"
 import type { ClientStatisticsRow, ClientStatsBucketRow } from "@/lib/types"
 
 function portfolioHref(
-  param: "market_cap" | "region" | "sector" | "sales_lead" | "note_status" | "expiry",
+  param: "market_cap" | "region" | "sector" | "sales_lead" | "health" | "expiry",
   bucket: string,
 ): string {
   return `/portfolio?${param}=${encodeURIComponent(bucket)}`
@@ -39,15 +38,20 @@ function portfolioHref(
 
 const NAVY = "#1E2858"
 
-// Status donut segment color = the saturated `fg` from the SHARED Portfolio status
-// pill palette (lib/design.ts NOTE_STATUS_PILL), so the donut and the Portfolio
-// Status pills are guaranteed identical (NB Stable & Strong share one green there).
-// 'No Status' (no note on record) has no pill, so it uses this page's own no-data
-// neutral — the same teal-gray as the 'Unknown'/'Unassigned' markers elsewhere here.
+// Status donut = the effective Client Health rating (v_client_stats_by_status;
+// bucket = the rating CODE, or 'No Rating'). Segment colour = the saturated
+// text colour of the SHARED client-status pill (lib/client-status.ts), so the
+// donut and the Portfolio Status pills are guaranteed identical. 'No Rating'
+// uses this page's own no-data neutral — the same teal-gray as the
+// 'Unknown'/'Unassigned' markers elsewhere here.
 const STATUS_NO_DATA_FILL = "#C8DEDB"
 function statusFill(bucket: string): string {
-  if (bucket === "No Status") return STATUS_NO_DATA_FILL
-  return (NOTE_STATUS_PILL[bucket] ?? NOTE_STATUS_PILL_FALLBACK).fg
+  if (!clientStatusOf(bucket)) return STATUS_NO_DATA_FILL
+  return clientStatusStyle(bucket).text
+}
+/** Portfolio filtered to one status bucket (?health=<code> or the No Rating sentinel). */
+function statusHref(bucket: string): string {
+  return portfolioHref("health", clientStatusOf(bucket) ? bucket : NO_RATING)
 }
 
 // Days-left bar fill = the saturated `fg` from the SHARED Days-Left pill palette
@@ -178,7 +182,7 @@ export function ClientStatisticsView({
   const managerRestCount = managerRest.reduce((s, r) => s + r.count, 0)
 
   // Status donut + days-left bars. Both views already sum to active clients (the
-  // null buckets — 'No Status' / 'Expired / none' — are explicit rows), so the
+  // null buckets — 'No Rating' / 'Expired / none' — are explicit rows), so the
   // totals shown reconcile to active_account_count without dropping anyone.
   const statusTotal = status.reduce((s, r) => s + r.count, 0)
   const daysLeftTotal = daysLeft.reduce((s, r) => s + r.count, 0)
@@ -538,7 +542,7 @@ export function ClientStatisticsView({
               Clients by Status
             </CardTitle>
             <CardDescription className="text-xs">
-              Latest client-note status flag
+              Client Health rating
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -546,20 +550,16 @@ export function ClientStatisticsView({
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={status}
+                    data={status.map((s) => ({ ...s, label: clientStatusLabel(s.bucket) }))}
                     dataKey="count"
-                    nameKey="bucket"
+                    nameKey="label"
                     cx="50%"
                     cy="50%"
                     innerRadius={54}
                     outerRadius={70}
                     onClick={(_, index) => {
                       const bucket = status[index]?.bucket
-                      if (bucket === "No Status") {
-                        router.push(portfolioHref("note_status", "__none__"))
-                      } else if (bucket) {
-                        router.push(portfolioHref("note_status", bucket))
-                      }
+                      if (bucket) router.push(statusHref(bucket))
                     }}
                   >
                     {status.map((s, i) => (
@@ -595,10 +595,7 @@ export function ClientStatisticsView({
               {status.map((s) => {
                 const pct =
                   statusTotal > 0 ? Math.round((s.count / statusTotal) * 100) : 0
-                const href =
-                  s.bucket === "No Status"
-                    ? portfolioHref("note_status", "__none__")
-                    : portfolioHref("note_status", s.bucket)
+                const href = statusHref(s.bucket)
                 return (
                   <li key={s.bucket}>
                     <Link
@@ -611,7 +608,7 @@ export function ClientStatisticsView({
                         aria-hidden="true"
                       />
                       <span className="flex-1 truncate" style={{ color: NAVY }}>
-                        {s.bucket}
+                        {clientStatusLabel(s.bucket)}
                       </span>
                       <span className="shrink-0 tabular-nums text-muted-foreground">
                         {s.count} · {pct}%

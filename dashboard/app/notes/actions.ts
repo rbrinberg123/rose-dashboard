@@ -306,7 +306,8 @@ async function buildNoteColumns(
     // note_body keeps line breaks; notes_text is Dynamics' collapsed copy.
     note_body: body,
     notes_text: body.replace(/\s+/g, " "),
-    status_text: cleanText(input.statusText),
+    // status_text is no longer collected (2026-10-15 — client status is the
+    // Client Health rating): new notes leave it blank, edits leave it unchanged.
     primary_risk_driver: cleanText(input.primaryRiskDriver),
     action_step: cleanText(input.actionStep),
     action_owner: cleanText(input.actionOwner),
@@ -385,7 +386,6 @@ export async function loadNoteForEdit(id: string): Promise<ActionResult<NewNoteI
     noteDate: asText(r.note_date).slice(0, 10),
     reviewCycle: asText(r.name),
     body: asText(r.note_body),
-    statusText: asText(r.status_text).trim(),
     primaryRiskDriver: asText(r.primary_risk_driver).trim(),
     actionStep: asText(r.action_step),
     actionOwner: asText(r.action_owner),

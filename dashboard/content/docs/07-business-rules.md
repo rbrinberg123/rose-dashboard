@@ -8,7 +8,11 @@ Unless noted, SQL rules live in `sql/03_views.sql` (repo root) and UI rules in `
 
 ---
 
-## Client status carry-forward — "last non-blank status wins"
+## Client status = the effective Client Health rating (since 2026-10-15)
+
+A client's status everywhere is its **effective Client Health rating**: `override_rating ?? ai_rating` from `client_health_assessments`, exposed as `health_rating` on `v_client_portfolio` and `v_live_outreach`. The categories are **High Risk / Monitor / Management / IR Change / Healthy**, plus **No Rating**. See [29 — Client status](29-client-status.md). The notes-driven rule below is **retired**: the views no longer compute it, and the note form no longer collects a status. It's kept here as history.
+
+## (Retired) Client status carry-forward — "last non-blank status wins"
 
 When a client's **newest** note leaves the health status blank, it does **not** clear the flag — the most recent note that actually *set* a status carries forward. Notes are ranked `note_date DESC, modified_on DESC, created_on DESC`, but only over rows whose status text is non-blank, then normalized to one of five flags: **At Risk / Stable / Lost / New Client / Strong**.
 

@@ -28,12 +28,10 @@ import { cn } from "@/lib/utils"
 // Same shared grouped-header the Client Portfolio table renders, so the two
 // read as one system. Nothing about the header is styled locally any more.
 // The client-status pill, its severity order and its colour key — the exact
-// same component Client Portfolio's "Status (latest note)" column renders.
-import {
-  NOTE_STATUS_RANK,
-  NoteStatusLegend,
-  NoteStatusPill,
-} from "@/components/note-status"
+// same component Client Portfolio's Status column renders (the effective
+// Client Health rating; lib/client-status.ts).
+import { ClientStatusLegend, ClientStatusPill } from "@/components/client-status"
+import { clientStatusOf, clientStatusRank } from "@/lib/client-status"
 import {
   BODY_SECTION_START_STYLE,
   GradientSweepRow,
@@ -113,7 +111,7 @@ const PILL = "inline-flex items-center rounded-full px-1.5 py-0 text-[12px] font
 
 type SortKey =
   | "ticker_symbol"
-  | "note_status"
+  | "health_rating"
   | "client_name"
   | "meetings_ytd"
   | "meetings_l12m"
@@ -153,11 +151,11 @@ function compareValues(
 /** The value a row sorts by for a given column. */
 function sortValue(r: ClientTodoTableRow, key: SortKey): string | number | null {
   if (key === "open_items") return r.open_reports + r.open_collections
-  // Status sorts by SEVERITY, not alphabetically — the same rank Portfolio's
-  // Status column sorts by, so "At Risk" surfaces first on both pages. A client
-  // with no note returns null and sorts last (compareValues puts nulls last).
-  if (key === "note_status") {
-    return r.note_status ? (NOTE_STATUS_RANK[r.note_status] ?? 99) : null
+  // Status sorts by Client Health SEVERITY, not alphabetically — the same rank
+  // Portfolio's Status column sorts by, so High Risk surfaces first on both
+  // pages. No Rating returns null and sorts last (compareValues puts nulls last).
+  if (key === "health_rating") {
+    return clientStatusOf(r.health_rating) ? clientStatusRank(r.health_rating) : null
   }
   return r[key]
 }
@@ -791,7 +789,7 @@ export function TodoTable({
           className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground"
           style={{ fontSize: "11px" }}
         >
-          <NoteStatusLegend />
+          <ClientStatusLegend />
         </div>
 
         {/* Right-hand cluster — kept in its own flex box so the count, search
@@ -880,8 +878,8 @@ export function TodoTable({
               <TableHead className="h-7 px-2">
                 <SortHeader
                   label="Status"
-                  sortKey="note_status"
-                  title="Client status from the latest client note — same field and colours as My Portfolio"
+                  sortKey="health_rating"
+                  title="Client status: the effective Client Health rating — same field and colours as My Portfolio"
                   {...headerProps}
                 />
               </TableHead>
@@ -1060,7 +1058,7 @@ export function TodoTable({
                         inside the Client section next to the ticker. Same pill,
                         same values, same colours as Portfolio. */}
                     <TableCell className={CELL}>
-                      <NoteStatusPill status={r.note_status} date={r.note_status_date} />
+                      <ClientStatusPill rating={r.health_rating} />
                     </TableCell>
 
                     {/* Meetings */}

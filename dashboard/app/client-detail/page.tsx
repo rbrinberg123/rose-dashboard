@@ -135,6 +135,7 @@ export default async function ClientDetailPage({
     touchpointsRes,
     accountRes,
     marketingRes,
+    healthRes,
   ] = await Promise.all([
       sb
         .from("v_client_detail_quarterly")
@@ -205,7 +206,18 @@ export default async function ClientDetailPage({
         .from("v_marketing_calendar")
         .select("*")
         .eq("client_account_id", selected.account_id),
+      // Client status for the headline pill: the effective Client Health rating
+      // (override ?? AI; lib/client-status.ts). The RATING ONLY — never the
+      // AI / override notes, which stay on the super-user Client Health page.
+      // Kept out of firstError: a failed read just shows "No Rating".
+      sb
+        .from("client_health_assessments")
+        .select("ai_rating, override_rating")
+        .eq("account_id", selected.account_id)
+        .maybeSingle(),
     ])
+  const health = (healthRes.data ?? null) as { ai_rating: string | null; override_rating: string | null } | null
+  const healthRating = health ? (health.override_rating ?? health.ai_rating) : null
 
   const firstError =
     quarterlyRes.error ??
@@ -287,6 +299,7 @@ export default async function ClientDetailPage({
         topHosts={(topHostsRes.data ?? []) as ClientDetailTopHostRow[]}
         recentMeetings={(recentRes.data ?? []) as ClientDetailRecentMeetingRow[]}
         recentNote={(recentNoteRes.data ?? null) as ClientDetailRecentNoteRow | null}
+        healthRating={healthRating}
         touchpoints={(touchpointsRes.data ?? []) as ClientDetailTouchpointRow[]}
         marketingEvents={marketingEvents}
         confirmedByEvent={confirmedByEvent}

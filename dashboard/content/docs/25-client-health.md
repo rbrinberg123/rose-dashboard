@@ -7,15 +7,15 @@
 | Rating | Client | Note |
 |--------|--------|------|
 
-- **Rating** is one of **1 · Healthy** (green), **2 · Monitor** (amber), **3 · High risk** (red), or **Management / IR Change** (navy). The badge always shows the words, not just a colour.
+- **Rating** is one of **Healthy** (green), **Monitor** (amber), **High Risk** (red), or **Management / IR Change** (yellow-amber, a lighter lemon shade of Monitor's amber); **No Rating** if the client has not been rated. Labels are words only — the numbers ("1 · / 2 · / 3 ·") were dropped 2026-10-15; the database still stores the codes "1" / "2" / "3". **This rating is now every client's status app-wide** (Portfolio, Client Statistics, Outreach Status, Client Detail, Live Outreach) — see [29 — Client status](29-client-status.md). Those pages show the **label only**; the AI / override notes stay on this super-user page.
 - **Note** is a short, management-level explanation, usually 1–3 sentences.
-- **Firm order (the default view).** The page opens in the firm-standard order that everyone shares, as labelled sections in a fixed order: **High risk → Monitor → Management / IR Change → Healthy**, then **Not rated**. A client's section comes from the rating you see, so an override counts. Within each section, clients follow a **manual ranking that super-users set by dragging**. It is one order for the whole firm, not per person. See [Firm order](#firm-order) below.
+- **Firm order (the default view).** The page opens in the firm-standard order that everyone shares, as labelled sections in a fixed order: **High Risk → Monitor → Management / IR Change → Healthy**, then **No Rating**. A client's section comes from the rating you see, so an override counts. Within each section, clients follow a **manual ranking that super-users set by dragging**. It is one order for the whole firm, not per person. See [Firm order](#firm-order) below.
 - **Column sorting** is a temporary alternative view. Click any header to sort, and click again to reverse it; an arrow marks the active column. Rating sorts by the same risk order as the sections (High risk → Monitor → Management / IR Change → Healthy), and Client and Note sort alphabetically. Unrated clients and empty notes always sort to the bottom. While sorted by a column, the drag handles are hidden; the **Firm order** button returns to the default view.
 - Both come from an AI model that reads the client's data and **all of its dated client notes**, most recent first, and applies Rose & Company's client-health framework. With no meaningful sign of risk, the rating is **1**.
 - Ratings refresh **automatically every Monday morning**. **Refresh** in the header re-rates everyone right away, and the ↻ icon on a row re-rates just that client. **Last updated** shows when the newest AI rating was made.
 - **Edit** (pencil) lets you override the rating and/or the note. An override is marked **Overridden** (hover to see who and when) and **is kept through every regeneration**. **Revert to AI** clears it.
 - **An override is a strong opinion, not a permanent lock.** Every weekly (or manual) re-rating tells the AI about your override and asks it to weight it heavily. The AI still records its own current view, but **your override stays what the page shows**. If the AI's view moves away from yours, or new client notes / contract changes arrive after you last looked, the client is flagged **Needs review**. Nothing changes until a person decides. See [Override lifecycle](#override-lifecycle) below.
-- Filter by rating (or "Overridden" / "Not rated" / "Needs review"), search by name, and **Excel** downloads the current view. The **Needs review (n)** button next to the filter jumps straight to flagged clients.
+- Filter by rating (or "Overridden" / "No Rating" / "Needs review"), search by name, and **Excel** downloads the current view. The **Needs review (n)** button next to the filter jumps straight to flagged clients.
 
 **Who can see it:** super-users only. Nobody else sees the nav item, and the route, the refresh API and the override actions all refuse them.
 
@@ -60,7 +60,7 @@ These are the same set the AI summary and Client Detail use: `v_client_detail_su
 
 A labelled plain-text payload per client, starting with today's date:
 
-- **Client**: name, ticker, account status, latest note-status flag + its date, sector, region, market cap, client since (`v_client_portfolio`, `v_client_detail_summary`, `accounts`).
+- **Client**: name, ticker, account status, sector, region, market cap, client since. The "latest note-status flag" input was removed on 2026-10-15: client status now *is* this rating, so feeding the old notes flag back in would be circular and stale. Each note's own recorded status still appears in the notes history. (`v_client_portfolio`, `v_client_detail_summary`, `accounts`).
 - **Account team**: manager, secondary, associate, logistics coordinator (`accounts`).
 - **Contract**: every `contracts` row oldest-first (the first is labelled *Initial*, later ones *Renewal #n*). For each: status, start / initial term end / renewal / termination dates, termination reason, auto-renew, renew flag, renewal check-in / notice dates, quarterly retainer, and contract notes. Also the latest term end, days to renewal, and annualized retainer. **The retainer is included** because the page is super-user only.
 - **Meeting activity**: lifetime / LTM / prior-12m / YTD / 90-day / next-3-months counts, last and next meeting, open event slots, institutions and investors met (LTM), intro vs follow-up counts, feedback rate, cancellations in the last 6 months, and last marketing event. After that: the last 20 confirmed meetings (date + institution + in-person/virtual), upcoming non-cancelled meetings with their status, and the client's marketing events with their stage.
@@ -206,7 +206,7 @@ The default view of the page is a two-level sort that the whole firm shares.
 | 2 | `'2'` | Monitor |
 | 3 | `'Management / IR Change'` | Management / IR Change |
 | 4 | `'1'` | Healthy |
-| last | none | Not rated (never ranked, no dragging) |
+| last | none | No Rating (never ranked, no dragging) |
 
 The Rating column sort (`ratingSeverity` in `lib/client-health-prompt.ts`) and the "AI reads more / less risk" arrows in Needs review use this same order. A test checks the two agree.
 

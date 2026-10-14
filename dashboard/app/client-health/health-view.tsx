@@ -52,7 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { CARD_CLASS, STATUS_PILL_LIGHT } from "@/lib/design"
+import { CARD_CLASS } from "@/lib/design"
 import {
   HEALTH_RATINGS,
   HEALTH_RATING_LABEL,
@@ -61,6 +61,7 @@ import {
   type HealthRating,
 } from "@/lib/client-health-prompt"
 import { exportClientHealth } from "@/lib/client-health-excel"
+import { CLIENT_STATUS_STYLE, NO_RATING_LABEL } from "@/lib/client-status"
 import type { OverrideMode, ReviewReason } from "@/lib/client-health-review"
 import {
   categoryOf,
@@ -96,12 +97,9 @@ export type HealthRow = {
   manual_rank: number | null
 }
 
-const RATING_STYLE: Record<HealthRating, { bg: string; text: string }> = {
-  "1": STATUS_PILL_LIGHT.positive,
-  "2": STATUS_PILL_LIGHT.watch,
-  "3": STATUS_PILL_LIGHT.atRisk,
-  "Management / IR Change": STATUS_PILL_LIGHT.new,
-}
+// Colours come from the app-wide client-status module, so a rating looks the
+// same here as on Portfolio, Outreach Status and Client Detail.
+const RATING_STYLE: Record<HealthRating, { bg: string; text: string }> = CLIENT_STATUS_STYLE
 
 const effRating = (r: HealthRow) => r.override_rating ?? r.ai_rating
 const effNote = (r: HealthRow) => r.override_note ?? r.ai_note
@@ -130,7 +128,7 @@ const fmt = (iso: string | null) => (iso ? format(new Date(iso), "MMM d, yyyy h:
 
 function RatingBadge({ rating }: { rating: string | null }) {
   if (!rating || !isHealthRating(rating)) {
-    return <span className="text-[12px] text-muted-foreground">Not rated</span>
+    return <span className="text-[12px] text-muted-foreground">{NO_RATING_LABEL}</span>
   }
   const s = RATING_STYLE[rating]
   return (
@@ -270,7 +268,7 @@ export function HealthView({
     return er === ratingFilter
   })
 
-  // Firm order (sort === null): category High risk → Monitor → Mgmt / IR
+  // Firm order (sort === null): category High Risk → Monitor → Mgmt / IR
   // Change → Healthy, then manual rank (unplaced last), then name
   // (lib/client-health-order.ts). A column sort uses the EFFECTIVE values;
   // Rating sorts by the same risk order, "desc" = most risk first. Empty values
@@ -354,7 +352,7 @@ export function HealthView({
         .map((cat) => ({
           key: cat ?? "none",
           cat,
-          label: cat ? FIRM_CATEGORY_LABEL[cat] : "Not rated",
+          label: cat ? FIRM_CATEGORY_LABEL[cat] : NO_RATING_LABEL,
           rows: shown.filter((r) => categoryOf(effRating(r)) === cat),
         }))
         .filter((s) => s.rows.length > 0)
@@ -518,7 +516,7 @@ export function HealthView({
               {HEALTH_RATING_LABEL[r]}
             </option>
           ))}
-          <option value="none">Not rated</option>
+          <option value="none">{NO_RATING_LABEL}</option>
           <option value="overridden">Overridden</option>
           <option value="review">Needs review</option>
         </select>
@@ -545,7 +543,7 @@ export function HealthView({
           className={`flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors ${
             sort === null ? "border-[#1E2858] bg-[#1E2858] text-white" : "hover:bg-muted"
           }`}
-          title="The firm-standard order: High risk → Monitor → Management / IR Change → Healthy, then the shared manual rank"
+          title="The firm-standard order: High Risk → Monitor → Management / IR Change → Healthy, then the shared manual rank"
         >
           <ListOrdered className="size-3.5" /> Firm order
         </button>
@@ -569,7 +567,7 @@ export function HealthView({
                   label="Rating"
                   isSorted={sortedAs("rating")}
                   onClick={() => toggleSort("rating")}
-                  title="Sort by risk: High risk → Monitor → Management / IR Change → Healthy"
+                  title="Sort by risk: High Risk → Monitor → Management / IR Change → Healthy"
                 />
               </th>
               <th className="w-[220px] px-4 py-2 font-medium">

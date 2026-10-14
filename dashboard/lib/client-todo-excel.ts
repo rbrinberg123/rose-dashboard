@@ -1,4 +1,5 @@
 import type { ClientTodoTableRow } from "@/lib/types"
+import { clientStatusLabel, clientStatusOf } from "@/lib/client-status"
 import {
   baseTicker,
   dayToDate,
@@ -94,10 +95,10 @@ export async function buildClientTodoWorkbook(rows: ClientTodoTableRow[]) {
     const hasEvent = Boolean(r.next_event_id)
     ws.addRow({
       ticker: r.ticker_symbol ? baseTicker(r.ticker_symbol) : "",
-      // The pill's label as plain text — NoteStatusPill renders note_status
-      // verbatim, so the two can't disagree. No note on record is the screen's
-      // em dash, which is blank here, like every other unknown in this sheet.
-      clientStatus: r.note_status ?? "",
+      // The pill's label as plain text (clientStatusLabel — the same function
+      // ClientStatusPill uses), so the two can't disagree. No Rating is the
+      // screen's em dash, which is blank here, like every other unknown.
+      clientStatus: clientStatusOf(r.health_rating) ? clientStatusLabel(r.health_rating) : "",
       ytd: r.meetings_ytd,
       l12m: r.meetings_l12m,
       upcoming: r.meetings_upcoming,

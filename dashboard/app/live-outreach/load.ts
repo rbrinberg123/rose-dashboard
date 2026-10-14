@@ -11,12 +11,14 @@
 
 import { getSupabaseServer } from "@/lib/supabase"
 import type { LiveOutreachRow } from "@/lib/types"
+import { HIGH_RISK } from "@/lib/client-status"
 
 // ---- sort ------------------------------------------------------------------
 // Desired order (page + email share this loader, so both get it):
 //   1. Priority TIER (lower = higher), see priorityTier below:
 //        Tier 1 — High urgency (urgency === "High")
-//        Tier 2 — At Risk client (and not new, and not High)
+//        Tier 2 — High Risk client: effective Client Health rating = High Risk
+//                 (and not new, and not High). Was the notes "At Risk" status.
 //        Tier 3 — New client (and not High)
 //        Tier 4 — everyone else
 //   2. Within a tier: the event's start date, soonest first. v_live_outreach has
@@ -24,7 +26,7 @@ import type { LiveOutreachRow } from "@/lib/types"
 //   3. Tiebreaker: alphabetical by client/company name (fallback event name).
 //
 // NB the tier order differs from the per-event priority FLAG (priority-flag.ts):
-// here At Risk (tier 2) outranks New Client (tier 3); the flag lets New Client win.
+// here High Risk (tier 2) outranks New Client (tier 3); the flag lets New Client win.
 
 /** Best-effort epoch (ms) from the first "M/D" token of the event_dates display
  *  string (e.g. "8/4, 8/5" → Aug 4). No year is stored, so we assume this year
@@ -67,11 +69,11 @@ function eventStartMs(row: LiveOutreachRow): number {
 }
 
 /** Priority tier for the primary sort key (lower = higher priority). See the
- *  sort block above. High wins outright; among non-High events At Risk (not new)
+ *  sort block above. High wins outright; among non-High events a High Risk client (not new)
  *  outranks New Client, which outranks everyone else. */
 function priorityTier(row: LiveOutreachRow): number {
   if (row.urgency === "High") return 1
-  if (row.client_status_label === "At Risk" && !row.is_new_client) return 2
+  if (row.health_rating === HIGH_RISK && !row.is_new_client) return 2
   if (row.is_new_client) return 3
   return 4
 }

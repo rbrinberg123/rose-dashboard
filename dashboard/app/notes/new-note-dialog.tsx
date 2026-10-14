@@ -36,7 +36,6 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   NEW_NOTE_TEST_DEFAULT,
   NOTE_RISK_SUGGESTIONS,
-  NOTE_STATUS_OPTIONS,
   defaultReviewCycle,
   validateNoteRequired,
   type NewNoteInput,
@@ -71,7 +70,6 @@ function emptyForm(): NewNoteInput {
     noteDate: today,
     reviewCycle: defaultReviewCycle(today),
     body: "",
-    statusText: "",
     primaryRiskDriver: "",
     actionStep: "",
     actionOwner: "",
@@ -231,23 +229,10 @@ function NoteFormDialog({
               <FieldError id="nn-body-error" message={fieldErrors.body} />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="nn-status">Status</Label>
-                <select
-                  id="nn-status"
-                  value={form.statusText ?? ""}
-                  onChange={(e) => setForm((f) => ({ ...f, statusText: e.target.value }))}
-                  className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
-                >
-                  <option value="">— (no change)</option>
-                  {NOTE_STATUS_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {/* The note "Status" field was removed 2026-10-15: a client's status is
+                now its Client Health rating (lib/client-status.ts). status_text
+                stays on the record as history, read-only. */}
+            <div className="grid gap-3">
               {field("primaryRiskDriver", "Primary risk driver", { list: "nn-risk-options" })}
               <datalist id="nn-risk-options">
                 {NOTE_RISK_SUGGESTIONS.map((r) => (

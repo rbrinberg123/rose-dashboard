@@ -19,7 +19,7 @@ export type FirmCategory = (typeof FIRM_CATEGORY_ORDER)[number]
 
 /** Section heading for each category. */
 export const FIRM_CATEGORY_LABEL: Record<FirmCategory, string> = {
-  "3": "High risk",
+  "3": "High Risk",
   "2": "Monitor",
   "Management / IR Change": "Management / IR Change",
   "1": "Healthy",

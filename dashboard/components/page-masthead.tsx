@@ -52,11 +52,14 @@ function HeaderCard({ children }: { children: React.ReactNode }) {
 function LightPill({
   label,
   variant,
+  colors,
 }: {
   label: string
   variant: PillVariant
+  /** Explicit colours, overriding the variant (e.g. the client-status palette). */
+  colors?: { bg: string; text: string }
 }) {
-  const v = STATUS_PILL_LIGHT[variant]
+  const v = colors ?? STATUS_PILL_LIGHT[variant]
   return (
     <span
       className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full font-medium"
@@ -85,7 +88,7 @@ export function EntityMasthead({
   badge?: string
   name: string
   subtitle?: React.ReactNode
-  status?: { label: string; variant: PillVariant }
+  status?: { label: string; variant: PillVariant; colors?: { bg: string; text: string } }
   rightSlot?: React.ReactNode
   children?: React.ReactNode
 }) {
@@ -118,7 +121,7 @@ export function EntityMasthead({
               >
                 {name}
               </h1>
-              {status && <LightPill label={status.label} variant={status.variant} />}
+              {status && <LightPill label={status.label} variant={status.variant} colors={status.colors} />}
             </div>
             {subtitle && (
               <p className="mt-1" style={{ color: TEXT_MUTED, fontSize: 12.5 }}>

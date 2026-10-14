@@ -52,6 +52,7 @@ import { ClientQuickAdd } from "./client-quick-add"
 import type { ClientCrmLists } from "./crm-lists"
 import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
 import { type PillVariant } from "@/lib/gradients"
+import { clientStatusLabel, clientStatusStyle, clientStatusVariant } from "@/lib/client-status"
 import {
   BADGE_GRADIENT,
   CARD_CLASS,
@@ -576,6 +577,7 @@ export function ClientDetailView({
   topHosts,
   recentMeetings,
   recentNote,
+  healthRating,
   touchpoints,
   accountTeam,
   aiSummary,
@@ -607,6 +609,8 @@ export function ClientDetailView({
   topHosts: ClientDetailTopHostRow[]
   recentMeetings: ClientDetailRecentMeetingRow[]
   recentNote: ClientDetailRecentNoteRow | null
+  /** Effective Client Health rating (override ?? AI) — the headline status pill. */
+  healthRating: string | null
   touchpoints: ClientDetailTouchpointRow[]
   accountTeam: {
     sales_lead_primary_name: string | null
@@ -662,22 +666,16 @@ export function ClientDetailView({
   }, [clientTicker, selected.client_name])
 
   // ---------- Hero status pill ----------
-  // Best-effort read of the most-recent note's free-text status. Priority order
-  // matters when one note mixes cues: most urgent signal wins. Matched buckets
-  // get a clean canonical label; anything unmatched keeps the raw status text.
-  const statusPill = React.useMemo<
-    { label: string; variant: PillVariant } | undefined
-  >(() => {
-    const text = recentNote?.status_text?.trim()
-    if (!text) return undefined
-    const t = text.toLowerCase()
-    if (/at[\s-]?risk|churn/.test(t)) return { label: "At Risk", variant: "atRisk" }
-    if (/watch|flak/.test(t)) return { label: "Watch", variant: "watch" }
-    if (/positive|strong|healthy|good/.test(t))
-      return { label: "Positive", variant: "positive" }
-    if (/\bnew\b/.test(t)) return { label: "New Client", variant: "new" }
-    return { label: text, variant: "neutral" }
-  }, [recentNote?.status_text])
+  // The client's status = its effective Client Health rating (2026-10-15; the
+  // notes-text regex that used to drive this is retired). "No Rating" when the
+  // client has not been rated yet. Label + colour from lib/client-status.ts.
+  const statusPill: { label: string; variant: PillVariant; colors: { bg: string; text: string } } = {
+    label: clientStatusLabel(healthRating),
+    variant: clientStatusVariant(healthRating),
+    // Exact client-status colours (some, e.g. Management / IR Change, are not
+    // one of the shared pill variants).
+    colors: clientStatusStyle(healthRating),
+  }
 
   // ---------- KPI tiles ----------
   const delta = selected.ltm_meetings_delta

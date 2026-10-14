@@ -16,11 +16,16 @@ export function isHealthRating(v: unknown): v is HealthRating {
   return typeof v === "string" && (HEALTH_RATINGS as readonly string[]).includes(v)
 }
 
-/** Display label for each rating (badges, filter, Excel). Always text. */
+/**
+ * Display label for each rating (badges, filter, Excel). Always text, NO
+ * numbers (2026-10-15) — identical to FIRM_CATEGORY_LABEL in
+ * client-health-order.ts, which lib/client-status.ts serves app-wide
+ * (client-health-order.test.ts asserts the two agree).
+ */
 export const HEALTH_RATING_LABEL: Record<HealthRating, string> = {
-  "1": "1 · Healthy",
-  "2": "2 · Monitor",
-  "3": "3 · High risk",
+  "1": "Healthy",
+  "2": "Monitor",
+  "3": "High Risk",
   "Management / IR Change": "Management / IR Change",
 }
 

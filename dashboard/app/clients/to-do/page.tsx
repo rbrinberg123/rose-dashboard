@@ -94,7 +94,7 @@ export default async function ClientToDoPage() {
   if (load.mode === "filter") managerQuery = managerQuery.in("account_id", accountIds)
 
   // Client status flag for the Status pill. Same field and same view Portfolio's
-  // "Status (latest note)" column reads, so the two pages can never disagree
+  // Status column reads (the effective Client Health rating), so the two pages can never disagree
   // about a client's status. v_client_todo doesn't carry it, so it is one bulk
   // read merged by account_id — the manager pattern directly above, and the same
   // scoping: restricted to the accounts this viewer is already entitled to see,
@@ -102,7 +102,7 @@ export default async function ClientToDoPage() {
   // failed read just leaves every pill as an em dash.
   let statusQuery = sb
     .from("v_client_portfolio")
-    .select("account_id, note_status, note_status_date")
+    .select("account_id, health_rating")
   if (load.mode === "filter") statusQuery = statusQuery.in("account_id", accountIds)
 
   // The FULL touchpoint, not just a headline: the cell's hover panel shows every
@@ -177,8 +177,7 @@ export default async function ClientToDoPage() {
   const statusByAccount = new Map(
     ((statusRes.data ?? []) as {
       account_id: string
-      note_status: string | null
-      note_status_date: string | null
+      health_rating: string | null
     }[])
       .filter((a) => allowed.has(a.account_id))
       .map((a) => [a.account_id, a]),
@@ -186,8 +185,7 @@ export default async function ClientToDoPage() {
   const tableRows: ClientTodoTableRow[] = rows.map((r) => ({
     ...r,
     client_manager_name: managerByAccount.get(r.account_id) ?? null,
-    note_status: statusByAccount.get(r.account_id)?.note_status ?? null,
-    note_status_date: statusByAccount.get(r.account_id)?.note_status_date ?? null,
+    health_rating: statusByAccount.get(r.account_id)?.health_rating ?? null,
   }))
 
   // Confirmed meetings for the events on screen, so clicking a row's event

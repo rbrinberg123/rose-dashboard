@@ -35,8 +35,8 @@ function formatYield(v: number | null): string {
 
 // ---- priority flag pill (High Priority / New Client / none) -----------------
 // One flag per event, chosen by priorityFlagKind: High urgency → "High Priority"
-// (alert red), else a new client → "New Client" (rose-crimson), else an At-Risk
-// client → "High Priority", else nothing. Shared with the email so they match.
+// (alert red), else a new client → "New Client" (rose-crimson), else a client whose
+// effective Client Health rating is High Risk → "High Priority", else nothing. Shared with the email so they match.
 function PriorityPill({ row }: { row: LiveOutreachRow }) {
   const kind = priorityFlagKind(row)
   if (!kind) return null

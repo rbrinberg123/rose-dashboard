@@ -5,11 +5,12 @@ import {
   categoryChanged,
   categoryOf,
   compareFirmOrder,
+  FIRM_CATEGORY_LABEL,
   FIRM_CATEGORY_ORDER,
   moveWithin,
   type FirmOrderRow,
 } from "./client-health-order.ts"
-import { HEALTH_RATINGS, ratingSeverity } from "./client-health-prompt.ts"
+import { HEALTH_RATING_LABEL, HEALTH_RATINGS, ratingSeverity } from "./client-health-prompt.ts"
 
 test("fixed category order: High risk → Monitor → Management / IR Change → Healthy", () => {
   assert.deepEqual([...FIRM_CATEGORY_ORDER], ["3", "2", "Management / IR Change", "1"])
@@ -61,4 +62,15 @@ test("moveWithin moves up, down, and clamps", () => {
   assert.deepEqual(moveWithin(ids, "a", 2), ["b", "c", "a", "d"])
   assert.deepEqual(moveWithin(ids, "b", 99), ["a", "c", "d", "b"])
   assert.deepEqual(moveWithin(ids, "x", 0), ids)
+})
+
+test("labels are number-free and identical in both modules (lib/client-status.ts serves FIRM_CATEGORY_LABEL app-wide)", () => {
+  assert.deepEqual(
+    FIRM_CATEGORY_LABEL,
+    { "3": "High Risk", "2": "Monitor", "Management / IR Change": "Management / IR Change", "1": "Healthy" },
+  )
+  for (const r of HEALTH_RATINGS) {
+    assert.equal(HEALTH_RATING_LABEL[r], FIRM_CATEGORY_LABEL[r], `label for ${r}`)
+    assert.doesNotMatch(HEALTH_RATING_LABEL[r], /\d/, `no number in ${r}'s label`)
+  }
 })

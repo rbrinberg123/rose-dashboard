@@ -27,15 +27,17 @@ import {
 import { Input } from "@/components/ui/input"
 import { ListTitleCard } from "@/components/page-masthead"
 import { CARD_CLASS } from "@/lib/design"
-// The client-status pill, its severity order and its colour key moved out to a
-// shared module so the To-Do List shows the identical pill. Defined here first;
-// the definitions moved unchanged.
+// Client status = the effective Client Health rating (2026-10-15). The pill,
+// legend, labels and severity order all come from the shared client-status
+// module, so Portfolio, Outreach Status, Client Detail and Client Health agree.
+import { ClientStatusLegend, ClientStatusPill } from "@/components/client-status"
 import {
-  NOTE_STATUS_ORDER,
-  NOTE_STATUS_RANK,
-  NoteStatusLegend,
-  NoteStatusPill,
-} from "@/components/note-status"
+  CLIENT_STATUS_ORDER,
+  NO_RATING_LABEL,
+  clientStatusLabel,
+  clientStatusOf,
+  clientStatusRank,
+} from "@/lib/client-status"
 import { cn } from "@/lib/utils"
 // The grouped-header treatment now lives in one shared module so Portfolio and
 // the To-Do List cannot drift apart. These were all defined locally here first;
@@ -192,15 +194,13 @@ function AccountTeamAvatars({ row }: { row: ClientPortfolioRow }) {
   return <TeamAvatars members={accountTeamMembers(row)} />
 }
 
-// Filter sentinel for "client has no note on record".
+// Filter sentinel for "client has no Client Health rating" (= NO_RATING in
+// lib/client-status.ts; Client Statistics links here with ?health=__none__).
 const NONE = "__none__"
-
-// NOTE_STATUS_ORDER / NOTE_STATUS_RANK / NoteStatusPill / NoteStatusLegend all
-// live in components/note-status.tsx now — see the import above.
 
 type SortKey =
   | "name"
-  | "note_status"
+  | "health_rating"
   | "ticker_symbol"
   | "market_cap_label"
   | "market_cap_b"
@@ -452,8 +452,9 @@ export function PortfolioTable({
   const [salesLead, setSalesLead] = React.useState<string>(
     () => searchParams.get("sales_lead") ?? ALL,
   )
-  const [noteStatus, setNoteStatus] = React.useState<string>(
-    () => searchParams.get("note_status") ?? ALL,
+  // ?health= — a rating code ("3", "2", "Management / IR Change", "1") or NONE.
+  const [healthStatus, setHealthStatus] = React.useState<string>(
+    () => searchParams.get("health") ?? ALL,
   )
   const [expiry, setExpiry] = React.useState<string>(
     () => searchParams.get("expiry") ?? ALL,
@@ -580,10 +581,10 @@ export function PortfolioTable({
       if (region !== ALL && (r.region_label ?? "") !== region) return false
       if (sector !== ALL && (r.sector_label ?? "") !== sector) return false
       if (salesLead !== ALL && (r.sales_lead_primary_name ?? "") !== salesLead) return false
-      if (noteStatus !== ALL) {
-        if (noteStatus === NONE) {
-          if (r.note_status) return false
-        } else if ((r.note_status ?? "") !== noteStatus) return false
+      if (healthStatus !== ALL) {
+        if (healthStatus === NONE) {
+          if (clientStatusOf(r.health_rating)) return false
+        } else if ((r.health_rating ?? "") !== healthStatus) return false
       }
       if (expiry !== ALL) {
         const bucket = EXPIRY_BUCKET_BY_KEY[expiry]
@@ -604,7 +605,7 @@ export function PortfolioTable({
     region,
     sector,
     salesLead,
-    noteStatus,
+    healthStatus,
     expiry,
     staleMeetings,
     coldMeetings,
@@ -614,17 +615,18 @@ export function PortfolioTable({
   const sortedRows = React.useMemo(() => {
     const arr = [...filteredRows]
     arr.sort((a, b) => {
-      // Status sorts by severity (At Risk → … → Strong), not alphabetically, so
-      // ascending surfaces the most urgent clients first. Nulls (no note) always
-      // last, matching compareValues' null handling.
-      if (sortKey === "note_status") {
-        const an = !a.note_status
-        const bn = !b.note_status
+      // Status sorts by Client Health severity (High Risk → Monitor →
+      // Management / IR Change → Healthy), not alphabetically, so ascending
+      // surfaces the most urgent clients first. No Rating always last, matching
+      // compareValues' null handling.
+      if (sortKey === "health_rating") {
+        const an = !clientStatusOf(a.health_rating)
+        const bn = !clientStatusOf(b.health_rating)
         if (an && bn) return 0
         if (an) return 1
         if (bn) return -1
-        const ar = NOTE_STATUS_RANK[a.note_status!] ?? NOTE_STATUS_ORDER.length
-        const br = NOTE_STATUS_RANK[b.note_status!] ?? NOTE_STATUS_ORDER.length
+        const ar = clientStatusRank(a.health_rating)
+        const br = clientStatusRank(b.health_rating)
         return sortDir === "asc" ? ar - br : br - ar
       }
       return compareValues(a[sortKey] as never, b[sortKey] as never, sortDir)
@@ -646,7 +648,7 @@ export function PortfolioTable({
     setRegion(ALL)
     setSector(ALL)
     setSalesLead(ALL)
-    setNoteStatus(ALL)
+    setHealthStatus(ALL)
     setExpiry(ALL)
     setSearch("")
     setStaleMeetings(false)
@@ -664,8 +666,8 @@ export function PortfolioTable({
   if (region !== ALL) activeFilterParts.push(`Region = ${region}`)
   if (sector !== ALL) activeFilterParts.push(`Sector = ${sector}`)
   if (salesLead !== ALL) activeFilterParts.push(`Sales Lead = ${salesLead}`)
-  if (noteStatus !== ALL)
-    activeFilterParts.push(`Status = ${noteStatus === NONE ? "No note" : noteStatus}`)
+  if (healthStatus !== ALL)
+    activeFilterParts.push(`Status = ${healthStatus === NONE ? NO_RATING_LABEL : clientStatusLabel(healthStatus)}`)
   if (expiry !== ALL)
     activeFilterParts.push(`Expiry = ${EXPIRY_BUCKET_BY_KEY[expiry]?.label ?? expiry}`)
   for (const [on, label] of [
@@ -789,8 +791,8 @@ export function PortfolioTable({
         {/* Faint vertical divider between groups */}
         <span aria-hidden="true" className="h-5 w-px shrink-0" style={{ backgroundColor: "#D1D7E0" }} />
 
-        {/* Note-status color key — mirrors the Status pills (latest client note) */}
-        <NoteStatusLegend />
+        {/* Status colour key — mirrors the Status pills (Client Health rating) */}
+        <ClientStatusLegend />
       </div>
 
       {/* Filter row */}
@@ -848,17 +850,17 @@ export function PortfolioTable({
         </select>
 
         <select
-          value={noteStatus}
-          onChange={(e) => setNoteStatus(e.target.value)}
+          value={healthStatus}
+          onChange={(e) => setHealthStatus(e.target.value)}
           className="h-9 rounded-md border border-input bg-background px-3 text-sm"
         >
           <option value={ALL}>All statuses</option>
-          {NOTE_STATUS_ORDER.map((s) => (
+          {CLIENT_STATUS_ORDER.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {clientStatusLabel(s)}
             </option>
           ))}
-          <option value={NONE}>No note</option>
+          <option value={NONE}>{NO_RATING_LABEL}</option>
         </select>
 
         <select
@@ -1084,7 +1086,7 @@ export function PortfolioTable({
                 <SortHeader label="Client" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               </TableHead>
               <TableHead className="h-8 px-1.5" style={{ ...frozenStyle(statusLeft, 30, STATUS_COL_W), backgroundColor: SUBHEADER_BG }}>
-                <SortHeader label="Status" sortKey="note_status" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                <SortHeader label="Status" sortKey="health_rating" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               </TableHead>
               {/* Latest note + AI summary hover icons — frozen left. Not
                   sortable: the column holds no orderable value, only two
@@ -1418,7 +1420,7 @@ export function PortfolioTable({
 
                     {/* Status — frozen left */}
                     <TableCell className="px-1.5 py-1 align-top" style={frozenStyle(statusLeft, 10, STATUS_COL_W)}>
-                      <NoteStatusPill status={r.note_status} date={r.note_status_date} />
+                      <ClientStatusPill rating={r.health_rating} />
                     </TableCell>
 
                     {/* Latest note + AI summary — frozen left. Each icon opens a

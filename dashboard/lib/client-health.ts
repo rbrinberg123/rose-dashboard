@@ -232,8 +232,6 @@ export async function buildClientHealthContext(
         "Client name": clientName,
         Ticker: p.ticker_symbol,
         "Account status": t.state_label ?? p.account_state,
-        "Latest client-note status flag": p.note_status,
-        "Status flag as of": day(p.note_status_date),
         Sector: p.sector_label,
         Region: p.region_label,
         "Market cap": p.market_cap_label,
