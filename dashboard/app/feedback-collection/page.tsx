@@ -12,7 +12,7 @@ import { SendEmailControls } from "@/app/feedback/send-email-controls"
 import { getSupabaseServer } from "@/lib/supabase"
 import { getEffectiveRole } from "@/lib/effective-identity"
 import { hasSuperUserPrivileges, canAccessRoute } from "@/lib/access-control"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 import { loadClaimViewer } from "@/lib/feedback-claims/server"
 import { decideSetMeetingFeedback, type FeedbackCollectionExtras } from "@/lib/feedback-collection/policy"
 
@@ -94,7 +94,7 @@ export default async function FeedbackCollectionPage() {
 async function loadRowExtras(meetingIds: string[]): Promise<FeedbackCollectionExtras> {
   const sb = getSupabaseServer()
   const [role, viewer] = await Promise.all([getEffectiveRole(), loadClaimViewer()])
-  const allowed = await getAllowedRoutes(role)
+  const allowed = await getEffectiveAllowedRoutes()
   const byMeeting: FeedbackCollectionExtras["byMeeting"] = {}
 
   for (let i = 0; i < meetingIds.length; i += 200) {

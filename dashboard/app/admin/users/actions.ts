@@ -6,6 +6,8 @@ import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { getSupabaseServer } from "@/lib/supabase"
 import { requireStrictSuperUser } from "@/lib/api-auth"
 import { diffRows, recordAudit } from "@/lib/audit"
+import { isGrantableRoute } from "@/lib/access-control"
+import { PAGE_REGISTRY } from "@/lib/page-registry"
 
 const PATH = "/admin/users"
 
@@ -111,6 +113,81 @@ export async function setUserRole(
     context: PATH,
   })
 
+  revalidatePath(PATH)
+  return ok()
+}
+
+// ---------------------------------------------------------------------------
+// Per-user page grants — public.user_page_grants (2026-10-14)
+// ---------------------------------------------------------------------------
+
+/**
+ * Grant (on = true) or revoke (on = false) ONE page for ONE person, on top of
+ * their role. getAllowedRoutes folds these in, so it takes effect on the
+ * person's next page load. PAGE ACCESS ONLY — no write / admin / scope powers.
+ *
+ *   - Strict super-user only (requireStrictSuperUser — admin cannot manage users).
+ *   - @roseandco.com domain validated server-side.
+ *   - isGrantableRoute enforced HERE: a crafted request for a strict page
+ *     (Users, Roles, Sync, CRM tables, hidden pages, the Admin section, …) is
+ *     refused before anything is written.
+ *   - Audited: create on grant, delete (with the original granter/date) on revoke.
+ *   - Idempotent: granting an already-granted page keeps the original stamp.
+ */
+export async function setUserPageGrant(
+  email: string,
+  route: string,
+  on: boolean,
+): Promise<ActionResult> {
+  const auth = await requireStrictSuperUser()
+  if (!auth.ok) return fail("Not authorized — only a super user can manage users and roles.")
+
+  const normalizedEmail = String(email ?? "").trim().toLowerCase()
+  if (!normalizedEmail.endsWith("@roseandco.com")) {
+    return fail("Only @roseandco.com users can be granted pages here.")
+  }
+  if (typeof route !== "string" || !isGrantableRoute(route, PAGE_REGISTRY)) {
+    return fail(`That page cannot be granted to an individual user: ${String(route)}`)
+  }
+
+  const sb = getSupabaseServer()
+  const missingTable = (e: { code?: string; message: string }) =>
+    e.code === "42P01" || /does not exist/i.test(e.message)
+  const tableHint = "Run sql/patches/2026-10-14_user_page_grants.sql in Supabase first."
+
+  const { data: prior, error: readError } = await sb
+    .from("user_page_grants")
+    .select("email, route, granted_by, granted_at")
+    .eq("email", normalizedEmail)
+    .eq("route", route)
+    .maybeSingle()
+  if (readError) return fail(missingTable(readError) ? tableHint : describeError(readError))
+
+  const recordId = `${normalizedEmail}|route:${route}`
+
+  if (!on) {
+    if (!prior) return ok()
+    const { error } = await sb
+      .from("user_page_grants")
+      .delete()
+      .eq("email", normalizedEmail)
+      .eq("route", route)
+    if (error) return fail(describeError(error))
+    await recordAudit({ action: "delete", entity: "user_page_grants", recordId, changes: prior, context: PATH })
+    revalidatePath(PATH)
+    return ok()
+  }
+
+  if (prior) return ok()
+  const row = {
+    email: normalizedEmail,
+    route,
+    granted_by: auth.email,
+    granted_at: new Date().toISOString(),
+  }
+  const { error } = await sb.from("user_page_grants").insert(row)
+  if (error) return fail(missingTable(error) ? tableHint : describeError(error))
+  await recordAudit({ action: "create", entity: "user_page_grants", recordId, changes: row, context: PATH })
   revalidatePath(PATH)
   return ok()
 }

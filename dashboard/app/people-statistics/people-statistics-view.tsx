@@ -39,6 +39,7 @@ import type {
   PersonRole,
 } from "@/lib/types"
 import { ROLE_STYLES } from "@/lib/person-role"
+import { EXCLUDED_ROLLUP_ID } from "@/lib/productivity-exclusions-shared"
 import { SegmentedToggle } from "@/components/segmented-toggle"
 
 // Chart palette (per spec): virtual = blue, in-person (live) = teal,
@@ -440,6 +441,12 @@ export type PersonActivity = {
   hosted_30d: number
   booked_1y: number
   hosted_1y: number
+  /**
+   * Set ONLY on the "Former / Excluded" rollup entry (server-built, see
+   * lib/productivity-exclusions.ts): how many hidden people it sums and their
+   * roles, so the KPI card still counts everyone. Drawn in its own group.
+   */
+  excluded?: { members: number; byRole: { Booker: number; Host: number; Hybrid: number } }
 }
 
 const BOOKED_COLOR = BRAND_BLUE // #0355A7
@@ -489,7 +496,8 @@ function PersonRow({
   max: number
 }) {
   const { booked, hosted } = windowCounts(person, window)
-  const pct = (n: number) => (max > 0 ? (n / max) * 100 : 0)
+  // Capped: the rollup can exceed the per-person scale.
+  const pct = (n: number) => (max > 0 ? Math.min(100, (n / max) * 100) : 0)
 
   return (
     <div className="flex items-center gap-3 py-[3px]">
@@ -547,7 +555,9 @@ function ActivityByPersonCard({ people }: { people: PersonActivity[] }) {
 
   // Single firm-wide scale so bars are comparable across every group.
   const max = React.useMemo(
-    () => people.reduce((mx, p) => Math.max(mx, activeValue(p, view, window)), 0),
+    // Scaled to individuals only — the summed rollup would flatten every bar.
+    () =>
+      people.reduce((mx, p) => (p.excluded ? mx : Math.max(mx, activeValue(p, view, window))), 0),
     [people, view, window],
   )
 
@@ -557,9 +567,16 @@ function ActivityByPersonCard({ people }: { people: PersonActivity[] }) {
       ACTIVITY_GROUPS.map((g) => ({
         ...g,
         members: people
-          .filter((p) => p.role === g.role)
+          .filter((p) => p.role === g.role && !p.excluded)
           .sort((a, b) => activeValue(b, view, window) - activeValue(a, view, window)),
-      })).filter((g) => g.members.length > 0),
+      }))
+        // The hidden people, summed — always last, in a muted group of its own.
+        .concat(
+          people
+            .filter((p) => p.excluded)
+            .map((p) => ({ label: "Former / Excluded", role: null, members: [p] })),
+        )
+        .filter((g) => g.members.length > 0),
     [people, view, window],
   )
 
@@ -628,7 +645,7 @@ function ActivityByPersonCard({ people }: { people: PersonActivity[] }) {
                   {g.label}
                 </span>
                 <span className="text-xs" style={{ color: TEXT_MUTED }}>
-                  {g.members.length}
+                  {g.members.reduce((n, p) => n + (p.excluded?.members ?? 1), 0)}
                 </span>
               </div>
               <div>
@@ -854,7 +871,11 @@ function SectionKpiCards({
   const roleCounts = React.useMemo(() => {
     const c = { Booker: 0, Host: 0, Hybrid: 0 }
     for (const p of people) {
-      if (p.role === "Booker") c.Booker++
+      if (p.excluded) {
+        c.Booker += p.excluded.byRole.Booker
+        c.Host += p.excluded.byRole.Host
+        c.Hybrid += p.excluded.byRole.Hybrid
+      } else if (p.role === "Booker") c.Booker++
       else if (p.role === "Host") c.Host++
       else if (p.role === "Hybrid") c.Hybrid++
     }
@@ -939,7 +960,8 @@ function SectionKpiCards({
             className="text-xl font-semibold tabular-nums"
             style={{ color: TEXT_PRIMARY }}
           >
-            {people.length.toLocaleString()}
+            {/* Everyone — the rollup entry counts as its members. */}
+            {people.reduce((n, p) => n + (p.excluded?.members ?? 1), 0).toLocaleString()}
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" style={{ color: TEXT_SECONDARY }}>
             {(["Booker", "Host", "Hybrid"] as const).map((role) => (
@@ -1024,8 +1046,8 @@ function FeedbackRow({
   const { assigned, collected } = feedbackWindowCounts(person, window)
   const pct = assigned > 0 ? (collected / assigned) * 100 : 0
   // Volume-aware bar: total length ∝ assignments, green fill ∝ completion.
-  const barPct = maxAssigned > 0 ? (assigned / maxAssigned) * 100 : 0
-  const greenPct = maxAssigned > 0 ? (collected / maxAssigned) * 100 : 0
+  const barPct = maxAssigned > 0 ? Math.min(100, (assigned / maxAssigned) * 100) : 0
+  const greenPct = maxAssigned > 0 ? Math.min(100, (collected / maxAssigned) * 100) : 0
 
   return (
     <div className="flex items-center gap-3 py-[3px]">
@@ -1075,14 +1097,24 @@ function FeedbackByPersonCard({ feedback }: { feedback: PersonFeedbackWindowsRow
     return feedback
       .filter((p) => feedbackWindowCounts(p, window).assigned >= FEEDBACK_MIN_ASSIGNED)
       .sort((a, b) => {
+        // The "Former / Excluded" rollup is pinned last.
+        const ra = a.user_id === EXCLUDED_ROLLUP_ID ? 1 : 0
+        const rb = b.user_id === EXCLUDED_ROLLUP_ID ? 1 : 0
+        if (ra !== rb) return ra - rb
         const ca = feedbackWindowCounts(a, window)
         const cb = feedbackWindowCounts(b, window)
         return cb.collected / cb.assigned - ca.collected / ca.assigned
       })
   }, [feedback, window])
 
+  // Scaled to individuals only (the summed rollup is capped at full width).
   const maxAssigned = React.useMemo(
-    () => rows.reduce((mx, p) => Math.max(mx, feedbackWindowCounts(p, window).assigned), 0),
+    () =>
+      rows.reduce(
+        (mx, p) =>
+          p.user_id === EXCLUDED_ROLLUP_ID ? mx : Math.max(mx, feedbackWindowCounts(p, window).assigned),
+        0,
+      ),
     [rows, window],
   )
 

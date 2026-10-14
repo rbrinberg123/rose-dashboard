@@ -8,8 +8,17 @@ import type {
   ProductivityPersonManagerStatsRow,
   ProductivityPersonMeetingRow,
   ProductivityRoleRow,
+  ProductivityExcludedBucket,
+  ProductivityPersonToggle,
 } from "@/lib/types"
 import { deriveRole } from "@/lib/person-role"
+import { isStrictSuperUser } from "@/lib/access-control"
+import { getEffectiveRole } from "@/lib/effective-identity"
+import {
+  EXCLUDED_ROLLUP_ID,
+  loadProductivityExclusions,
+  splitHidden,
+} from "@/lib/productivity-exclusions"
 import { ProductivityView } from "./productivity-view"
 
 export const dynamic = "force-dynamic"
@@ -114,7 +123,9 @@ function aggregate(rows: ProductivityPersonMeetingRow[]): ProductivityAggregateR
         hostKeyed: new Map(),
         groupHostCostSeen: new Set(),
       }
-      byUser.set(r.user_id, acc)
+      // Stored under the CANONICAL id (it was r.user_id, which split a merged
+      // person into two rows whenever their first row carried the alias id).
+      byUser.set(cuid, acc)
     }
     if (acc.display_name == null && r.display_name != null) {
       acc.display_name = r.display_name
@@ -400,9 +411,97 @@ export default async function ProductivityPage({
     }
   })
 
+  // Exclusions — server-side split (lib/productivity-exclusions.ts). Hidden
+  // people leave the table; their summed numbers travel as role/AM buckets the
+  // table folds into one "Former / Excluded" row, so the stat cards (which sum
+  // rows + buckets) are unchanged.
+  const [exclusions, effectiveRole] = await Promise.all([
+    loadProductivityExclusions(),
+    getEffectiveRole(),
+  ])
+  const { shown, hidden } = splitHidden(rowsWithRole, (r) => r.user_id, exclusions)
+  const excluded = bucketHidden(hidden)
+
+  // The "Excluded people" manager — strict super user only (effective role, so
+  // it vanishes under View as; the save action re-checks the REAL role).
+  let manage: ProductivityPersonToggle[] | null = null
+  if (isStrictSuperUser(effectiveRole)) {
+    const byId = new Map<string, ProductivityPersonToggle>()
+    for (const r of rowsWithRole) {
+      byId.set(r.user_id, {
+        user_id: r.user_id,
+        display_name: r.display_name ?? "Unknown",
+        hidden: exclusions.isHidden(r.user_id),
+      })
+    }
+    // Hidden people with no activity in this range still need a switch.
+    const missing = [...exclusions.hiddenIds].filter((id) => !byId.has(id))
+    if (missing.length > 0) {
+      const { data } = await sb.from("users").select("user_id, display_name").in("user_id", missing)
+      const names = new Map(
+        ((data ?? []) as { user_id: string; display_name: string | null }[]).map((u) => [u.user_id, u.display_name]),
+      )
+      for (const id of missing) {
+        byId.set(id, { user_id: id, display_name: names.get(id) ?? "Unknown", hidden: true })
+      }
+    }
+    manage = [...byId.values()].sort((a, b) => a.display_name.localeCompare(b.display_name))
+  }
+
   return (
     <PageShell title="Productivity" description="Activity by person over a date range" hideHeader canvas>
-      <ProductivityView from={from} to={to} rows={rowsWithRole} />
+      <ProductivityView from={from} to={to} rows={shown} excluded={excluded} manage={manage} />
     </PageShell>
   )
+}
+
+/**
+ * Sum the hidden people into buckets keyed by role + "has primary" + "has
+ * secondary" — the exact inputs of the table's Role / Account-Management
+ * filters — so the browser can rebuild the filtered rollup without ever seeing
+ * an individual hidden row.
+ */
+function bucketHidden(hidden: ProductivityRoleRow[]): ProductivityExcludedBucket[] {
+  const buckets = new Map<string, ProductivityExcludedBucket>()
+  for (const r of hidden) {
+    const key = `${r.role ?? "none"}|${r.primary_manager_count > 0}|${r.secondary_manager_count > 0}`
+    let b = buckets.get(key)
+    if (!b) {
+      b = {
+        user_id: `${EXCLUDED_ROLLUP_ID}:${key}`,
+        display_name: null,
+        role: r.role,
+        total_ttm: 0,
+        primary_manager_count: 0,
+        secondary_manager_count: 0,
+        booked: 0,
+        hosted: 0,
+        in_person_hosted: 0,
+        virtual_hosted: 0,
+        feedback: 0,
+        feedback_closed: 0,
+        feedback_rate: null,
+        labor_cost: 0,
+        member_count: 0,
+        active_count: 0,
+      }
+      buckets.set(key, b)
+    }
+    b.total_ttm += r.total_ttm
+    b.primary_manager_count += r.primary_manager_count
+    b.secondary_manager_count += r.secondary_manager_count
+    b.booked += r.booked
+    b.hosted += r.hosted
+    b.in_person_hosted += r.in_person_hosted
+    b.virtual_hosted += r.virtual_hosted
+    b.feedback += r.feedback
+    b.feedback_closed += r.feedback_closed
+    b.labor_cost += r.labor_cost
+    b.member_count += 1
+    if (r.booked > 0 || r.hosted > 0) b.active_count += 1
+  }
+  for (const b of buckets.values()) {
+    b.feedback_rate = b.feedback_closed > 0 ? b.feedback / b.feedback_closed : null
+  }
+  return [...buckets.values()]
 }

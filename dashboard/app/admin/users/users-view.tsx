@@ -2,14 +2,22 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Check, Loader2, AlertTriangle, Eye, Info, Flag } from "lucide-react"
+import { Check, Loader2, AlertTriangle, Eye, Info, Flag, ChevronDown, ChevronRight, Lock } from "lucide-react"
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
+import { formatDate } from "@/lib/format"
 import { CARD_CLASS, CONTROL_STYLE, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
-import { setUserRole, setUserDataScopes, type DataScopes } from "./actions"
+import { setUserRole, setUserDataScopes, setUserPageGrant, type DataScopes } from "./actions"
 import { setViewAsUserAction } from "@/app/view-as-actions"
-import { hasSuperUserPrivileges } from "@/lib/access-control"
+import {
+  ALWAYS_ALLOWED_ROUTES,
+  canAccessRoute,
+  hasSuperUserPrivileges,
+  isGrantableRoute,
+  isHiddenRoute,
+} from "@/lib/access-control"
+import { PAGE_REGISTRY, PAGE_SECTIONS } from "@/lib/page-registry"
 
 /** null === "None" (no staged grant). */
 export type RoleValue =
@@ -53,7 +61,12 @@ export type UserRow = {
   service: boolean
   /** Does the login email resolve to a CRM person? */
   resolution: Resolution
+  /** Per-user page grants on top of the role (public.user_page_grants). */
+  pageGrants: PageGrant[]
 }
+
+/** One per-user page grant row. */
+export type PageGrant = { route: string; grantedBy: string; grantedAt: string }
 
 /**
  * The four specific ROW-scope toggles (All is handled separately as the
@@ -227,6 +240,101 @@ function SessionBanner({ resolution }: { resolution: SessionResolution }) {
   )
 }
 
+/**
+ * The "Pages" panel under a person's row — per-user page grants on top of the
+ * role, grouped like the nav (PAGE_SECTIONS). Three states per page:
+ *   - From role → locked on (the Roles matrix grants it to their role);
+ *   - Granted   → a toggle with "Granted by X · date";
+ *   - off       → a grantable page they cannot open yet.
+ * Strict pages (isGrantableRoute false: ADMIN_ONLY_ROUTES, hidden, the Admin
+ * section, always-allowed, /feedback) are only listed when the ROLE already
+ * reaches them — locked, never toggleable. Grants are page access only; the
+ * server action re-checks every rule, this only draws them.
+ */
+function PagesPanel({
+  role,
+  roleRoutes,
+  grants,
+  saving,
+  nameFor,
+  onToggle,
+}: {
+  role: Exclude<RoleValue, null>
+  roleRoutes: readonly string[]
+  grants: PageGrant[]
+  saving: Record<string, boolean>
+  nameFor: (email: string) => string
+  onToggle: (route: string, on: boolean) => void
+}) {
+  const grantByRoute = new Map(grants.map((g) => [g.route, g]))
+  const always = ALWAYS_ALLOWED_ROUTES as readonly string[]
+  const rows = PAGE_REGISTRY.map((p) => ({
+    ...p,
+    fromRole:
+      !always.includes(p.route) && !isHiddenRoute(p.route) && canAccessRoute(role, p.route, roleRoutes),
+    grantable: isGrantableRoute(p.route, PAGE_REGISTRY),
+  })).filter((p) => p.fromRole || p.grantable)
+  const grantedCount = rows.filter((p) => p.grantable && grantByRoute.has(p.route)).length
+
+  return (
+    <div className="mt-1.5 mb-1 ml-4 rounded-md border border-[rgba(16,24,40,0.08)] bg-[#FAFBFC] px-3 py-2 text-xs">
+      <div className="mb-1.5" style={{ color: TEXT_MUTED }}>
+        Page access = role pages + individual grants ({grantedCount} granted). Grants open the page
+        only — what they can do there still follows their role and data scopes.
+      </div>
+      <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+        {PAGE_SECTIONS.map((section) => {
+          const items = rows.filter((p) => p.section === section)
+          if (items.length === 0) return null
+          return (
+            <div key={section}>
+              <div className="mb-0.5 font-semibold" style={{ color: TEXT_PRIMARY }}>
+                {section}
+              </div>
+              <ul className="space-y-0.5">
+                {items.map((p) => {
+                  const grant = grantByRoute.get(p.route)
+                  const busy = !!saving[p.route]
+                  const locked = p.fromRole && !grant
+                  return (
+                    <li key={p.route} className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={p.fromRole || !!grant}
+                        disabled={locked || busy || !p.grantable}
+                        onChange={(e) => onToggle(p.route, e.target.checked)}
+                        className="size-3.5 cursor-pointer accent-[#1E2858] disabled:cursor-not-allowed"
+                        aria-label={`${p.label} page access`}
+                      />
+                      <span className="min-w-0 truncate" style={{ color: TEXT_PRIMARY }} title={p.route}>
+                        {p.label}
+                      </span>
+                      {p.fromRole ? (
+                        <span
+                          className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[#F1F3F7] px-1.5 text-[10px]"
+                          style={{ color: TEXT_MUTED }}
+                        >
+                          <Lock className="size-2.5" /> From role
+                        </span>
+                      ) : null}
+                      {grant ? (
+                        <span className="shrink-0 text-[10px]" style={{ color: "#0E7C56" }}>
+                          Granted by {nameFor(grant.grantedBy)} · {formatDate(grant.grantedAt)}
+                        </span>
+                      ) : null}
+                      {busy ? <Loader2 className="size-3 shrink-0 animate-spin" /> : null}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 type SaveState = "idle" | "saving" | "saved"
 
 export function UsersView({
@@ -234,11 +342,16 @@ export function UsersView({
   missingTable,
   missingScopesTable,
   sessionResolution,
+  rolePages,
+  missingPageGrantsTable,
 }: {
   users: UserRow[]
   missingTable: boolean
   missingScopesTable: boolean
   sessionResolution: SessionResolution
+  /** role → routes the Roles matrix grants it (role_page_access). */
+  rolePages: Record<string, string[]>
+  missingPageGrantsTable: boolean
 }) {
   const router = useRouter()
   // Local role state so the selector reflects the change immediately, keyed by
@@ -257,6 +370,20 @@ export function UsersView({
   const [saveState, setSaveState] = React.useState<Record<string, SaveState>>({})
   const [scopeSave, setScopeSave] = React.useState<Record<string, SaveState>>({})
   const [grantedOnly, setGrantedOnly] = React.useState(false)
+  // Per-user page grants: which rows have the Pages panel open, the local
+  // (optimistic) grant lists, and which email|route toggles are saving.
+  const [pagesOpen, setPagesOpen] = React.useState<Record<string, boolean>>({})
+  const [pageGrants, setPageGrants] = React.useState<Record<string, PageGrant[]>>(() => {
+    const init: Record<string, PageGrant[]> = {}
+    for (const u of users) init[u.email.toLowerCase()] = u.pageGrants
+    return init
+  })
+  const [pageSaving, setPageSaving] = React.useState<Record<string, Record<string, boolean>>>({})
+  const nameByEmail = React.useMemo(
+    () => new Map(users.map((u) => [u.email.toLowerCase(), u.name])),
+    [users],
+  )
+  const nameFor = (email: string) => nameByEmail.get(email.toLowerCase()) ?? email
   const [, startTransition] = React.useTransition()
 
   const total = users.length
@@ -339,6 +466,33 @@ export function UsersView({
         setScopes((s) => ({ ...s, [key]: prev }))
         setScopeSave((s) => ({ ...s, [key]: "idle" }))
         toast.error("Could not save data scope", { description: result.error })
+      }
+    })
+  }
+
+  function handlePageGrant(user: UserRow, route: string, on: boolean) {
+    const key = user.email.toLowerCase()
+    const prev = pageGrants[key] ?? []
+    const setBusy = (busy: boolean) =>
+      setPageSaving((s) => ({ ...s, [key]: { ...s[key], [route]: busy } }))
+
+    // Optimistic — the server stamps the real granter/date (shown on next load).
+    setPageGrants((g) => ({
+      ...g,
+      [key]: on
+        ? [...prev.filter((x) => x.route !== route), { route, grantedBy: "you", grantedAt: new Date().toISOString() }]
+        : prev.filter((x) => x.route !== route),
+    }))
+    setBusy(true)
+
+    startTransition(async () => {
+      const result = await setUserPageGrant(user.email, route, on)
+      setBusy(false)
+      if (result.ok) {
+        router.refresh()
+      } else {
+        setPageGrants((g) => ({ ...g, [key]: prev }))
+        toast.error("Could not save page grant", { description: result.error })
       }
     })
   }
@@ -426,6 +580,17 @@ export function UsersView({
         </div>
       ) : null}
 
+      {missingPageGrantsTable ? (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <p>
+            The <code className="font-mono">public.user_page_grants</code> table does not exist yet.
+            Run <span className="font-mono">sql/patches/2026-10-14_user_page_grants.sql</span> in the
+            Supabase SQL editor — until then, access is role-only and Pages toggles will fail to save.
+          </p>
+        </div>
+      ) : null}
+
       {/* Live-session resolution banner — tests the real login→user_id path */}
       <SessionBanner resolution={sessionResolution} />
 
@@ -468,8 +633,15 @@ export function UsersView({
               const superLock = hasSuperUserPrivileges(value)
               const allOn = superLock || rowScopes.all
               const scState = scopeSave[key] ?? "idle"
+              // Per-user page grants are a no-op for super_user / admin (they
+              // already reach everything grantable) and for no-role users
+              // (denied before the list is read) — so no panel for them.
+              const canGrantPages = value !== null && !superLock
+              const pagesShown = canGrantPages && !!pagesOpen[key]
+              const grantCount = (pageGrants[key] ?? []).length
               return (
-                <li key={key} className="flex items-center gap-3 px-4 py-1.5">
+                <li key={key} className="px-4 py-1.5">
+                <div className="flex items-center gap-3">
                   {/* Name + email + resolve badge — FIXED-WIDTH left column, so the
                       data-scope group starts at the same x on every row (long
                       names/emails truncate rather than push the columns). */}
@@ -615,6 +787,24 @@ export function UsersView({
 
                     {/* Role controls — pushed to the far right (unchanged). */}
                     <div className="ml-auto flex shrink-0 items-center gap-2">
+                      {/* Pages — per-user page grants panel (toggles open below the row). */}
+                      {canGrantPages ? (
+                        <button
+                          type="button"
+                          onClick={() => setPagesOpen((o) => ({ ...o, [key]: !o[key] }))}
+                          aria-expanded={pagesShown}
+                          title={`Individual page grants for ${u.name}`}
+                          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-[#5B6472] transition-colors hover:bg-[#F4F6F9] hover:text-[#1E2858]"
+                        >
+                          {pagesShown ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                          Pages
+                          {grantCount > 0 ? (
+                            <span className="rounded-full bg-[#EAF3EE] px-1.5 text-[10px] font-medium text-[#0E7C56]">
+                              +{grantCount}
+                            </span>
+                          ) : null}
+                        </button>
+                      ) : null}
                       {/* View as this person — super-user testing. Posts the email
                           to the server action (which re-checks the real role),
                           sets the view_as_user cookie, and redirects into their
@@ -665,6 +855,17 @@ export function UsersView({
                       </select>
                     </div>
                   </div>
+                </div>
+                {pagesShown && value ? (
+                  <PagesPanel
+                    role={value}
+                    roleRoutes={rolePages[value] ?? []}
+                    grants={pageGrants[key] ?? []}
+                    saving={pageSaving[key] ?? {}}
+                    nameFor={nameFor}
+                    onToggle={(route, on) => handlePageGrant(u, route, on)}
+                  />
+                ) : null}
                 </li>
               )
             })}

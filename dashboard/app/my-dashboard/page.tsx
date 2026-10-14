@@ -4,7 +4,7 @@ import { redirect } from "next/navigation"
 import { PageShell } from "@/components/page-shell"
 import { canAccessRoute } from "@/lib/access-control"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 import { loadMyDashboardCriticalCount } from "./critical-count"
 import { loadMyDashboard } from "./load"
 import { MyDashboardView } from "./my-dashboard-view"
@@ -31,7 +31,7 @@ export default async function MyDashboardPage() {
   const role = await getEffectiveRole()
   // No role yet = not onboarded: same place every other page sends them.
   if (!role) redirect("/no-access")
-  const allowed = await getAllowedRoutes(role)
+  const allowed = await getEffectiveAllowedRoutes()
   if (!canAccessRoute(role, "/my-dashboard", allowed)) redirect(allowed[0] ?? "/no-access")
 
   // The "Needs you now" headline is the SAME function as the nav badge (and

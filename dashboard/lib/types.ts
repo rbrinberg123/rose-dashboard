@@ -268,6 +268,26 @@ export type ProductivityRoleRow = ProductivityAggregateRow & {
   total_ttm: number
 }
 
+/**
+ * Summed numbers of the HIDDEN people (lib/productivity-exclusions.ts) who
+ * share one role + account-management shape, so the Summary table's
+ * "Former / Excluded" rollup can honour its Role / AM filters in the browser
+ * without any hidden person's individual row reaching it. Every member shares
+ * `role` and whether their primary / secondary counts are > 0.
+ */
+export type ProductivityExcludedBucket = ProductivityRoleRow & {
+  member_count: number
+  /** Members with booked > 0 or hosted > 0 (the "Active people" stat). */
+  active_count: number
+}
+
+/** One row of the super-user "Excluded people" manager. */
+export type ProductivityPersonToggle = {
+  user_id: string
+  display_name: string
+  hidden: boolean
+}
+
 export type FeedbackOverallRow = {
   period_year: number
   period_quarter: number

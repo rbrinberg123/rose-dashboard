@@ -63,6 +63,21 @@ Go to **Admin → Roles**, find the page's row, and tick the box in that role's 
 
 To keep a page Super-User-only, leave every other role's box unchecked — that's the default (deny-by-default).
 
+## How to give ONE person an extra page
+
+Sometimes one person needs a page their role doesn't have. Go to **Admin → Users**, click **Pages** on that person's row, and tick the page. That opens the page **for that person only**. Their role stays the same, and nobody else gains anything. It takes effect on their next page load. Untick it to take the page away again.
+
+The panel lists the pages grouped like the sidebar:
+- **From role** (locked, with a 🔒 pill): their role already opens it. Change that in Admin → Roles instead.
+- **Ticked, with "Granted by … · date"**: an individual grant, and who gave it when.
+- **Unticked**: a page you *could* grant them.
+
+What a grant can and can't do:
+- **It only opens the page.** What the person can *do* there is unchanged: saving, admin buttons and which clients or meetings they see still follow their role and data scopes.
+- **Some pages can never be granted**, and the panel doesn't list them: the CRM tables, Client Health, everything in the Admin section (Users, Roles, Sync, Reconciliation, Database, Docs …), and retired pages. Only a super user can see those.
+- **Super users, admins and people with no role** have no Pages button. The first two already reach every grantable page, and a person with no role can't use a grant.
+- Only a **super user** can grant or revoke, and every change is recorded in the Audit Log.
+
 ## Technical
 
 ### The roles (now driven by the Admin UI tables)
@@ -102,7 +117,7 @@ API and server-action guards in `lib/api-auth.ts` both read the **real** role:
 - **Client deactivate / reactivate.** Via `lib/accounts/deactivation-gate.ts`.
 
 **Admin CANNOT** (strict super user, or excluded):
-- **Users & Roles.** `/admin/users` and `/admin/roles` are in `ADMIN_EXCLUDED_ROUTES`. Their server actions use `requireStrictSuperUser` and refuse with *"Not authorized — only a super user can manage users and roles."*. The Admin-hub **Users** / **Roles** tiles are drawn only when `canAccessRoute` allows them.
+- **Users & Roles.** `/admin/users` and `/admin/roles` are in `ADMIN_EXCLUDED_ROUTES` (and, since 2026-10-14, in `ADMIN_ONLY_ROUTES` too, so no other role can be matrix-granted them either). Their server actions use `requireStrictSuperUser` and refuse with *"Not authorized — only a super user can manage users and roles."*. The Admin-hub **Users** / **Roles** tiles are drawn only when `canAccessRoute` allows them.
 - **View as.** `app/view-as-actions.ts` uses `requireStrictSuperUser`, and `resolveEffective` (`lib/impersonation.ts`) checks `isStrictSuperUser(realRole)`, so an admin's view-as cookies are ignored. The only entry point is on `/admin/users`, which an admin can't open anyway.
 - **Hidden Pages.** The Admin hub section (`app/admin/page.tsx`) renders only for `isStrictSuperUser(effective role)`. Hidden / retired routes (`HIDDEN_PAGE_REGISTRY`, today `/clients/alerts`) are refused to admin by `canAccessRoute`.
 - **`ADMIN_EXCLUDED_ROUTES`** (`lib/access-control.ts`): `/admin/users`, `/admin/roles`, `/client-statistics`, `/people-statistics`, `/productivity`, `/productivity-detail`, `/capacity`, `/admin/sync`, `/admin/reconciliation`, `/admin/database`.
@@ -120,6 +135,58 @@ API and server-action guards in `lib/api-auth.ts` both read the **real** role:
 ### Which pages a role may reach — `public.role_page_access`
 
 The per-role page allow-list lives in **`public.role_page_access`** — the **Admin → Roles** grid (one `{ role, route, allowed }` row per checked cell). At request time `getAllowedRoutes(role)` (`dashboard/lib/page-access.ts`) loads that role's `allowed = true` routes in **one query**, ordered by `PAGE_REGISTRY` so the first entry is a natural landing page. It **fails closed** — any error (including the table not existing) returns `[]`, denying rather than leaking — and short-circuits to `[]` for `super_user` (who is never gated by the grid).
+
+Since 2026-10-14 the signature is `getAllowedRoutes(role, email)`, and the result also includes that person's per-user grants (next section).
+
+### Per-user page grants — `public.user_page_grants` (2026-10-14)
+
+**Effective page access = role pages (`role_page_access`) ∪ that person's grantable grants (`user_page_grants`).** The grants are additive only; there are no per-user denials. They are **page access only**: every write, admin power, data scope and financials check still reads the role / scopes exactly as before, so a grant can never confer a power.
+
+**Table** (`sql/patches/2026-10-14_user_page_grants.sql`): `email` (lower-cased, `CHECK`-enforced), `route` (a `PAGE_REGISTRY` route, the same key as `role_page_access.route`), `granted_by` (the super user's email), `granted_at`. `PRIMARY KEY (email, route)`. RLS is on with no policies, so only the service role can read or write it. Revoking deletes the row. Until the patch runs, the grants query errors, the error is treated as "no grants", and access is exactly role-only.
+
+**Where it's folded in: `getAllowedRoutes` (`lib/page-access.ts`), the one function every access check gets its list from.** It runs the role query and the grants query in parallel. `email` is a **required** argument, so the compiler flagged every call site; a site passing `null` only under-grants.
+- **Proxy and root layout (nav):** pass `effectiveAccessEmail(realEmail, resolution)`.
+- **Page / action re-checks:** use `getEffectiveAllowedRoutes()` (`lib/effective-identity.ts`).
+- **`requireRouteAccess`** (APIs): passes the real caller's email.
+
+Because the nav and the proxy read the same list, a granted page both appears in the sidebar and opens by URL.
+
+**Fail-closed:**
+- A role-query error still returns `[]`.
+- A grants-query error adds nothing.
+- `super_user` / `admin` / no-role short-circuit to `[]` exactly as before. Grants are no-ops for them: super and admin are code-defined, and `canAccessRoute` denies a role-less user before reading the list.
+
+**What can be granted — `isGrantableRoute(route, PAGE_REGISTRY)`** (`lib/access-control.ts`). A route is grantable only if it is an exact registered route **and not**:
+- in `ADMIN_ONLY_ROUTES`
+- in the Admin section (`/admin` and anything under it)
+- hidden (`HIDDEN_PAGE_REGISTRY`)
+- in `ALWAYS_ALLOWED_ROUTES` (`/`, `/my-dashboard`, `/time-off-requests`)
+- `/feedback` (redirect-only)
+
+The grantable set today:
+
+| Section | Grantable pages |
+|---|---|
+| Clients | Client Statistics, My Portfolio, Client Detail, Outreach Status |
+| Institutions | Summary, Detail, Style / Set Finder, Relationships (parked) |
+| Productivity | People Statistics, Summary, Detail, Capacity |
+| Logistics | Planning, legacy Planning, NDRS Calendar, Host Calendar, Live Outreach, Profiles, Feedback Reports, Feedback Collection, Onboarding, Time Off, Upcoming Meetings / Conference Rooms / OOO Summary (parked) |
+| Contracts | every Contracts page |
+
+`lib/access-control.test.ts` pins this list exactly.
+
+**Enforced in three places:**
+1. **The write.** `setUserPageGrant(email, route, on)` in `app/admin/users/actions.ts` checks `requireStrictSuperUser`, the `@roseandco.com` domain and `isGrantableRoute`. A crafted request for a strict page is refused before anything is written.
+2. **The read.** `getAllowedRoutes` drops any grant row that isn't grantable, so a hand-inserted row for `/admin/users` or `/meetings` is inert.
+3. **The decision.** `canAccessRoute` still refuses `ADMIN_ONLY_ROUTES` and hidden pages before it reads the allowed list.
+
+**Audit.** Each grant writes `create` and each revoke writes `delete` (with the original granter and date) to `audit_log`, entity `user_page_grants`, record `email|route:/x`. The Audit Log labels it **User → Page Grant**.
+
+**View as.**
+- **PERSON mode:** shows that person's role pages ∪ **their** grants (`effectiveAccessEmail` returns the impersonated email). So viewing as someone shows exactly their sidebar and lets you open exactly their pages.
+- **ROLE mode:** an abstract preview, so **role pages only** (no person, so no grants).
+
+**UI.** Admin → Users shows a **Pages** button per row, with a `+N` count of grants. It is hidden for Super User, Admin and None. It opens a panel grouped by `PAGE_SECTIONS`, as described in *How to give ONE person an extra page* above. A row is listed when the page is grantable, or when the role already reaches it (shown locked, never toggleable).
 
 `ALWAYS_ALLOWED_ROUTES` (`dashboard/lib/access-control.ts`) stays as the one hardcoded infra list — currently just `/no-access` — reachable by any signed-in user regardless of role. (`/login`, `/auth/*` are handled separately as public paths by the proxy.)
 
@@ -258,6 +325,10 @@ To add another CRM entry later, add a `{ href, label }` line to `CRM_NAV_ITEMS` 
 It currently holds one route, **`/meetings`**. That page reads `v_admin_meetings_all` with the service-role key (RLS bypassed) and deliberately does **not** apply `resolveMeetingScope`, so a successful load returns every client's meetings. Being merely "linked from Admin" is not a strong enough gate for that, which is why it gets its own. The page also re-checks the effective role server-side before it fetches anything.
 
 Add a route here only when the page exposes data that the scoping layer would otherwise restrict.
+
+> *(Outdated detail above: the list now also holds the CRM tables, Account Teams, Audit Log, Admin Contracts, Time Off Reviewers, Client Health, FB Coming Soon and Automations — see the source.)*
+
+**2026-10-14 — matrix hole closed.** `/admin/users`, `/admin/roles`, `/admin/sync`, `/admin/reconciliation` and `/admin/database` used to be only in `ADMIN_EXCLUDED_ROUTES`, which binds the **admin** role alone. That meant a tick in the Roles matrix could have opened them to User / Associate / Client Manager / Logistics. Their save actions were always strict-super-user, but the pages themselves would render. They are now in `ADMIN_ONLY_ROUTES` too, so neither the matrix nor a per-user grant can open them. Super users are unaffected, and admins are refused as before. Any `role_page_access` row for them is now inert, and their Roles-matrix labels read "(super-user only)". `ADMIN_ONLY_ROUTES` is also the first exclusion in `isGrantableRoute`.
 
 ### Users (Admin → **live**)
 

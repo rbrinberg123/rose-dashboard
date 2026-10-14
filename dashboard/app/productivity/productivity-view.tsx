@@ -4,21 +4,34 @@ import * as React from "react"
 import { ListTitleCard } from "@/components/page-masthead"
 import { StatCard } from "@/components/stat-card"
 import { formatDate, formatPercent, formatPercent0 } from "@/lib/format"
-import type { ProductivityRoleRow } from "@/lib/types"
+import type {
+  ProductivityExcludedBucket,
+  ProductivityPersonToggle,
+  ProductivityRoleRow,
+} from "@/lib/types"
 import { DateRangeControl } from "./date-range-control"
 import { ProductivityTable } from "./productivity-table"
+import { ExcludedPeopleManager } from "./excluded-people"
 
 export function ProductivityView({
   from,
   to,
   rows,
+  excluded,
+  manage,
 }: {
   from: string
   to: string
+  /** SHOWN people only — hidden people are summed into `excluded`. */
   rows: ProductivityRoleRow[]
+  /** The hidden people, summed by role / AM shape (no individual rows). */
+  excluded: ProductivityExcludedBucket[]
+  /** Super-user "Excluded people" list; null for everyone else. */
+  manage: ProductivityPersonToggle[] | null
 }) {
   // Firm-wide totals for the selected range — recomputed whenever the
-  // in-range rows change (i.e. when the date range is changed).
+  // in-range rows change (i.e. when the date range is changed). Shown rows +
+  // the excluded buckets = everyone, so hiding a person never moves a total.
   const summary = React.useMemo(() => {
     let booked = 0
     let hosted = 0
@@ -34,6 +47,14 @@ export function ProductivityView({
       feedbackClosed += r.feedback_closed
       if (r.booked > 0 || r.hosted > 0) active += 1
     }
+    for (const b of excluded) {
+      booked += b.booked
+      hosted += b.hosted
+      inPerson += b.in_person_hosted
+      feedback += b.feedback
+      feedbackClosed += b.feedback_closed
+      active += b.active_count
+    }
     return {
       booked,
       hosted,
@@ -45,7 +66,7 @@ export function ProductivityView({
       // collected ÷ closed — same definition as Client / Institution Detail.
       feedbackRate: feedbackClosed > 0 ? feedback / feedbackClosed : null,
     }
-  }, [rows])
+  }, [rows, excluded])
 
   return (
     <>
@@ -84,7 +105,9 @@ export function ProductivityView({
         />
       </div>
 
-      <ProductivityTable rows={rows} />
+      {manage ? <ExcludedPeopleManager people={manage} /> : null}
+
+      <ProductivityTable rows={rows} excluded={excluded} />
     </>
   )
 }

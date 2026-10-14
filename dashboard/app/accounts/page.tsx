@@ -18,7 +18,7 @@ import { listSavedViews } from "./actions"
 import { perfTimer } from "@/lib/perf-log"
 import { AccountsView } from "./accounts-view"
 import { hasSuperUserPrivileges, canAccessRoute } from "@/lib/access-control"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 
 export const dynamic = "force-dynamic"
 
@@ -201,7 +201,7 @@ export default async function AccountsPage({
         /* Name / ticker link to Client Detail only for a role that can open it —
            the SAME rule proxy.ts applies; Client Detail itself re-checks access
            and the client's Level-2 scope server-side. */
-        canOpenClientDetail={canAccessRoute(role, "/client-detail", await getAllowedRoutes(role))}
+        canOpenClientDetail={canAccessRoute(role, "/client-detail", await getEffectiveAllowedRoutes())}
         /* Writes are refused while impersonating (saved-views invariant 4); the
            UI hides the save controls rather than offering a doomed click. */
         readOnlyViews={identity.impersonated}

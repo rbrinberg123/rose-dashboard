@@ -87,7 +87,8 @@ export async function requireRouteAccess(route: string): Promise<ApiAuthResult> 
   }
 
   const role = await getUserRole(user.email)
-  const allowedRoutes = await getAllowedRoutes(role)
+  // The REAL caller (APIs do not honour View as): role pages ∪ their own grants.
+  const allowedRoutes = await getAllowedRoutes(role, user.email)
   if (!role || !canAccessRoute(role, route, allowedRoutes)) {
     return {
       ok: false,

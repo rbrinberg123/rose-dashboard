@@ -3,8 +3,9 @@ import { cookies } from "next/headers"
 
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { getRealRole } from "@/lib/user-role"
-import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, type Role, type ViewAsRole } from "@/lib/access-control"
+import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, effectiveAccessEmail, type Role, type ViewAsRole } from "@/lib/access-control"
 import { lookupPerson, resolveEffective } from "@/lib/impersonation"
+import { getAllowedRoutes } from "@/lib/page-access"
 
 /**
  * Request-context wrappers around the core resolver (lib/impersonation.ts) for
@@ -62,6 +63,19 @@ export async function getEffectiveRole(): Promise<ViewAsRole | null> {
   const cookieVals = await readViewCookies()
   const { effectiveRole } = await resolveEffective(realRole, cookieVals.user, cookieVals.role)
   return effectiveRole
+}
+
+/**
+ * The effective ALLOWED ROUTES for page callers — role pages ∪ per-user grants,
+ * for the same effective person/role getEffectiveRole() gates on (PERSON View
+ * as → that person's grants; ROLE View as → role pages only). Hand the result
+ * to canAccessRoute with getEffectiveRole(). See lib/page-access.ts.
+ */
+export async function getEffectiveAllowedRoutes(): Promise<string[]> {
+  const { email, role: realRole } = await readRealIdentity()
+  const cookieVals = await readViewCookies()
+  const resolution = await resolveEffective(realRole, cookieVals.user, cookieVals.role)
+  return getAllowedRoutes(resolution.effectiveRole, effectiveAccessEmail(email, resolution))
 }
 
 export type EffectiveIdentity = {

@@ -5,7 +5,7 @@ import { PageShell } from "@/components/page-shell"
 import { ListTitleCard } from "@/components/page-masthead"
 import { canAccessRoute } from "@/lib/access-control"
 import { getEffectiveRole } from "@/lib/effective-identity"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 import { CARD_CLASS, STATUS_PILL_LIGHT, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
 import { AUTOMATIONS, type Automation, type AutomationKind } from "@/lib/automations/registry"
 
@@ -22,7 +22,7 @@ const KIND_ORDER: AutomationKind[] = ["Event-driven", "Scheduled job", "Database
  */
 export default async function AutomationsPage() {
   const role = await getEffectiveRole()
-  const allowed = await getAllowedRoutes(role)
+  const allowed = await getEffectiveAllowedRoutes()
   if (!canAccessRoute(role, ROUTE, allowed)) redirect(allowed[0] ?? "/no-access")
 
   const active = AUTOMATIONS.filter((a) => a.status === "Active").length

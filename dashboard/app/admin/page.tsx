@@ -28,7 +28,7 @@ import { formatRelative, formatDate } from "@/lib/format"
 import { KPI_CARD_CLASS, CARD_CLASS, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
 import { HIDDEN_PAGE_REGISTRY, canAccessRoute, isStrictSuperUser } from "@/lib/access-control"
 import { getEffectiveRole } from "@/lib/effective-identity"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 import { RefreshSummariesCard } from "./refresh-summaries-card"
 
 export const dynamic = "force-dynamic"
@@ -440,7 +440,7 @@ export default async function AdminHubPage() {
   // Hidden Pages section is strict super-user only (isStrictSuperUser). The
   // proxy still refuses those routes; this only stops advertising them.
   const role = await getEffectiveRole()
-  const allowedRoutes = await getAllowedRoutes(role)
+  const allowedRoutes = await getEffectiveAllowedRoutes()
   const canOpen = (href: string) => canAccessRoute(role, href, allowedRoutes)
   const showHiddenPages = isStrictSuperUser(role)
 

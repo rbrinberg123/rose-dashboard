@@ -28,7 +28,7 @@ import { revalidatePath } from "next/cache"
 import { getSupabaseServer } from "@/lib/supabase"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 import { canAccessRoute } from "@/lib/access-control"
 import { resolveClientScope } from "@/lib/access/data-scope"
 import { isUuid, readActiveAccountOptions } from "@/lib/crm-write"
@@ -61,7 +61,7 @@ type Gate = { ok: true; actor: TouchActor; scope: Set<string> | null } | { ok: f
 /** Steps 1 + 4 (page access, View-as) and the scope itself. */
 async function gateViewer(write: boolean): Promise<Gate> {
   const [role, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
-  if (!canAccessRoute(role, PAGE, await getAllowedRoutes(role))) return { ok: false, error: "Not authorised." }
+  if (!canAccessRoute(role, PAGE, await getEffectiveAllowedRoutes())) return { ok: false, error: "Not authorised." }
   if (write && identity.impersonated) return { ok: false, error: "Exit “View as” before saving touchpoints." }
   const scope = await resolveClientScope(identity)
   return { ok: true, actor: { userId: identity.userId, name: identity.name }, scope }

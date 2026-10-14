@@ -12,6 +12,7 @@ import {
   type RoleValue,
   type Resolution,
   type SessionResolution,
+  type PageGrant,
 } from "./users-view"
 import type { DataScopes } from "./actions"
 
@@ -61,6 +62,46 @@ async function loadGrants(
     grants.set(g.email.toLowerCase(), g.role as RoleValue)
   }
   return { grants, missingTable: false }
+}
+
+/**
+ * Per-user page grants (public.user_page_grants) keyed by email, plus each
+ * role's matrix pages (role_page_access) for the "From role" rows of the Pages
+ * panel. Guards the grants table not existing yet (patch 2026-10-14).
+ */
+async function loadPageAccess(
+  sb: ReturnType<typeof getSupabaseServer>,
+): Promise<{
+  grants: Map<string, PageGrant[]>
+  rolePages: Record<string, string[]>
+  missingTable: boolean
+}> {
+  const [grantRes, roleRes] = await Promise.all([
+    sb.from("user_page_grants").select("email, route, granted_by, granted_at"),
+    sb.from("role_page_access").select("role, route").eq("allowed", true),
+  ])
+  const rolePages: Record<string, string[]> = {}
+  for (const r of (roleRes.data ?? []) as { role: string; route: string }[]) {
+    ;(rolePages[r.role] ??= []).push(r.route)
+  }
+  const grants = new Map<string, PageGrant[]>()
+  if (grantRes.error) {
+    const missingTable =
+      grantRes.error.code === "42P01" || /does not exist/i.test(grantRes.error.message)
+    return { grants, rolePages, missingTable }
+  }
+  for (const g of (grantRes.data ?? []) as {
+    email: string
+    route: string
+    granted_by: string
+    granted_at: string
+  }[]) {
+    const key = g.email.toLowerCase()
+    const list = grants.get(key) ?? []
+    list.push({ route: g.route, grantedBy: g.granted_by, grantedAt: g.granted_at })
+    grants.set(key, list)
+  }
+  return { grants, rolePages, missingTable: false }
 }
 
 type ScopeRow = {
@@ -118,10 +159,11 @@ function toBadge(r: PersonResolution): Resolution {
 export default async function UsersRolesPage() {
   const sb = getSupabaseServer()
 
-  const [grantsRes, scopesRes, identity] = await Promise.all([
+  const [grantsRes, scopesRes, identity, pageAccess] = await Promise.all([
     loadGrants(sb),
     loadScopes(sb),
     loadIdentity(),
+    loadPageAccess(sb),
   ])
 
   const backLink = (
@@ -186,6 +228,7 @@ export default async function UsersRolesPage() {
     name: entry.name,
     role: grants.get(entry.email) ?? null,
     scopes: scopes.get(entry.email) ?? DEFAULT_SCOPES,
+    pageGrants: pageAccess.grants.get(entry.email) ?? [],
     service: entry.service,
     resolution: entry.service ? { state: "service" } : toBadge(identity.resolve(entry.email)),
   }))
@@ -200,6 +243,8 @@ export default async function UsersRolesPage() {
         users={users}
         missingTable={missingTable}
         missingScopesTable={missingScopesTable}
+        rolePages={pageAccess.rolePages}
+        missingPageGrantsTable={pageAccess.missingTable}
         sessionResolution={sessionResolution}
       />
     </PageShell>

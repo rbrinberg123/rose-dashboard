@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { getSupabaseProxy } from "@/lib/supabase/proxy"
 import {
   canAccessRoute,
+  effectiveAccessEmail,
   VIEW_AS_COOKIE,
   VIEW_AS_USER_COOKIE,
 } from "@/lib/access-control"
@@ -134,9 +135,11 @@ export async function proxy(request: NextRequest) {
     request.cookies.get(VIEW_AS_COOKIE)?.value,
   )
   perf.step("view-as resolve")
-  // Load the role's allowed routes ONCE (small query; super_user short-circuits
-  // to [] and is allowed everything by the canAccessRoute backstop).
-  const allowedRoutes = await getAllowedRoutes(role)
+  // Load the allowed routes ONCE: role pages ∪ the effective person's per-user
+  // grants (two small parallel queries; super_user short-circuits to [] and is
+  // allowed everything by the canAccessRoute backstop). PERSON View as → that
+  // person's grants; ROLE View as → role pages only (effectiveAccessEmail).
+  const allowedRoutes = await getAllowedRoutes(role, effectiveAccessEmail(user.email, { person, roleView }))
   perf.step("allowed routes")
   if (!canAccessRoute(role, pathname, allowedRoutes)) {
     const url = request.nextUrl.clone()

@@ -113,11 +113,11 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
 
   // ---- Admin ----
   { route: "/admin", label: "Admin Hub", section: "Admin" },
-  { route: "/admin/sync", label: "Sync Status", section: "Admin" },
-  { route: "/admin/reconciliation", label: "Deletion Reconciliation", section: "Admin" },
-  { route: "/admin/database", label: "Database Health", section: "Admin" },
-  { route: "/admin/users", label: "Users & Roles", section: "Admin" },
-  { route: "/admin/roles", label: "Roles Matrix", section: "Admin" },
+  { route: "/admin/sync", label: "Sync Status (super-user only)", section: "Admin" },
+  { route: "/admin/reconciliation", label: "Deletion Reconciliation (super-user only)", section: "Admin" },
+  { route: "/admin/database", label: "Database Health (super-user only)", section: "Admin" },
+  { route: "/admin/users", label: "Users & Roles (super-user only)", section: "Admin" },
+  { route: "/admin/roles", label: "Roles Matrix (super-user only)", section: "Admin" },
   { route: "/admin/docs", label: "Documentation", section: "Admin" },
   // Super-user-only and NOT grantable through this matrix — see
   // ADMIN_ONLY_ROUTES in lib/access-control.ts. Listed here so the page still

@@ -6,7 +6,7 @@ import { PageShell } from "@/components/page-shell"
 import { ListTitleCard } from "@/components/page-masthead"
 import { canAccessRoute } from "@/lib/access-control"
 import { getEffectiveRole } from "@/lib/effective-identity"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 import { getSupabaseServer } from "@/lib/supabase"
 import { CARD_CLASS, STATUS_PILL_LIGHT, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
 import { isEligibleMeeting, reportLetter } from "@/lib/feedback-reports/policy"
@@ -39,7 +39,7 @@ const ROUTE = "/fb-coming-soon"
  */
 export default async function FbComingSoonPage() {
   const [role, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
-  const allowed = await getAllowedRoutes(role)
+  const allowed = await getEffectiveAllowedRoutes()
   if (!canAccessRoute(role, ROUTE, allowed)) redirect(allowed[0] ?? "/no-access")
 
   const sb = getSupabaseServer()

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation"
 
 import { homeRouteFor } from "@/lib/access-control"
 import { getEffectiveRole } from "@/lib/effective-identity"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 
 export const dynamic = "force-dynamic"
 
@@ -21,6 +21,6 @@ export const dynamic = "force-dynamic"
  */
 export default async function Home() {
   const role = await getEffectiveRole()
-  const allowed = await getAllowedRoutes(role)
+  const allowed = await getEffectiveAllowedRoutes()
   redirect(homeRouteFor(role, allowed))
 }

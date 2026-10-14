@@ -102,11 +102,18 @@ export function ProductivityDetailView({
   monthlyRows,
   institutionRows,
   userOptions,
+  excludedName = null,
 }: {
   rows: ProductivityDetailRow[]
   monthlyRows: AnalystMonthlyActivityRow[]
   institutionRows: ProductivityDetailInstitutionRow[]
   userOptions: UserOption[]
+  /**
+   * A person hidden from the Productivity breakdowns who was opened by direct
+   * link (?display_name=). Their row is in `rows` so the page loads, but they
+   * are not pickable and not the default. See lib/productivity-exclusions.ts.
+   */
+  excludedName?: string | null
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -114,7 +121,12 @@ export function ProductivityDetailView({
   const matchedName = requestedName
     ? rows.find((r) => r.display_name === requestedName)?.display_name
     : undefined
-  const initialName = matchedName ?? rows[0]?.display_name
+  // Pickable people — everyone except a hidden person opened by direct link.
+  const pickable = React.useMemo(
+    () => rows.filter((r) => r.display_name !== excludedName),
+    [rows, excludedName],
+  )
+  const initialName = matchedName ?? pickable[0]?.display_name
   const [selectedId, setSelectedId] = React.useState<string | undefined>(initialName)
 
   // Keep state in sync if the URL changes (e.g. user follows a deep-link
@@ -225,7 +237,7 @@ export function ProductivityDetailView({
     [monthlyRows, selectedId],
   )
 
-  if (rows.length === 0) {
+  if (rows.length === 0 || (pickable.length === 0 && selectedId !== excludedName)) {
     return (
       <div className={`p-6 text-sm text-muted-foreground ${CARD_CLASS}`}>
         No users with activity in the trailing 12 months.
@@ -233,19 +245,22 @@ export function ProductivityDetailView({
     )
   }
 
-  const selectedIndex = Math.max(
-    0,
-    rows.findIndex((r) => r.display_name === selectedId),
-  )
-  const selected = rows[selectedIndex]
+  const isExcluded = excludedName != null && selectedId === excludedName
+  const selected =
+    (isExcluded ? rows.find((r) => r.display_name === excludedName) : undefined) ??
+    pickable[Math.max(0, pickable.findIndex((r) => r.display_name === selectedId))]
+  // Prev / next walk the pickable list; from a hidden person they start at the ends.
+  const pickIndex = pickable.findIndex((r) => r.display_name === selected.display_name)
 
   const goPrev = () => {
-    const next = (selectedIndex - 1 + rows.length) % rows.length
-    goTo(rows[next].display_name)
+    if (pickable.length === 0) return
+    const next = pickIndex < 0 ? pickable.length - 1 : (pickIndex - 1 + pickable.length) % pickable.length
+    goTo(pickable[next].display_name)
   }
   const goNext = () => {
-    const next = (selectedIndex + 1) % rows.length
-    goTo(rows[next].display_name)
+    if (pickable.length === 0) return
+    const next = pickIndex < 0 ? 0 : (pickIndex + 1) % pickable.length
+    goTo(pickable[next].display_name)
   }
 
   const inPersonPct =
@@ -328,10 +343,14 @@ export function ProductivityDetailView({
           subtitle="Activity over the trailing 12 months"
           rightSlot={
             <MastheadSelector
-              items={rows.map((r) => ({
-                value: r.display_name,
-                label: r.display_name,
-              }))}
+              items={[
+                // A hidden person appears only while they are the one open.
+                ...(isExcluded ? [{ value: selected.display_name, label: `${selected.display_name} (excluded)` }] : []),
+                ...pickable.map((r) => ({
+                  value: r.display_name,
+                  label: r.display_name,
+                })),
+              ]}
               value={selected.display_name}
               onChange={goTo}
               onPrev={goPrev}
@@ -341,6 +360,18 @@ export function ProductivityDetailView({
           }
         />
       </div>
+
+      {isExcluded ? (
+        <div
+          className="mb-4 rounded-lg border border-[#E3E6EC] bg-[#F7F8FA] px-3 py-2 text-xs"
+          style={{ color: "#5B6472" }}
+        >
+          <span className="font-medium">Excluded from Productivity breakdowns.</span> This person is
+          hidden from the per-person views (Summary by Person, Resource Statistics, Capacity and this
+          page&apos;s picker). Their numbers still count in every total, inside the
+          &ldquo;Former / Excluded&rdquo; row.
+        </div>
+      ) : null}
 
       <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((t) => (

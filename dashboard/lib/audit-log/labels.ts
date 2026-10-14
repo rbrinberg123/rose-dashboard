@@ -70,6 +70,8 @@ export const ENTITY_LABELS: Record<string, string> = {
   role_data_permission: "Role → Data Permission",
   user_role_grants: "User Role",
   user_data_scopes: "User Data Scopes",
+  user_page_grants: "User → Page Grant",
+  productivity_hidden_people: "Productivity → Excluded Person",
 
   // Saved views — one per CRM table
   meeting_saved_views: "Saved View · Meetings",

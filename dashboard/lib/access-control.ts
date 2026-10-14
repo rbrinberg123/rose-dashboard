@@ -216,6 +216,15 @@ export const ADMIN_ONLY_ROUTES = [
   "/fb-coming-soon",
   // Admin -> Automations. The catalogue of every automation (lib/automations).
   "/admin/automations",
+  // Admin maintenance + user / role management (2026-10-14). Until now these
+  // were only in ADMIN_EXCLUDED_ROUTES (which binds the admin role alone), so a
+  // stray Roles-matrix tick could have opened them to a normal role. Listed
+  // here they can never be delegated — by the matrix OR a per-user page grant.
+  "/admin/users",
+  "/admin/roles",
+  "/admin/sync",
+  "/admin/reconciliation",
+  "/admin/database",
 ] as const
 
 /**
@@ -291,9 +300,60 @@ export function isHiddenRoute(pathname: string): boolean {
   return HIDDEN_PAGE_REGISTRY.some((p) => p.hidden && matchesRoute(pathname, p.route))
 }
 
+/* ---------------------------------------------------------------------------
+ * PER-USER PAGE GRANTS (2026-10-14) — which pages may be granted to ONE person
+ * on top of their role (public.user_page_grants, Admin → Users → Pages).
+ *
+ * Effective page access = role pages (role_page_access) ∪ that person's
+ * grants, folded together in getAllowedRoutes (lib/page-access.ts). A grant is
+ * PAGE ACCESS ONLY — every action, write and data scope on the page still runs
+ * through the existing role / scope checks.
+ *
+ * Enforced in three places: setUserPageGrant (rejects the write),
+ * getAllowedRoutes (ignores a non-grantable row) and canAccessRoute's deny steps
+ * (ADMIN_ONLY_ROUTES / hidden are refused before the allowed list is read).
+ * ------------------------------------------------------------------------ */
+
+/** Feedback is a redirect-only route (→ Feedback Collection); nothing to grant. */
+const NEVER_GRANTABLE_ROUTES = ["/feedback"] as const
+
+/**
+ * May `route` be granted to an individual user? True only when it is a
+ * registered page (pass PAGE_REGISTRY — kept as an argument so this module
+ * stays import-free) and is NOT: in ADMIN_ONLY_ROUTES, a hidden page, an
+ * always-allowed page, anywhere in the Admin section (/admin and below), or
+ * /feedback. Exact registry routes only — sub-paths are never stored.
+ */
+export function isGrantableRoute(route: string, registry: readonly { route: string }[]): boolean {
+  if (!registry.some((p) => p.route === route)) return false
+  if (route === "/admin" || route.startsWith("/admin/")) return false
+  if ((ADMIN_ONLY_ROUTES as readonly string[]).some((r) => matchesRoute(route, r))) return false
+  if (isHiddenRoute(route)) return false
+  if ((ALWAYS_ALLOWED_ROUTES as readonly string[]).includes(route)) return false
+  if ((NEVER_GRANTABLE_ROUTES as readonly string[]).includes(route)) return false
+  return true
+}
+
+/**
+ * WHOSE per-user page grants apply to a request — the `email` argument of
+ * getAllowedRoutes. Takes the resolveEffective result (lib/impersonation.ts):
+ *   - PERSON View as → the impersonated person (their role pages ∪ their grants);
+ *   - ROLE View as   → null (an abstract role preview: role pages only);
+ *   - otherwise      → the real signed-in user.
+ */
+export function effectiveAccessEmail(
+  realEmail: string | null | undefined,
+  resolution: { person: { email: string } | null; roleView: string | null },
+): string | null {
+  if (resolution.person) return resolution.person.email
+  if (resolution.roleView) return null
+  return realEmail ?? null
+}
+
 /**
  * Can a `role` reach `pathname`, given `allowedRoutes` — the routes granted to
- * that role in `role_page_access` (load once per request via
+ * that role in `role_page_access` PLUS the person's grantable per-user grants
+ * (user_page_grants) (load once per request via
  * getAllowedRoutes(); see lib/page-access.ts). Pure and synchronous so the nav
  * (a Client Component) and the proxy share the exact same decision.
  *

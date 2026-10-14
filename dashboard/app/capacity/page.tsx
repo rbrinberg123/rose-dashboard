@@ -9,6 +9,7 @@ import type {
   ProductivityPersonMeetingRow,
 } from "@/lib/types"
 import { CapacityView, type CapacityPerson, type CapacityPeriod } from "./capacity-view"
+import { loadProductivityExclusions } from "@/lib/productivity-exclusions"
 
 export const dynamic = "force-dynamic"
 
@@ -249,8 +250,14 @@ export default async function CapacityPage({
     b.account_hours = clients * RATE_ACCOUNT_PER_CLIENT_MONTH * monthsInRange
   }
 
+  // Exclusions (lib/productivity-exclusions.ts): Capacity just DROPS hidden
+  // people — no rollup, since each bar is against one person's own available
+  // hours and there is no firm total here to reconcile.
+  const exclusions = await loadProductivityExclusions()
+
   const people: CapacityPerson[] = []
   for (const b of build.values()) {
+    if (exclusions.isHidden(b.user_id)) continue
     const accounted =
       b.booking_hours + b.hosting_hours + b.feedback_hours + b.account_hours
     if (accounted <= 0) continue // skip people with no modeled activity in range

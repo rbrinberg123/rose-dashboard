@@ -22,8 +22,9 @@ import {
 import { SortHeader } from "@/components/sort-header"
 import { CARD_CLASS } from "@/lib/design"
 import { formatPercent0 } from "@/lib/format"
-import type { PersonRole, ProductivityRoleRow } from "@/lib/types"
+import type { PersonRole, ProductivityExcludedBucket, ProductivityRoleRow } from "@/lib/types"
 import { ROLE_STYLES } from "@/lib/person-role"
+import { excludedRollupLabel } from "@/lib/productivity-exclusions-shared"
 
 // Role filter options for the segmented toggle. "All" = no filter;
 // "Unclassified" = people with no role (null / under-25-activity).
@@ -300,7 +301,41 @@ function SegmentedFilter<T extends string>({
   )
 }
 
-export function ProductivityTable({ rows }: { rows: ProductivityRoleRow[] }) {
+/** One cell of the pinned rollup row, by column id. */
+function rollupCell(id: string, r: ProductivityExcludedBucket): React.ReactNode {
+  const num = (n: number) => <div className="text-right tabular-nums">{n.toLocaleString()}</div>
+  switch (id) {
+    case "display_name":
+      return (
+        <span className="font-medium italic text-muted-foreground" title="People hidden from the per-person breakdowns — their numbers still count in every total.">
+          {excludedRollupLabel(r.member_count)}
+        </span>
+      )
+    case "role":
+      return <span className="text-muted-foreground">—</span>
+    case "feedback_rate":
+      return <div className="text-right tabular-nums">{formatPercent0(r.feedback_rate)}</div>
+    case "primary_manager_count":
+    case "secondary_manager_count":
+    case "booked":
+    case "hosted":
+    case "in_person_hosted":
+    case "virtual_hosted":
+    case "feedback":
+      return num(r[id])
+    default:
+      return null
+  }
+}
+
+export function ProductivityTable({
+  rows,
+  excluded = [],
+}: {
+  rows: ProductivityRoleRow[]
+  /** Hidden people, summed by role / AM shape — folded into one pinned row. */
+  excluded?: ProductivityExcludedBucket[]
+}) {
   const [sorting, setSorting] = React.useState<SortingState>([
     { id: "total_activity", desc: true },
   ])
@@ -317,6 +352,31 @@ export function ProductivityTable({ rows }: { rows: ProductivityRoleRow[] }) {
     [rows, roleFilter, amFilter],
   )
 
+  // The "Former / Excluded" rollup for the CURRENT filters: only the buckets
+  // (hidden people) that match the Role / AM filters. Null when none match.
+  const rollup = React.useMemo<ProductivityExcludedBucket | null>(() => {
+    const match = excluded.filter(
+      (b) => matchesRoleFilter(b.role, roleFilter) && matchesAmFilter(b, amFilter),
+    )
+    if (match.length === 0) return null
+    const sum: ProductivityExcludedBucket = { ...match[0], user_id: "rollup" }
+    for (const b of match.slice(1)) {
+      sum.primary_manager_count += b.primary_manager_count
+      sum.secondary_manager_count += b.secondary_manager_count
+      sum.booked += b.booked
+      sum.hosted += b.hosted
+      sum.in_person_hosted += b.in_person_hosted
+      sum.virtual_hosted += b.virtual_hosted
+      sum.feedback += b.feedback
+      sum.feedback_closed += b.feedback_closed
+      sum.member_count += b.member_count
+      sum.active_count += b.active_count
+    }
+    sum.feedback_rate = sum.feedback_closed > 0 ? sum.feedback / sum.feedback_closed : null
+    return sum
+  }, [excluded, roleFilter, amFilter])
+  const excludedMembers = excluded.reduce((n, b) => n + b.member_count, 0)
+
   const table = useReactTable({
     data: filteredRows,
     columns,
@@ -329,7 +389,8 @@ export function ProductivityTable({ rows }: { rows: ProductivityRoleRow[] }) {
     getSortedRowModel: getSortedRowModel(),
   })
 
-  const visibleCount = filteredRows.length
+  const visibleCount = filteredRows.length + (rollup?.member_count ?? 0)
+  const totalCount = rows.length + excludedMembers
 
   return (
     <div className="space-y-3">
@@ -348,7 +409,7 @@ export function ProductivityTable({ rows }: { rows: ProductivityRoleRow[] }) {
         />
 
         <div className="ml-auto text-xs tabular-nums text-muted-foreground">
-          {visibleCount.toLocaleString()} of {rows.length.toLocaleString()} people
+          {visibleCount.toLocaleString()} of {totalCount.toLocaleString()} people
         </div>
       </div>
 
@@ -378,7 +439,7 @@ export function ProductivityTable({ rows }: { rows: ProductivityRoleRow[] }) {
             ))}
           </TableHeader>
           <TableBody>
-            {table.getRowModel().rows.length === 0 ? (
+            {table.getRowModel().rows.length === 0 && !rollup ? (
               <TableRow>
                 <TableCell
                   colSpan={table.getVisibleLeafColumns().length}
@@ -400,6 +461,17 @@ export function ProductivityTable({ rows }: { rows: ProductivityRoleRow[] }) {
                 </TableRow>
               ))
             )}
+            {/* Pinned last, whatever the sort: the hidden people summed, so
+                shown rows + this row = the totals in the stat cards above. */}
+            {rollup ? (
+              <TableRow className="bg-[#F7F8FA]">
+                {table.getVisibleLeafColumns().map((col) => (
+                  <TableCell key={col.id} className="px-3 align-top">
+                    {rollupCell(col.id, rollup)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ) : null}
           </TableBody>
         </Table>
       </div>

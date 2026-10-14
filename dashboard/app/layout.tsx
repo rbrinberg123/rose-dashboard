@@ -11,7 +11,7 @@ import { loadCriticalAlertCount } from "@/app/clients/alerts/critical-count"
 import { loadMyDashboardCriticalCount } from "@/app/my-dashboard/critical-count"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { getRealRole } from "@/lib/user-role"
-import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, isHiddenRoute, viewAsLabel } from "@/lib/access-control"
+import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, effectiveAccessEmail, isHiddenRoute, viewAsLabel } from "@/lib/access-control"
 import { resolveEffective } from "@/lib/impersonation"
 import { getAllowedRoutes } from "@/lib/page-access"
 import { SIDEBAR_COLLAPSED_COOKIE, isSidebarCollapsed } from "@/lib/sidebar"
@@ -77,7 +77,7 @@ async function resolveIdentityLocally(
     effectiveRole,
     person,
     roleView,
-    allowedRoutes: await getAllowedRoutes(effectiveRole),
+    allowedRoutes: await getAllowedRoutes(effectiveRole, effectiveAccessEmail(email, { person, roleView })),
   }
 }
 

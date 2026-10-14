@@ -5,7 +5,7 @@ import { FeedbackPipelineView } from "./feedback-manager-view"
 import { loadClaimsContext } from "./claims-load"
 import { canAccessRoute } from "@/lib/access-control"
 import { getEffectiveRole } from "@/lib/effective-identity"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 import { getSupabaseServer } from "@/lib/supabase"
 
 // Feedback Reports — the report pipeline (Open + Pending Review), all-access by
@@ -49,7 +49,7 @@ export default async function FeedbackReportsPage() {
   // The row shortcuts open the Events / Tasks drawers, so they are offered only
   // to viewers who may open those pages. loadEventRecord / loadTaskRecord
   // re-check on the server (super user) regardless.
-  const allowed = await getAllowedRoutes(role)
+  const allowed = await getEffectiveAllowedRoutes()
   const canOpen = {
     events: canAccessRoute(role, "/events", allowed),
     tasks: canAccessRoute(role, "/tasks", allowed),

@@ -4,7 +4,7 @@ import { redirect } from "next/navigation"
 import { PageShell } from "@/components/page-shell"
 import { canAccessRoute } from "@/lib/access-control"
 import { getEffectiveRole } from "@/lib/effective-identity"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 import { loadAlerts } from "./load"
 import { AlertsView } from "./alerts-view"
 
@@ -36,7 +36,7 @@ const ROUTE = "/clients/alerts"
  */
 export default async function ClientAlertsPage() {
   const role = await getEffectiveRole()
-  const allowedRoutes = await getAllowedRoutes(role)
+  const allowedRoutes = await getEffectiveAllowedRoutes()
   if (!canAccessRoute(role, ROUTE, allowedRoutes)) {
     redirect(allowedRoutes[0] ?? "/no-access")
   }

@@ -3,12 +3,15 @@ import assert from "node:assert/strict"
 
 import {
   ADMIN_EXCLUDED_ROUTES,
+  ADMIN_ONLY_ROUTES,
   ALWAYS_ALLOWED_ROUTES,
   HIDDEN_PAGE_REGISTRY,
   VIEW_AS_ROLE_OPTIONS,
   canAccessRoute,
   canSeeCrmNav,
+  effectiveAccessEmail,
   hasSuperUserPrivileges,
+  isGrantableRoute,
   isHiddenRoute,
   isStrictSuperUser,
   isViewAsRole,
@@ -198,4 +201,97 @@ test("Admin is refused every excluded route and every hidden page; super_user is
     assert.equal(canAccessRoute("admin", route, [route]), false, `a grant must not open ${route} to admin`)
     assert.equal(canAccessRoute("super_user", route, []), true, `super_user still reaches ${route}`)
   }
+})
+
+// ---------------------------------------------------------------------------
+// Per-user page grants (2026-10-14) — isGrantableRoute, the role ∪ grants fold,
+// View-as, and the five Admin pages moved into ADMIN_ONLY_ROUTES.
+// ---------------------------------------------------------------------------
+
+/** The fold getAllowedRoutes performs (lib/page-access.ts), minus the DB. */
+function fold(rolePages: string[], grants: string[]): string[] {
+  return [...rolePages, ...grants.filter((g) => isGrantableRoute(g, PAGE_REGISTRY))]
+}
+
+const STRICT_FIVE = ["/admin/users", "/admin/roles", "/admin/sync", "/admin/reconciliation", "/admin/database"]
+
+test("the grantable set is exactly the registry minus strict, hidden, always-allowed, Admin and /feedback", () => {
+  const grantable = PAGE_REGISTRY.filter((p) => isGrantableRoute(p.route, PAGE_REGISTRY)).map((p) => p.route)
+  assert.deepEqual(grantable, [
+    "/client-statistics", "/portfolio", "/client-detail", "/clients/to-do",
+    "/institutions", "/institution-detail", "/institution-style", "/relationships",
+    "/people-statistics", "/productivity", "/productivity-detail", "/capacity",
+    "/planning-v2", "/planning", "/calendar", "/scheduler", "/live-outreach", "/profiles",
+    "/feedback-manager", "/feedback-collection", "/onboarding", "/time-off",
+    "/pipeline", "/conference-rooms", "/ooo-summary",
+    "/contract-management", "/renewals", "/margin", "/revenue-overrides", "/direct-costs",
+    "/cost-assumptions", "/overhead-overrides", "/quarterly-overhead", "/salary-schedule", "/exceptions",
+  ])
+})
+
+test("strict pages are never grantable", () => {
+  const strict = [
+    ...ADMIN_ONLY_ROUTES,
+    ...STRICT_FIVE,
+    ...PAGE_REGISTRY.filter((p) => p.section === "Admin").map((p) => p.route),
+    ...HIDDEN_PAGE_REGISTRY.filter((p) => p.hidden).map((p) => p.route),
+    ...ALWAYS_ALLOWED_ROUTES,
+    "/feedback",
+    // Not registered / sub-paths / junk are refused too.
+    "/portfolio/123", "/admin/users/x", "/nope", "", "portfolio",
+  ]
+  for (const route of strict) {
+    assert.equal(isGrantableRoute(route, PAGE_REGISTRY), false, `${route} must not be grantable`)
+  }
+})
+
+test("a granted page opens for that user — and only it", () => {
+  const allowed = fold([], ["/portfolio"])
+  assert.equal(canAccessRoute("associate", "/portfolio", allowed), true)
+  assert.equal(canAccessRoute("associate", "/portfolio/123", allowed), true)
+  assert.equal(canAccessRoute("associate", "/client-detail", allowed), false)
+  // Role pages and grants union.
+  const both = fold(["/planning-v2"], ["/calendar"])
+  assert.equal(canAccessRoute("logistics", "/planning-v2", both), true)
+  assert.equal(canAccessRoute("logistics", "/calendar", both), true)
+})
+
+test("a user without the grant is still denied the page", () => {
+  assert.equal(canAccessRoute("associate", "/portfolio", fold([], [])), false)
+  assert.equal(canAccessRoute("associate", "/portfolio", fold([], ["/calendar"])), false)
+})
+
+test("a stray grant row for a strict page is ignored by the fold AND refused by canAccessRoute", () => {
+  for (const route of [...ADMIN_ONLY_ROUTES, ...STRICT_FIVE, "/admin", "/admin/docs"]) {
+    const allowed = fold([], [route])
+    assert.equal(allowed.includes(route), false, `fold must drop ${route}`)
+    assert.equal(canAccessRoute("associate", route, allowed), false, `grant must not open ${route}`)
+  }
+  // Even if a strict route reached the list some other way, the deny step holds.
+  for (const route of [...ADMIN_ONLY_ROUTES, ...STRICT_FIVE]) {
+    assert.equal(canAccessRoute("associate", route, [route]), false, `deny step must refuse ${route}`)
+  }
+})
+
+test("grants are no-ops for a role-less user", () => {
+  assert.equal(canAccessRoute(null, "/portfolio", fold([], ["/portfolio"])), false)
+})
+
+test("the five Admin maintenance pages are no longer delegable through the Roles matrix", () => {
+  for (const route of STRICT_FIVE) {
+    assert.ok((ADMIN_ONLY_ROUTES as readonly string[]).includes(route), `${route} is ADMIN_ONLY`)
+    for (const role of ["user", "associate", "client_manager", "logistics"] as Role[]) {
+      assert.equal(canAccessRoute(role, route, [route]), false, `matrix must not open ${route} to ${role}`)
+    }
+    assert.equal(canAccessRoute("admin", route, [route]), false, `admin still refused ${route}`)
+    assert.equal(canAccessRoute("super_user", route, []), true, `super_user still reaches ${route}`)
+  }
+})
+
+test("View as: PERSON mode uses that person's grants, ROLE mode uses none", () => {
+  const person = { email: "pat@roseandco.com" }
+  assert.equal(effectiveAccessEmail("me@roseandco.com", { person, roleView: null }), "pat@roseandco.com")
+  assert.equal(effectiveAccessEmail("me@roseandco.com", { person: null, roleView: "logistics" }), null)
+  assert.equal(effectiveAccessEmail("me@roseandco.com", { person: null, roleView: null }), "me@roseandco.com")
+  assert.equal(effectiveAccessEmail(undefined, { person: null, roleView: null }), null)
 })

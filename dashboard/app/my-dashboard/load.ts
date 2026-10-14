@@ -1,7 +1,7 @@
 import { getSupabaseServer } from "@/lib/supabase"
 import { canAccessRoute } from "@/lib/access-control"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 import {
   TEAM_ROLES,
   resolveAccountTeamScope,
@@ -360,7 +360,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
         ["account_id", "name", "ticker_symbol", "state_label", ...TEAM_ROLES.map((r) => r.idColumn), ...nameCols].join(","),
       ),
   ])
-  const allowedRoutes = await getAllowedRoutes(role)
+  const allowedRoutes = await getEffectiveAllowedRoutes()
   const can = (route: string) => canAccessRoute(role, route, allowedRoutes)
 
   const ids = viewer.ids
