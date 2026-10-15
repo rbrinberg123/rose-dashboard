@@ -22,6 +22,7 @@ import {
   reassignFeedbackTask,
   releaseFeedbackTask,
 } from "./actions"
+import { ClaimActions } from "./claim-actions"
 import { initialsOf as sharedInitialsOf, personNameCore } from "@/lib/team-initials"
 
 // ---------------------------------------------------------------------------
@@ -244,8 +245,9 @@ export function FeedbackPipelineView({
     claims && !claims.setupMissing
       ? (r: FeedbackPipelineRow) => (
           <ClaimActions
-            row={r}
-            claims={claims}
+            inPool={r.category === "in_progress" && !!claims.meta[r.task_id]}
+            ownerId={r.claimed ? r.claimed_by_id : null}
+            controls={claims}
             myIds={myIds}
             onClaim={() =>
               runClaimAction(
@@ -400,16 +402,27 @@ export function FeedbackPipelineView({
   const [openEventId, setOpenEventId] = React.useState<string | null>(null)
   const [eventRecord, setEventRecord] = React.useState<EventRecord | null>(null)
   const [eventError, setEventError] = React.useState<string | null>(null)
-  const openEvent = React.useCallback((id: string) => {
+  // A ROW click opens the event on Meetings & Reports, focused on that report.
+  const [eventFocus, setEventFocus] = React.useState<{ reportTaskId: string } | null>(null)
+  const openEvent = React.useCallback((id: string, focus?: { reportTaskId: string }) => {
     setEventRecord(null)
     setEventError(null)
+    setEventFocus(focus ?? null)
     setOpenEventId(id)
   }, [])
   const closeEvent = React.useCallback(() => {
     setOpenEventId(null)
     setEventRecord(null)
     setEventError(null)
+    setEventFocus(null)
   }, [])
+  // Same permission as the Open-event shortcut (canOpen.events).
+  const openRowEvent =
+    canOpen?.events
+      ? (r: FeedbackPipelineRow) => {
+          if (r.event_id) openEvent(r.event_id, { reportTaskId: r.task_id })
+        }
+      : undefined
   React.useEffect(() => {
     if (!openEventId) return
     let cancelled = false
@@ -506,6 +519,7 @@ export function FeedbackPipelineView({
           onSort={togglePrSort}
           dateHeader="Fb Closed"
           renderOpen={renderOpen}
+          onRowClick={openRowEvent}
           // Same column count as Open so the two tables stay aligned; Pending
           // Review rows carry no claim actions.
           renderActions={
@@ -518,8 +532,11 @@ export function FeedbackPipelineView({
                   const review = claims.reviews[r.task_id]
                   const targetId = r.review_task_id ?? review?.reviewTaskId ?? null
                   // Offered to the client's account team; the action re-checks.
+                  // Display mirror of decideSentClose (owner / account team / admin);
+                  // closeFeedbackReview re-checks server-side.
                   const canClose =
                     review?.canClose ||
+                    claims.viewer.isAdmin ||
                     (!!r.client_account_id && claims.teamAccountIds.includes(r.client_account_id))
                   if (!targetId || !canClose) return null
                   return (
@@ -530,20 +547,20 @@ export function FeedbackPipelineView({
                       title={
                         claims.viewer.impersonated
                           ? "Exit “View as” to close reviews"
-                          : "Complete the Feedback Report Sent task — clears it from Pending Review"
+                          : "Mark the report sent — completes the Feedback Report Sent task and clears it from Pending Review"
                       }
                       onClick={() => {
-                        if (window.confirm("Mark this feedback report review complete?")) {
+                        if (window.confirm("Mark this report sent? It closes the Feedback Report Sent task — the report is done.")) {
                           runClaimAction(
                             r,
                             { ownerId: r.claimed_by_id, ownerName: r.claimed_by_name, closed: true },
                             () => closeFeedbackReview(targetId),
-                            "Review complete — the report is done.",
+                            "Report sent.",
                           )
                         }
                       }}
                     >
-                      Close
+                      Mark Sent
                     </button>
                   )
                 }
@@ -594,6 +611,7 @@ export function FeedbackPipelineView({
               dateHeader="FB Received"
               emphasizeUnclaimed
               renderOpen={renderOpen}
+              onRowClick={openRowEvent}
               renderActions={renderActions}
               claimedAt={claims?.meta}
               emptyText={
@@ -617,6 +635,8 @@ export function FeedbackPipelineView({
         loading={openEventId !== null && eventRecord === null && eventError === null}
         error={eventError}
         onClose={closeEvent}
+        initialTab={eventFocus ? "meetings" : undefined}
+        focusReportId={eventFocus?.reportTaskId ?? null}
       />
     </TaskDrawerHost>
   )
@@ -911,6 +931,7 @@ function PipelineTable({
   renderActions,
   claimedAt,
   emptyText,
+  onRowClick,
 }: {
   rows: FeedbackPipelineRow[]
   today: string
@@ -927,6 +948,11 @@ function PipelineTable({
   /** task_id → claim facts, for the "since" date under the owner. */
   claimedAt?: ClaimsContext["meta"]
   emptyText?: string
+  /**
+   * Click a row (anywhere but its buttons / pickers / links) → open its event
+   * on Meetings & Reports, focused on this report.
+   */
+  onRowClick?: (r: FeedbackPipelineRow) => void
 }) {
   if (rows.length === 0) {
     return (
@@ -963,7 +989,18 @@ function PipelineTable({
             return (
               <tr
                 key={r.task_id}
-                className="border-b last:border-0 hover:bg-slate-50/60"
+                // The inline controls keep their own clicks: anything interactive
+                // inside the row is ignored here.
+                onClick={
+                  onRowClick && r.event_id
+                    ? (e) => {
+                        if ((e.target as HTMLElement).closest("button, a, select, input, textarea, label")) return
+                        onRowClick(r)
+                      }
+                    : undefined
+                }
+                title={onRowClick && r.event_id ? "Open the event — Meetings & Reports" : undefined}
+                className={`border-b last:border-0 hover:bg-slate-50/60${onRowClick && r.event_id ? " cursor-pointer" : ""}`}
                 style={
                   isUnclaimed
                     ? {
@@ -1117,121 +1154,14 @@ function ClaimedCell({
 }
 
 // ---------------------------------------------------------------------------
-// Claim workflow — row buttons + the Closed list. The buttons are cosmetic:
-// every action re-checks permission, pool and owner on the server
-// (app/feedback-manager/actions.ts).
+// Claim workflow — the row buttons are the SHARED ClaimActions
+// (./claim-actions.tsx, also on the event card); the Closed list is below.
+// The buttons are cosmetic: every action re-checks permission, pool and owner
+// on the server (app/feedback-manager/actions.ts).
 // ---------------------------------------------------------------------------
 const ACTION_BTN =
   "inline-flex h-7 items-center rounded-md border border-input bg-background px-2 text-xs font-medium " +
   "text-foreground transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-
-function ClaimActions({
-  row,
-  claims,
-  myIds,
-  onClaim,
-  onRelease,
-  onReassign,
-  onClose,
-}: {
-  row: FeedbackPipelineRow
-  claims: ClaimsContext
-  myIds: Set<string>
-  onClaim: () => void
-  onRelease: () => void
-  onReassign: (userId: string, name: string) => void
-  onClose: () => void
-}) {
-  const [picking, setPicking] = React.useState(false)
-  // Only tasks inside the claimable pool get buttons — today that is
-  // dashboard-origin Feedback tasks; Dynamics-origin rows stay read-only until
-  // the cutover switch opens them.
-  if (row.category !== "in_progress" || !claims.meta[row.task_id]) return null
-
-  const { viewer } = claims
-  const owner = row.claimed ? row.claimed_by_id : null
-  const isMine = !!owner && myIds.has(owner)
-  const disabled = viewer.impersonated
-  const title = disabled ? "Exit “View as” to change claims" : undefined
-
-  const buttons: React.ReactNode[] = []
-  if (!owner && viewer.canClaim) {
-    buttons.push(
-      <button key="claim" type="button" className={ACTION_BTN} disabled={disabled} title={title} onClick={onClaim}>
-        Claim
-      </button>,
-    )
-  }
-  if (owner && (isMine || viewer.isAdmin)) {
-    buttons.push(
-      <button key="release" type="button" className={ACTION_BTN} disabled={disabled} title={title} onClick={onRelease}>
-        Release
-      </button>,
-    )
-  }
-  if (viewer.isAdmin) {
-    buttons.push(
-      <button
-        key="reassign"
-        type="button"
-        className={ACTION_BTN}
-        disabled={disabled}
-        title={title}
-        onClick={() => setPicking((p) => !p)}
-      >
-        {owner ? "Reassign" : "Assign"}
-      </button>,
-    )
-  }
-  if (isMine || viewer.isAdmin) {
-    buttons.push(
-      <button
-        key="close"
-        type="button"
-        className={ACTION_BTN}
-        disabled={disabled}
-        title={title ?? "Complete this Feedback task — it moves on to Pending Review"}
-        onClick={() => {
-          if (window.confirm("Close this feedback task? It will be marked complete and move on to Pending Review.")) onClose()
-        }}
-      >
-        Close
-      </button>,
-    )
-  }
-  if (buttons.length === 0) return null
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex flex-wrap gap-1">{buttons}</div>
-      {picking && viewer.isAdmin && (
-        <select
-          autoFocus
-          defaultValue=""
-          aria-label="Assign to"
-          className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-          onChange={(e) => {
-            const person = claims.roster.find((p) => p.userId === e.target.value)
-            if (!person) return
-            setPicking(false)
-            onReassign(person.userId, person.name)
-          }}
-        >
-          <option value="" disabled>
-            Assign to…
-          </option>
-          {claims.roster
-            .filter((p) => p.userId !== owner)
-            .map((p) => (
-              <option key={p.userId} value={p.userId}>
-                {p.name}
-              </option>
-            ))}
-        </select>
-      )}
-    </div>
-  )
-}
 
 function ClosedTable({ rows }: { rows: ClosedClaimRow[] }) {
   if (rows.length === 0) {

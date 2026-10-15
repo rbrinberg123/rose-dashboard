@@ -15,13 +15,12 @@ import {
   type ClaimTask,
   type Decision,
 } from "@/lib/feedback-claims/policy"
-import { loadClaimRoster, resolveClaimActor, type ClaimViewer } from "@/lib/feedback-claims/server"
+import { loadClaimRoster, loadClaimViewer, resolveClaimActor, type ClaimViewer } from "@/lib/feedback-claims/server"
+import type { ClaimControls } from "@/lib/feedback-claims/types"
 import { TASK_STATUS_OPTIONS } from "@/lib/tasks/create"
-import { getEffectiveIdentity } from "@/lib/effective-identity"
-import { resolveAccountTeamScope } from "@/lib/access/account-team-scope"
-import { isAutomationOrigin } from "@/lib/feedback-reports/policy"
 import { assignReviewTaskToAssociate } from "@/lib/feedback-reports/review-owner"
 import { closeMode } from "@/lib/tasks/close"
+import { checkSentTaskClose } from "@/lib/feedback-claims/close-guard"
 
 /**
  * Feedback Reports → claim / release / reassign / close.
@@ -184,13 +183,37 @@ async function prepare(
   return ok({ actor: gate.actor, task: read.data })
 }
 
+// The task OWNER follows the claim (2026-10-15): claim / reassign make the
+// assignee the owner (the task ledger credits the writer), release clears it —
+// the same on Feedback Reports and the event card, which both call these actions.
 const claimCols = (id: string | null, name: string | null, at: string | null) => ({
   claimed_by_id: id,
   claimed_by_name: name,
   claimed_at: at,
   bcs_claimed_by_id: id,
   bcs_claimed_by_name: name,
+  owner_id: id,
+  owner_name: name,
 })
+
+/**
+ * What the shared ClaimActions buttons need outside Feedback Reports (the event
+ * card): the viewer's rights and, for admins, the Assign / Reassign roster —
+ * the SAME values loadClaimsContext gives the page, from the same helpers.
+ */
+export async function loadClaimControls(): Promise<ActionResult<ClaimControls>> {
+  const viewer = await loadClaimViewer()
+  if (!viewer.email) return fail("Not authorised.")
+  return ok({
+    viewer: {
+      canClaim: viewer.hasCapability || viewer.isAdmin,
+      isAdmin: viewer.isAdmin,
+      myIds: [...viewer.myIds],
+      impersonated: viewer.impersonated,
+    },
+    roster: viewer.isAdmin ? await loadClaimRoster() : [],
+  })
+}
 
 export async function claimFeedbackTask(taskId: string): Promise<ActionResult> {
   const prep = await prepare(taskId, decideClaim)
@@ -292,9 +315,12 @@ export async function closeFeedbackTask(taskId: string): Promise<ActionResult> {
  *      Pending Review pair: either the automation's review task
  *      (review_of_task_id set, in the automation's origin scope) or the
  *      review_task_id of a pending_review row in v_feedback_pipeline.
- *   3. The viewer is on the client's ACCOUNT TEAM (any of the six roles,
- *      resolveAccountTeamScope). Client: report → event → client for automation
- *      review tasks; the task's own client otherwise. No super-user bypass.
+ *   3. The UNIFIED Sent-close rule (decideSentClose, 2026-10-15): the sent
+ *      task's OWNER (the associate) OR the client's ACCOUNT TEAM (any of the six
+ *      roles) OR hasSuperUserPrivileges (Super User / Admin). Client: report →
+ *      event → client for automation review tasks; the pipeline row otherwise.
+ *   Gates 1–3 are checkSentTaskClose (lib/feedback-claims/close-guard.ts) — the
+ *   SAME check the event card's Send and Tasks → Close / Edit run.
  *   4. A guarded UPDATE (Open, not closed, same origin, same sub-type) that must
  *      change exactly one row.
  *
@@ -306,75 +332,12 @@ export async function closeFeedbackTask(taskId: string): Promise<ActionResult> {
  *     Review. Native write-through is the cutover step.
  */
 export async function closeFeedbackReview(reviewTaskId: string): Promise<ActionResult> {
-  const identity = await getEffectiveIdentity()
-  if (identity.impersonated) return fail("Exit “View as” before closing a review.")
-  if (!identity.email) return fail("Not authorised.")
-  if (!isUuid(reviewTaskId)) return fail("Unknown task.")
-
+  // Gates 1–3 (View as, a real pending-review task, the unified rule).
+  const check = await checkSentTaskClose(reviewTaskId)
+  if (!check.ok) return check
+  const r = { task_id: check.data!.taskId, origin: check.data!.origin, review_of_task_id: check.data!.reviewOfTaskId }
+  const identity = { userId: check.data!.actor.userId, name: check.data!.actor.name }
   const sb = getSupabaseServer()
-  const { data: review, error } = await sb
-    .from("tasks")
-    .select("task_id, origin, state_label, closed_at, bcs_task_subtype_label, review_of_task_id, bcs_account_id, subject")
-    .eq("task_id", reviewTaskId)
-    .maybeSingle()
-  if (error) return fail(describeError(error))
-  if (!review) return fail("That task no longer exists.")
-  const r = review as {
-    task_id: string
-    origin: string | null
-    state_label: string | null
-    closed_at: string | null
-    bcs_task_subtype_label: string | null
-    review_of_task_id: string | null
-    bcs_account_id: string | null
-    subject: string | null
-  }
-  if (r.bcs_task_subtype_label !== "Feedback Report Sent") {
-    return fail("Only the report's Feedback Report Sent task can be closed here.")
-  }
-  if (r.state_label !== "Open" || r.closed_at) return fail("This review is already closed.")
-
-  // Gate 2 — it must be a Pending Review pair, and resolve its client.
-  let clientId: string | null = r.bcs_account_id
-  if (r.review_of_task_id && isAutomationOrigin(r.origin)) {
-    // Automation review task: report → event → client (fallbacks: the fields).
-    const { data: report } = await sb
-      .from("tasks")
-      .select("bcs_event_id, bcs_account_id")
-      .eq("task_id", r.review_of_task_id)
-      .maybeSingle()
-    clientId = (report?.bcs_account_id as string | null) ?? r.bcs_account_id
-    if (report?.bcs_event_id) {
-      const { data: ev } = await sb
-        .from("events")
-        .select("client_account_id")
-        .eq("event_id", report.bcs_event_id as string)
-        .maybeSingle()
-      clientId = (ev?.client_account_id as string | null) ?? clientId
-    }
-  } else {
-    // Any other pair (Dynamics): must be a pending_review row's review_task_id.
-    const { data: row, error: pipeErr } = await sb
-      .from("v_feedback_pipeline")
-      .select("client_account_id")
-      .eq("category", "pending_review")
-      .eq("review_task_id", r.task_id)
-      .limit(1)
-      .maybeSingle()
-    if (pipeErr) {
-      return /review_task_id/.test(pipeErr.message)
-        ? fail("Closing this report needs the 2026-10-08 feedback-pipeline SQL patch run first.")
-        : fail(describeError(pipeErr))
-    }
-    if (!row) return fail("This task isn't waiting in Pending Review.")
-    clientId = (row.client_account_id as string | null) ?? clientId
-  }
-
-  // Gate 3 — the client's account team.
-  const team = await resolveAccountTeamScope(identity)
-  if (!clientId || team.mode !== "filter" || !team.accountIds.has(clientId)) {
-    return fail("Not authorised — only the client's account team can close this review.")
-  }
 
   const mode = closeMode(r.origin)
   const now = new Date().toISOString()

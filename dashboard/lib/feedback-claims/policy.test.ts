@@ -5,6 +5,7 @@ import {
   FEEDBACK_CLAIMS_INCLUDE_DYNAMICS,
   decideClaim,
   decideClose,
+  decideSentClose,
   decideReassign,
   decideRelease,
   isClaimableOrigin,
@@ -85,10 +86,20 @@ test("reassign: admin only, to a different person", () => {
 
 // ---- close -----------------------------------------------------------------------
 
-test("close: the owner any time; an admin even when unclaimed; nobody else", () => {
+test("sent close: owner OR account team OR super-user privileges", () => {
+  const no = { isOwner: false, onClientTeam: false, isAdmin: false }
+  assert.equal(decideSentClose({ ...no, isOwner: true }), null)
+  assert.equal(decideSentClose({ ...no, onClientTeam: true }), null)
+  assert.equal(decideSentClose({ ...no, isAdmin: true }), null)
+  assert.match(decideSentClose(no) ?? "", /Not authorised/)
+})
+
+test("close: the owner or an admin — and only once someone is assigned", () => {
   assert.equal(decideClose(task({ ownerId: "me" }), actor()), null)
-  assert.equal(decideClose(task(), actor({ isAdmin: true })), null)
+  assert.equal(decideClose(task({ ownerId: "other" }), actor({ isAdmin: true })), null)
+  // The guard: unassigned can't be closed, not even by an admin.
+  assert.match(decideClose(task(), actor({ isAdmin: true })) ?? "", /Assign before closing/)
+  assert.match(decideClose(task(), actor()) ?? "", /Assign before closing/)
   assert.match(decideClose(task({ ownerId: "other" }), actor()) ?? "", /owner or an admin/)
-  assert.match(decideClose(task(), actor()) ?? "", /owner or an admin/)
   assert.match(decideClose(task({ ownerId: "me", stateLabel: "Completed" }), actor()) ?? "", /closed/)
 })

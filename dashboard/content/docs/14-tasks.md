@@ -122,7 +122,8 @@ Do **not** add editing without the dashboard actually becoming the system of rec
 
 The task card (drawer — CRM → Tasks, My Dashboard, Feedback Reports) has a **Close** button next to **Edit**. One click arms it (**Confirm close** / Cancel) — a guard against accidental closes; there is no undo because a close can fire automations (e.g. closing a Feedback task creates its review task) that an undo could not reverse. It is the action only — no form loads.
 
-- **Who:** the task's **owner** (`owner_id` ∈ your CRM ids) or an **admin** (super user); never in "View as". The button shows only when you may; `closeTask` (`app/tasks/actions.ts`) re-checks everything on a fresh read (`decideTaskClose`, `lib/tasks/close.ts`) and refuses anyone else with "Not authorised". Guarded update: still Open, same origin, not closed yet — exactly one row. Audited.
+- **Feedback-type tasks are different (2026-10-15):** closing a **Feedback** task or a **Feedback Report Sent** task here, or completing one via Edit, runs the **feedback close rules**, not the generic one. Feedback needs someone assigned, then the assignee or Super User / Admin. Feedback Report Sent allows the owner, the client's account team, or Super User / Admin. `closeTask` hands these to `closeFeedbackTask` / `closeFeedbackReview`; `updateTask` runs the same checks before saving. See [27 — Feedback reports → Feedback close rules](27-feedback-reports.md).
+- **Who (every other task):** the task's **owner** (`owner_id` ∈ your CRM ids) or an **admin** (super user); never in "View as". The button shows only when you may; `closeTask` (`app/tasks/actions.ts`) re-checks everything on a fresh read (`decideTaskClose`, `lib/tasks/close.ts`) and refuses anyone else with "Not authorised". Guarded update: still Open, same origin, not closed yet — exactly one row. Audited.
 - **What it writes — the existing completion workflow, no parallel status:**
   - **Dashboard-origin:** state/status **Completed** + `actual_end` = now (the same fields as Edit → Status: Completed and Feedback Reports → Close), so triggers and views react as to any completion; plus the sidecar below.
   - **Dynamics-origin (pre-cutover):** **only the dashboard-owned sidecar** — `closed_by_id`, `closed_by_name`, `closed_at` (the 2026-10-07 columns the sync never writes). The task stays Open in the mirror; the card shows a green *Closed by … · Dynamics update at cutover* pill, and **My Dashboard treats it as closed** (Other Open Tasks, Reports · Open / Claimed and the nav badge leave it out — `loadSidecarClosedTaskIds`). CRM → Tasks still lists it as Open until cutover.
@@ -227,8 +228,12 @@ The Open section's filter is now **All · Unclaimed · Mine · Claimed by others
 | Who | Claim | Release | Reassign / Assign | Close |
 |---|---|---|---|---|
 | Has **Claim feedback** (Admin → Users) | an unclaimed task | their own | — | their own |
-| **Super User** (admin) | ✓ (always, no box needed) | any | any | any, claimed or not |
+| **Super User** (admin) | ✓ (always, no box needed) | any | any | any **assigned** task |
 | Everyone else | — (no button; refused server-side) | — | — | — |
+
+- **Close guard (2026-10-15):** a Feedback task can't be closed until someone is assigned, admins included. `decideClose` refuses with *"Assign before closing."* and the Close button is disabled with that tooltip.
+- **Owner follows the claim (2026-10-15):** Claim and Reassign also set the task's `owner_id` / `owner_name` to the assignee; Release clears them.
+- **Shared with the event card:** these buttons are one component, `ClaimActions` (`app/feedback-manager/claim-actions.tsx`). The event drawer / Edit Event lifecycle card uses the same component with the same server actions, so permissions match exactly. See [27 — Feedback reports → Report lifecycle](27-feedback-reports.md#report-lifecycle--event-drawer-card-2026-10-15).
 
 - Stored as `user_data_scopes.claim_feedback` (default **off**), read through `getUserScopes()` → `scopes.claimFeedback`; Super Users are granted in code. Toggled on **Admin → Users** next to Financials; scope-checkbox saves are now **audited** (`entity = user_data_scopes`).
 - It's a per-person capability only (no Roles-matrix row).

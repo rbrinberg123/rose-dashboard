@@ -35,7 +35,7 @@ export async function loadClaimsContext(): Promise<ClaimsContext> {
     // keyed back to their report — the Pending Review rows that get Close.
     sb
       .from("tasks")
-      .select("task_id, review_of_task_id, origin, bcs_account_id")
+      .select("task_id, review_of_task_id, origin, bcs_account_id, owner_id")
       .eq("bcs_task_subtype_label", "Feedback Report Sent")
       .eq("state_label", "Open")
       .not("review_of_task_id", "is", null),
@@ -50,11 +50,17 @@ export async function loadClaimsContext(): Promise<ClaimsContext> {
     review_of_task_id: string
     origin: string | null
     bcs_account_id: string | null
+    owner_id: string | null
   }[]) {
     if (!isAutomationOrigin(r.origin)) continue
     reviews[r.review_of_task_id] = {
       reviewTaskId: r.task_id,
-      canClose: team.mode === "filter" && !!r.bcs_account_id && team.accountIds.has(r.bcs_account_id),
+      // The unified Sent-close rule (decideSentClose): owner OR account team OR
+      // super-user privileges — display only; closeFeedbackReview re-checks.
+      canClose:
+        (!!r.owner_id && viewer.myIds.has(r.owner_id)) ||
+        (team.mode === "filter" && !!r.bcs_account_id && team.accountIds.has(r.bcs_account_id)) ||
+        viewer.isAdmin,
     }
   }
 

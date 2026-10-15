@@ -36,6 +36,12 @@ export type ReviewTaskInfo = {
   canClose: boolean
 }
 
+/** Just what the shared ClaimActions buttons need (Feedback Reports + event card). */
+export type ClaimControls = {
+  viewer: ClaimViewerInfo
+  roster: { userId: string; name: string }[]
+}
+
 export type ClaimsContext = {
   viewer: ClaimViewerInfo
   /** task_id → meta, ONLY for tasks inside the claimable pool (Open, in-origin). */

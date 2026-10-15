@@ -22,6 +22,8 @@ import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity
 import { idsForEmail } from "@/lib/time-off-requests/reviewers"
 import { closeMode, decideTaskClose } from "@/lib/tasks/close"
 import { assignReviewTaskToAssociate } from "@/lib/feedback-reports/review-owner"
+import { checkFeedbackTaskClose, checkSentTaskClose, isFeedbackCloseSubtype } from "@/lib/feedback-claims/close-guard"
+import { closeFeedbackReview, closeFeedbackTask } from "@/app/feedback-manager/actions"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
@@ -308,6 +310,13 @@ export async function loadTaskRecord(taskId: string): Promise<ActionResult<TaskR
  *           dashboard-owned closed state the sync never overwrites. The native
  *           write-through is the cutover step (TASK_CLOSE_WRITE_THROUGH_DYNAMICS).
  * Audited (recordAudit, the real actor).
+ *
+ * FEEDBACK-TYPE TASKS (2026-10-15) never take the generic rule: a "Feedback"
+ * (report) task is closed by closeFeedbackTask (decideClose — dashboard-origin,
+ * assigned first, assignee or admin) and a "Feedback Report Sent" task by
+ * closeFeedbackReview (the report's open review task; owner OR account team OR
+ * hasSuperUserPrivileges). Same actions as Feedback Reports and the event card,
+ * so closing from a task card can't bypass them.
  */
 export async function closeTask(taskId: string): Promise<ActionResult<{ mode: "native" | "sidecar" }>> {
   // ---- GATE (must stay first) ----
@@ -329,6 +338,18 @@ export async function closeTask(taskId: string): Promise<ActionResult<{ mode: "n
     closed_at: string | null; subject: string | null; is_test: boolean | null
     bcs_task_subtype_label: string | null
   }
+  // Feedback-type tasks: the feedback close actions decide and write.
+  if (isFeedbackCloseSubtype(task.bcs_task_subtype_label)) {
+    const res =
+      task.bcs_task_subtype_label === "Feedback"
+        ? await closeFeedbackTask(task.task_id)
+        : await closeFeedbackReview(task.task_id)
+    if (!res.ok) return fail(res.error ?? "Couldn't close this task.")
+    revalidatePath("/tasks")
+    revalidatePath("/my-dashboard")
+    return ok({ mode: closeMode(task.origin) })
+  }
+
   const refused = decideTaskClose(
     { origin: task.origin, stateLabel: task.state_label, closedAt: task.closed_at, ownerId: task.owner_id },
     actor,
@@ -662,16 +683,36 @@ export async function updateTask(id: string, input: NewTaskInput): Promise<Actio
   // The people already on the task may stay even if no longer active personnel.
   const { data: cur, error: curErr } = await getSupabaseServer()
     .from("tasks")
-    .select("owner_id, bcs_claimed_by_id, bcs_current_assignment_id")
+    .select("owner_id, bcs_claimed_by_id, bcs_current_assignment_id, state_label, bcs_task_subtype_label")
     .eq("task_id", id)
     .maybeSingle()
   if (curErr) return fail(describeError(curErr))
-  const c = (cur ?? {}) as { owner_id?: string | null; bcs_claimed_by_id?: string | null; bcs_current_assignment_id?: string | null }
+  const c = (cur ?? {}) as {
+    owner_id?: string | null
+    bcs_claimed_by_id?: string | null
+    bcs_current_assignment_id?: string | null
+    state_label?: string | null
+    bcs_task_subtype_label?: string | null
+  }
   const people = new Set(
     [c.owner_id, c.bcs_claimed_by_id, c.bcs_current_assignment_id].filter((v): v is string => !!v),
   )
   const built = await buildTaskColumns(input, gate.userId, people)
   if (!built.ok) return fail(built.error)
+  // FEEDBACK CLOSE RULES (2026-10-15): completing a feedback-type task here must
+  // pass the same check as Feedback Reports / the event card — decideClose
+  // (assigned first) for a Feedback task, the unified Sent rule for a Feedback
+  // Report Sent task. The governing sub-type is the one being saved (else the
+  // stored one), so changing the sub-type in the same save can't dodge it.
+  const subtype = (built.data.bcs_task_subtype_label as string | null | undefined) ?? c.bcs_task_subtype_label ?? null
+  const completing = c.state_label === "Open" && built.data.state_label === "Completed"
+  if (completing && (isFeedbackCloseSubtype(subtype) || isFeedbackCloseSubtype(c.bcs_task_subtype_label))) {
+    const check =
+      subtype === "Feedback" || c.bcs_task_subtype_label === "Feedback"
+        ? await checkFeedbackTaskClose(id)
+        : await checkSentTaskClose(id)
+    if (!check.ok) return fail(check.error ?? "Not authorised to close this task.")
+  }
   const res = await updateDashboardRow({
     table: "tasks",
     pk: "task_id",

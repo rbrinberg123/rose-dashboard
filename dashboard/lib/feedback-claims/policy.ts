@@ -94,10 +94,31 @@ export function decideReassign(t: ClaimTask, a: ClaimActor, toUserId: string | n
   return null
 }
 
+/**
+ * Closing / sending a report's "Feedback Report Sent" task (= Sent, done) — ONE
+ * rule for every path (Feedback Reports → Close, the event card's Send, Tasks →
+ * Close / Edit → Completed). Allowed for ANY of:
+ *   - the sent task's OWNER (the associate),
+ *   - the client's ACCOUNT TEAM (any of the six roles),
+ *   - hasSuperUserPrivileges (Super User or Admin).
+ * The server works out each flag on a fresh read (lib/feedback-claims/close-guard.ts).
+ */
+export function decideSentClose(a: { isOwner: boolean; onClientTeam: boolean; isAdmin: boolean }): Decision {
+  if (a.isOwner || a.onClientTeam || a.isAdmin) return null
+  return "Not authorised — only the associate, the client's account team, or an admin can send this report."
+}
+
+/** The Close guard's reason — shared with the buttons' tooltip. */
+export const CLOSE_NEEDS_ASSIGNEE = "Assign before closing."
+
 export function decideClose(t: ClaimTask, a: ClaimActor): Decision {
   const pool = inPool(t)
   if (pool) return pool
+  // GUARD (2026-10-15): a Feedback task can't be closed until someone is
+  // assigned — admins included. closeFeedbackTask runs this for BOTH the
+  // Feedback Reports page and the event card.
+  if (!t.ownerId) return CLOSE_NEEDS_ASSIGNEE
   if (a.isAdmin) return null
-  if (!t.ownerId || !a.myIds.has(t.ownerId)) return "Only the owner or an admin can close this task."
+  if (!a.myIds.has(t.ownerId)) return "Only the owner or an admin can close this task."
   return null
 }

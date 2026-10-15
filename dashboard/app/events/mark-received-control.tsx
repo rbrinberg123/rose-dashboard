@@ -26,6 +26,7 @@ export function MarkReceivedControl({
   onDone,
   onOptimistic,
   onRollback,
+  label = "Mark received",
 }: {
   taskId: string
   disabled?: boolean
@@ -35,6 +36,8 @@ export function MarkReceivedControl({
   onOptimistic?: () => void
   /** Called if the server refuses — undo onOptimistic. */
   onRollback?: () => void
+  /** The closed-state button text (event lifecycle card: "Mark feedback all in"). */
+  label?: string
 }) {
   const [open, setOpen] = React.useState(false)
   const [day, setDay] = React.useState(todayEastern)
@@ -43,7 +46,7 @@ export function MarkReceivedControl({
   if (!open) {
     return (
       <button type="button" className={BTN} disabled={disabled || busy} onClick={() => setOpen(true)}>
-        Mark received
+        {label}
       </button>
     )
   }

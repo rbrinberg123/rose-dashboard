@@ -526,6 +526,8 @@ export function EventRecordPane({
   onClose,
   onEdit,
   showFeedbackReports = true,
+  initialTab,
+  focusReportId = null,
 }: {
   record: EventRecord | null
   loading: boolean
@@ -536,11 +538,15 @@ export function EventRecordPane({
   /** The Meetings & Reports content (its loaders are super-user only). My
    *  Dashboard hides it for other viewers. Default on, as on the Events page. */
   showFeedbackReports?: boolean
+  /** Open on this tab (e.g. Feedback Reports → "meetings"); else Details. */
+  initialTab?: EventTabKey
+  /** Scroll Meetings & Reports to this report (its Feedback task id) and highlight it. */
+  focusReportId?: string | null
 }) {
-  // Tab + meeting-list reload, both reset per event (tab back to Details).
+  // Tab + meeting-list reload, both reset per event (tab back to the initial one).
   const eventId = record?.event_id ?? null
   const [tabState, setTabState] = React.useState<{ id: string | null; tab: EventTabKey }>({ id: null, tab: "details" })
-  const tab: EventTabKey = tabState.id === eventId ? tabState.tab : "details"
+  const tab: EventTabKey = tabState.id === eventId ? tabState.tab : (initialTab ?? "details")
   const [reload, setReload] = React.useState(0)
   // The meeting list (all statuses) — the Dynamics read-only list and the
   // badge. Its loader is super-user only, so it follows showFeedbackReports.
@@ -708,6 +714,7 @@ export function EventRecordPane({
                   <MeetingsReportsPanel
                     key={`${record.event_id}-${reload}`}
                     eventId={record.event_id}
+                    focusReportId={focusReportId}
                     eventName={record.event_title}
                     action={addMeeting("panel")}
                   />

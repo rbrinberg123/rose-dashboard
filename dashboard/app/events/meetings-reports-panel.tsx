@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { ChevronRight, FileText } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 
 import { STATUS_PILL_LIGHT, TEXT_MUTED, TEXT_PRIMARY, TEXT_TERTIARY } from "@/lib/design"
 import { reportAccent } from "@/lib/feedback-reports/accents"
@@ -26,7 +26,10 @@ import {
   confirmReallocation,
   reportSelectable,
 } from "./report-locks"
-import { MarkReceivedControl } from "./mark-received-control"
+import { loadEventReportLifecycles, type EventReportLifecycles } from "./feedback-lifecycle-actions"
+import { ReportLifecycleCard } from "./report-lifecycle-card"
+import { loadClaimControls } from "@/app/feedback-manager/actions"
+import type { ClaimControls } from "@/lib/feedback-claims/types"
 import { MEETING_ROW_CLICKABLE, OpenMeetingIcon, useMeetingOpener } from "./meeting-opener"
 
 /**
@@ -35,10 +38,12 @@ import { MEETING_ROW_CLICKABLE, OpenMeetingIcon, useMeetingOpener } from "./meet
  * origin events only; Dynamics events get the read-only list in
  * event-meetings-tabs.tsx). The event's meetings grouped under the feedback
  * report each belongs to (A → B → C). Each group opens with a visually distinct
- * REPORT LINE ITEM (tinted, accent bar, dashed border, report icon): owner,
- * due date and "Mark received" (what the drawer's old Feedback reports section,
- * feedback-reports-panel.tsx, showed per report). The group header carries the
- * report's feedback STAGE pill. Same model, same server actions, same guards:
+ * report LIFECYCLE CARD (report-lifecycle-card.tsx — tinted, accent bar, dashed
+ * border, report icon): Feedback In → Claimed → Review → Sent derived from the
+ * Feedback task + its Feedback Report Sent task, the people note, and the one
+ * next action for whoever may take it (feedback-lifecycle-actions.ts). The
+ * group header carries the report's feedback STAGE pill. Same model, same
+ * server actions, same guards:
  *   - Split = addFeedbackReport (max MAX_REPORTS_PER_EVENT, server-checked);
  *   - move = a per-meeting A / B / C selector held as a draft, applied with
  *     saveFeedbackReportAssignments (every eligible meeting in exactly one
@@ -83,10 +88,15 @@ function statusDot(m: FeedbackReportMeeting, now: number): { color: string; labe
   return { color: TEXT_TERTIARY, label: m.status ?? "Pending" }
 }
 
-/** The report's feedback STAGE — the same wording as the old Feedback reports section. */
+/**
+ * The report's READINESS label beside its letter. Same condition as before (the
+ * report's "feedback all in" = received date set), worded so it reads as
+ * meeting-level feedback readiness — never "Awaiting …", which is a per-meeting
+ * chip. A closed report shows its task state.
+ */
 function reportStatus(r: FeedbackReportSummary): string {
   if (r.state !== "Open") return r.state ?? "—"
-  return r.receivedDate ? "Feedback received" : "Awaiting feedback"
+  return r.receivedDate ? "Meeting Level Feedback Ready" : "Meeting Level Feedback Not Ready"
 }
 function stagePill(r: FeedbackReportSummary): { bg: string; text: string } {
   if (r.state !== "Open") return STATUS_PILL_LIGHT.neutral
@@ -97,12 +107,15 @@ export function MeetingsReportsPanel({
   eventId,
   action,
   eventName = null,
+  focusReportId = null,
 }: {
   eventId: string
   /** Pinned top-right of the panel header — the Add Meeting button. */
   action?: React.ReactNode
   /** Shown in the read-only meeting record's header. */
   eventName?: string | null
+  /** Scroll to this report (its Feedback task id) and highlight its card. */
+  focusReportId?: string | null
 }) {
   const [data, setData] = React.useState<EventFeedbackReports | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -112,6 +125,10 @@ export function MeetingsReportsPanel({
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set(["cancelled"]))
   const [now] = React.useState(() => Date.now())
   const [override, setOverride] = React.useState(false)
+  // The per-report LIFECYCLE (report-lifecycle-card.tsx), read alongside.
+  const [lifecycles, setLifecycles] = React.useState<EventReportLifecycles | null>(null)
+  // The shared Claim / Release / Assign / Close buttons' rights + roster.
+  const [claimControls, setClaimControls] = React.useState<ClaimControls | null>(null)
   const router = useRouter()
   // Click a meeting row → its Edit Meeting form (dashboard) or the read-only
   // record (Dynamics). After an edit, reload this panel.
@@ -135,10 +152,26 @@ export function MeetingsReportsPanel({
         setOverride(false)
       } else setError(res.error)
     })
+    loadEventReportLifecycles(eventId).then((res) => {
+      if (cancelled) return
+      if (res.ok) setLifecycles(res.data ?? null)
+      else console.warn("[meetings-reports] lifecycle:", res.error)
+    })
+    loadClaimControls().then((res) => {
+      if (!cancelled) setClaimControls(res.ok ? (res.data ?? null) : null)
+    })
     return () => {
       cancelled = true
     }
   }, [eventId, reloadKey])
+
+  // Deep link (Feedback Reports row → this report): once loaded, bring the
+  // report's group into view. Its card is highlighted below.
+  const focusRef = React.useRef<HTMLDivElement | null>(null)
+  const focusLoaded = !!data && !!focusReportId && data.reports.some((r) => r.taskId === focusReportId)
+  React.useEffect(() => {
+    if (focusLoaded) focusRef.current?.scrollIntoView({ block: "start", behavior: "smooth" })
+  }, [focusLoaded])
 
   const toggle = (key: string) =>
     setCollapsed((s) => {
@@ -201,6 +234,9 @@ export function MeetingsReportsPanel({
   const eligible = data.meetings.filter((m) => m.eligible)
   const current = (id: string) => draft?.[id] ?? data.meetings.find((m) => m.meetingId === id)?.reportTaskId ?? ""
   const dirty = draft !== null
+  const lifecycleViewer = lifecycles
+    ? { ...lifecycles.viewer, myIds: new Set(lifecycles.viewer.myIds) }
+    : null
   const autoRouted = eligible.filter((m) => m.autoRouted).length
   const reportIds = new Set(data.reports.map((r) => r.taskId))
   const savedLocked = (taskId: string | null) => data.reports.find((r) => r.taskId === taskId && r.lock === "hard")
@@ -300,7 +336,11 @@ export function MeetingsReportsPanel({
         const muted = g.key === "cancelled"
         const r = g.report
         return (
-          <div key={g.key} className="border-b border-[#E5E8EC] last:border-0">
+          <div
+            key={g.key}
+            ref={g.key === focusReportId ? focusRef : undefined}
+            className="scroll-mt-2 border-b border-[#E5E8EC] last:border-0"
+          >
             <GroupHeader
               g={g}
               count={g.rows.length}
@@ -341,8 +381,12 @@ export function MeetingsReportsPanel({
             {open && (
               <ul>
                 {r && (
-                  <ReportLineItem
+                  <ReportLifecycleCard
+                    focused={r.taskId === focusReportId}
                     report={r}
+                    life={lifecycles?.byReport[r.taskId] ?? null}
+                    viewer={lifecycleViewer}
+                    controls={claimControls}
                     accent={g.accent}
                     count={g.rows.length}
                     disabled={busy || dirty}
@@ -477,57 +521,5 @@ function GroupHeader({
         {count}
       </span>
     </div>
-  )
-}
-
-const ET_DAY = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })
-
-/**
- * The FEEDBACK-REPORT line item at the top of its group — styled to read as a
- * different kind of row from the meetings below it: tinted with the report's
- * accent, a left accent bar, a dashed border and a report icon. Owner (claimer,
- * or "System (unclaimed)"), meeting count, due date, and — while Open and still
- * awaiting feedback — "Mark received" (moved here from the drawer's old
- * Feedback reports section).
- */
-function ReportLineItem({
-  report: r,
-  accent,
-  count,
-  disabled,
-  onDone,
-}: {
-  report: FeedbackReportSummary
-  accent: string
-  count: number
-  disabled: boolean
-  onDone: () => void
-}) {
-  return (
-    <li
-      className="mx-2 my-1.5 flex items-center gap-1.5 rounded-md border border-dashed border-l-[3px] py-1.5 pl-2 pr-2 text-xs"
-      style={{
-        backgroundColor: `color-mix(in srgb, ${accent} 7%, white)`,
-        borderColor: `color-mix(in srgb, ${accent} 45%, white)`,
-        borderLeftColor: accent,
-        borderLeftStyle: "solid",
-      }}
-    >
-      <FileText className="size-3.5 shrink-0" style={{ color: accent }} aria-hidden="true" />
-      <span className="min-w-0 flex-1 truncate" style={{ color: TEXT_PRIMARY }} title={r.subject ?? undefined}>
-        <span className="font-semibold">Feedback report {r.letter}</span>
-        <span style={{ color: TEXT_MUTED }}>
-          {" · "}
-          {r.claimedByName ?? "System (unclaimed)"} · {count} meeting{count === 1 ? "" : "s"} · due{" "}
-          {r.dueDate ? ET_DAY.format(new Date(r.dueDate)) : "—"}
-        </span>
-      </span>
-      {r.state === "Open" && !r.receivedDate && (
-        // Enter in its date box must not submit the Edit Event form around it.
-        <span onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}>
-          <MarkReceivedControl taskId={r.taskId} disabled={disabled} onDone={onDone} />
-        </span>
-      )}
-    </li>
   )
 }
