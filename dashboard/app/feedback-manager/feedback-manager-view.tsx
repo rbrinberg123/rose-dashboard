@@ -531,13 +531,12 @@ export function FeedbackPipelineView({
                   // the already-Completed collection task (closing it is a no-op).
                   const review = claims.reviews[r.task_id]
                   const targetId = r.review_task_id ?? review?.reviewTaskId ?? null
-                  // Offered to the client's account team; the action re-checks.
-                  // Display mirror of decideSentClose (owner / account team / admin);
-                  // closeFeedbackReview re-checks server-side.
+                  // Display mirror of decideSentClose (owner-only, 2026-10-16: the
+                  // review task's owner or an admin); closeFeedbackReview re-checks.
                   const canClose =
                     review?.canClose ||
                     claims.viewer.isAdmin ||
-                    (!!r.client_account_id && claims.teamAccountIds.includes(r.client_account_id))
+                    (!!targetId && claims.ownedReviewTaskIds.includes(targetId))
                   if (!targetId || !canClose) return null
                   return (
                     <button

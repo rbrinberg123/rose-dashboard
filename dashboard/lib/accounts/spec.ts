@@ -975,6 +975,8 @@ export const ACCOUNTS_SPEC: EntitySpec = {
   defaultSort: ACCOUNT_DEFAULT_SORT,
   builtins: ACCOUNT_BUILTIN_VIEWS,
   savedViewsTable: "account_saved_views",
+  // Grantable list page (2026-10-16) — saved views follow page access.
+  route: "/accounts",
   optionsView: "v_admin_accounts_filter_options",
 }
 

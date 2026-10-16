@@ -12,8 +12,9 @@ import type { EventRecord } from "@/lib/events/record"
  * the twin). Opens for EVERY viewer through loadDashboardEventRecord, which
  * only returns a Live Outreach event of a client on the viewer's account team
  * (the card's own scope). Read-only here: editing stays on the Events page.
- * `showFeedbackReports` is passed only to super users — that panel's own
- * loader is super-user only.
+ * The Meetings & Reports tab shows for every viewer, read-only (its loaders
+ * gate on canViewEvent — this card's scope included). `showFeedbackReports`
+ * (super users / admins only) adds the editor controls — clickable meetings.
  */
 
 const OpenEventContext = React.createContext<((eventId: string) => void) | null>(null)

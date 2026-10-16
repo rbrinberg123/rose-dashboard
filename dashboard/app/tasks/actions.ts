@@ -314,8 +314,8 @@ export async function loadTaskRecord(taskId: string): Promise<ActionResult<TaskR
  * FEEDBACK-TYPE TASKS (2026-10-15) never take the generic rule: a "Feedback"
  * (report) task is closed by closeFeedbackTask (decideClose — dashboard-origin,
  * assigned first, assignee or admin) and a "Feedback Report Sent" task by
- * closeFeedbackReview (the report's open review task; owner OR account team OR
- * hasSuperUserPrivileges). Same actions as Feedback Reports and the event card,
+ * closeFeedbackReview (the report's open review task; owner OR
+ * hasSuperUserPrivileges — owner-only since 2026-10-16). Same actions as Feedback Reports and the event card,
  * so closing from a task card can't bypass them.
  */
 export async function closeTask(taskId: string): Promise<ActionResult<{ mode: "native" | "sidecar" }>> {

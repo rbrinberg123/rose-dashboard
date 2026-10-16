@@ -21,12 +21,22 @@ import { revalidatePath } from "next/cache"
 
 import { getSupabaseServer } from "@/lib/supabase"
 import { diffRows, recordAudit } from "@/lib/audit"
-import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { getEffectiveAllowedRoutes, getEffectiveCrmLevels, getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import {
+  CRM_LEVEL_ROUTES,
+  CRM_LEVEL_TABLE_ROUTE,
+  decideCrmWrite,
+  levelAtLeast,
+  protectedFieldViolation,
+  type CrmLevel,
+  type CrmLevelRoute,
+  type CrmWriteAction,
+} from "@/lib/access/crm-levels-policy"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import type { AccountOption, UserOption } from "@/lib/types"
 import { easternOffsetMs } from "@/lib/table-views/query"
 import { classifyUser } from "@/lib/access/identity-index"
-import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { canAccessRoute, hasSuperUserPrivileges } from "@/lib/access-control"
 
 /**
  * The WRITE gate. Stricter than the read gates: the effective role must be
@@ -42,6 +52,64 @@ export async function requireCrmWriter(
   if (!hasSuperUserPrivileges(role)) return { ok: false, error: "Not authorised." }
   if (identity.impersonated) return { ok: false, error: `Exit “View as” before ${verb}.` }
   return { ok: true, userId: identity.userId, name: identity.name }
+}
+
+/**
+ * The READ gate for the four grantable CRM list pages (2026-10-16): Clients
+ * (/accounts), Events, Meetings, Contacts. May the EFFECTIVE viewer open
+ * `route`? The same predicate proxy.ts enforces, so a role / per-user page
+ * grant opens the list, its filters, export, saved views and row drawers.
+ * NO row scoping — a granted page shows every row. Writes stay on
+ * requireCrmWriter (super-user only); this never opens a write.
+ */
+export async function canReadCrmPage(route: string): Promise<boolean> {
+  const [role, allowed] = await Promise.all([getEffectiveRole(), getEffectiveAllowedRoutes()])
+  return canAccessRoute(role, route, allowed)
+}
+
+/**
+ * The CRM ACCESS-LEVEL write gate (2026-10-16) for the four level-gated tables
+ * — Clients (/accounts), Events, Meetings, Contacts:
+ *   edit    an existing record  → level >= Edit
+ *   create  a record            → Manage
+ *   delete  / purge             → Manage
+ * hasSuperUserPrivileges (super user OR admin) bypasses the level — implicitly
+ * full (see decideCrmWrite in lib/access/crm-levels-policy.ts to change that).
+ * Like requireCrmWriter it refuses while in "View as", and returns the real
+ * caller for provenance, plus the level for the protected-fields check.
+ * Tasks / Touchpoints / Notes keep requireCrmWriter (super only).
+ */
+export async function requireCrmLevel(
+  route: CrmLevelRoute,
+  action: CrmWriteAction,
+  verb = "changing records",
+): Promise<
+  | { ok: true; userId: string | null; name: string | null; level: CrmLevel; isSuper: boolean }
+  | { ok: false; error: string }
+> {
+  const [role, identity, levels] = await Promise.all([
+    getEffectiveRole(),
+    getEffectiveIdentity(),
+    getEffectiveCrmLevels(),
+  ])
+  const isSuper = hasSuperUserPrivileges(role)
+  const level: CrmLevel = isSuper ? "manage" : levels[route]
+  const reason = decideCrmWrite(action, level, isSuper)
+  if (reason) return { ok: false, error: reason }
+  if (identity.impersonated) return { ok: false, error: `Exit “View as” before ${verb}.` }
+  return { ok: true, userId: identity.userId, name: identity.name, level, isSuper }
+}
+
+/**
+ * May the viewer use a CRM create / edit FORM (its pickers, its edit load)?
+ * Super users / admins, or Edit+ on `route` — or, with no route (the shared
+ * pickers), Edit+ on ANY of the four level-gated tables.
+ */
+export async function canUseCrmForms(route?: CrmLevelRoute): Promise<boolean> {
+  const [role, levels] = await Promise.all([getEffectiveRole(), getEffectiveCrmLevels()])
+  if (hasSuperUserPrivileges(role)) return true
+  const routes = route ? [route] : CRM_LEVEL_ROUTES
+  return routes.some((r) => levelAtLeast(levels[r], "edit"))
 }
 
 /** Every column a dashboard-authored mirror row gets regardless of entity. */
@@ -62,8 +130,10 @@ export const isIsoDate = (v: string): boolean =>
 
 /** Clients for a form's picker: every account, by name. Read gate only. */
 export async function loadAccountOptions(): Promise<ActionResult<AccountOption[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Pickers (2026-10-16): super users, or anyone at Edit+ on a level-gated
+  // CRM table (their create / edit forms need them). Tasks / Notes /
+  // Touchpoints forms are super-only anyway, so they gain nobody.
+  if (!(await canUseCrmForms())) return fail("Not authorised.")
 
   const { data, error } = await getSupabaseServer()
     .from("accounts")
@@ -83,8 +153,10 @@ export async function loadAccountOptions(): Promise<ActionResult<AccountOption[]
 export async function loadActiveAccountOptions(
   includeAccountId?: string | null,
 ): Promise<ActionResult<AccountOption[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Pickers (2026-10-16): super users, or anyone at Edit+ on a level-gated
+  // CRM table (their create / edit forms need them). Tasks / Notes /
+  // Touchpoints forms are super-only anyway, so they gain nobody.
+  if (!(await canUseCrmForms())) return fail("Not authorised.")
   return readActiveAccountOptions(includeAccountId)
 }
 
@@ -130,8 +202,15 @@ export async function resolveAccount(
 
 /** How many test rows the purge would remove — for the confirm prompt. */
 export async function countTestRows(table: string, pk: string): Promise<ActionResult<number>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Level-gated tables (2026-10-16): Manage (= delete / purge); others super only.
+  const levelRoute = CRM_LEVEL_TABLE_ROUTE[table]
+  if (levelRoute) {
+    const [role, levels] = await Promise.all([getEffectiveRole(), getEffectiveCrmLevels()])
+    if (decideCrmWrite("delete", levels[levelRoute], hasSuperUserPrivileges(role))) return fail("Not authorised.")
+  } else {
+    const role = await getEffectiveRole()
+    if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  }
   const { count, error } = await getSupabaseServer()
     .from(table)
     .select(pk, { count: "exact", head: true })
@@ -155,7 +234,9 @@ export async function purgeTestRows(opts: {
   path: string
   context: string
 }): Promise<ActionResult<{ deleted: number }>> {
-  const gate = await requireCrmWriter()
+  // Level-gated tables (2026-10-16): Manage; others the super-user writer gate.
+  const levelRoute = CRM_LEVEL_TABLE_ROUTE[opts.table]
+  const gate = levelRoute ? await requireCrmLevel(levelRoute, "delete", "purging test records") : await requireCrmWriter()
   if (!gate.ok) return fail(gate.error)
 
   const { data, error } = await getSupabaseServer()
@@ -199,8 +280,10 @@ export function easternLocalToIso(local: string | null | undefined): string | nu
 
 /** People for owner / host / booker pickers: active mirror users, by name. */
 export async function loadUserOptions(): Promise<ActionResult<UserOption[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Pickers (2026-10-16): super users, or anyone at Edit+ on a level-gated
+  // CRM table (their create / edit forms need them). Tasks / Notes /
+  // Touchpoints forms are super-only anyway, so they gain nobody.
+  if (!(await canUseCrmForms())) return fail("Not authorised.")
   const { data, error } = await getSupabaseServer()
     .from("users")
     .select("user_id, display_name")
@@ -231,8 +314,10 @@ function isActivePersonnel(r: PersonnelRow): boolean {
  * listed, even if now inactive (labelled "(inactive)"), so the value is not lost.
  */
 export async function loadPersonnelOptions(keepIds: readonly (string | null | undefined)[] = []): Promise<ActionResult<UserOption[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Pickers (2026-10-16): super users, or anyone at Edit+ on a level-gated
+  // CRM table (their create / edit forms need them). Tasks / Notes /
+  // Touchpoints forms are super-only anyway, so they gain nobody.
+  if (!(await canUseCrmForms())) return fail("Not authorised.")
   const { data, error } = await getSupabaseServer()
     .from("users")
     .select("user_id, display_name, email, is_active")
@@ -296,8 +381,10 @@ export async function loadClientEventOptions(
   accountId: string,
   opts?: { stages?: readonly string[]; keepEventId?: string | null },
 ): Promise<ActionResult<{ event_id: string; name: string | null; event_state_label: string | null }[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Pickers (2026-10-16): super users, or anyone at Edit+ on a level-gated
+  // CRM table (their create / edit forms need them). Tasks / Notes /
+  // Touchpoints forms are super-only anyway, so they gain nobody.
+  if (!(await canUseCrmForms())) return fail("Not authorised.")
   if (!isUuid(accountId)) return ok([])
   let q = getSupabaseServer()
     .from("events")
@@ -321,8 +408,10 @@ export async function loadClientEventOptions(
 export async function searchInstitutionOptions(
   query: string,
 ): Promise<ActionResult<{ institution_id: string; institution_name: string }[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Pickers (2026-10-16): super users, or anyone at Edit+ on a level-gated
+  // CRM table (their create / edit forms need them). Tasks / Notes /
+  // Touchpoints forms are super-only anyway, so they gain nobody.
+  if (!(await canUseCrmForms())) return fail("Not authorised.")
   const q = cleanText(query)
   if (!q || q.length < 2) return ok([])
   const escaped = q.replace(/([%_\\])/g, "\\$1")
@@ -461,9 +550,14 @@ export async function updateDashboardRow(opts: {
    */
   actor?: { userId: string | null; name: string | null }
 }): Promise<ActionResult<{ changed: number }>> {
+  // Level-gated tables (2026-10-16): Edit or above (requireCrmLevel); every
+  // other table keeps the super-user writer gate.
+  const levelRoute = opts.actor ? undefined : CRM_LEVEL_TABLE_ROUTE[opts.table]
   const gate = opts.actor
     ? ({ ok: true, ...opts.actor } as const)
-    : await requireCrmWriter(opts.verb ?? "editing records")
+    : levelRoute
+      ? await requireCrmLevel(levelRoute, "edit", opts.verb ?? "editing records")
+      : await requireCrmWriter(opts.verb ?? "editing records")
   if (!gate.ok) return fail(gate.error)
   if (!isUuid(opts.id)) return fail("Unknown record.")
 
@@ -491,6 +585,14 @@ export async function updateDashboardRow(opts: {
   const prior = Object.fromEntries(cols.map((c) => [c, before[c]]))
   const diff = diffRows(prior, opts.patch)
   if (!diff) return ok({ changed: 0 }) // nothing to save — no write, no audit
+
+  // PROTECTED FIELDS (2026-10-16): a listed column changes only at Manage or for
+  // super users / admins. The lists ship EMPTY (lib/access/crm-levels-policy.ts).
+  if (levelRoute && "level" in gate) {
+    const g = gate as unknown as { level: CrmLevel; isSuper: boolean }
+    const blocked = protectedFieldViolation(levelRoute, Object.keys(diff), g.level, g.isSuper)
+    if (blocked) return fail(blocked)
+  }
 
   // 2. The guarded UPDATE: pk AND origin = 'dashboard', and it must hit one row.
   const { data: updated, error: updErr } = await sb
@@ -532,8 +634,14 @@ export async function loadDashboardRowForEdit(
   id: string,
   columns: string,
 ): Promise<ActionResult<Record<string, unknown>>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Level-gated tables (2026-10-16): Edit or above; others super only.
+  const levelRoute = CRM_LEVEL_TABLE_ROUTE[table]
+  if (levelRoute) {
+    if (!(await canUseCrmForms(levelRoute))) return fail("Not authorised.")
+  } else {
+    const role = await getEffectiveRole()
+    if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  }
   return readDashboardRowForEdit(table, pk, id, columns)
 }
 

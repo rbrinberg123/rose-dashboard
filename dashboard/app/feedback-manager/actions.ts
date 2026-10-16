@@ -208,10 +208,13 @@ export async function loadClaimControls(): Promise<ActionResult<ClaimControls>> 
     viewer: {
       canClaim: viewer.hasCapability || viewer.isAdmin,
       isAdmin: viewer.isAdmin,
+      canManageAll: viewer.isAdmin || viewer.markReceived,
       myIds: [...viewer.myIds],
       impersonated: viewer.impersonated,
     },
-    roster: viewer.isAdmin ? await loadClaimRoster() : [],
+    // Owners may reassign their own task too (canManageAssignment), so every
+    // signed-in viewer gets the roster; the action re-checks.
+    roster: await loadClaimRoster(),
   })
 }
 

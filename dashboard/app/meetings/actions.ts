@@ -8,6 +8,9 @@ import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
 import { recordAudit } from "@/lib/audit"
 import {
+  canUseCrmForms,
+  requireCrmLevel,
+  canReadCrmPage,
   DASHBOARD_ROW_BASE,
   cleanText,
   countTestRows,
@@ -18,7 +21,6 @@ import {
   loadPersonnelOptions,
   requireActivePersonnel,
   purgeTestRows,
-  requireCrmWriter,
   isIsoDate,
   updateDashboardRow,
   loadDashboardRowForEdit,
@@ -156,8 +158,7 @@ export async function loadMeetingRecord(
   meetingId: string,
 ): Promise<ActionResult<MeetingRecord>> {
   // ---- GATE (must stay first) ----
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/meetings"))) return fail("Not authorised.")
 
   return readMeetingRecord(meetingId)
 }
@@ -316,8 +317,7 @@ export async function loadRowsForExport(input: {
   quick?: { client?: string; host?: string; feedback?: string }
 }): Promise<ActionResult<AdminMeetingRow[]>> {
   // ---- GATE (must stay first) ----
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/meetings"))) return fail("Not authorised.")
 
   const parsed = parseConfig(input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -361,8 +361,7 @@ export async function loadRowsForExport(input: {
  */
 export async function loadMeetingFilterOptions(): Promise<ActionResult<FilterOptions>> {
   // ---- GATE (must stay first) ----
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/meetings"))) return fail("Not authorised.")
 
   return ok(await loadFilterOptions(getSupabaseServer()))
 }
@@ -447,8 +446,8 @@ async function meetingChoiceOptions(): Promise<ActionResult<MeetingChoiceOptions
 }
 
 export async function loadMeetingChoiceOptions(): Promise<ActionResult<MeetingChoiceOptions>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Form picker (2026-10-16): Edit+ on /meetings, or super users / admins.
+  if (!(await canUseCrmForms("/meetings"))) return fail("Not authorised.")
   return meetingChoiceOptions()
 }
 
@@ -676,7 +675,7 @@ export async function createMeeting(
   opts?: { fromEventId?: string },
 ): Promise<ActionResult<{ meetingId: string }>> {
   // ---- GATE (must stay first) ----
-  const gate = await requireCrmWriter("creating or deleting meetings")
+  const gate = await requireCrmLevel("/meetings", "create", "creating meetings") // Manage (2026-10-16)
   if (!gate.ok) return fail(gate.error)
 
   let allowEventId: string | null = null
@@ -794,7 +793,7 @@ export async function updateMeeting(
   id: string,
   input: NewMeetingInput,
 ): Promise<ActionResult<{ changed: number }>> {
-  const gate = await requireCrmWriter("editing meetings")
+  const gate = await requireCrmLevel("/meetings", "edit", "editing meetings") // Edit+ (2026-10-16)
   if (!gate.ok) return fail(gate.error)
   // The stored event, so an unchanged link to a later-stage event still saves.
   const { data: cur } = await getSupabaseServer()

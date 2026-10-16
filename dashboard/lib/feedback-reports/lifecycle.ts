@@ -61,10 +61,10 @@ export type LifecycleViewer = {
   myIds: ReadonlySet<string>
   isAdmin: boolean
   hasCapability: boolean
-  /** Super user and NOT in "View as" — the requireCrmWriter gate. */
+  /** Super user and NOT in "View as" — the requireCrmWriter gate (structural report edits). */
   crmWriter: boolean
-  /** On this event's client's account team (any of the six roles). */
-  onClientTeam: boolean
+  /** "Mark feedback received" capability (or super-user privileges) — the mark_in gate (2026-10-16). */
+  markReceived: boolean
 }
 
 /** The card's own stage actions; ownership (Claim … Close) is ClaimActions. */
@@ -143,9 +143,10 @@ export function nextAction(stage: LifecycleStage, sent: LifecycleSentTask | null
  * May this viewer take `action`? null = yes; otherwise the reason. Mirrors the
  * server checks (which also re-run the existing claim / close / account-team
  * gates):
- *   mark_in  the existing Mark received gate — super user, not in View as;
- *   send     decideSentClose — the sent task's owner (the associate) OR the
- *            client's account team OR hasSuperUserPrivileges; the same rule
+ *   mark_in  the "Mark feedback received" capability (role or person grant;
+ *            super users / admins always) — markFeedbackReceived's gate;
+ *   send     decideSentClose — the sent task's owner (the associate) OR
+ *            hasSuperUserPrivileges (owner-only, 2026-10-16); the same rule
  *            closeFeedbackReview enforces on every path.
  */
 export function canAct(
@@ -156,15 +157,15 @@ export function canAct(
 ): string | null {
   switch (action) {
     case "mark_in":
-      return v.crmWriter ? null : "Only a CRM editor can mark feedback all in."
+      return v.markReceived ? null : "You don't have permission to mark feedback received."
     case "send": {
       if (!sent) return "The review task doesn't exist yet."
       // MIRRORS decideSentClose (lib/feedback-claims/policy.ts) — the server
       // rule. Kept inline so this module stays import-free for node --test;
       // lifecycle.test.ts asserts the two always agree.
       const isOwner = !!sent.ownerId && v.myIds.has(sent.ownerId)
-      if (isOwner || v.onClientTeam || v.isAdmin) return null
-      return "Not authorised — only the associate, the client's account team, or an admin can send this report."
+      if (isOwner || v.isAdmin) return null
+      return "Not authorised — only the report's associate (the task owner) or an admin can send this report."
     }
   }
 }

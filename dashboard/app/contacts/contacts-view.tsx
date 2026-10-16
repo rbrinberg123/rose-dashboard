@@ -197,6 +197,8 @@ export function ContactsView({
   activeConfig,
   viewCounts,
   canManageSystemViews,
+  canEdit,
+  canManage,
   readOnlyViews,
   availableColumns,
   quickFilters,
@@ -212,6 +214,10 @@ export function ContactsView({
   activeConfig: ViewConfig
   viewCounts: Record<string, number | null>
   canManageSystemViews: boolean
+  /** Server-decided CRM access level >= Edit — shows Edit (2026-10-16; the server re-checks). */
+  canEdit: boolean
+  /** Server-decided CRM access level == Manage — shows New / Purge test (the server re-checks). */
+  canManage: boolean
   readOnlyViews: boolean
   availableColumns: string[] | null
   quickFilters: ContactQuickFilters
@@ -475,11 +481,15 @@ export function ContactsView({
           compact
           eyebrow="CRM"
           title="Contacts"
-          subtitle="Every contact in the CRM — the people at client companies, with their role, type and flags. No row scoping is applied, so this page is super-user only."
+          subtitle="Every contact in the CRM — the people at client companies, with their role, type and flags. No row scoping is applied."
           rightSlot={
             <div className="flex items-center gap-2">
-              <PurgeTestContactsButton />
-              <NewContactButton />
+              {canManage && (
+                <>
+                  <PurgeTestContactsButton />
+                  <NewContactButton />
+                </>
+              )}
             </div>
           }
         />
@@ -736,7 +746,7 @@ export function ContactsView({
       {/* Rendered as a SIBLING of the list, never wrapping it, so opening a
           record cannot remount the table. */}
       <ContactRecordPane
-        onEdit={openId ? () => setEditId(openId) : undefined}
+        onEdit={canEdit && openId ? () => setEditId(openId) : undefined}
         record={record}
         loading={openId !== null && record === null && recordError === null}
         error={recordError}

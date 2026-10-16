@@ -526,6 +526,7 @@ export function EventRecordPane({
   onClose,
   onEdit,
   showFeedbackReports = true,
+  canAddMeeting = true,
   initialTab,
   focusReportId = null,
 }: {
@@ -535,9 +536,21 @@ export function EventRecordPane({
   onClose: () => void
   /** Opens the edit form — shown only for origin='dashboard' records. */
   onEdit?: () => void
-  /** The Meetings & Reports content (its loaders are super-user only). My
-   *  Dashboard hides it for other viewers. Default on, as on the Events page. */
+  /**
+   * EDITOR controls inside Meetings & Reports (2026-10-16). The tab itself is
+   * open to anyone who can view the event (its loaders gate on canViewEvent,
+   * lib/events/view-gate.ts) and is read-only for them; this flag only decides
+   * whether meeting rows open (edit / record — writer- and grant-gated
+   * loaders). Report structure edits follow crmWriter inside the panel, and
+   * Claim / Mark received / Send follow their own capability and owner rules.
+   * Default on, as on the Events page for super users.
+   */
   showFeedbackReports?: boolean
+  /**
+   * May the viewer CREATE a meeting (Meetings level Manage, 2026-10-16)? Add
+   * Meeting needs it as well as onEdit. Default on (super users).
+   */
+  canAddMeeting?: boolean
   /** Open on this tab (e.g. Feedback Reports → "meetings"); else Details. */
   initialTab?: EventTabKey
   /** Scroll Meetings & Reports to this report (its Feedback task id) and highlight it. */
@@ -549,8 +562,8 @@ export function EventRecordPane({
   const tab: EventTabKey = tabState.id === eventId ? tabState.tab : (initialTab ?? "details")
   const [reload, setReload] = React.useState(0)
   // The meeting list (all statuses) — the Dynamics read-only list and the
-  // badge. Its loader is super-user only, so it follows showFeedbackReports.
-  const meetings = useEventMeetings(eventId, showFeedbackReports, reload)
+  // badge. Readable by anyone who can view the event (2026-10-16).
+  const meetings = useEventMeetings(eventId, true, reload)
   const meetingCount = eventMeetingCount(meetings.rows)
 
   const open = loading || !!record || !!error
@@ -563,7 +576,7 @@ export function EventRecordPane({
   // Lives in the Meetings & Reports panel header (not the drawer header), plus a
   // small "+" on the Meetings KPI tile — same action, same pre-fill.
   const addMeeting = (where: string, variant: "primary" | "icon" = "primary") =>
-    record && onEdit ? (
+    record && onEdit && canAddMeeting ? (
       <AddMeetingFromEventButton
         key={`${where}-${record.event_id}`}
         variant={variant}
@@ -703,12 +716,7 @@ export function EventRecordPane({
               )}
 
               {tab === "meetings" &&
-                (!showFeedbackReports ? (
-                  <>
-                    {onEdit && <div className="mb-3 flex justify-end">{addMeeting("panel")}</div>}
-                    <p className="text-[12px] text-muted-foreground">The meeting list is available to super users.</p>
-                  </>
-                ) : isAutomationOrigin(record.origin) ? (
+                (isAutomationOrigin(record.origin) ? (
                   // Dashboard-origin: the combined meetings + reports + feedback
                   // panel (report line items, stages, feedback chips, split/move).
                   <MeetingsReportsPanel
@@ -723,6 +731,7 @@ export function EventRecordPane({
                   // deliberately NOT flipped, so no report grouping or controls.
                   // Rows still open each meeting (form or read-only record).
                   <EventMeetingsReadOnlyList
+                    canOpen={showFeedbackReports}
                     rows={meetings.rows}
                     error={meetings.error}
                     action={addMeeting("panel")}

@@ -17,13 +17,15 @@
  */
 
 import { getSupabaseServer } from "@/lib/supabase"
-import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
-import { resolveAccountTeamScope } from "@/lib/access/account-team-scope"
+import { getEffectiveRole } from "@/lib/effective-identity"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
 import { recordAudit } from "@/lib/audit"
 import {
+  canUseCrmForms,
+  requireCrmLevel,
+  canReadCrmPage,
   DASHBOARD_ROW_BASE,
   cleanText,
   countTestRows,
@@ -31,7 +33,6 @@ import {
   isIsoDate,
   isUuid,
   purgeTestRows,
-  requireCrmWriter,
   loadUserOptions,
   loadActiveAccountOptions,
   updateDashboardRow,
@@ -76,6 +77,7 @@ import type { EventRecord } from "@/lib/events/record"
 import type { AdminEventRow } from "@/lib/types"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
 import { loadEventMeetings, type EventMeetingRow } from "@/lib/event-meetings"
+import { canViewEvent, dashboardEventInScope } from "@/lib/events/view-gate"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -120,8 +122,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  * v_admin_events_filter_options, where the distinct-ing is done in Postgres.
  */
 export async function loadEventFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/events"))) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(getSupabaseServer(), EVENTS_SPEC, "event_count")
   return ok({
@@ -145,8 +146,7 @@ export async function loadEventRowsForExport(input: {
   config: unknown
   quick?: EventQuickFilters
 }): Promise<ActionResult<AdminEventRow[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/events"))) return fail("Not authorised.")
 
   const parsed = parseConfig(EVENTS_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -225,8 +225,7 @@ const RECORD_COLUMNS = [
 
 export async function loadEventRecord(eventId: string): Promise<ActionResult<EventRecord>> {
   // ---- GATE (must stay first) ----
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/events"))) return fail("Not authorised.")
   return readEventRecord(eventId)
 }
 
@@ -237,8 +236,8 @@ export async function loadEventRecord(eventId: string): Promise<ActionResult<Eve
  */
 export async function loadEventMeetingsList(eventId: string): Promise<ActionResult<EventMeetingRow[]>> {
   // ---- GATE (must stay first) ----
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Read-only Meetings & Reports tab (2026-10-16): anyone who can view the event.
+  if (!(await canViewEvent(eventId))) return fail("Not authorised.")
   if (!isUuid(eventId)) return fail("Unknown event.")
   const res = await loadEventMeetings(eventId)
   return res.ok ? ok(res.rows) : fail(res.error)
@@ -256,16 +255,10 @@ export async function loadDashboardEventRecord(eventId: string): Promise<ActionR
   const role = await getEffectiveRole()
   if (!hasSuperUserPrivileges(role)) {
     if (!role) return fail("Not authorised.")
-    const scope = await resolveAccountTeamScope(await getEffectiveIdentity())
-    if (scope.mode !== "filter" || scope.accountIds.size === 0) return fail("Not authorised.")
-    const { data, error } = await getSupabaseServer()
-      .from("v_live_outreach")
-      .select("event_id, client_account_id")
-      .eq("event_id", eventId)
-      .limit(1)
-    if (error) return fail(describeError(error))
-    const row = (data ?? [])[0] as { client_account_id: string | null } | undefined
-    if (!row?.client_account_id || !scope.accountIds.has(row.client_account_id)) return fail("Not authorised.")
+    // Shared with canViewEvent (lib/events/view-gate.ts) — same check as before.
+    const inScope = await dashboardEventInScope(eventId)
+    if (typeof inScope === "string") return fail(inScope)
+    if (!inScope) return fail("Not authorised.")
   }
   return readEventRecord(eventId)
 }
@@ -376,8 +369,8 @@ async function latestTaskDates(accountId: string): Promise<ActionResult<EventTas
 
 /** The form's read-only task-derived dates, for the picked client. */
 export async function loadClientTaskDates(accountId: string): Promise<ActionResult<EventTaskDates>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Form picker (2026-10-16): Edit+ on /events, or super users / admins.
+  if (!(await canUseCrmForms("/events"))) return fail("Not authorised.")
   if (!isUuid(accountId)) return fail("Unknown client.")
   return latestTaskDates(accountId)
 }
@@ -395,8 +388,8 @@ export async function loadEventContactOptions(input: {
   clientAccountId: string | null
   all: boolean
 }): Promise<ActionResult<EventContactOption[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Form picker (2026-10-16): Edit+ on /events, or super users / admins.
+  if (!(await canUseCrmForms("/events"))) return fail("Not authorised.")
   let q = getSupabaseServer()
     .from("contacts")
     .select("contact_id, full_name, job_title, parent_customer_name")
@@ -442,8 +435,7 @@ async function loadRepresentatives(eventId: string): Promise<ActionResult<EventR
 
 /** The drawer's Company Representatives list (any origin; empty for Dynamics). */
 export async function loadEventRepresentatives(eventId: string): Promise<ActionResult<EventRepresentative[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/events"))) return fail("Not authorised.")
   if (!isUuid(eventId)) return fail("Unknown event.")
   return loadRepresentatives(eventId)
 }
@@ -613,7 +605,7 @@ async function buildEventColumns(input: NewEventInput): Promise<ActionResult<Rec
  */
 export async function createEvent(input: NewEventInput): Promise<ActionResult<{ eventId: string }>> {
   // ---- GATE (must stay first) ----
-  const gate = await requireCrmWriter("creating or deleting events")
+  const gate = await requireCrmLevel("/events", "create", "creating events") // Manage (2026-10-16)
   if (!gate.ok) return fail(gate.error)
 
   const built = await buildEventColumns(input)
@@ -751,7 +743,7 @@ export async function loadEventForEdit(id: string): Promise<
 
 /** Edit a DASHBOARD event. The origin guard lives in updateDashboardRow. */
 export async function updateEvent(id: string, input: NewEventInput): Promise<ActionResult<{ changed: number }>> {
-  const gate = await requireCrmWriter("editing events")
+  const gate = await requireCrmLevel("/events", "edit", "editing events") // Edit+ (2026-10-16)
   if (!gate.ok) return fail(gate.error)
   const built = await buildEventColumns(input)
   if (!built.ok) return fail(built.error)

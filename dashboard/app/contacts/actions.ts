@@ -35,14 +35,14 @@ import { revalidatePath } from "next/cache"
 
 import { getSupabaseServer } from "@/lib/supabase"
 import { recordAudit } from "@/lib/audit"
-import { getEffectiveRole } from "@/lib/effective-identity"
 import {
+  requireCrmLevel,
+  canReadCrmPage,
   DASHBOARD_ROW_BASE,
   cleanText,
   countTestRows,
   loadActiveAccountOptions,
   purgeTestRows,
-  requireCrmWriter,
   isIsoDate,
   loadUserOptions,
   resolveUser,
@@ -58,6 +58,8 @@ import {
   validateContactRequired,
   type NewContactInput,
 } from "@/lib/contacts/create"
+import { getEffectiveRole } from "@/lib/effective-identity"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { availableColumns, fetchAllRows, loadFilterOptionGroups } from "@/lib/table-views/query"
 import type { QuickFilterOptions } from "@/components/table-views/quick-filters"
@@ -78,7 +80,6 @@ import {
 } from "@/lib/contacts/filters"
 import type { ContactRecord } from "@/lib/contacts/record"
 import type { AdminContactRow } from "@/lib/types"
-import { hasSuperUserPrivileges } from "@/lib/access-control"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -127,8 +128,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  * lib/contacts/filters.ts converts them back before querying.
  */
 export async function loadContactFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/contacts"))) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(
     getSupabaseServer(),
@@ -160,8 +160,7 @@ export async function loadContactRowsForExport(input: {
   config: unknown
   quick?: ContactQuickFilters
 }): Promise<ActionResult<AdminContactRow[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/contacts"))) return fail("Not authorised.")
 
   const parsed = parseConfig(CONTACTS_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -259,8 +258,7 @@ export async function loadContactRecord(
   contactId: string,
 ): Promise<ActionResult<ContactRecord>> {
   // ---- GATE (must stay first) ----
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/contacts"))) return fail("Not authorised.")
 
   if (!contactId) return fail("No contact id.")
 
@@ -279,15 +277,23 @@ export async function loadContactRecord(
   // one row. A failure here is NOT fatal: every rendered field came from the
   // query above, so the drawer opens fine without it.
   // is_test rides along (drawer TEST badge), read off the table like _raw.
+  //
+  // _raw is the UNFILTERED Dynamics record, so it goes to super users (and
+  // admins) only — the same View-as-aware effective role every gate here reads.
+  // A page-granted viewer gets the drawer without it (2026-10-16). Nothing
+  // renders _raw, so their drawer is identical.
+  const includeRaw = hasSuperUserPrivileges(await getEffectiveRole())
   const { data: rawRow } = await sb
     .from("contacts")
-    .select("_raw, is_test, origin")
+    .select((includeRaw ? "_raw, is_test, origin" : "is_test, origin") as string)
     .eq("contact_id", contactId)
-    .maybeSingle()
+    .maybeSingle<{ _raw?: Record<string, unknown> | null; is_test?: boolean | null; origin?: string | null }>()
 
   return ok({
     ...(data as unknown as Omit<ContactRecord, "_raw">),
-    _raw: (rawRow?._raw as Record<string, unknown> | undefined) ?? null,
+    ...(includeRaw
+      ? { _raw: rawRow?._raw ?? null }
+      : {}),
     is_test: rawRow?.is_test === true,
     origin: (rawRow?.origin as string | undefined) ?? null,
   })
@@ -404,7 +410,7 @@ export async function createContact(
   input: NewContactInput,
 ): Promise<ActionResult<{ contactId: string }>> {
   // ---- GATE (must stay first) ----
-  const gate = await requireCrmWriter("creating or deleting contacts")
+  const gate = await requireCrmLevel("/contacts", "create", "creating contacts") // Manage (2026-10-16)
   if (!gate.ok) return fail(gate.error)
 
   const built = await buildContactColumns(input, gate.userId)
@@ -483,7 +489,7 @@ export async function updateContact(
   id: string,
   input: NewContactInput,
 ): Promise<ActionResult<{ changed: number }>> {
-  const gate = await requireCrmWriter("editing contacts")
+  const gate = await requireCrmLevel("/contacts", "edit", "editing contacts") // Edit+ (2026-10-16)
   if (!gate.ok) return fail(gate.error)
   const built = await buildContactColumns(input, gate.userId)
   if (!built.ok) return fail(built.error)

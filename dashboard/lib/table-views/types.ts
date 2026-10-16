@@ -196,6 +196,14 @@ export type EntitySpec = {
   savedViewsTable: string
   /** The distinct-values view backing the quick-filter dropdowns. */
   optionsView: string
+  /**
+   * The page route, for the four grantable CRM list pages (2026-10-16:
+   * Clients, Events, Meetings, Contacts). When set, saved views open to anyone
+   * canAccessRoute lets onto that page; when unset they stay super-user only
+   * (Tasks, Touchpoints, Notes, Admin Contracts). System views stay super-user
+   * either way.
+   */
+  route?: string
 }
 
 /** Every operator valid for a field, per the entity's catalog. */

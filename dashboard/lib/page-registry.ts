@@ -25,6 +25,7 @@ export type NavSection =
   | "Productivity"
   | "Logistics"
   | "Contracts"
+  | "CRM"
   | "Admin"
 
 /** Section render order for the matrix (matches the sidebar top-to-bottom). */
@@ -34,6 +35,7 @@ export const PAGE_SECTIONS: readonly NavSection[] = [
   "Productivity",
   "Logistics",
   "Contracts",
+  "CRM",
   "Admin",
 ] as const
 
@@ -112,6 +114,17 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   { route: "/salary-schedule", label: "Salary Schedule", section: "Contracts" },
   { route: "/exceptions", label: "Exception Report", section: "Contracts" },
 
+  // ---- CRM ----
+  // The four primary CRM list pages, grantable since 2026-10-16 (they left
+  // ADMIN_ONLY_ROUTES). A grant opens the WHOLE list — no row scoping — plus
+  // filters, export, saved views and the read-only row drawers. Writes stay
+  // super-user only; Client Detail keeps its account-team scoping. Tasks /
+  // Touchpoints / Notes are still super-user only and are not listed here.
+  { route: "/accounts", label: "Clients (CRM list — all rows)", section: "CRM" },
+  { route: "/events", label: "Events (CRM list — all rows)", section: "CRM" },
+  { route: "/meetings", label: "Meetings (CRM list — all rows)", section: "CRM" },
+  { route: "/contacts", label: "Contacts (CRM list — all rows)", section: "CRM" },
+
   // ---- Admin ----
   { route: "/admin", label: "Admin Hub", section: "Admin" },
   { route: "/admin/sync", label: "Sync Status (super-user only)", section: "Admin" },
@@ -120,14 +133,10 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   { route: "/admin/users", label: "Users & Roles (super-user only)", section: "Admin" },
   { route: "/admin/roles", label: "Roles Matrix (super-user only)", section: "Admin" },
   { route: "/admin/docs", label: "Documentation", section: "Admin" },
-  // Super-user-only and NOT grantable through this matrix — see
-  // ADMIN_ONLY_ROUTES in lib/access-control.ts. Listed here so the page still
-  // appears in the Roles matrix as a known route (its checkboxes have no effect).
-  { route: "/meetings", label: "Meetings — all CRM (hidden, super-user only)", section: "Admin" },
   // CRM -> Time Off requests: ALWAYS_ALLOWED since 2026-10-09 (rows scoped to
   // own ∪ approver-for ∪ super-user all), so its checkboxes have no effect.
   { route: "/time-off-requests", label: "Time Off requests — CRM (everyone, own + approvees only)", section: "Admin" },
-  // Same tier: Admin -> Contract Management (not the /contract-management report).
+  // Super-user only (ADMIN_ONLY_ROUTES): Admin -> Contract Management (not the /contract-management report).
   { route: "/admin/contracts", label: "Contract Management — Admin (super-user only)", section: "Admin" },
   { route: "/admin/time-off-reviewers", label: "Time Off Reviewers (super-user only)", section: "Admin" },
   { route: "/admin/automations", label: "Automations (super-user only)", section: "Admin" },
@@ -200,6 +209,20 @@ export const DATA_PERMISSIONS: readonly DataPermissionEntry[] = [
     label: "Financials",
     description:
       "See retainer / fee dollar figures — Portfolio Retainer column + contract doc, Client Detail Annualized Retainer and $ per Meeting",
+  },
+  // Feedback capabilities (2026-10-16). Keys must match
+  // lib/access/feedback-capabilities-policy.ts (asserted in page-registry.test.ts).
+  // The per-person half lives on user_data_scopes (Admin → Users).
+  {
+    key: "data:claim_feedback",
+    label: "Claim feedback report",
+    description: "Claim an unclaimed Feedback report task (Feedback Reports + the event drawer's Meetings & Reports tab)",
+  },
+  {
+    key: "data:mark_feedback_received",
+    label: "Mark feedback received",
+    description:
+      "Mark a report's feedback all in, and assign / release / reassign its Feedback report task",
   },
 ] as const
 

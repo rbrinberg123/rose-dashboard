@@ -1,5 +1,5 @@
 import { getSupabaseServer } from "@/lib/supabase"
-import { canAccessRoute } from "@/lib/access-control"
+import { canAccessRoute, hasSuperUserPrivileges } from "@/lib/access-control"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 import {
@@ -236,7 +236,12 @@ export type MyDashboardData = {
   canReviewTimeOff: boolean
   /** May the viewer open the meeting drawer? Same gate as CRM → Meetings. */
   canOpenMeetings: boolean
-  /** CRM → Events is open to the viewer (super user): the event drawer then also shows its Feedback reports panel. */
+  /**
+   * The event drawer's EDITOR controls (meeting rows open): super-user
+   * privileges. (2026-10-16: was can("/events"), which is now a grantable
+   * page — a granted non-editor would get rows whose openers refuse them. The
+   * Meetings & Reports tab itself is read-only for everyone else.)
+   */
   canOpenEvents: boolean
   /** Dynamics deep-link base for the meeting drawer (as on /meetings). */
   crmBase: string
@@ -856,7 +861,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
     canOpenTasks: can("/tasks"),
     canReviewTimeOff: !identity.impersonated,
     canOpenMeetings: can("/meetings"),
-    canOpenEvents: can("/events"),
+    canOpenEvents: hasSuperUserPrivileges(role),
     crmBase: process.env.NEXT_PUBLIC_DYNAMICS_URL?.replace(/\/$/, "") || "https://clientcrm.crm.dynamics.com",
     jumpLinks: JUMP_LINKS.filter((l) => can(l.href)).map((l) => ({ href: l.href, label: l.label })),
     links: {

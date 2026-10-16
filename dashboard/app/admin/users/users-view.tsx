@@ -8,7 +8,15 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { formatDate } from "@/lib/format"
 import { CARD_CLASS, CONTROL_STYLE, TEXT_MUTED, TEXT_PRIMARY } from "@/lib/design"
-import { setUserRole, setUserDataScopes, setUserPageGrant, type DataScopes } from "./actions"
+import { setUserRole, setUserDataScopes, setUserPageGrant, setUserCrmLevel, type DataScopes } from "./actions"
+import {
+  CRM_LEVELS,
+  CRM_LEVEL_LABELS,
+  isCrmLevelRoute,
+  levelAtLeast,
+  maxLevel,
+  type CrmLevel,
+} from "@/lib/access/crm-levels-policy"
 import { setViewAsUserAction } from "@/app/view-as-actions"
 import {
   ALWAYS_ALLOWED_ROUTES,
@@ -66,7 +74,13 @@ export type UserRow = {
 }
 
 /** One per-user page grant row. */
-export type PageGrant = { route: string; grantedBy: string; grantedAt: string }
+export type PageGrant = {
+  route: string
+  grantedBy: string
+  grantedAt: string
+  /** The person's own CRM access level on a level-gated CRM table (2026-10-16). */
+  crmLevel?: CrmLevel
+}
 
 /**
  * The four specific ROW-scope toggles (All is handled separately as the
@@ -254,17 +268,22 @@ function SessionBanner({ resolution }: { resolution: SessionResolution }) {
 function PagesPanel({
   role,
   roleRoutes,
+  roleLevels,
   grants,
   saving,
   nameFor,
   onToggle,
+  onLevel,
 }: {
   role: Exclude<RoleValue, null>
   roleRoutes: readonly string[]
+  /** The role's CRM access levels (2026-10-16) — the baseline the person inherits. */
+  roleLevels: Partial<Record<string, CrmLevel>>
   grants: PageGrant[]
   saving: Record<string, boolean>
   nameFor: (email: string) => string
   onToggle: (route: string, on: boolean) => void
+  onLevel: (route: string, roleLevel: CrmLevel, next: CrmLevel) => void
 }) {
   const grantByRoute = new Map(grants.map((g) => [g.route, g]))
   const always = ALWAYS_ALLOWED_ROUTES as readonly string[]
@@ -296,6 +315,54 @@ function PagesPanel({
                   const grant = grantByRoute.get(p.route)
                   const busy = !!saving[p.route]
                   const locked = p.fromRole && !grant
+                  // CRM tables (2026-10-16): a level dropdown, inheriting the role's
+                  // level as the baseline. Raise-only: nothing below the role's level
+                  // is offered; a higher pick is this person's OVERRIDE.
+                  if (isCrmLevelRoute(p.route)) {
+                    const superish = role === "super_user" || role === "admin"
+                    const roleLevel: CrmLevel = superish ? "manage" : (roleLevels[p.route] ?? "none")
+                    const own: CrmLevel = grant ? (grant.crmLevel ?? "view") : "none"
+                    const effective = maxLevel(roleLevel, own)
+                    const isOverride = !superish && own !== "none" && own !== roleLevel && levelAtLeast(own, roleLevel)
+                    return (
+                      <li key={p.route} className="flex flex-wrap items-center gap-1.5">
+                        <select
+                          aria-label={p.label + " access level"}
+                          value={effective}
+                          disabled={superish || busy}
+                          onChange={(e) => onLevel(p.route, roleLevel, e.target.value as CrmLevel)}
+                          className="h-6 rounded border border-input bg-background px-1 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
+                          style={{ color: TEXT_PRIMARY }}
+                        >
+                          {CRM_LEVELS.map((l) => (
+                            <option key={l} value={l} disabled={!levelAtLeast(l, roleLevel)}>
+                              {CRM_LEVEL_LABELS[l]}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="min-w-0 truncate" style={{ color: TEXT_PRIMARY }} title={p.route}>
+                          {p.label}
+                        </span>
+                        <span
+                          className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[#F1F3F7] px-1.5 text-[10px]"
+                          style={{ color: TEXT_MUTED }}
+                          title="The level this person's role gives them"
+                        >
+                          <Lock className="size-2.5" /> Role: {superish ? "Manage (implicit)" : CRM_LEVEL_LABELS[roleLevel]}
+                        </span>
+                        {isOverride ? (
+                          <span
+                            className="shrink-0 rounded-full px-1.5 text-[10px] font-semibold uppercase tracking-wide"
+                            style={{ backgroundColor: "#EEF5FC", color: "#0154a6" }}
+                            title={grant ? "Granted by " + nameFor(grant.grantedBy) + " · " + formatDate(grant.grantedAt) : undefined}
+                          >
+                            Override
+                          </span>
+                        ) : null}
+                        {busy ? <Loader2 className="size-3 shrink-0 animate-spin" /> : null}
+                      </li>
+                    )
+                  }
                   return (
                     <li key={p.route} className="flex items-center gap-1.5">
                       <input
@@ -343,6 +410,7 @@ export function UsersView({
   missingScopesTable,
   sessionResolution,
   rolePages,
+  roleCrmLevels,
   missingPageGrantsTable,
 }: {
   users: UserRow[]
@@ -351,6 +419,8 @@ export function UsersView({
   sessionResolution: SessionResolution
   /** role → routes the Roles matrix grants it (role_page_access). */
   rolePages: Record<string, string[]>
+  /** role → CRM table → the role's access level (2026-10-16). */
+  roleCrmLevels: Record<string, Partial<Record<string, CrmLevel>>>
   missingPageGrantsTable: boolean
 }) {
   const router = useRouter()
@@ -493,6 +563,46 @@ export function UsersView({
       } else {
         setPageGrants((g) => ({ ...g, [key]: prev }))
         toast.error("Could not save page grant", { description: result.error })
+      }
+    })
+  }
+
+  /**
+   * A person's own CRM access level (2026-10-16), RAISE-ONLY over their role's:
+   * picking the role's level removes their own grant; anything higher is
+   * stored as their override.
+   */
+  function handleCrmLevel(user: UserRow, route: string, roleLevel: CrmLevel, next: CrmLevel) {
+    const key = user.email.toLowerCase()
+    const prev = pageGrants[key] ?? []
+    const stored: CrmLevel = next === roleLevel ? "none" : next
+    const existing = prev.find((x) => x.route === route)
+    const setBusy = (busy: boolean) =>
+      setPageSaving((s) => ({ ...s, [key]: { ...s[key], [route]: busy } }))
+    setPageGrants((g) => ({
+      ...g,
+      [key]:
+        stored === "none"
+          ? prev.filter((x) => x.route !== route)
+          : [
+              ...prev.filter((x) => x.route !== route),
+              {
+                route,
+                grantedBy: existing?.grantedBy ?? "you",
+                grantedAt: existing?.grantedAt ?? new Date().toISOString(),
+                crmLevel: stored,
+              },
+            ],
+    }))
+    setBusy(true)
+    startTransition(async () => {
+      const result = await setUserCrmLevel(user.email, route, stored)
+      setBusy(false)
+      if (result.ok) {
+        router.refresh()
+      } else {
+        setPageGrants((g) => ({ ...g, [key]: prev }))
+        toast.error("Could not save access level", { description: result.error })
       }
     })
   }
@@ -750,7 +860,7 @@ export function UsersView({
                           row scope: may this person claim Feedback tasks on
                           Feedback Reports? Super User implies it. */}
                       <label
-                        title="Claim feedback — may claim unclaimed Feedback tasks on Feedback Reports (and release their own). Independent of the row scopes."
+                        title="Claim feedback — may claim unclaimed Feedback report tasks (Feedback Reports + the event drawer). Also grantable per role in Admin → Roles. Independent of the row scopes."
                         className={cn(
                           "flex items-center gap-1",
                           superLock ? "cursor-default" : "cursor-pointer",
@@ -766,6 +876,29 @@ export function UsersView({
                           aria-label={`Claim feedback for ${u.name}`}
                         />
                         Claim feedback
+                      </label>
+
+                      {/* Mark feedback received (2026-10-16) — a CAPABILITY, like
+                          Claim feedback: Mark feedback all in, plus assign /
+                          release / reassign Feedback report tasks. Super User
+                          implies it. The role-level half is in Admin → Roles. */}
+                      <label
+                        title="Mark feedback received — may mark a report's feedback all in, and assign / release / reassign its Feedback report task. Independent of the row scopes."
+                        className={cn(
+                          "flex items-center gap-1",
+                          superLock ? "cursor-default" : "cursor-pointer",
+                        )}
+                        style={{ color: TEXT_PRIMARY }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={superLock || rowScopes.mark_feedback_received}
+                          disabled={superLock || scState === "saving"}
+                          onChange={(e) => handleScopeChange(u, "mark_feedback_received", e.target.checked)}
+                          className="size-3.5 cursor-pointer accent-[#0E7C56] disabled:cursor-not-allowed"
+                          aria-label={`Mark feedback received for ${u.name}`}
+                        />
+                        Mark feedback received
                       </label>
 
                       {superLock ? (
@@ -860,10 +993,12 @@ export function UsersView({
                   <PagesPanel
                     role={value}
                     roleRoutes={rolePages[value] ?? []}
+                    roleLevels={roleCrmLevels[value] ?? {}}
                     grants={pageGrants[key] ?? []}
                     saving={pageSaving[key] ?? {}}
                     nameFor={nameFor}
                     onToggle={(route, on) => handlePageGrant(u, route, on)}
+                    onLevel={(route, roleLevel, next) => handleCrmLevel(u, route, roleLevel, next)}
                   />
                 ) : null}
                 </li>

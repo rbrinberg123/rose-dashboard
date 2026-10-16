@@ -15,7 +15,6 @@
  */
 
 import { getSupabaseServer } from "@/lib/supabase"
-import { getEffectiveRole } from "@/lib/effective-identity"
 import { fail, ok, type ActionResult } from "@/lib/actions"
 import {
   createSavedView as sharedCreate,
@@ -27,7 +26,7 @@ import {
 import type { SavedView, SavedViewScope } from "@/lib/table-views/types"
 import { MEETINGS_SPEC } from "@/lib/meetings/spec"
 import { loadFilterOptions, type FilterOptions } from "@/lib/meetings/query"
-import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { canReadCrmPage } from "@/lib/crm-write"
 
 export async function listSavedViews(): Promise<ActionResult<SavedView[]>> {
   return sharedList(MEETINGS_SPEC)
@@ -69,7 +68,6 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  * everything else here.
  */
 export async function loadMeetingFilterOptions(): Promise<ActionResult<FilterOptions>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/meetings"))) return fail("Not authorised.")
   return ok(await loadFilterOptions(getSupabaseServer()))
 }

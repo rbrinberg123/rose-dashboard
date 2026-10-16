@@ -37,6 +37,12 @@ export type UserScopes = {
    * granted in code. See lib/feedback-claims/.
    */
   claimFeedback: boolean
+  /**
+   * CAPABILITY "Mark feedback received" (2026-10-16) — NOT a row scope. The
+   * per-person half of the grant; the role half and the decision are
+   * lib/access/feedback-capabilities.ts.
+   */
+  markFeedbackReceived: boolean
 }
 
 /** A resolved client filter: `null` = no filter (see all), else the allowed set. */
@@ -51,6 +57,7 @@ export type UserDataScopeRow = {
   feedback?: boolean | null
   financials?: boolean | null
   claim_feedback?: boolean | null
+  mark_feedback_received?: boolean | null
 }
 
 /**
@@ -68,6 +75,7 @@ export function scopesFromRow(row: UserDataScopeRow | null | undefined): UserSco
     feedback: !!row?.feedback,
     financials: !!row?.financials,
     claimFeedback: !!row?.claim_feedback,
+    markFeedbackReceived: !!row?.mark_feedback_received,
   }
 }
 

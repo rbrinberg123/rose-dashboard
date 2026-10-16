@@ -25,6 +25,7 @@ const actor = (over: Partial<ClaimActor> = {}): ClaimActor => ({
   myIds: new Set(["me"]),
   isAdmin: false,
   hasCapability: true,
+  markReceived: false,
   ...over,
 })
 
@@ -62,11 +63,14 @@ test("claim: an admin can claim without the capability", () => {
 
 // ---- release ---------------------------------------------------------------------
 
-test("release: the owner or an admin, never someone else", () => {
+test("release: the owner, an admin, or a Mark-received holder — never someone else", () => {
   const claimed = task({ ownerId: "me" })
   assert.equal(decideRelease(claimed, actor()), null)
   assert.equal(decideRelease(task({ ownerId: "other" }), actor({ isAdmin: true })), null)
-  assert.match(decideRelease(task({ ownerId: "other" }), actor()) ?? "", /owner or an admin/)
+  assert.equal(decideRelease(task({ ownerId: "other" }), actor({ markReceived: true })), null)
+  assert.match(decideRelease(task({ ownerId: "other" }), actor()) ?? "", /owner, an admin/)
+  // The Claim capability alone does not let you release someone else's task.
+  assert.match(decideRelease(task({ ownerId: "other" }), actor({ hasCapability: true })) ?? "", /owner, an admin/)
   assert.match(decideRelease(task(), actor()) ?? "", /isn't claimed/)
 })
 
@@ -76,22 +80,29 @@ test("release: the owner check honours every one of the actor's duplicate ids", 
 
 // ---- reassign --------------------------------------------------------------------
 
-test("reassign: admin only, to a different person", () => {
+test("reassign: admin, Mark-received holder, or the current owner — to a different person", () => {
   assert.equal(decideReassign(task({ ownerId: "a" }), actor({ isAdmin: true }), "b"), null)
   assert.equal(decideReassign(task(), actor({ isAdmin: true }), "b"), null) // assign an unclaimed task
-  assert.match(decideReassign(task({ ownerId: "a" }), actor(), "b") ?? "", /Only an admin/)
+  assert.equal(decideReassign(task({ ownerId: "a" }), actor({ markReceived: true }), "b"), null)
+  assert.equal(decideReassign(task(), actor({ markReceived: true }), "b"), null)
+  assert.equal(decideReassign(task({ ownerId: "me" }), actor(), "b"), null) // the owner hands it on
+  assert.match(decideReassign(task({ ownerId: "a" }), actor(), "b") ?? "", /Only the task's owner/)
+  assert.match(decideReassign(task(), actor(), "b") ?? "", /Only the task's owner/) // nobody owns it yet
   assert.match(decideReassign(task({ ownerId: "b" }), actor({ isAdmin: true }), "b") ?? "", /already owns/)
   assert.match(decideReassign(task(), actor({ isAdmin: true }), null) ?? "", /Pick someone/)
 })
 
 // ---- close -----------------------------------------------------------------------
 
-test("sent close: owner OR account team OR super-user privileges", () => {
-  const no = { isOwner: false, onClientTeam: false, isAdmin: false }
+test("sent close: owner-only — the owner OR super-user privileges (no account-team branch)", () => {
+  const no = { isOwner: false, isAdmin: false }
   assert.equal(decideSentClose({ ...no, isOwner: true }), null)
-  assert.equal(decideSentClose({ ...no, onClientTeam: true }), null)
   assert.equal(decideSentClose({ ...no, isAdmin: true }), null)
   assert.match(decideSentClose(no) ?? "", /Not authorised/)
+})
+
+test("close: the Mark-received capability does not let you close someone else's task", () => {
+  assert.match(decideClose(task({ ownerId: "other" }), actor({ markReceived: true })) ?? "", /owner or an admin/)
 })
 
 test("close: the owner or an admin — and only once someone is assigned", () => {

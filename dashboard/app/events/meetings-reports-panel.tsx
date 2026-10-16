@@ -237,6 +237,12 @@ export function MeetingsReportsPanel({
   const lifecycleViewer = lifecycles
     ? { ...lifecycles.viewer, myIds: new Set(lifecycles.viewer.myIds) }
     : null
+  // Read-only viewers (2026-10-16): the tab is open to anyone who can view the
+  // event; report STRUCTURE edits (split / save / delete / move / override) and
+  // opening a meeting stay with CRM writers — the same requireCrmWriter /
+  // writer-gated loaders behind them. Claim · Mark received · Close · Send are
+  // the lifecycle card's, on their own capability / owner rules.
+  const canEdit = !!lifecycleViewer?.crmWriter
   const autoRouted = eligible.filter((m) => m.autoRouted).length
   const reportIds = new Set(data.reports.map((r) => r.taskId))
   const savedLocked = (taskId: string | null) => data.reports.find((r) => r.taskId === taskId && r.lock === "hard")
@@ -347,7 +353,7 @@ export function MeetingsReportsPanel({
               open={open}
               onToggle={() => toggle(g.key)}
               action={
-                r && data.reports.length > 1 ? (
+                r && canEdit && data.reports.length > 1 ? (
                   <button
                     type="button"
                     className="shrink-0 cursor-pointer rounded px-1 text-[10px] font-medium underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-40"
@@ -405,9 +411,9 @@ export function MeetingsReportsPanel({
                       key={m.meetingId}
                       // The whole row opens the meeting; the A/B/C picker and
                       // the open icon stop their own clicks.
-                      onClick={() => opener.open(m.meetingId, m.origin)}
-                      title={m.origin === "dashboard" ? "Open meeting (edit)" : "Open meeting (read-only)"}
-                      className={cn("flex items-center gap-1.5 py-1 pl-3 pr-2 text-xs", MEETING_ROW_CLICKABLE, muted && "opacity-60")}
+                      onClick={canEdit ? () => opener.open(m.meetingId, m.origin) : undefined}
+                      title={canEdit ? (m.origin === "dashboard" ? "Open meeting (edit)" : "Open meeting (read-only)") : undefined}
+                      className={cn("flex items-center gap-1.5 py-1 pl-3 pr-2 text-xs", canEdit && MEETING_ROW_CLICKABLE, muted && "opacity-60")}
                     >
                       {/* Date + Eastern time; a midnight placeholder prints the date only. */}
                       <span className="w-[104px] shrink-0 tabular-nums" style={{ color: TEXT_MUTED }}>
@@ -427,7 +433,7 @@ export function MeetingsReportsPanel({
                         )}
                       </span>
                       <FeedbackFlagPill status={m.feedbackStatus} receivedDate={m.feedbackReceivedDate} />
-                      {m.eligible && data.reports.length > 1 && (
+                      {m.eligible && canEdit && data.reports.length > 1 && (
                         <select
                           aria-label={`Report for ${m.institution ?? "meeting"}`}
                           value={current(m.meetingId)}
@@ -458,7 +464,7 @@ export function MeetingsReportsPanel({
                         className="size-2 shrink-0 rounded-full"
                         style={{ backgroundColor: dot.color }}
                       />
-                      <OpenMeetingIcon origin={m.origin} onOpen={() => opener.open(m.meetingId, m.origin)} />
+                      {canEdit && <OpenMeetingIcon origin={m.origin} onOpen={() => opener.open(m.meetingId, m.origin)} />}
                     </li>
                   )
                 })}
@@ -471,7 +477,7 @@ export function MeetingsReportsPanel({
 
   return (
     <>
-      {shell(body, header, footer)}
+      {shell(body, header, canEdit ? footer : undefined)}
       {opener.element}
     </>
   )

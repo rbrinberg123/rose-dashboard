@@ -173,6 +173,10 @@ export function EventsView({
   activeConfig,
   viewCounts,
   canManageSystemViews,
+  canWrite,
+  canEdit,
+  canManage,
+  canAddMeeting,
   readOnlyViews,
   availableColumns,
   quickFilters,
@@ -189,6 +193,14 @@ export function EventsView({
   activeConfig: ViewConfig
   viewCounts: Record<string, number | null>
   canManageSystemViews: boolean
+  /** Server-decided: super-user privileges (super user / admin). */
+  canWrite: boolean
+  /** Server-decided CRM access level >= Edit — shows Edit (2026-10-16; the server re-checks). */
+  canEdit: boolean
+  /** Server-decided CRM access level == Manage — shows New / Purge test (the server re-checks). */
+  canManage: boolean
+  /** Meetings level == Manage — the drawer's Add Meeting creates a meeting. */
+  canAddMeeting: boolean
   readOnlyViews: boolean
   availableColumns: string[] | null
   quickFilters: EventQuickFilters
@@ -441,11 +453,15 @@ export function EventsView({
           compact
           eyebrow="CRM"
           title="Events"
-          subtitle="Every marketing event in the CRM — all states, all dates. No row scoping is applied, so this page is super-user only."
+          subtitle="Every marketing event in the CRM — all states, all dates. No row scoping is applied."
           rightSlot={
             <div className="flex items-center gap-2">
-              <PurgeTestEventsButton />
-              <NewEventButton />
+              {canManage && (
+                <>
+                  <PurgeTestEventsButton />
+                  <NewEventButton />
+                </>
+              )}
             </div>
           }
         />
@@ -701,7 +717,11 @@ export function EventsView({
       {/* Rendered as a SIBLING of the list, never wrapping it, so opening a
           record cannot remount the table. */}
       <EventRecordPane
-        onEdit={openId ? () => setEditId(openId) : undefined}
+        onEdit={canEdit && openId ? () => setEditId(openId) : undefined}
+        // Meetings / feedback-report panels stay super-user only (their loaders
+        // are), exactly as on My Dashboard's event drawer.
+        showFeedbackReports={canWrite}
+        canAddMeeting={canAddMeeting}
         record={record}
         loading={openId !== null && record === null && recordError === null}
         error={recordError}

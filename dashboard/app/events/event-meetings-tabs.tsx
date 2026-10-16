@@ -165,7 +165,10 @@ export function EventMeetingsReadOnlyList({
   action,
   eventName = null,
   onChanged,
+  canOpen = true,
 }: {
+  /** Rows open their meeting (2026-10-16: off for read-only viewers — the openers' loaders are gated). */
+  canOpen?: boolean
   rows: EventMeetingRow[] | null
   error: string | null
   /** Pinned top-right of the header — the Add Meeting button. */
@@ -197,11 +200,11 @@ export function EventMeetingsReadOnlyList({
             return (
               <li
                 key={m.meeting_id}
-                onClick={() => opener.open(m.meeting_id, m.origin)}
-                title={m.origin === "dashboard" ? "Open meeting (edit)" : "Open meeting (read-only)"}
+                onClick={canOpen ? () => opener.open(m.meeting_id, m.origin) : undefined}
+                title={canOpen ? (m.origin === "dashboard" ? "Open meeting (edit)" : "Open meeting (read-only)") : undefined}
                 className={cn(
                   "flex items-start gap-2 border-b border-[#E5E8EC] px-3 py-1.5 text-xs last:border-0",
-                  MEETING_ROW_CLICKABLE,
+                  canOpen && MEETING_ROW_CLICKABLE,
                 )}
               >
                 <span className="w-[104px] shrink-0 tabular-nums" style={{ color: TEXT_MUTED }}>
@@ -227,7 +230,7 @@ export function EventMeetingsReadOnlyList({
                 >
                   {pill.label}
                 </span>
-                <OpenMeetingIcon origin={m.origin} onOpen={() => opener.open(m.meeting_id, m.origin)} />
+                {canOpen && <OpenMeetingIcon origin={m.origin} onOpen={() => opener.open(m.meeting_id, m.origin)} />}
               </li>
             )
           })}

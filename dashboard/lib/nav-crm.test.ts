@@ -4,16 +4,19 @@ import assert from "node:assert/strict"
 import {
   canAccessRoute,
   canSeeCrmNav,
+  isGrantableRoute,
   visibleCrmNavItems,
   CRM_NAV_ITEMS,
   type Role,
 } from "./access-control.ts"
+import { PAGE_REGISTRY } from "./page-registry.ts"
 
 /**
- * The CRM nav block is super-user-only. These tests are the guard on that: the
- * block is a link to /meetings, which returns EVERY client's meetings with no
- * row scoping, so "who sees the link" and "who can reach the page" must not be
- * allowed to drift apart.
+ * The CRM nav block (2026-10-16). Clients / Events / Meetings / Contacts are
+ * grantable list pages: a role or per-user grant opens them (every row, no
+ * row scoping). Tasks / Touchpoints / Notes stay super-user only. The block
+ * draws exactly what canAccessRoute allows — "who sees the link" and "who can
+ * reach the page" must never drift apart.
  */
 
 const EVERY_ROLE: (Role | null)[] = [
@@ -27,6 +30,9 @@ const EVERY_ROLE: (Role | null)[] = [
 
 const NON_SUPER = EVERY_ROLE.filter((r) => r !== "super_user")
 
+const GRANTABLE_CRM = ["/accounts", "/events", "/meetings", "/contacts"]
+const SUPER_ONLY_CRM = ["/tasks", "/touchpoints", "/notes"]
+
 test("super_user sees the CRM block, with every item", () => {
   assert.equal(canSeeCrmNav("super_user", []), true)
   assert.deepEqual(
@@ -35,7 +41,7 @@ test("super_user sees the CRM block, with every item", () => {
   )
 })
 
-test("NO non-super_user sees the CRM block — item or divider", () => {
+test("with no grant, no non-super_user sees the CRM block — item or divider", () => {
   for (const role of NON_SUPER) {
     assert.equal(canSeeCrmNav(role, []), false, `role ${role} must not see the CRM block`)
     // Empty list is what makes the DIVIDER and the "CRM" label disappear too:
@@ -44,21 +50,37 @@ test("NO non-super_user sees the CRM block — item or divider", () => {
   }
 })
 
-test("the Roles matrix cannot open the CRM block to another role", () => {
-  // role_page_access rows granting the CRM routes — the exact thing
-  // ADMIN_ONLY_ROUTES exists to neutralise. Belt and braces: canSeeCrmNav also
-  // floors on the role.
+test("a grant of the four list pages shows exactly those four — never Tasks / Touchpoints / Notes", () => {
   const granted = CRM_NAV_ITEMS.map((i) => i.href)
   for (const role of NON_SUPER) {
-    assert.equal(canSeeCrmNav(role, granted), false, `matrix must not open CRM to ${role}`)
-    assert.deepEqual(visibleCrmNavItems(role, granted), [])
+    if (role === null) continue
+    assert.equal(canSeeCrmNav(role, granted), true)
+    assert.deepEqual(
+      visibleCrmNavItems(role, granted).map((i) => i.href),
+      ["/accounts", "/events", "/meetings", "/contacts"],
+    )
   }
+  // A single grant shows a single item.
+  assert.deepEqual(visibleCrmNavItems("associate", ["/contacts"]).map((i) => i.href), ["/contacts"])
+  // A role-less user gets nothing, whatever the list says.
+  assert.deepEqual(visibleCrmNavItems(null, granted), [])
 })
 
-test("a matrix grant of every route still does not open it", () => {
-  const everything = ["/", "/meetings", "/meetings/anything", "/events", "/events/anything", "/tasks", "/tasks/anything", "/touchpoints", "/touchpoints/anything", "/notes", "/notes/anything", "/contacts", "/contacts/anything", "/accounts", "/accounts/anything", "/admin"]
-  for (const role of NON_SUPER) {
-    assert.equal(canSeeCrmNav(role, everything), false)
+test("the four list pages are grantable; the other CRM tables are not", () => {
+  for (const route of GRANTABLE_CRM) {
+    assert.equal(isGrantableRoute(route, PAGE_REGISTRY), true, `${route} should be grantable`)
+    assert.equal(canAccessRoute("associate", route, [route]), true)
+    assert.equal(canAccessRoute("associate", `${route}/anything`, [route]), true)
+    assert.equal(canAccessRoute("associate", route, []), false, `${route} needs a grant`)
+  }
+  for (const route of SUPER_ONLY_CRM) {
+    assert.equal(isGrantableRoute(route, PAGE_REGISTRY), false)
+    for (const role of NON_SUPER) {
+      // Granted explicitly, and STILL denied.
+      assert.equal(canAccessRoute(role, route, [route]), false, `${route} must stay super-user only`)
+      assert.equal(canAccessRoute(role, `${route}/anything`, [route]), false)
+    }
+    assert.equal(canAccessRoute("super_user", route, []), true)
   }
 })
 
@@ -66,7 +88,7 @@ test("the nav gate never disagrees with the route gate", () => {
   // Whatever the nav is willing to DRAW, canAccessRoute must also permit —
   // otherwise the rail advertises a link the proxy would bounce.
   for (const role of EVERY_ROLE) {
-    for (const allowed of [[], ["/meetings"], ["/events"], ["/meetings", "/events"], ["/portfolio"]]) {
+    for (const allowed of [[], ["/meetings"], ["/events"], ["/meetings", "/events"], ["/portfolio"], ["/tasks", "/notes"]]) {
       for (const item of visibleCrmNavItems(role, allowed)) {
         assert.equal(
           canAccessRoute(role, item.href, allowed),
@@ -75,29 +97,5 @@ test("the nav gate never disagrees with the route gate", () => {
         )
       }
     }
-  }
-})
-
-test("every CRM item is itself super-user-only at the route level", () => {
-  // If an item is ever added here that a non-super-user CAN reach, it does not
-  // belong in this block — the block's whole premise is unscoped CRM data.
-  assert.ok(CRM_NAV_ITEMS.length >= 2, "expected Meetings and Events in the CRM block")
-  for (const item of CRM_NAV_ITEMS) {
-    // The ONE exception (2026-10-09): Time Off requests is reachable by every
-    // signed-in user because its ROWS are scoped server-side (own ∪ approver-for
-    // ∪ super-user all — lib/time-off-requests/visibility.ts). It stays in the
-    // CRM block, which itself still renders for super users only.
-    if (item.href === "/time-off-requests") continue
-    for (const role of NON_SUPER) {
-      // Granted explicitly in the matrix, and STILL denied.
-      assert.equal(
-        canAccessRoute(role, item.href, [item.href]),
-        false,
-        `${item.href} must be super-user-only at the route level`,
-      )
-      // A sub-path of it too, since the matcher is segment-aware.
-      assert.equal(canAccessRoute(role, `${item.href}/anything`, [item.href]), false)
-    }
-    assert.equal(canAccessRoute("super_user", item.href, []), true)
   }
 })

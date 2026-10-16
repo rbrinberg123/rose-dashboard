@@ -636,6 +636,19 @@ A super user's full menu went from 1,149px to 866px. It still scrolls on a lapto
 
 The bottom block of the nav rail, behind a "CRM" divider. Both read unscoped admin views with the service-role key and are in `ADMIN_ONLY_ROUTES` — super-user-only and **not** grantable through the Roles matrix.
 
+> **2026-10-16:** **Clients, Events, Meetings and Contacts are now grantable list pages.** They appear in the CRM section of the Roles matrix and the per-user Pages panel. A grant shows every row (no row scoping), the filters, export and saved views, plus the read-only drawers. Writes stay super-user only, and Client Detail keeps its account-team scoping. Tasks, Touches and Notes are unchanged (super-user only). Details: [01 — Access › The CRM block](01-access-and-users.md#the-crm-block-in-the-nav-rail).
+
+> **2026-10-16 — CRM access levels.** Clients, Events, Meetings and Contacts each take a **None / View / Edit / Manage** level, per role (Roles matrix dropdown) and per person (Users → Pages dropdown; raise-only, higher one wins, tagged OVERRIDE). View is the old page grant, unchanged. Edit shows **Edit** on dashboard-created records. Manage also shows **New** and **Purge test**, and **Add Meeting** in the event drawer needs Meetings Manage. Super users / admins are implicitly Manage. Every write re-checks server-side (`requireCrmLevel`). The protected-fields lists exist but are empty. Run `sql/patches/2026-10-16b_crm_access_levels.sql`: it maps existing grants to View and seeds no Edit / Manage. See [01 — Access › The CRM block](01-access-and-users.md#the-crm-block-in-the-nav-rail).
+
+> **2026-10-16 — event drawer → Meetings & Reports is view-open.** Anyone who can view an event sees this tab, read-only: that covers CRM Events page grantees and My Dashboard's Active Marketing drawer (`canViewEvent`, `lib/events/view-gate.ts`). Its actions follow their own rules:
+> - **Mark feedback all in:** the **Mark feedback received** capability.
+> - **Claim:** the **Claim feedback report** capability.
+> - **Assign / Release / Reassign:** admin, the task's owner, or the Mark feedback received capability.
+> - **Close and Mark Sent:** owner-only, plus admin.
+> - **Split, delete and move meetings, and opening a meeting:** still CRM writers only.
+>
+> Feedback Reports (`/feedback-manager`) applies the same rules, including owner-only Mark Sent on Pending Review. See [27 — Feedback reports → Feedback permissions](27-feedback-reports.md#feedback-permissions-2026-10-16).
+
 **Banner size (2026-10-02).** Every CRM page (Clients, Meetings, Events, Tasks, Touches, Notes, Contacts, Time Off) uses the shared `ListTitleCard` with `compact`, which holds it to the app's **standard banner**: the same height as Calendar / Capacity / Client Statistics (20px padding, 23px title, one 12.5px subtitle line). The eyebrow ("CRM") moves onto the subtitle line as a prefix, and that line stays on one line with the full text on hover. Before this, the eyebrow row plus a 2–3-line subtitle made CRM banners noticeably taller. Pages without `compact` are unchanged.
 
 | Route | Label | Reads | Purpose |

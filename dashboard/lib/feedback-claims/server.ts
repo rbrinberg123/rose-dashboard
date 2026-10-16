@@ -1,5 +1,5 @@
 import { getEffectiveIdentity } from "@/lib/effective-identity"
-import { getUserScopes } from "@/lib/access/data-scope"
+import { loadFeedbackCapabilities } from "@/lib/access/feedback-capabilities"
 import { loadIdentity } from "@/lib/access/identity"
 import { viewerUserIds } from "@/app/clients/alerts/load"
 import type { ClaimActor } from "./policy"
@@ -15,7 +15,8 @@ import { hasSuperUserPrivileges } from "@/lib/access-control"
  *                       and requires the person to resolve to a CRM user so the
  *                       claim can be stamped with a real users.user_id.
  *
- * Both read the capability through getUserScopes (Super User → always on) and
+ * Both read the two capabilities through loadFeedbackCapabilities (role OR
+ * person grant; Super User / Admin → always on) and
  * the admin bit from the role — no data-scope bypass, no origin check: claim
  * actions are gated on the CAPABILITY, never on record origin.
  */
@@ -30,8 +31,8 @@ export type ClaimViewer = ClaimActor & {
 
 export async function loadClaimViewer(): Promise<ClaimViewer> {
   const identity = await getEffectiveIdentity()
-  const [scopes, viewer] = await Promise.all([
-    getUserScopes(identity.email),
+  const [caps, viewer] = await Promise.all([
+    loadFeedbackCapabilities(identity.email),
     viewerUserIds(identity.email),
   ])
   const myIds = new Set(viewer.ids)
@@ -39,7 +40,8 @@ export async function loadClaimViewer(): Promise<ClaimViewer> {
   return {
     myIds,
     isAdmin: hasSuperUserPrivileges(identity.role),
-    hasCapability: scopes.claimFeedback,
+    hasCapability: caps.claimFeedback,
+    markReceived: caps.markFeedbackReceived,
     impersonated: identity.impersonated,
     userId: identity.userId,
     name: identity.name,

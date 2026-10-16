@@ -30,7 +30,9 @@ export async function loadClaimsContext(): Promise<ClaimsContext> {
       .not("closed_at", "is", null)
       .order("closed_at", { ascending: false })
       .limit(100),
-    viewer.isAdmin ? loadClaimRoster() : Promise.resolve([]),
+    // Everyone gets the roster: owners may reassign their own task too
+    // (canManageAssignment). The actions re-check.
+    loadClaimRoster(),
     // Open automation-created review tasks ("Feedback Report Pending Review"),
     // keyed back to their report — the Pending Review rows that get Close.
     sb
@@ -42,8 +44,24 @@ export async function loadClaimsContext(): Promise<ClaimsContext> {
     resolveAccountTeamScope({ email: viewer.email }),
   ])
 
-  // Close on Pending Review: account-team members of the client only (display;
-  // closeFeedbackReview re-checks via report → event → client).
+  // Open Feedback Report Sent tasks the viewer OWNS — Pending Review → Close is
+  // owner-only (2026-10-16), and Dynamics-origin rows carry no review info.
+  const ownedRes =
+    viewer.myIds.size > 0
+      ? await sb
+          .from("tasks")
+          .select("task_id")
+          .eq("bcs_task_subtype_label", "Feedback Report Sent")
+          .eq("state_label", "Open")
+          .is("closed_at", null)
+          .in("owner_id", [...viewer.myIds])
+      : { data: [], error: null }
+  const ownedReviewTaskIds = (ownedRes.error ? [] : ((ownedRes.data ?? []) as { task_id: string }[])).map(
+    (r) => r.task_id,
+  )
+
+  // Close on Pending Review: the review task's owner or an admin (display;
+  // closeFeedbackReview re-checks).
   const reviews: ClaimsContext["reviews"] = {}
   for (const r of (reviewRes.error ? [] : (reviewRes.data ?? [])) as {
     task_id: string
@@ -55,12 +73,9 @@ export async function loadClaimsContext(): Promise<ClaimsContext> {
     if (!isAutomationOrigin(r.origin)) continue
     reviews[r.review_of_task_id] = {
       reviewTaskId: r.task_id,
-      // The unified Sent-close rule (decideSentClose): owner OR account team OR
-      // super-user privileges — display only; closeFeedbackReview re-checks.
-      canClose:
-        (!!r.owner_id && viewer.myIds.has(r.owner_id)) ||
-        (team.mode === "filter" && !!r.bcs_account_id && team.accountIds.has(r.bcs_account_id)) ||
-        viewer.isAdmin,
+      // The unified Sent-close rule (decideSentClose, owner-only 2026-10-16):
+      // owner OR super-user privileges — display only; closeFeedbackReview re-checks.
+      canClose: (!!r.owner_id && viewer.myIds.has(r.owner_id)) || viewer.isAdmin,
     }
   }
 
@@ -96,6 +111,7 @@ export async function loadClaimsContext(): Promise<ClaimsContext> {
     viewer: {
       canClaim: viewer.hasCapability || viewer.isAdmin,
       isAdmin: viewer.isAdmin,
+      canManageAll: viewer.isAdmin || viewer.markReceived,
       myIds: [...viewer.myIds],
       impersonated: viewer.impersonated,
     },
@@ -104,6 +120,7 @@ export async function loadClaimsContext(): Promise<ClaimsContext> {
     reviews,
     closed: setupMissing ? [] : closed,
     roster,
+    ownedReviewTaskIds,
     setupMissing,
   }
 }

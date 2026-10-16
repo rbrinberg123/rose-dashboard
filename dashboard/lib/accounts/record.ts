@@ -194,8 +194,11 @@ export type AccountRecord = {
    * accounts fields unflattened — the staff-initials cluster, the address1_*
    * block, and others — and this is where they live until the dedicated accounts
    * flatten pass promotes the ones worth a field.
+   *
+   * Super users / admins only (2026-10-16): loadXRecord omits it entirely for
+   * page-granted viewers, so it is optional.
    */
-  _raw: Record<string, unknown> | null
+  _raw?: Record<string, unknown> | null
 
   // ---- flattened 2026-09-23g (sql/patches/2026-09-23g_accounts_full_fields.sql) ----
   /** Primary address (address1_*), falling back to address2 in the view. */

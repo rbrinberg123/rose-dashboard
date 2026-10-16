@@ -130,8 +130,11 @@ export type ContactRecord = {
    * appointment / email / phone / task activity), primary opportunity, segment
    * id, the country lookup and parent_contactid — and this is where they live if
    * any of them earns a field later. See sql/23_contacts_table.sql.
+   *
+   * Super users / admins only (2026-10-16): loadXRecord omits it entirely for
+   * page-granted viewers, so it is optional.
    */
-  _raw: Record<string, unknown> | null
+  _raw?: Record<string, unknown> | null
   /** Dashboard-created test row (drawer TEST badge). */
   is_test?: boolean
 }

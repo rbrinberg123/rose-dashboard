@@ -482,5 +482,7 @@ export const EVENTS_SPEC: EntitySpec = {
   defaultSort: EVENT_DEFAULT_SORT,
   builtins: EVENT_BUILTIN_VIEWS,
   savedViewsTable: "event_saved_views",
+  // Grantable list page (2026-10-16) — saved views follow page access.
+  route: "/events",
   optionsView: "v_admin_events_filter_options",
 }

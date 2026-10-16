@@ -22,6 +22,8 @@ import {
   type ReportLock,
 } from "@/lib/feedback-reports/policy"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { canViewEvent } from "@/lib/events/view-gate"
+import { resolveClaimActor } from "@/lib/feedback-claims/server"
 
 /**
  * Events drawer → "Feedback reports" panel: view, Split (add a report),
@@ -98,7 +100,8 @@ function missingSetup(message: string): boolean {
 }
 
 export async function loadEventFeedbackReports(eventId: string): Promise<ActionResult<EventFeedbackReports>> {
-  if (!hasSuperUserPrivileges(await getEffectiveRole())) return fail("Not authorised.")
+  // Read-only Meetings & Reports tab (2026-10-16): anyone who can view the event.
+  if (!(await canViewEvent(eventId))) return fail("Not authorised.")
   if (!isUuid(eventId)) return fail("Unknown event.")
   const sb = getSupabaseServer()
 
@@ -370,14 +373,17 @@ export async function deleteFeedbackReport(
  * (the field v_feedback_pipeline keys on) at Eastern midnight of `day`, plus the
  * legacy "Feedback Received" flag, exactly as the Tasks form does.
  *
- * GATE: requireCrmWriter (super user, not "View as") — the same permission that
- * sets the received date anywhere else today. Only an Open, in-scope
+ * GATE (2026-10-16): the "Mark feedback received" capability — role or person
+ * grant, super users / admins always (lib/access/feedback-capabilities.ts) —
+ * and not in "View as" (resolveClaimActor). Only an Open, in-scope
  * (dashboard-origin until cutover) Feedback task with no received date yet;
  * the UPDATE repeats those conditions and must touch exactly one row.
  */
 export async function markFeedbackReceived(taskId: string, day: string): Promise<ActionResult> {
-  const gate = await requireCrmWriter("marking feedback received")
-  if (!gate.ok) return fail(gate.error)
+  const auth = await resolveClaimActor()
+  if (!auth.ok) return fail(auth.error)
+  if (!auth.actor.markReceived) return fail("You don't have permission to mark feedback received.")
+  const gate = { userId: auth.actor.userId, name: auth.actor.name }
   if (!isUuid(taskId)) return fail("Unknown task.")
   // Today and any past Eastern day are accepted; empty / impossible / future
   // refused (pure rule, unit-tested in lib/feedback-reports/policy.test.ts).

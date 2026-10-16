@@ -9,7 +9,7 @@ Every **dashboard-created event** now gets its **feedback report** automatically
 3. **Feedback received → claimable.** When someone sets the report's **Feedback Received Date** (Tasks page → Edit, for now), it leaves FB Coming Soon and appears on **Feedback Reports**, where a person with the *Claim feedback* permission can claim it (see [14 — Tasks → Feedback claiming](14-tasks.md#feedback-claiming-feedback-reports--claim--release--reassign--close)).
 4. **Closed → Pending Review.** When the owner (or an admin) **Closes** the report, a **"Feedback Report Pending Review – <event>"** task is created automatically, due **2 days** later, and the report moves to **Pending Review** on Feedback Reports. The claimer's My Dashboard item clears. Its **owner defaults to the client's Associate** (2026-10-13) — see below.
 
-5. **Review done → Mark Sent.** On Feedback Reports → **Pending Review**, the review task's **owner** (the associate), the **client's account team** (anyone holding one of the six team roles on that client), or a **Super User / Admin** sees a **Mark Sent** button (labelled *Close* until 2026-10-15; the unified Sent-close rule) — on **Dynamics and dashboard reports alike** (2026-10-08). It asks *"Mark this feedback report review complete?"*, completes the report's paired open **Feedback Report Sent** task (never the already-Completed collection task), and the row leaves Pending Review — the last step for that report.
+5. **Review done → Mark Sent.** On Feedback Reports → **Pending Review**, the review task's **owner** (the associate) or a **Super User / Admin** sees a **Mark Sent** button (owner-only since 2026-10-16; the account team no longer can) (labelled *Close* until 2026-10-15; the unified Sent-close rule) — on **Dynamics and dashboard reports alike** (2026-10-08). It asks *"Mark this feedback report review complete?"*, completes the report's paired open **Feedback Report Sent** task (never the already-Completed collection task), and the row leaves Pending Review — the last step for that report.
 
 **Report part chip (2026-10-08).** On Feedback Reports, a row whose event is **split into two or more reports** shows a small **Part A / B / C** chip right after the event name (`tasks.feedback_report_seq`: 1 → A, 2 → B, 3 → C). A single-report event shows no chip — a lone "Part A" would be noise. The chip uses the report's own accent (A blue · B green · C amber), the same colours as the event drawer's Meetings & Reports panel — both read `reportAccent()` in `lib/feedback-reports/accents.ts`. The page looks the parts up itself (`loadSplitReportParts` in `app/feedback-manager/page.tsx`); no view change. Dashboard-created (automation / Split) reports only — Dynamics reports carry no part.
 
@@ -31,12 +31,37 @@ Every **dashboard-created event** now gets its **feedback report** automatically
 
 **Scope today:** only events with `origin = 'dashboard'` (use the test client **ZVZZT** to try it). Dynamics events are untouched until cutover.
 
+### Feedback permissions (2026-10-16)
+
+**Two grantable capabilities.** Both can be granted per **role** (Admin → Roles, under the data permissions) and per **person** (Admin → Users, next to Financials). Both fail closed: nobody but Super Users / Admins has them until granted.
+
+| Capability | Lets you | Role key (`role_page_access`) | Person flag (`user_data_scopes`) |
+|---|---|---|---|
+| **Claim feedback report** | **Claim** an unclaimed Feedback (report) task | `data:claim_feedback` | `claim_feedback` (since 2026-10-07) |
+| **Mark feedback received** | **Mark feedback all in** (`markFeedbackReceived`), and **assign / release / reassign** the Feedback (report) task | `data:mark_feedback_received` | `mark_feedback_received` (**run `sql/patches/2026-10-16_feedback_capabilities.sql`**) |
+
+Both are resolved by `loadFeedbackCapabilities` (`lib/access/feedback-capabilities.ts`; pure rule `feedback-capabilities-policy.ts`) and read through `loadClaimViewer`. Every action re-checks them server-side and refuses while in "View as"; the buttons are hidden when the capability is missing.
+
+**Who may do what now:**
+
+| Action | Allowed for |
+|---|---|
+| View the Meetings & Reports tab | Anyone who can view the event. That means Super User / Admin, a person granted the CRM **Events** page, or My Dashboard's Active Marketing scope (`canViewEvent`, `lib/events/view-gate.ts`). **Read-only**: no action comes with it. |
+| Mark feedback all in | **Mark feedback received** capability (Super User / Admin always) |
+| Claim | **Claim feedback report** capability (Super User / Admin always) |
+| Assign / Release / Reassign (Feedback task only) | Super User / Admin, OR the task's **current owner** (the claimer), OR the **Mark feedback received** capability (`canManageAssignment`). The Feedback Report Sent task has no reassign. |
+| Close the Feedback (report) task | **Owner-only**: its owner (the claimer) or Super User / Admin. The "Assign before closing." guard is unchanged. |
+| Mark Sent (close the Feedback Report Sent task) | **Owner-only**: its owner (auto-assigned to the client's associate) or Super User / Admin. **The account-team branch is removed** (`decideSentClose`), on every path: the card, Feedback Reports → Pending Review, and Tasks → Close / Edit. |
+| Split / save / delete / move meetings between reports, Override lock, open a meeting from the tab | Unchanged: CRM writers (`requireCrmWriter`). These controls are hidden for everyone else. |
+
+The flow (**Collection → Claimed → Review → Sent**), the associate's automatic ownership of the sent task, and every label are unchanged.
+
 ### Report lifecycle — event drawer card (2026-10-15)
 Each report has a **lifecycle card** at the top of its group in the event's **Meetings & Reports** tab, in both the drawer and Edit Event. Two reports means two cards. The lifecycle is **computed from the two existing tasks** (the report's *Feedback* task and its *Feedback Report Sent* task). There is no new report table, no new task sub-type and no extra flag. The strip reads **Collection → Claimed → Review → Sent**.
 
 | Stage | How it's derived | Note on the card | Next action, and who sees it |
 |---|---|---|---|
-| **1 · Collection** | Feedback task Open, no received date | "Feedback not ready — mark all in …" | **Mark feedback all in**: the existing Mark received (`markFeedbackReceived`); CRM editors (super user, not in View as) |
+| **1 · Collection** | Feedback task Open, no received date | "Feedback not ready — mark all in …" | **Mark feedback all in**: the existing Mark received (`markFeedbackReceived`); the **Mark feedback received** capability since 2026-10-16 (was: CRM editors) |
 | (feedback in, unclaimed) | Received date set, unclaimed. Step 1 is ticked and Claimed is the current step | "Feedback all in · <date> · ready to claim" | The shared ownership buttons (below): **Claim** · **Assign** · **Close** (disabled: assign first) |
 | **2 · Claimed** | Feedback task Open and claimed | "Claimed by X · working" | The shared ownership buttons: **Release** · **Reassign** · **Close** (completes the Feedback task → Review) |
 | **3 · Review** | Feedback task Completed; its Feedback Report Sent task **Open**. It simply stays here until ready | "Worked by X · in review by Y" | **Mark Sent**: the sent task's owner (the associate) or an admin |
@@ -44,8 +69,8 @@ Each report has a **lifecycle card** at the top of its group in the event's **Me
 
 - **Same ownership buttons on both surfaces (2026-10-15).** While the Feedback task is open and its feedback is all in, the card shows **Claim · Release · Assign / Reassign · Close**. This is the very same component as the Feedback Reports page, `ClaimActions` (`app/feedback-manager/claim-actions.tsx`, moved out of `feedback-manager-view.tsx`). It calls the very same server actions: `claimFeedbackTask`, `releaseFeedbackTask`, `reassignFeedbackTask`, `closeFeedbackTask`. So both surfaces show the same buttons to the same people:
   - Claim: the claim permission, or admin.
-  - Release: the owner, or admin.
-  - Assign / Reassign: admin, from the roster.
+  - Release: the owner, admin, or the Mark feedback received capability (2026-10-16).
+  - Assign / Reassign: the same three, from the roster (2026-10-16; was admin only).
   - Close: the owner, or admin.
   - The card reads the viewer's rights from `loadClaimControls`, built from the same helpers as the page's `loadClaimsContext`. The card's old standalone Claim / Submit for review buttons are gone.
 - **Owner follows the claim, on both surfaces.** Claim and reassign set the Feedback task's `owner_id` / `owner_name` to the assignee, so the task list credits the writer. Release clears the owner. This is done in `claimCols`, `app/feedback-manager/actions.ts`.
@@ -60,11 +85,11 @@ The same two server-side checks run no matter where Close is pressed: Feedback R
 | Task | Rule (`lib/feedback-claims/policy.ts`) | Who may close |
 |---|---|---|
 | **Feedback** (report) task | `decideClose` | Dashboard-origin, Open, **someone assigned first** ("Assign before closing."), then the assignee or Super User / Admin (`hasSuperUserPrivileges`) |
-| **Feedback Report Sent** task (= Sent, done) | `decideSentClose` | It must be the report's open review task (automation `review_of_task_id`, or a `pending_review` pair in `v_feedback_pipeline`). Then **any** of: the task's **owner** (the associate), the client's **account team** (six roles), or **Super User / Admin**. Not in "View as" |
+| **Feedback Report Sent** task (= Sent, done) | `decideSentClose` | It must be the report's open review task (automation `review_of_task_id`, or a `pending_review` pair in `v_feedback_pipeline`). Then the task's **owner** (the associate) or **Super User / Admin** — owner-only since 2026-10-16 (the account-team branch was removed). Not in "View as" |
 
 - **Feedback Reports → Close** (Pending Review) and the **event card's Send** both call `closeFeedbackReview` → `checkSentTaskClose`. There is no card-only extra check, and the page's old "account team only, no admin bypass" rule is gone.
 - **Generic closes:** `closeTask` hands Feedback tasks to `closeFeedbackTask` and Feedback Report Sent tasks to `closeFeedbackReview`, so the write, audit and associate hand-off are identical too. `updateTask` runs `checkFeedbackTaskClose` / `checkSentTaskClose` before saving an Open → Completed change on either sub-type. The governing sub-type is the one being saved, else the stored one, so changing the sub-type in the same save can't dodge the rule. Other edits and **non-feedback tasks keep the generic owner-or-admin rule unchanged**.
-- **Display only:** the Pending Review Close button now shows to the owner / team / admin (`claims-load.ts` `canClose`, plus admins). The generic task card's Close button still uses the generic display check, but the server applies the feedback rule and explains a refusal.
+- **Display only:** the Pending Review Close button shows to the owner / admin (`claims-load.ts` `canClose` + `ownedReviewTaskIds`, owner-only since 2026-10-16). The generic task card's Close button still uses the generic display check, but the server applies the feedback rule and explains a refusal.
 - **Report readiness label:** the pill beside the report letter (e.g. *Report A*) reads **"Meeting Level Feedback Ready"** once the report's feedback is marked all in (received date set), otherwise **"Meeting Level Feedback Not Ready"**. A closed report shows its task state. It never says "Awaiting", so it isn't confused with the per-meeting **Awaiting** chips. (Wording only, 2026-10-15; before that it read "Awaiting feedback" / "Feedback received".) Those chips (Awaiting / All in / No feedback / Not in) are unchanged.
 - Every action re-checks on a fresh read on the server. Mark all in and Send use the pure rules in `lib/feedback-reports/lifecycle.ts` (`canAct`, unit-tested) and then the existing action's own checks. Ownership uses `lib/feedback-claims/policy.ts`. Anyone else sees the card read-only.
 - Code: `app/events/report-lifecycle-card.tsx`, `app/events/feedback-lifecycle-actions.ts`, `lib/feedback-reports/lifecycle.ts`, `app/feedback-manager/claim-actions.tsx`.
@@ -111,7 +136,7 @@ The auto-created **Feedback Report Sent** task's owner defaults to the client's 
 - **Only fills an empty owner** (`owner_id IS NULL`, which is how the trigger always creates it). An owner already set — the associate, or anyone picked by hand — is never overwritten, so re-saving a completed Feedback task changes nothing.
 - **No associate on the client:** the task is left exactly as the trigger made it (no owner, shown as "System"); nothing is nulled or guessed.
 - Best-effort and audited (`automation:feedback-report:review-owner-associate`); a failure is logged and never fails the close. A Feedback task completed outside the app (direct DB write) still gets an owner-less review task.
-- Closing the review on Pending Review stays gated on the **account team**, not the owner, so this doesn't change who can close it.
+- ~~Closing the review on Pending Review stays gated on the **account team**~~ — superseded: since 2026-10-16 it is **owner-only** (this associate, or Super User / Admin).
 
 ### Pending Review → Close (`closeFeedbackReview`, `app/feedback-manager/actions.ts`)
 

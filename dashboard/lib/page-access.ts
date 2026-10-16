@@ -1,6 +1,15 @@
 import { getSupabaseServer } from "@/lib/supabase"
 import { PAGE_REGISTRY } from "@/lib/page-registry"
 import { hasSuperUserPrivileges, isGrantableRoute, isHiddenRoute, type Role } from "@/lib/access-control"
+import {
+  CRM_LEVEL_ROUTES,
+  isCrmLevelRoute,
+  levelFromGrantRow,
+  levelFromRoleRow,
+  maxLevel,
+  type CrmLevel,
+  type CrmLevelRoute,
+} from "@/lib/access/crm-levels-policy"
 
 /**
  * Load the routes a person is allowed to reach: their ROLE's routes from
@@ -55,4 +64,57 @@ export async function getAllowedRoutes(role: Role | null, email: string | null):
   } catch {
     return []
   }
+}
+
+/**
+ * CRM ACCESS LEVELS (2026-10-16) for the four level-gated CRM tables — see
+ * lib/access/crm-levels-policy.ts. Same two tables and the same fold as
+ * getAllowedRoutes above: the ROLE's level (role_page_access.crm_level,
+ * refined by `allowed`) and the person's own grant (user_page_grants.crm_level),
+ * combined RAISE-ONLY (the higher wins).
+ *
+ * Super user / admin (hasSuperUserPrivileges) → Manage everywhere — the
+ * implicit-full rule (see decideCrmWrite). No role → None everywhere.
+ * FAILS CLOSED: a read error contributes None for that half (logged).
+ * SELECT * so a database without the crm_level column (patch
+ * 2026-10-16b not yet run) still reads: every grant is then exactly View.
+ */
+export async function getCrmLevels(
+  role: Role | null,
+  email: string | null,
+): Promise<Record<CrmLevelRoute, CrmLevel>> {
+  const out = Object.fromEntries(CRM_LEVEL_ROUTES.map((r) => [r, "none"])) as Record<CrmLevelRoute, CrmLevel>
+  if (!role) return out
+  if (hasSuperUserPrivileges(role)) {
+    for (const r of CRM_LEVEL_ROUTES) out[r] = "manage"
+    return out
+  }
+  try {
+    const sb = getSupabaseServer()
+    const personEmail = email?.trim().toLowerCase() || null
+    const [roleRes, grantRes] = await Promise.all([
+      sb.from("role_page_access").select("*").eq("role", role).in("route", [...CRM_LEVEL_ROUTES]),
+      personEmail
+        ? sb.from("user_page_grants").select("*").eq("email", personEmail).in("route", [...CRM_LEVEL_ROUTES])
+        : Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
+    ])
+    if (roleRes.error) {
+      console.error("[crm-levels] role_page_access read failed — role levels denied:", roleRes.error.message)
+    } else {
+      for (const row of (roleRes.data ?? []) as { route: string; allowed?: boolean | null; crm_level?: string | null }[]) {
+        if (isCrmLevelRoute(row.route)) out[row.route] = maxLevel(out[row.route], levelFromRoleRow(row))
+      }
+    }
+    if (grantRes.error) {
+      console.error("[crm-levels] user_page_grants read failed — person levels ignored:", grantRes.error.message)
+    } else {
+      for (const row of (grantRes.data ?? []) as { route: string; crm_level?: string | null }[]) {
+        if (isCrmLevelRoute(row.route)) out[row.route] = maxLevel(out[row.route], levelFromGrantRow(row))
+      }
+    }
+  } catch (e) {
+    console.error("[crm-levels] read failed — denying:", e)
+    for (const r of CRM_LEVEL_ROUTES) out[r] = "none"
+  }
+  return out
 }

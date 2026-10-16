@@ -54,6 +54,7 @@ import {
 import {
   MY_DASHBOARD_ROUTE,
   canAccessRoute,
+  hasSuperUserPrivileges,
   isHiddenRoute,
   visibleCrmNavItems,
   type CrmNavItem,
@@ -653,7 +654,7 @@ function NavContents({
           divider, no label, no item. */}
       {crm.length > 0 ? (
         <div className="mt-auto pt-1">
-          <CrmDivider />
+          <CrmDivider quickAdd={hasSuperUserPrivileges(role)} />
           {groupCrmItems(crm).map((entry) =>
             entry.kind === "group" ? (
               <CrmNavGroup
@@ -680,7 +681,10 @@ function NavContents({
 /** The section break above the CRM block: a hairline rule with a small "CRM"
  *  caption sitting on it, so the block reads as its own area rather than as one
  *  more reporting section. */
-function CrmDivider() {
+/** quickAdd: the "+" menu lists every entity — super users / admins only (2026-10-16:
+ *  the CRM block opens to page grantees, and creating is level-gated; a Manage
+ *  holder creates from that page's own New button). */
+function CrmDivider({ quickAdd }: { quickAdd: boolean }) {
   return (
     <div className="mx-3 mb-1 flex items-center gap-2">
       <span
@@ -700,7 +704,7 @@ function CrmDivider() {
         className="h-px flex-1"
         style={{ backgroundColor: CRM_TEAL, opacity: 0.35 }}
       />
-      <CrmQuickAdd variant="sidebar" />
+      {quickAdd && <CrmQuickAdd variant="sidebar" />}
     </div>
   )
 }
@@ -1423,7 +1427,7 @@ function RailContents({
           a non-super-user. */}
       {crm.length > 0 ? (
         <div className="mt-auto pt-2">
-          <RailCrmDivider />
+          <RailCrmDivider quickAdd={hasSuperUserPrivileges(role)} />
           {groupCrmItems(crm).map((entry) =>
             entry.kind === "group" ? (
               <RailCrmGroup
@@ -1448,7 +1452,8 @@ function RailContents({
 /** The rail's CRM section break: hairline rule with the caption under it. The
  *  rail is only 58px wide, so the label sits below the rule rather than inside
  *  it — three letters still fit comfortably. */
-function RailCrmDivider() {
+/** quickAdd: see CrmDivider. */
+function RailCrmDivider({ quickAdd }: { quickAdd: boolean }) {
   return (
     <div className="px-2 pb-1">
       <span
@@ -1459,7 +1464,7 @@ function RailCrmDivider() {
       {/* No "CRM" caption on the collapsed rail (2026-10-11) — the teal rule
           alone marks the block; the expanded sidebar keeps its label. */}
       <div className="mt-1.5 flex justify-center">
-        <CrmQuickAdd variant="rail" />
+        {quickAdd && <CrmQuickAdd variant="rail" />}
       </div>
     </div>
   )

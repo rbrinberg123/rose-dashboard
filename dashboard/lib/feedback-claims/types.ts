@@ -3,8 +3,14 @@
 export type ClaimViewerInfo = {
   /** May claim (capability, or Super User). */
   canClaim: boolean
-  /** Super User: release / reassign / close anything in the pool. */
+  /** Super User / Admin: close anything in the pool. */
   isAdmin: boolean
+  /**
+   * May assign / release / reassign ANY pool task (2026-10-16): super-user
+   * privileges OR the "Mark feedback received" capability. The task's own
+   * owner may also release / reassign theirs (worked out per task).
+   */
+  canManageAll: boolean
   /** Every user_id of the viewer (duplicate CRM records unioned) — "Mine". */
   myIds: string[]
   /** In "View as": buttons render (preview) but are disabled. */
@@ -32,7 +38,7 @@ export type ClosedClaimRow = {
  */
 export type ReviewTaskInfo = {
   reviewTaskId: string
-  /** The viewer is on the client's account team (display only — the action re-checks). */
+  /** The viewer owns this review task or is an admin (display only — the action re-checks). */
   canClose: boolean
 }
 
@@ -55,8 +61,10 @@ export type ClaimsContext = {
   /** Feedback (report) task_id → its open review task, for Pending Review rows. */
   reviews: Record<string, ReviewTaskInfo>
   closed: ClosedClaimRow[]
-  /** Reassign picker — admins only (empty for everyone else). */
+  /** Reassign picker (empty for viewers who can't assign anything). */
   roster: { userId: string; name: string }[]
+  /** Open Feedback Report Sent task ids the viewer OWNS — Pending Review → Close (owner-only). */
+  ownedReviewTaskIds: string[]
   /** The 2026-10-07 SQL patch has not been run yet. */
   setupMissing: boolean
 }

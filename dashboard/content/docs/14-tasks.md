@@ -225,6 +225,8 @@ The Open section's filter is now **All · Unclaimed · Mine · Claimed by others
 
 ### The permission — "Claim feedback"
 
+> **2026-10-16:** Claiming is now grantable per **role** (Admin → Roles, key `data:claim_feedback`) as well as per person. A second capability, **Mark feedback received**, lets a person mark a report's feedback all in and **assign / release / reassign** Feedback tasks. Release and reassign are now open to the admin, the task's **current owner**, or a holder of Mark feedback received. Close stays owner / admin only. The table below is the earlier state; see [27 — Feedback reports → Feedback permissions](27-feedback-reports.md#feedback-permissions-2026-10-16).
+
 | Who | Claim | Release | Reassign / Assign | Close |
 |---|---|---|---|---|
 | Has **Claim feedback** (Admin → Users) | an unclaimed task | their own | — | their own |
@@ -236,7 +238,7 @@ The Open section's filter is now **All · Unclaimed · Mine · Claimed by others
 - **Shared with the event card:** these buttons are one component, `ClaimActions` (`app/feedback-manager/claim-actions.tsx`). The event drawer / Edit Event lifecycle card uses the same component with the same server actions, so permissions match exactly. See [27 — Feedback reports → Report lifecycle](27-feedback-reports.md#report-lifecycle--event-drawer-card-2026-10-15).
 
 - Stored as `user_data_scopes.claim_feedback` (default **off**), read through `getUserScopes()` → `scopes.claimFeedback`; Super Users are granted in code. Toggled on **Admin → Users** next to Financials; scope-checkbox saves are now **audited** (`entity = user_data_scopes`).
-- It's a per-person capability only (no Roles-matrix row).
+- ~~It's a per-person capability only (no Roles-matrix row).~~ Since 2026-10-16 it is also a Roles-matrix data permission (`data:claim_feedback`); both halves are read by `loadFeedbackCapabilities`.
 - **"View as"** previews the buttons but disables them; the server refuses every claim action while impersonating.
 
 ### The data — dashboard-owned, sync-safe

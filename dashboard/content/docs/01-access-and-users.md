@@ -43,6 +43,17 @@ The **AI client summary** is a separate matter: there is only **one** summary pe
 
 ### Claiming feedback — the "Claim feedback" permission
 
+> **2026-10-16 — two feedback capabilities, both grantable per role (Admin → Roles, data-permission rows) and per person (Admin → Users tick-boxes).** Off by default for everyone but Super Users / Admins.
+> - **Claim feedback report** (`data:claim_feedback` / `user_data_scopes.claim_feedback`): Claim an unclaimed Feedback report task.
+> - **Mark feedback received** (`data:mark_feedback_received` / `user_data_scopes.mark_feedback_received`, needs `sql/patches/2026-10-16_feedback_capabilities.sql`): Mark feedback all in, and assign / release / reassign Feedback report tasks.
+>
+> Resolved in `lib/access/feedback-capabilities.ts` (Super User / Admin, OR the person flag, OR the role grant) and enforced in each server action; buttons are hidden without them. Alongside them, three rules changed:
+> - **The event drawer's Meetings & Reports tab** is now readable by anyone who can view the event (`canViewEvent`). It is read-only for them.
+> - **Closes are owner-only.** The Feedback task: its claimer, or Super User / Admin. The Feedback Report Sent task: its owner (the associate), or Super User / Admin. The account-team branch is gone.
+> - **Assign / release / reassign** (Feedback task only) is open to Super User / Admin, the current owner, or a holder of Mark feedback received.
+>
+> Full detail: [27 — Feedback reports → Feedback permissions](27-feedback-reports.md#feedback-permissions-2026-10-16). The paragraph below is the original 2026-10-07 description.
+
 A separate per-person tick-box on **Admin → Users** (next to Financials), **off** by default. It lets a person **Claim** unclaimed Feedback tasks on Feedback Reports and release their own. Super Users always have it, and can also release, reassign and close any task. It doesn't change which pages or rows anyone sees. Stored as `user_data_scopes.claim_feedback` (patch `sql/patches/2026-10-07_feedback_claims.sql`). Full detail: [14 — Tasks → Feedback claiming](14-tasks.md#feedback-claiming-feedback-reports--claim--release--reassign--close).
 
 ### "View as" — see the app as any person
@@ -74,7 +85,7 @@ The panel lists the pages grouped like the sidebar:
 
 What a grant can and can't do:
 - **It only opens the page.** What the person can *do* there is unchanged: saving, admin buttons and which clients or meetings they see still follow their role and data scopes.
-- **Some pages can never be granted**, and the panel doesn't list them: the CRM tables, Client Health, everything in the Admin section (Users, Roles, Sync, Reconciliation, Database, Docs …), and retired pages. Only a super user can see those.
+- **Some pages can never be granted**, and the panel doesn't list them: the CRM Tasks / Touchpoints / Notes tables, Client Health, everything in the Admin section (Users, Roles, Sync, Reconciliation, Database, Docs …), and retired pages. Only a super user can see those.
 - **Super users, admins and people with no role** have no Pages button. The first two already reach every grantable page, and a person with no role can't use a grant.
 - Only a **super user** can grant or revoke, and every change is recorded in the Audit Log.
 
@@ -106,7 +117,7 @@ API and server-action guards in `lib/api-auth.ts` both read the **real** role:
 `requireSuperUser()` is gone; every caller moved to one of the two.
 
 **Admin CAN** (`hasSuperUserPrivileges`):
-- **Pages.** Reach every page through the `canAccessRoute` backstop **except** `ADMIN_EXCLUDED_ROUTES` and hidden pages. That includes every `ADMIN_ONLY_ROUTES` page: CRM Clients / Events / Meetings / Tasks / Touchpoints / Notes / Contacts, Account Teams, Audit Log, Contract Management (admin), Time Off Reviewers, Automations, Client Health, FB Coming Soon, plus the Admin hub and Documentation. The CRM nav block (`canSeeCrmNav`) shows, and `getAllowedRoutes` short-circuits as it does for Super User.
+- **Pages.** Reach every page through the `canAccessRoute` backstop **except** `ADMIN_EXCLUDED_ROUTES` and hidden pages. That includes every `ADMIN_ONLY_ROUTES` page (CRM Tasks / Touchpoints / Notes, Account Teams, Audit Log, Contract Management (admin), Time Off Reviewers, Automations, Client Health, FB Coming Soon), the four grantable CRM list pages (Clients / Events / Meetings / Contacts), plus the Admin hub and Documentation. The CRM nav block (`canSeeCrmNav`) shows, and `getAllowedRoutes` short-circuits as it does for Super User.
 - **CRM writes.** Everything behind `lib/crm-write.ts` (`requireCrmWriter` etc.), including Client Detail **Quick Add**, Client Health actions and Time Off Reviewers actions, plus every CRM page and action check. Can manage shared (system) saved views.
 - **Client Detail.** The super-user blocks: Key Contacts, Events · Tasks, and the Last-25 shortcuts.
 - **Feedback admin powers.** Lock override, reassignment and `isAdmin` in report splitting and claims, and closing anyone's task.
@@ -305,6 +316,45 @@ The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx
 
 ### The CRM block in the nav rail
 
+> **2026-10-16 (later) — CRM access levels: None / View / Edit / Manage.** Each of the four CRM tables (**Clients**, **Events**, **Meetings**, **Contacts**) now takes a **level** instead of a yes/no page box. It's set per **role** in the Roles matrix and per **person** in Users → Pages, through the same grant tables (no parallel system).
+>
+> | Level | What it allows |
+> |---|---|
+> | **None** | No access. The page isn't granted. |
+> | **View** | Exactly the old page grant: nav item, list, filters, export, saved views and the read-only drawer. All of those key off level ≥ View. |
+> | **Edit** | View, plus **edit** existing dashboard-created records (not protected fields). The Edit button shows. |
+> | **Manage** | Edit, plus **create** records, **delete / purge** test records, and change protected fields. The New and Purge test buttons show. |
+>
+> - **Implicit full access.** Super users and admins (`hasSuperUserPrivileges`) are always **Manage** on all four, whatever the matrix says. Their matrix column reads "Manage" and is locked. To make admins follow the matrix instead, switch to `isStrictSuperUser` in two places: `decideCrmWrite` (`lib/access/crm-levels-policy.ts`) and `getCrmLevels` (`lib/page-access.ts`). Both are commented.
+> - **Raise-only per person.** A person's effective level is the **higher** of their role's level and their own. The Users → Pages dropdown shows the role level as "Role: X", offers nothing below it, and tags a higher pick **OVERRIDE**. Picking the role's level again removes the person's own grant.
+> - **Storage:**
+>   - `role_page_access.crm_level` refines `allowed`. `allowed` stays the view bit every reader uses, and `allowed = false` always means None.
+>   - `user_page_grants.crm_level`: a row is at least View, and `crm_level` only raises it.
+>   - Read by `getCrmLevels` / `getEffectiveCrmLevels`, which is View-as-aware like `getEffectiveAllowedRoutes`.
+> - **Server-side gates** (`requireCrmLevel`, `lib/crm-write.ts`). Each also refuses while in View as:
+>   - Edit: `updateClient/Event/Meeting/Contact` and `updateDashboardRow` need **Edit**. The edit-form load (`loadDashboardRowForEdit`) and the form pickers (`canUseCrmForms`) need Edit too.
+>   - Create (`createX`) needs **Manage**.
+>   - Purge test rows (`countTestRows` / `purgeTestRows`) needs **Manage**.
+>   - The event drawer's **Add Meeting** needs **Meetings Manage**.
+>   - The nav's quick-add "+" menu stays super-user / admin only; Manage holders use each page's own **New** button.
+> - **Protected fields: hook only, shipped empty.** `PROTECTED_CLIENT_FIELDS`, `PROTECTED_EVENT_FIELDS`, `PROTECTED_MEETING_FIELDS` and `PROTECTED_CONTACT_FIELDS` in `lib/access/crm-levels-policy.ts` are all **empty** `[]`. `updateDashboardRow` already enforces them: changing a listed column needs Manage or super-user. Today nothing beyond create / delete is restricted. To protect a field, add its column name to the right list.
+> - **Conservative seed:** `sql/patches/2026-10-16b_crm_access_levels.sql` adds the two columns and maps **every existing grant to View**. It seeds **no Edit or Manage** for any role or person, so on deploy nobody but super users / admins can write, exactly as before. Until it runs, every grant reads as View, and Edit / Manage refuse to save (with a message saying why).
+> - **Unchanged:**
+>   - Tasks, Touchpoints and Notes (still super-user only, no level).
+>   - The Dynamics origin fence: Dynamics-synced rows stay read-only for everyone.
+>   - Client deactivate / reactivate (super user or the client's primary manager).
+>   - The feedback capabilities and the feedback-report split/move actions.
+
+> **2026-10-16 — the four primary CRM list pages are grantable.** **Clients** (`/accounts`), **Events**, **Meetings** and **Contacts** left `ADMIN_ONLY_ROUTES`. They are ordinary pages now, listed in a new **CRM** section of `PAGE_REGISTRY` (`lib/page-registry.ts`), so they show up in both the Roles matrix and the per-user **Pages** panel. What a grant opens and what it doesn't:
+>
+> - **Opens:** the whole list, with **no row scoping**: every row, active and inactive. It also opens the quick filters, Excel export, personal saved views, and the **read-only row drawers**. The server-side gate is page access: `canAccessRoute` in the page, and `canReadCrmPage(route)` (`lib/crm-write.ts`) in each read action. Saved views follow the new `route` field on the spec (`lib/table-views/saved-views.ts` → `requireCaller(spec)`).
+> - **Doesn't open:** create / edit / delete / purge stay super-user only (`requireCrmWriter`, unchanged), and the New / Purge / Edit buttons are hidden from non-super viewers. Shared (system) saved views stay super-user only. In the Events drawer, the Meetings / feedback-report panel stays super-user only (`showFeedbackReports`), as on My Dashboard.
+> - **Raw Dynamics record:** the Client and Contact drawers no longer send `_raw` (the unfiltered Dynamics record) to anyone without super-user privileges. `loadAccountRecord` / `loadContactRecord` check `hasSuperUserPrivileges` on the effective (View-as-aware) role and leave `_raw` off the payload; it isn't even read from the database for them. Super users and admins still get it as before. `is_test` and `origin` go to everyone, and every mapped drawer column is unchanged. Nothing renders `_raw`, so the drawer looks the same. This also covers the Key Contacts strip on Client Detail, which uses the same contact loader.
+- **Unchanged:** Client Detail keeps its account-team scoping (`resolveClientScope`). A Clients-list viewer who isn't on a client's team still can't open that profile.
+> - **Still super-user only:** Tasks, Touchpoints and Notes. They stay in `ADMIN_ONLY_ROUTES` and are not in the registry.
+>
+> `canSeeCrmNav` lost its super-user floor. The block now draws exactly the CRM items `canAccessRoute` allows, so a person granted only Contacts sees a CRM block holding just Contacts. **No SQL is needed:** `role_page_access` and `user_page_grants` store free-text routes, so the grants are just new ticks. The paragraphs below describe the earlier, super-user-only design.
+
 `/meetings` and `/events` are **not** hidden pages. They have their own entries at the **bottom of the main nav rail**, below every reporting section, under a thin **"CRM"** section break and drawn as a teal outline rather than the navy fill the reporting items use — it is the raw CRM mirror, not another report, and the treatment says so.
 
 **Their gating is the strictest in the app.** Both are in `ADMIN_ONLY_ROUTES`: super-user-only, and not openable to another role through the Admin → Roles matrix. What decides whether the nav entry is *drawn* is `canSeeCrmNav` in `lib/access-control.ts`, which requires **both** `role === "super_user"` **and** `canAccessRoute` — the second so the rail can never advertise a route the proxy would block, the first as an explicit floor if `/meetings` were ever taken out of `ADMIN_ONLY_ROUTES`. For any non-super-user the whole block is absent: no item, and no divider either.
@@ -326,7 +376,7 @@ It currently holds one route, **`/meetings`**. That page reads `v_admin_meetings
 
 Add a route here only when the page exposes data that the scoping layer would otherwise restrict.
 
-> *(Outdated detail above: the list now also holds the CRM tables, Account Teams, Audit Log, Admin Contracts, Time Off Reviewers, Client Health, FB Coming Soon and Automations — see the source.)*
+> *(Outdated detail above: the list now also holds the CRM Tasks / Touchpoints / Notes tables (Clients / Events / Meetings / Contacts left it 2026-10-16 — see the CRM block note above), Account Teams, Audit Log, Admin Contracts, Time Off Reviewers, Client Health, FB Coming Soon and Automations — see the source.)*
 
 **2026-10-14 — matrix hole closed.** `/admin/users`, `/admin/roles`, `/admin/sync`, `/admin/reconciliation` and `/admin/database` used to be only in `ADMIN_EXCLUDED_ROUTES`, which binds the **admin** role alone. That meant a tick in the Roles matrix could have opened them to User / Associate / Client Manager / Logistics. Their save actions were always strict-super-user, but the pages themselves would render. They are now in `ADMIN_ONLY_ROUTES` too, so neither the matrix nor a per-user grant can open them. Super users are unaffected, and admins are refused as before. Any `role_page_access` row for them is now inert, and their Roles-matrix labels read "(super-user only)". `ADMIN_ONLY_ROUTES` is also the first exclusion in `isGrantableRoute`.
 

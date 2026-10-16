@@ -5,11 +5,9 @@ import { revalidatePath } from "next/cache"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { getSupabaseServer } from "@/lib/supabase"
 import { isUuid } from "@/lib/crm-write"
-import { getEffectiveRole } from "@/lib/effective-identity"
-import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { canViewEvent } from "@/lib/events/view-gate"
 import { isAutomationOrigin } from "@/lib/feedback-reports/policy"
 import { loadClaimViewer } from "@/lib/feedback-claims/server"
-import { resolveAccountTeamScope } from "@/lib/access/account-team-scope"
 import type { LifecycleReportTask, LifecycleSentTask } from "@/lib/feedback-reports/lifecycle"
 import { closeFeedbackReview } from "@/app/feedback-manager/actions"
 
@@ -32,8 +30,8 @@ import { closeFeedbackReview } from "@/app/feedback-manager/actions"
  *                     the client's associate (assignReviewTaskToAssociate). The
  *                     report then sits in Review while that task is open.
  *   Send              closeFeedbackReview — the existing close of the sent task
- *                     (account-team gate, native completion) — after a check
- *                     that the actor is its owner (the associate) or an admin.
+ *                     (owner-only gate since 2026-10-16: the associate who owns
+ *                     it, or an admin; native completion).
  *                     Closing it = Sent = done; there is no separate review flag.
  * The pure rules are lib/feedback-reports/lifecycle.ts (canAct); every action
  * re-runs them on a FRESH read before delegating, and the delegated actions
@@ -51,7 +49,7 @@ export type ReportLifecycle = { report: LifecycleReportTask; sent: LifecycleSent
 export type EventReportLifecycles = {
   /** Keyed by the Feedback (report) task id. */
   byReport: Record<string, ReportLifecycle>
-  viewer: { myIds: string[]; isAdmin: boolean; hasCapability: boolean; crmWriter: boolean; onClientTeam: boolean }
+  viewer: { myIds: string[]; isAdmin: boolean; hasCapability: boolean; crmWriter: boolean; markReceived: boolean }
 }
 
 type ReportRow = {
@@ -114,7 +112,8 @@ async function readSentTasks(reportIds: string[]): Promise<ActionResult<SentRow[
 
 /** The card's data: every report of the event + its sent task + who is looking. */
 export async function loadEventReportLifecycles(eventId: string): Promise<ActionResult<EventReportLifecycles>> {
-  if (!hasSuperUserPrivileges(await getEffectiveRole())) return fail("Not authorised.")
+  // Read-only Meetings & Reports tab (2026-10-16): anyone who can view the event.
+  if (!(await canViewEvent(eventId))) return fail("Not authorised.")
   if (!isUuid(eventId)) return fail("Unknown event.")
   const sb = getSupabaseServer()
   const { data: reps, error } = await sb
@@ -130,14 +129,6 @@ export async function loadEventReportLifecycles(eventId: string): Promise<Action
   const sentBy = new Map(sent.data!.map((s) => [s.review_of_task_id, s]))
 
   const v = await loadClaimViewer()
-  // On this event's client's account team? (Send's display check — the server
-  // re-checks in closeFeedbackReview.)
-  const [{ data: ev }, team] = await Promise.all([
-    sb.from("events").select("client_account_id").eq("event_id", eventId).maybeSingle(),
-    resolveAccountTeamScope({ email: v.email }),
-  ])
-  const clientId = (ev?.client_account_id as string | null) ?? null
-  const onClientTeam = !!clientId && team.mode === "filter" && team.accountIds.has(clientId)
   const byReport: Record<string, ReportLifecycle> = {}
   for (const r of reports) {
     const s = sentBy.get(r.task_id)
@@ -150,7 +141,7 @@ export async function loadEventReportLifecycles(eventId: string): Promise<Action
       isAdmin: v.isAdmin,
       hasCapability: v.hasCapability,
       crmWriter: v.isAdmin && !v.impersonated,
-      onClientTeam,
+      markReceived: v.markReceived,
     },
   })
 }
@@ -186,8 +177,8 @@ async function readLifecycle(
 
 /**
  * Send → the existing close of the sent task = Sent = done. The permission is
- * closeFeedbackReview's (checkSentTaskClose): the sent task's owner OR the
- * client's account team OR hasSuperUserPrivileges — identical to Feedback
+ * closeFeedbackReview's (checkSentTaskClose): the sent task's owner OR
+ * hasSuperUserPrivileges (owner-only, 2026-10-16) — identical to Feedback
  * Reports' Close, with no extra card-only check.
  */
 export async function sendReport(reportTaskId: string): Promise<ActionResult> {

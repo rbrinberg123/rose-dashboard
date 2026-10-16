@@ -9,6 +9,8 @@ import { diffRows, recordAudit } from "@/lib/audit"
 import { isGrantableRoute } from "@/lib/access-control"
 import { PAGE_REGISTRY } from "@/lib/page-registry"
 
+import { CRM_LEVEL_LABELS, isCrmLevel, isCrmLevelRoute } from "@/lib/access/crm-levels-policy"
+
 const PATH = "/admin/users"
 
 /**
@@ -192,6 +194,74 @@ export async function setUserPageGrant(
   return ok()
 }
 
+/**
+ * Set ONE person's own CRM ACCESS LEVEL (2026-10-16) on a level-gated CRM table,
+ * stored on their user_page_grants row (the row itself = View; crm_level raises
+ * it). RAISE-ONLY: their effective level is the higher of this and their role's
+ * — the UI offers nothing below the role level, and a lower stored value would
+ * simply lose to the role. "none" removes their own grant (back to the role).
+ * Strict super user only; audited.
+ */
+export async function setUserCrmLevel(email: string, route: string, level: string): Promise<ActionResult> {
+  const auth = await requireStrictSuperUser()
+  if (!auth.ok) return fail("Not authorized — only a super user can manage users and roles.")
+  if (!isCrmLevelRoute(route) || !isGrantableRoute(route, PAGE_REGISTRY)) {
+    return fail(`That page has no access level: ${String(route)}`)
+  }
+  if (!isCrmLevel(level)) return fail(`Unknown access level: ${String(level)}`)
+  if (level === "none") return setUserPageGrant(email, route, false)
+
+  const normalizedEmail = String(email ?? "").trim().toLowerCase()
+  if (!normalizedEmail.endsWith("@roseandco.com")) {
+    return fail("Only @roseandco.com users can be granted pages here.")
+  }
+
+  const sb = getSupabaseServer()
+  const { data: prior, error: readError } = await sb
+    .from("user_page_grants")
+    .select("*")
+    .eq("email", normalizedEmail)
+    .eq("route", route)
+    .maybeSingle()
+  if (readError) return fail(describeError(readError))
+
+  const recordId = `${normalizedEmail}|route:${route}`
+  const patchMissing = (m: string) => /crm_level/.test(m)
+  const needsPatch = () =>
+    fail(`“${CRM_LEVEL_LABELS[level]}” needs the 2026-10-16b CRM access-levels SQL patch run first.`)
+
+  if (!prior) {
+    const row = { email: normalizedEmail, route, granted_by: auth.email, granted_at: new Date().toISOString(), crm_level: level }
+    let { error } = await sb.from("user_page_grants").insert(row)
+    if (error && patchMissing(error.message)) {
+      if (level !== "view") return needsPatch()
+      const { crm_level: _drop, ...plain } = row
+      void _drop
+      ;({ error } = await sb.from("user_page_grants").insert(plain))
+    }
+    if (error) return fail(describeError(error))
+    await recordAudit({ action: "create", entity: "user_page_grants", recordId, changes: row, context: PATH + " · crm level" })
+  } else {
+    const before = { crm_level: (prior as { crm_level?: string | null }).crm_level ?? "view" }
+    if (before.crm_level === level) return ok()
+    const { error } = await sb
+      .from("user_page_grants")
+      .update({ crm_level: level })
+      .eq("email", normalizedEmail)
+      .eq("route", route)
+    if (error) return patchMissing(error.message) ? needsPatch() : fail(describeError(error))
+    await recordAudit({
+      action: "update",
+      entity: "user_page_grants",
+      recordId,
+      changes: diffRows(before, { crm_level: level }),
+      context: PATH + " · crm level",
+    })
+  }
+  revalidatePath(PATH)
+  return ok()
+}
+
 // ---------------------------------------------------------------------------
 // Level-2 data scopes — LIVE for Account Management (client pages)
 // ---------------------------------------------------------------------------
@@ -236,6 +306,8 @@ export type DataScopes = {
   financials: boolean
   /** "Can claim feedback" capability (lib/feedback-claims/) — NOT a row scope. */
   claim_feedback: boolean
+  /** "Mark feedback received" capability (2026-10-16) — NOT a row scope. */
+  mark_feedback_received: boolean
 }
 
 /**
@@ -276,6 +348,7 @@ export async function setUserDataScopes(
     feedback: scopes.feedback,
     financials: scopes.financials,
     claim_feedback: scopes.claim_feedback,
+    mark_feedback_received: scopes.mark_feedback_received,
     updated_at: new Date().toISOString(),
     updated_by: auth.email,
   }
@@ -287,6 +360,14 @@ export async function setUserDataScopes(
       return fail("“Claim feedback” needs the 2026-10-07 feedback-claims SQL patch run first.")
     }
     delete row.claim_feedback
+    ;({ error } = await sb.from("user_data_scopes").upsert(row, { onConflict: "email" }))
+  }
+  // Same guard for sql/patches/2026-10-16_feedback_capabilities.sql.
+  if (error && /mark_feedback_received/.test(error.message)) {
+    if (scopes.mark_feedback_received) {
+      return fail("“Mark feedback received” needs the 2026-10-16 feedback-capabilities SQL patch run first.")
+    }
+    delete row.mark_feedback_received
     ;({ error } = await sb.from("user_data_scopes").upsert(row, { onConflict: "email" }))
   }
   if (error) return fail(describeError(error))
@@ -302,6 +383,7 @@ export async function setUserDataScopes(
           feedback: r.feedback,
           financials: r.financials,
           claim_feedback: r.claim_feedback ?? false,
+          mark_feedback_received: r.mark_feedback_received ?? false,
         }
       : null
   const prev = auditable(before as Record<string, unknown> | null)

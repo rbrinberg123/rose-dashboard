@@ -226,6 +226,8 @@ export function AccountsView({
   activeConfig,
   viewCounts,
   canManageSystemViews,
+  canEdit,
+  canManage,
   readOnlyViews,
   availableColumns,
   quickFilters,
@@ -242,6 +244,10 @@ export function AccountsView({
   activeConfig: ViewConfig
   viewCounts: Record<string, number | null>
   canManageSystemViews: boolean
+  /** Server-decided CRM access level >= Edit — shows Edit (2026-10-16; the server re-checks). */
+  canEdit: boolean
+  /** Server-decided CRM access level == Manage — shows New / Purge test (the server re-checks). */
+  canManage: boolean
   readOnlyViews: boolean
   availableColumns: string[] | null
   quickFilters: AccountQuickFilters
@@ -523,8 +529,12 @@ export function AccountsView({
           title="Clients"
           rightSlot={
             <div className="flex items-center gap-2">
-              <PurgeTestClientsButton />
-              <NewClientButton />
+              {canManage && (
+                <>
+                  <PurgeTestClientsButton />
+                  <NewClientButton />
+                </>
+              )}
             </div>
           }
         />
@@ -774,7 +784,7 @@ export function AccountsView({
       {/* Rendered as a SIBLING of the list, never wrapping it, so opening a
           record cannot remount the table. */}
       <AccountRecordPane
-        onEdit={openId ? () => setEditId(openId) : undefined}
+        onEdit={canEdit && openId ? () => setEditId(openId) : undefined}
         onDeactivationChange={openId ? () => afterEdit(openId) : undefined}
         record={record}
         loading={openId !== null && record === null && recordError === null}

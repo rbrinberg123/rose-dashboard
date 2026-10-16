@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { isCrmLevelRoute, levelFromGrantRow, levelFromRoleRow, type CrmLevel, type CrmLevelRoute } from "@/lib/access/crm-levels-policy"
 import Link from "next/link"
 
 import { PageShell } from "@/components/page-shell"
@@ -44,6 +45,7 @@ const DEFAULT_SCOPES: DataScopes = {
   feedback: false,
   financials: false,
   claim_feedback: false,
+  mark_feedback_received: false,
 }
 
 /** Read staged grants; guard the table not existing yet (DDL run manually). */
@@ -74,34 +76,45 @@ async function loadPageAccess(
 ): Promise<{
   grants: Map<string, PageGrant[]>
   rolePages: Record<string, string[]>
+  /** role → CRM table → its access level (2026-10-16), for the Pages panel baseline. */
+  roleCrmLevels: Record<string, Partial<Record<CrmLevelRoute, CrmLevel>>>
   missingTable: boolean
 }> {
+  // SELECT * so crm_level (patch 2026-10-16b) is read when present.
   const [grantRes, roleRes] = await Promise.all([
-    sb.from("user_page_grants").select("email, route, granted_by, granted_at"),
-    sb.from("role_page_access").select("role, route").eq("allowed", true),
+    sb.from("user_page_grants").select("*"),
+    sb.from("role_page_access").select("*").eq("allowed", true),
   ])
   const rolePages: Record<string, string[]> = {}
-  for (const r of (roleRes.data ?? []) as { role: string; route: string }[]) {
+  const roleCrmLevels: Record<string, Partial<Record<CrmLevelRoute, CrmLevel>>> = {}
+  for (const r of (roleRes.data ?? []) as { role: string; route: string; allowed: boolean; crm_level?: string | null }[]) {
     ;(rolePages[r.role] ??= []).push(r.route)
+    if (isCrmLevelRoute(r.route)) (roleCrmLevels[r.role] ??= {})[r.route] = levelFromRoleRow(r)
   }
   const grants = new Map<string, PageGrant[]>()
   if (grantRes.error) {
     const missingTable =
       grantRes.error.code === "42P01" || /does not exist/i.test(grantRes.error.message)
-    return { grants, rolePages, missingTable }
+    return { grants, rolePages, roleCrmLevels, missingTable }
   }
   for (const g of (grantRes.data ?? []) as {
     email: string
     route: string
     granted_by: string
     granted_at: string
+    crm_level?: string | null
   }[]) {
     const key = g.email.toLowerCase()
     const list = grants.get(key) ?? []
-    list.push({ route: g.route, grantedBy: g.granted_by, grantedAt: g.granted_at })
+    list.push({
+      route: g.route,
+      grantedBy: g.granted_by,
+      grantedAt: g.granted_at,
+      ...(isCrmLevelRoute(g.route) ? { crmLevel: levelFromGrantRow(g) } : {}),
+    })
     grants.set(key, list)
   }
-  return { grants, rolePages, missingTable: false }
+  return { grants, rolePages, roleCrmLevels, missingTable: false }
 }
 
 type ScopeRow = {
@@ -115,6 +128,8 @@ type ScopeRow = {
   financials?: boolean | null
   /** Later addition — absent until sql/patches/2026-10-07_feedback_claims.sql is run. */
   claim_feedback?: boolean | null
+  /** Later addition — absent until sql/patches/2026-10-16_feedback_capabilities.sql is run. */
+  mark_feedback_received?: boolean | null
 }
 
 /**
@@ -144,6 +159,7 @@ async function loadScopes(
       feedback: s.feedback,
       financials: !!s.financials,
       claim_feedback: !!s.claim_feedback,
+      mark_feedback_received: !!s.mark_feedback_received,
     })
   }
   return { scopes, missingTable: false }
@@ -244,6 +260,7 @@ export default async function UsersRolesPage() {
         missingTable={missingTable}
         missingScopesTable={missingScopesTable}
         rolePages={pageAccess.rolePages}
+        roleCrmLevels={pageAccess.roleCrmLevels}
         missingPageGrantsTable={pageAccess.missingTable}
         sessionResolution={sessionResolution}
       />

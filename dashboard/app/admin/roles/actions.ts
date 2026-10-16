@@ -12,6 +12,8 @@ import {
   type AssignableRole,
 } from "@/lib/page-registry"
 
+import { CRM_LEVEL_LABELS, isCrmLevel, isCrmLevelRoute } from "@/lib/access/crm-levels-policy"
+
 const PATH = "/admin/roles"
 
 /**
@@ -55,6 +57,9 @@ export async function setRolePageAccess(
   if (!isRegisteredRoute(route)) {
     return fail(`Unknown page route: ${route}`)
   }
+  // The four CRM tables carry a LEVEL (2026-10-16) — set them with
+  // setRoleCrmLevel so allowed and crm_level can never disagree.
+  if (isCrmLevelRoute(route)) return fail("This page has an access level — set it from the level dropdown.")
 
   const sb = getSupabaseServer()
 
@@ -141,6 +146,56 @@ export async function setRoleDataPermission(
     context: PATH,
   })
 
+  revalidatePath(PATH)
+  return ok()
+}
+
+/**
+ * Set a role's CRM ACCESS LEVEL (2026-10-16) on one of the four level-gated
+ * CRM tables — None / View / Edit / Manage (lib/access/crm-levels-policy.ts).
+ * Writes the same role_page_access row as the page grant: allowed = level is
+ * not None (so nav / list / drawer behave exactly as the old checkbox), and
+ * crm_level = the level. Strict super user only, audited like every grant.
+ */
+export async function setRoleCrmLevel(role: string, route: string, level: string): Promise<ActionResult> {
+  const auth = await requireStrictSuperUser()
+  if (!auth.ok) return fail("Not authorized — only a super user can manage users and roles.")
+  if (!EDITABLE_ROLES.includes(role as AssignableRole)) return fail(`Role is not editable here: ${role}`)
+  if (!isCrmLevelRoute(route)) return fail(`That page has no access level: ${route}`)
+  if (!isCrmLevel(level)) return fail(`Unknown access level: ${String(level)}`)
+
+  const sb = getSupabaseServer()
+  const { data: before } = await sb
+    .from("role_page_access")
+    .select("*")
+    .eq("role", role)
+    .eq("route", route)
+    .maybeSingle()
+
+  const row = { role, route, allowed: level !== "none", crm_level: level }
+  let { error } = await sb.from("role_page_access").upsert(row, { onConflict: "role,route" })
+  // Before sql/patches/2026-10-16b_crm_access_levels.sql runs there is no
+  // crm_level column: None / View still save (they are just the view bit).
+  if (error && /crm_level/.test(error.message)) {
+    if (level === "edit" || level === "manage") {
+      return fail(`“${CRM_LEVEL_LABELS[level]}” needs the 2026-10-16b CRM access-levels SQL patch run first.`)
+    }
+    ;({ error } = await sb
+      .from("role_page_access")
+      .upsert({ role, route, allowed: level !== "none" }, { onConflict: "role,route" }))
+  }
+  if (error) return fail(describeError(error))
+
+  const prior = before
+    ? { allowed: (before as { allowed?: boolean }).allowed ?? false, crm_level: (before as { crm_level?: string | null }).crm_level ?? null }
+    : null
+  await recordAudit({
+    action: prior ? "update" : "create",
+    entity: "role_page_access",
+    recordId: `role:${role}|route:${route}`,
+    changes: prior ? diffRows(prior, { allowed: row.allowed, crm_level: level }) : row,
+    context: PATH + " · crm level",
+  })
   revalidatePath(PATH)
   return ok()
 }

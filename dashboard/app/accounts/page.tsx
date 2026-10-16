@@ -18,7 +18,8 @@ import { listSavedViews } from "./actions"
 import { perfTimer } from "@/lib/perf-log"
 import { AccountsView } from "./accounts-view"
 import { hasSuperUserPrivileges, canAccessRoute } from "@/lib/access-control"
-import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
+import { levelAtLeast } from "@/lib/access/crm-levels-policy"
+import { getEffectiveAllowedRoutes, getEffectiveCrmLevels } from "@/lib/effective-identity"
 
 export const dynamic = "force-dynamic"
 
@@ -87,7 +88,12 @@ export default async function AccountsPage({
   const perf = perfTimer("/accounts")
   // ---- GATE (must stay first — nothing above this line may touch data) ----
   const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) redirect("/no-access")
+  // 2026-10-16: PAGE ACCESS, not super-user — /accounts is a grantable list page
+  // (role / per-user grant; see canReadCrmPage in lib/crm-write.ts). Supersedes
+  // the ADMIN_ONLY_ROUTES note above. No row scoping: a granted page shows every
+  // row. Writes stay super-user only (requireCrmWriter).
+  if (!canAccessRoute(role, "/accounts", await getEffectiveAllowedRoutes())) redirect("/no-access")
+  const crmLevels = await getEffectiveCrmLevels()
   perf.step("gate (role)")
 
   const sp = await searchParams
@@ -198,6 +204,10 @@ export default async function AccountsPage({
         activeConfig={effectiveConfig}
         viewCounts={viewCounts}
         canManageSystemViews={hasSuperUserPrivileges(role)}
+        // CRM access level (2026-10-16; super users / admins resolve to Manage).
+        // Buttons only — every write re-checks via requireCrmLevel.
+        canEdit={levelAtLeast(crmLevels["/accounts"], "edit")}
+        canManage={crmLevels["/accounts"] === "manage"}
         /* Name / ticker link to Client Detail only for a role that can open it —
            the SAME rule proxy.ts applies; Client Detail itself re-checks access
            and the client's Level-2 scope server-side. */

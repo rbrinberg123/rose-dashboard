@@ -35,7 +35,7 @@ const viewer = (p: Partial<Parameters<typeof canAct>[3]> = {}) => ({
   isAdmin: false,
   hasCapability: false,
   crmWriter: false,
-  onClientTeam: false,
+  markReceived: false,
   ...p,
 })
 
@@ -87,19 +87,19 @@ test("notes name the people", () => {
 
 test("Send on the card = the server's decideSentClose, for every combination", () => {
   for (const isOwner of [false, true])
-    for (const onClientTeam of [false, true])
-      for (const isAdmin of [false, true]) {
-        const card = canAct("send", report(), sent(), viewer({ myIds: new Set(isOwner ? ["assoc"] : []), onClientTeam, isAdmin }))
-        assert.equal(card === null, decideSentClose({ isOwner, onClientTeam, isAdmin }) === null)
-      }
+    for (const isAdmin of [false, true]) {
+      const card = canAct("send", report(), sent(), viewer({ myIds: new Set(isOwner ? ["assoc"] : []), isAdmin }))
+      assert.equal(card === null, decideSentClose({ isOwner, isAdmin }) === null)
+    }
 })
 
-test("permissions: owner / team / admin send; CRM editors mark all in", () => {
-  assert.equal(canAct("send", report(), sent(), viewer({ onClientTeam: true })), null)
+test("permissions: owner / admin send; the Mark-received capability marks all in", () => {
   assert.equal(canAct("send", report(), sent(), viewer({ myIds: new Set(["assoc"]) })), null)
   assert.equal(canAct("send", report(), sent(), viewer({ isAdmin: true })), null)
   assert.notEqual(canAct("send", report(), sent(), viewer({ myIds: new Set(["w"]) })), null)
 
-  assert.equal(canAct("mark_in", report(), null, viewer({ crmWriter: true })), null)
+  assert.equal(canAct("mark_in", report(), null, viewer({ markReceived: true })), null)
   assert.notEqual(canAct("mark_in", report(), null, viewer()), null)
+  // Being a CRM writer is no longer what decides it.
+  assert.notEqual(canAct("mark_in", report(), null, viewer({ crmWriter: true })), null)
 })

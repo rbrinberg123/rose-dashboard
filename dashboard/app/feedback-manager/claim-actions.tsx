@@ -13,10 +13,11 @@ import type { ClaimControls } from "@/lib/feedback-claims/types"
  * action re-checks permission, pool and owner on the server
  * (app/feedback-manager/actions.ts → lib/feedback-claims/policy.ts).
  *
- * Who sees what (unchanged from the page):
- *   Claim             unowned, viewer may claim (capability or admin)
- *   Release           owned, viewer is the owner or an admin
- *   Assign / Reassign admin (roster picker)
+ * Who sees what:
+ *   Claim             unowned, viewer may claim (Claim capability or admin)
+ *   Release           owned, viewer is the owner, an admin, or holds Mark received
+ *   Assign / Reassign admin, Mark-received holder, or (Reassign) the owner —
+ *                     canManageAssignment in lib/feedback-claims/policy.ts
  *   Close             viewer is the owner or an admin — DISABLED until someone
  *                     is assigned ("Assign before closing"); decideClose
  *                     enforces the same rule server-side.
@@ -71,14 +72,16 @@ export function ClaimActions({
       </button>,
     )
   }
-  if (owner && (isMine || viewer.isAdmin)) {
+  // canManageAssignment (policy.ts): admin / Mark-received holder / the owner.
+  const canManage = viewer.canManageAll || isMine
+  if (owner && canManage) {
     buttons.push(
       <button key="release" type="button" className={btn} disabled={disabled} title={title} onClick={onRelease}>
         Release
       </button>,
     )
   }
-  if (viewer.isAdmin) {
+  if (canManage && roster.length > 0) {
     buttons.push(
       <button
         key="reassign"
@@ -115,7 +118,7 @@ export function ClaimActions({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap gap-1">{buttons}</div>
-      {picking && viewer.isAdmin && (
+      {picking && canManage && (
         <select
           autoFocus
           defaultValue=""

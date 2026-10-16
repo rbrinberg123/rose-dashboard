@@ -16,7 +16,13 @@ import {
   type PageEntry,
 } from "@/lib/page-registry"
 import { canAccessRoute } from "@/lib/access-control"
-import { setRolePageAccess, setRoleDataPermission } from "./actions"
+import { setRolePageAccess, setRoleDataPermission, setRoleCrmLevel } from "./actions"
+import {
+  CRM_LEVELS,
+  CRM_LEVEL_LABELS,
+  isCrmLevelRoute,
+  type CrmLevel,
+} from "@/lib/access/crm-levels-policy"
 
 /**
  * A LOCKED column's cell — code-defined, never stored: super_user = every page,
@@ -34,10 +40,13 @@ function keyFor(role: string, route: string): string {
 
 export function RolesView({
   grants,
+  levels,
   missingTable,
 }: {
   /** Persisted overrides keyed `${role}|${route}` → allowed. Absent ⇒ use the seed default. */
   grants: Record<string, boolean>
+  /** CRM access levels (2026-10-16) for the four CRM tables, keyed like grants. Absent ⇒ None. */
+  levels: Record<string, CrmLevel>
   missingTable: boolean
 }) {
   const router = useRouter()
@@ -72,6 +81,32 @@ export function RolesView({
     return init
   })
   const [pending, setPending] = React.useState<Set<string>>(new Set())
+  // The four CRM tables carry a LEVEL instead of a checkbox (2026-10-16).
+  const [level, setLevel] = React.useState<Record<string, CrmLevel>>(() => ({ ...levels }))
+
+  function changeLevel(role: AssignableRole, entry: PageEntry, next: CrmLevel) {
+    const k = keyFor(role, entry.route)
+    const prevLevel = level[k] ?? "none"
+    const prevAllow = allow[k]
+    setLevel((l) => ({ ...l, [k]: next }))
+    setAllow((a) => ({ ...a, [k]: next !== "none" })) // the view bit, for the totals
+    setPending((p) => new Set(p).add(k))
+    startTransition(async () => {
+      const res = await setRoleCrmLevel(role, entry.route, next)
+      setPending((p) => {
+        const n = new Set(p)
+        n.delete(k)
+        return n
+      })
+      if (!res.ok) {
+        setLevel((l) => ({ ...l, [k]: prevLevel }))
+        setAllow((a) => ({ ...a, [k]: prevAllow }))
+        toast.error("Could not save", { description: res.error })
+      } else {
+        router.refresh()
+      }
+    })
+  }
 
   function toggle(role: AssignableRole, entry: PageEntry, next: boolean) {
     const k = keyFor(role, entry.route)
@@ -176,7 +211,10 @@ export function RolesView({
           next page load. The <span className="font-medium">Data permissions</span> rows at the
           bottom are not pages — they gate which <span className="font-medium">fields</span> a role
           receives. A person is also granted a data permission individually on{" "}
-          <span className="font-medium">Users</span>; either grant is enough.
+          <span className="font-medium">Users</span>; either grant is enough. The four{" "}
+          <span className="font-medium">CRM</span> tables take an access level instead of a box:
+          None · View (open the list) · Edit (edit records) · Manage (also create / delete). Super
+          User and Admin are always Manage.
         </p>
       </div>
 
@@ -245,6 +283,34 @@ export function RolesView({
                       const k = keyFor(r.value, entry.route)
                       const checked = r.locked ? lockedAllows(r.value, entry.route) : allow[k]
                       const isPending = pending.has(k)
+                      // CRM tables (2026-10-16): a None / View / Edit / Manage level.
+                      // Locked columns (Super User, Admin) are implicitly Manage.
+                      if (isCrmLevelRoute(entry.route)) {
+                        return (
+                          <td key={r.value} className="px-3 py-1.5 text-center">
+                            {r.locked ? (
+                              <span className="text-xs font-medium" style={{ color: TEXT_MUTED }}>
+                                Manage
+                              </span>
+                            ) : (
+                              <select
+                                aria-label={`${r.label} access level for ${entry.label}`}
+                                value={level[k] ?? "none"}
+                                disabled={isPending}
+                                onChange={(e) => changeLevel(r.value, entry, e.target.value as CrmLevel)}
+                                className="h-7 rounded-md border border-input bg-background px-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+                                style={{ color: TEXT_PRIMARY }}
+                              >
+                                {CRM_LEVELS.map((l) => (
+                                  <option key={l} value={l}>
+                                    {CRM_LEVEL_LABELS[l]}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </td>
+                        )
+                      }
                       return (
                         <td key={r.value} className="px-3 py-1.5 text-center">
                           <input

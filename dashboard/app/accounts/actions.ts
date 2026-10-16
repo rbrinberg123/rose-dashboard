@@ -37,6 +37,9 @@ import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
 import { recordAudit } from "@/lib/audit"
 import {
+  canUseCrmForms,
+  requireCrmLevel,
+  canReadCrmPage,
   DASHBOARD_ROW_BASE,
   asText,
   cleanText,
@@ -49,7 +52,6 @@ import {
   loadDashboardRowForEdit,
   loadUserOptions,
   purgeTestRows,
-  requireCrmWriter,
   resolveClientEvent,
   resolveUser,
   updateDashboardRow,
@@ -143,8 +145,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  * carry are unioned without an alias-expansion step. See the filters header.
  */
 export async function loadAccountFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/accounts"))) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(
     getSupabaseServer(),
@@ -180,8 +181,7 @@ export async function loadAccountRowsForExport(input: {
   config: unknown
   quick?: AccountQuickFilters
 }): Promise<ActionResult<AdminAccountRow[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/accounts"))) return fail("Not authorised.")
 
   const parsed = parseConfig(ACCOUNTS_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -341,8 +341,7 @@ export async function loadAccountRecord(
   accountId: string,
 ): Promise<ActionResult<AccountRecord>> {
   // ---- GATE (must stay first) ----
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/accounts"))) return fail("Not authorised.")
 
   if (!accountId) return fail("No client id.")
 
@@ -360,15 +359,23 @@ export async function loadAccountRecord(
   // so it is read separately, straight off the mirror table, and only for this
   // one row. A failure here is NOT fatal: every rendered field came from the
   // query above, so the drawer opens fine without it.
+  //
+  // _raw is the UNFILTERED Dynamics record, so it goes to super users (and
+  // admins) only — the same View-as-aware effective role every gate here reads.
+  // A page-granted viewer gets the drawer without it (2026-10-16). Nothing
+  // renders _raw, so their drawer is identical.
+  const includeRaw = hasSuperUserPrivileges(await getEffectiveRole())
   const { data: rawRow } = await sb
     .from("accounts")
-    .select("_raw, is_test, origin")
+    .select((includeRaw ? "_raw, is_test, origin" : "is_test, origin") as string)
     .eq("account_id", accountId)
-    .maybeSingle()
+    .maybeSingle<{ _raw?: Record<string, unknown> | null; is_test?: boolean | null; origin?: string | null }>()
 
   return ok({
     ...(data as unknown as Omit<AccountRecord, "_raw">),
-    _raw: (rawRow?._raw as Record<string, unknown> | undefined) ?? null,
+    ...(includeRaw
+      ? { _raw: rawRow?._raw ?? null }
+      : {}),
     is_test: rawRow?.is_test === true,
     origin: (rawRow?.origin as string | undefined) ?? null,
   })
@@ -392,8 +399,8 @@ export async function loadClientEventOptions(accountId: string) {
 export async function loadClientContactOptions(
   accountId: string,
 ): Promise<ActionResult<{ contact_id: string; full_name: string | null }[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Form picker (2026-10-16): Edit+ on /accounts, or super users / admins.
+  if (!(await canUseCrmForms("/accounts"))) return fail("Not authorised.")
   if (!isUuid(accountId)) return ok([])
   const { data, error } = await getSupabaseServer()
     .from("contacts")
@@ -440,8 +447,8 @@ async function clientChoiceOptions(): Promise<ActionResult<ClientChoiceOptions>>
 }
 
 export async function loadClientChoiceOptions(): Promise<ActionResult<ClientChoiceOptions>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Form picker (2026-10-16): Edit+ on /accounts, or super users / admins.
+  if (!(await canUseCrmForms("/accounts"))) return fail("Not authorised.")
   return clientChoiceOptions()
 }
 
@@ -605,7 +612,7 @@ async function buildClientColumns(
  */
 export async function createClient(input: NewClientInput): Promise<ActionResult<{ accountId: string }>> {
   // ---- GATE (must stay first) ----
-  const gate = await requireCrmWriter("creating or deleting clients")
+  const gate = await requireCrmLevel("/accounts", "create", "creating clients") // Manage (2026-10-16)
   if (!gate.ok) return fail(gate.error)
 
   const built = await buildClientColumns(input, gate.userId, null)
@@ -706,7 +713,7 @@ export async function loadClientForEdit(id: string): Promise<ActionResult<NewCli
 
 /** Edit a DASHBOARD client. The origin guard lives in updateDashboardRow. */
 export async function updateClient(id: string, input: NewClientInput): Promise<ActionResult<{ changed: number }>> {
-  const gate = await requireCrmWriter("editing clients")
+  const gate = await requireCrmLevel("/accounts", "edit", "editing clients") // Edit+ (2026-10-16)
   if (!gate.ok) return fail(gate.error)
   const built = await buildClientColumns(input, gate.userId, id)
   if (!built.ok) return fail(built.error)

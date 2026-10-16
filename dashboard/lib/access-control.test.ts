@@ -226,6 +226,8 @@ test("the grantable set is exactly the registry minus strict, hidden, always-all
     "/pipeline", "/conference-rooms", "/ooo-summary",
     "/contract-management", "/renewals", "/margin", "/revenue-overrides", "/direct-costs",
     "/cost-assumptions", "/overhead-overrides", "/quarterly-overhead", "/salary-schedule", "/exceptions",
+    // CRM list pages, grantable since 2026-10-16.
+    "/accounts", "/events", "/meetings", "/contacts",
   ])
 })
 

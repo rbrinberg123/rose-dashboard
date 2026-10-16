@@ -83,5 +83,7 @@ export const MEETINGS_SPEC: EntitySpec = {
   defaultSort: DEFAULT_SORT,
   builtins: BUILTIN_VIEWS,
   savedViewsTable: "meeting_saved_views",
+  // Grantable list page (2026-10-16) — saved views follow page access.
+  route: "/meetings",
   optionsView: "v_admin_meetings_filter_options",
 }

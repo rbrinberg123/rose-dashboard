@@ -4,7 +4,7 @@ import { redirect } from "next/navigation"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
 import { markTestRows, testRowIds } from "@/lib/crm-write"
-import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { getEffectiveAllowedRoutes, getEffectiveCrmLevels, getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import type { AdminEventRow } from "@/lib/types"
 import { ROW_CAP, availableColumns, countRows, fetchRows } from "@/lib/table-views/query"
 import { ACCOUNT_TEAM_KEYS } from "@/lib/account-team"
@@ -14,7 +14,8 @@ import { EVENTS_SPEC } from "@/lib/events/spec"
 import { applyEventQuickFilters, type EventQuickFilters } from "@/lib/events/filters"
 import { listSavedViews } from "./actions"
 import { EventsView } from "./events-view"
-import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { canAccessRoute, hasSuperUserPrivileges } from "@/lib/access-control"
+import { levelAtLeast } from "@/lib/access/crm-levels-policy"
 
 export const dynamic = "force-dynamic"
 
@@ -65,7 +66,12 @@ export default async function EventsPage({
 }) {
   // ---- GATE (must stay first — nothing above this line may touch data) ----
   const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) redirect("/no-access")
+  // 2026-10-16: PAGE ACCESS, not super-user — /events is a grantable list page
+  // (role / per-user grant; see canReadCrmPage in lib/crm-write.ts). Supersedes
+  // the ADMIN_ONLY_ROUTES note above. No row scoping: a granted page shows every
+  // row. Writes stay super-user only (requireCrmWriter).
+  if (!canAccessRoute(role, "/events", await getEffectiveAllowedRoutes())) redirect("/no-access")
+  const crmLevels = await getEffectiveCrmLevels()
 
   const sp = await searchParams
   const requestedId = typeof sp.view === "string" ? sp.view : null
@@ -202,6 +208,12 @@ export default async function EventsPage({
         activeConfig={effectiveConfig}
         viewCounts={viewCounts}
         canManageSystemViews={hasSuperUserPrivileges(role)}
+        canWrite={hasSuperUserPrivileges(role)}
+        // CRM access level (2026-10-16; super users / admins resolve to Manage).
+        // Buttons only — every write re-checks via requireCrmLevel.
+        canEdit={levelAtLeast(crmLevels["/events"], "edit")}
+        canManage={crmLevels["/events"] === "manage"}
+        canAddMeeting={crmLevels["/meetings"] === "manage"}
         /* Writes are refused while impersonating (saved-views invariant 4); the
            UI hides the save controls rather than offering a doomed click. */
         readOnlyViews={identity.impersonated}

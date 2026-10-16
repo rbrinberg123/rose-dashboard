@@ -358,6 +358,8 @@ export function MeetingsView({
   activeConfig,
   viewCounts,
   canManageSystemViews,
+  canEdit,
+  canManage,
   readOnlyViews,
   availableColumns,
   quickFilters,
@@ -377,6 +379,10 @@ export function MeetingsView({
   activeConfig: ViewConfig
   viewCounts: Record<string, number | null>
   canManageSystemViews: boolean
+  /** Server-decided CRM access level >= Edit — shows Edit (2026-10-16; the server re-checks). */
+  canEdit: boolean
+  /** Server-decided CRM access level == Manage — shows New / Purge test (the server re-checks). */
+  canManage: boolean
   /** True while impersonating: every saved-view write is refused server-side. */
   readOnlyViews: boolean
   /**
@@ -728,11 +734,15 @@ export function MeetingsView({
           compact
           eyebrow="Admin · Hidden pages"
           title="Meetings"
-          subtitle="Every meeting in the CRM — all statuses, all dates, active and deactivated. No row scoping is applied, so this page is super-user only."
+          subtitle="Every meeting in the CRM — all statuses, all dates, active and deactivated. No row scoping is applied."
           rightSlot={
             <div className="flex items-center gap-2">
-              <PurgeTestMeetingsButton />
-              <NewMeetingButton />
+              {canManage && (
+                <>
+                  <PurgeTestMeetingsButton />
+                  <NewMeetingButton />
+                </>
+              )}
             </div>
           }
         />
@@ -1050,7 +1060,7 @@ export function MeetingsView({
           it, so opening a record cannot remount the table — which is what keeps
           the list's scroll position and virtualization window intact. */}
       <MeetingRecordPane
-        onEdit={openId ? () => setEditId(openId) : undefined}
+        onEdit={canEdit && openId ? () => setEditId(openId) : undefined}
         record={record}
         loading={openId !== null && record === null && recordError === null}
         error={recordError}

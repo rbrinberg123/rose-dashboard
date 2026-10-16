@@ -56,11 +56,11 @@ import { revalidatePath } from "next/cache"
 
 import { getSupabaseServer } from "@/lib/supabase"
 import { diffRows, recordAudit, snapshot } from "@/lib/audit"
-import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { getEffectiveAllowedRoutes, getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { builtinSavedViews, parseConfig } from "./config"
 import type { EntitySpec, SavedView, SavedViewScope } from "./types"
-import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { canAccessRoute, hasSuperUserPrivileges } from "@/lib/access-control"
 
 type ViewRow = {
   id: string
@@ -113,16 +113,21 @@ async function canonicalise(userId: string | null): Promise<{ id: string | null;
 /**
  * Resolve the caller, or refuse.
  *
- * These pages are super-user-only (ADMIN_ONLY_ROUTES), and this re-checks rather
+ * Pages whose spec has no `route` are super-user-only (ADMIN_ONLY_ROUTES); a
+ * spec WITH a route (the four grantable CRM list pages, 2026-10-16) admits
+ * whoever canAccessRoute lets onto that page. Either way this re-checks rather
  * than assuming the page gated it — a server action is its own entry point and
  * can be invoked directly. Role and identity resolve concurrently; neither feeds
  * the other, and the role is still checked before any table is touched.
  */
-export async function requireCaller(): Promise<
+export async function requireCaller(spec: EntitySpec): Promise<
   { ok: true; caller: Caller } | { ok: false; error: string }
 > {
   const [role, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
-  if (!hasSuperUserPrivileges(role)) return { ok: false, error: "Not authorised." }
+  const allowed = spec.route
+    ? canAccessRoute(role, spec.route, await getEffectiveAllowedRoutes())
+    : hasSuperUserPrivileges(role)
+  if (!allowed) return { ok: false, error: "Not authorised." }
 
   const canon = await canonicalise(identity.userId)
   if (canon.error) return { ok: false, error: canon.error }
@@ -167,7 +172,7 @@ function toSavedView(spec: EntitySpec, row: ViewRow, callerId: string | null): S
  * than a post-filter in JS: nobody else's personal row is ever fetched.
  */
 export async function listSavedViews(spec: EntitySpec): Promise<ActionResult<SavedView[]>> {
-  const auth = await requireCaller()
+  const auth = await requireCaller(spec)
   if (!auth.ok) return fail(auth.error)
   const { caller } = auth
 
@@ -207,7 +212,7 @@ export async function createSavedView(
   spec: EntitySpec,
   input: { name: string; scope: SavedViewScope; config: unknown },
 ): Promise<ActionResult<{ id: string }>> {
-  const auth = await requireCaller()
+  const auth = await requireCaller(spec)
   if (!auth.ok) return fail(auth.error)
   const { caller } = auth
 
@@ -274,7 +279,7 @@ export async function updateSavedView(
   spec: EntitySpec,
   input: { id: string; name?: string; config?: unknown },
 ): Promise<ActionResult> {
-  const auth = await requireCaller()
+  const auth = await requireCaller(spec)
   if (!auth.ok) return fail(auth.error)
   const { caller } = auth
 
@@ -354,7 +359,7 @@ export async function setDefaultSavedView(
   spec: EntitySpec,
   input: { id: string | null; scope: SavedViewScope },
 ): Promise<ActionResult> {
-  const auth = await requireCaller()
+  const auth = await requireCaller(spec)
   if (!auth.ok) return fail(auth.error)
   const { caller } = auth
 
@@ -444,7 +449,7 @@ export async function deleteSavedView(
   spec: EntitySpec,
   input: { id: string },
 ): Promise<ActionResult> {
-  const auth = await requireCaller()
+  const auth = await requireCaller(spec)
   if (!auth.ok) return fail(auth.error)
   const { caller } = auth
 

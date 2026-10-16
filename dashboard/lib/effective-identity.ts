@@ -5,7 +5,8 @@ import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { getRealRole } from "@/lib/user-role"
 import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, effectiveAccessEmail, type Role, type ViewAsRole } from "@/lib/access-control"
 import { lookupPerson, resolveEffective } from "@/lib/impersonation"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getAllowedRoutes, getCrmLevels } from "@/lib/page-access"
+import type { CrmLevel, CrmLevelRoute } from "@/lib/access/crm-levels-policy"
 
 /**
  * Request-context wrappers around the core resolver (lib/impersonation.ts) for
@@ -77,6 +78,20 @@ export async function getEffectiveAllowedRoutes(): Promise<string[]> {
   const resolution = await resolveEffective(realRole, cookieVals.user, cookieVals.role)
   return getAllowedRoutes(resolution.effectiveRole, effectiveAccessEmail(email, resolution))
 }
+
+/**
+ * The effective CRM ACCESS LEVELS (2026-10-16) for the four level-gated CRM
+ * tables, for the same effective person/role as getEffectiveAllowedRoutes —
+ * PERSON View as → that person's role ∪ grants; ROLE View as → role only.
+ * Memoised per request (several actions/pages ask). See lib/page-access.ts
+ * getCrmLevels and lib/access/crm-levels-policy.ts.
+ */
+export const getEffectiveCrmLevels = cache(async (): Promise<Record<CrmLevelRoute, CrmLevel>> => {
+  const { email, role: realRole } = await readRealIdentity()
+  const cookieVals = await readViewCookies()
+  const resolution = await resolveEffective(realRole, cookieVals.user, cookieVals.role)
+  return getCrmLevels(resolution.effectiveRole, effectiveAccessEmail(email, resolution))
+})
 
 export type EffectiveIdentity = {
   email: string | null

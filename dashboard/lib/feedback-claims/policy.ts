@@ -6,10 +6,12 @@
  * race cannot slip past.
  *
  * Lifecycle (one Feedback task, subtype 'Feedback'):
- *   Open · unclaimed  → claim (capability)              → Open · claimed
- *   Open · claimed    → release (owner or admin)         → Open · unclaimed
- *   Open · claimed    → reassign (admin)                 → Open · claimed (new owner)
- *   Open · any        → close (owner, or admin)          → Completed
+ *   Open · unclaimed  → claim (Claim capability, or admin)       → Open · claimed
+ *   Open · claimed    → release (owner, admin, or Mark-received) → Open · unclaimed
+ *   Open · any        → assign / reassign (same three)           → Open · claimed (new owner)
+ *   Open · claimed    → close (owner, or admin)                  → Completed
+ * "admin" = hasSuperUserPrivileges (super user or admin). The two capabilities
+ * (2026-10-16) are lib/access/feedback-capabilities.ts.
  * Completing the Feedback task is the EXISTING completion workflow: it moves
  * the report into Pending Review in v_feedback_pipeline (the paired "Feedback
  * Report Sent" task's review / send flow is unchanged).
@@ -52,8 +54,24 @@ export type ClaimTask = {
 export type ClaimActor = {
   myIds: ReadonlySet<string>
   isAdmin: boolean
+  /** "Claim feedback report" capability (role or person grant). */
   hasCapability: boolean
+  /** "Mark feedback received" capability (role or person grant) — also lets them assign / release / reassign. */
+  markReceived: boolean
 }
+
+/**
+ * May this actor assign / release / reassign a Feedback (report) task?
+ * (2026-10-16) hasSuperUserPrivileges OR the task's current owner (the
+ * claimer) OR the "Mark feedback received" capability. Collection task only —
+ * the Feedback Report Sent task has no reassign.
+ */
+export function canManageAssignment(t: Pick<ClaimTask, "ownerId">, a: ClaimActor): boolean {
+  return a.isAdmin || a.markReceived || (!!t.ownerId && a.myIds.has(t.ownerId))
+}
+
+const MANAGE_DENIED =
+  "Only the task's owner, an admin, or someone who can mark feedback received can change who has this task."
 
 /** null = allowed; otherwise the user-facing reason. */
 export type Decision = string | null
@@ -81,14 +99,14 @@ export function decideRelease(t: ClaimTask, a: ClaimActor): Decision {
   const pool = inPool(t)
   if (pool) return pool
   if (!t.ownerId) return "This task isn't claimed."
-  if (!a.isAdmin && !a.myIds.has(t.ownerId)) return "Only the owner or an admin can release this task."
+  if (!canManageAssignment(t, a)) return MANAGE_DENIED
   return null
 }
 
 export function decideReassign(t: ClaimTask, a: ClaimActor, toUserId: string | null): Decision {
-  if (!a.isAdmin) return "Only an admin can reassign a task."
   const pool = inPool(t)
   if (pool) return pool
+  if (!canManageAssignment(t, a)) return MANAGE_DENIED
   if (!toUserId) return "Pick someone to assign it to."
   if (t.ownerId === toUserId) return "That person already owns this task."
   return null
@@ -97,20 +115,24 @@ export function decideReassign(t: ClaimTask, a: ClaimActor, toUserId: string | n
 /**
  * Closing / sending a report's "Feedback Report Sent" task (= Sent, done) — ONE
  * rule for every path (Feedback Reports → Close, the event card's Send, Tasks →
- * Close / Edit → Completed). Allowed for ANY of:
- *   - the sent task's OWNER (the associate),
- *   - the client's ACCOUNT TEAM (any of the six roles),
+ * Close / Edit → Completed). OWNER-ONLY (2026-10-16 — the account-team branch
+ * was removed): allowed for
+ *   - the sent task's OWNER (auto-assigned: the client's associate), or
  *   - hasSuperUserPrivileges (Super User or Admin).
  * The server works out each flag on a fresh read (lib/feedback-claims/close-guard.ts).
  */
-export function decideSentClose(a: { isOwner: boolean; onClientTeam: boolean; isAdmin: boolean }): Decision {
-  if (a.isOwner || a.onClientTeam || a.isAdmin) return null
-  return "Not authorised — only the associate, the client's account team, or an admin can send this report."
+export function decideSentClose(a: { isOwner: boolean; isAdmin: boolean }): Decision {
+  if (a.isOwner || a.isAdmin) return null
+  return "Not authorised — only the report's associate (the task owner) or an admin can send this report."
 }
 
 /** The Close guard's reason — shared with the buttons' tooltip. */
 export const CLOSE_NEEDS_ASSIGNEE = "Assign before closing."
 
+/**
+ * Closing the Feedback (collection / report) task — OWNER-ONLY: its owner (the
+ * claimer) or hasSuperUserPrivileges. No account-team branch (never had one).
+ */
 export function decideClose(t: ClaimTask, a: ClaimActor): Decision {
   const pool = inPool(t)
   if (pool) return pool

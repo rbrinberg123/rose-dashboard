@@ -614,6 +614,8 @@ export const CONTACTS_SPEC: EntitySpec = {
   defaultSort: CONTACT_DEFAULT_SORT,
   builtins: CONTACT_BUILTIN_VIEWS,
   savedViewsTable: "contact_saved_views",
+  // Grantable list page (2026-10-16) — saved views follow page access.
+  route: "/contacts",
   optionsView: "v_admin_contacts_filter_options",
 }
 

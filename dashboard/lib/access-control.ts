@@ -164,33 +164,25 @@ export const ALWAYS_ALLOWED_ROUTES = [
  *
  * Everything else in this app is matrix-driven: tick a box in Admin -> Roles and
  * the page opens to that role. These routes are deliberately NOT delegable that
- * way, because they expose data the row-scoping layer would otherwise restrict:
+ * way, because they expose data the row-scoping layer would otherwise restrict.
  *
- *   /events    CRM -> Events. Every marketing event in the CRM, read the same
- *              unscoped way from v_admin_events_all.
- *   /meetings  CRM -> Meetings. Every meeting in the CRM,
- *              read with the service-role key (RLS bypassed) and WITHOUT
- *              resolveMeetingScope, so it returns every client's meetings to
- *              whoever loads it. The page re-checks the effective role
- *              server-side before it fetches anything; this entry is the outer
- *              gate that stops the request reaching the page at all.
+ * (2026-10-16) The four primary CRM LIST pages — Clients (/accounts), Events,
+ * Meetings, Contacts — LEFT this list: they are now ordinary grantable pages
+ * (Roles matrix + per-user grants, "CRM" section of lib/page-registry.ts). A
+ * grant opens the whole list (NO row scoping), its filters / export / saved
+ * views and the read-only row drawers (canReadCrmPage, lib/crm-write.ts).
+ * Create / edit / delete stay super-user only (requireCrmWriter), and Client
+ * Detail keeps its account-team scoping. Tasks / Touchpoints / Notes stay here.
  *
  * Checked AFTER the super_user backstop, so a super_user still passes, and
  * BEFORE the matrix lookup, so an accidental (or malicious) role_page_access row
  * granting one of these to another role has no effect.
  */
 export const ADMIN_ONLY_ROUTES = [
-  "/meetings",
-  "/events",
+  // (/meetings, /events, /contacts, /accounts left 2026-10-16 — grantable list pages.)
   "/tasks",
   "/touchpoints",
   "/notes",
-  "/contacts",
-  // CRM -> Clients. Every account in the CRM, active AND inactive, read the same
-  // unscoped way from v_admin_accounts_all. Distinct from /portfolio, which is
-  // the matrix-grantable analytics view over active clients only — this one is
-  // the raw record and is not delegable.
-  "/accounts",
   // Admin -> Account Teams. NOT a CRM data table (deliberately absent from
   // CRM_NAV_ITEMS); listed here so the Roles matrix can never delegate it.
   // Adding a NEW route here changes no existing page's behaviour.
@@ -397,8 +389,8 @@ export function canAccessRoute(
 /* ---------------------------------------------------------------------------
  * The nav rail's CRM block
  *
- * Meetings is not one of the reporting sections in the rail. It is the raw CRM
- * mirror — every meeting for every client, unscoped — so it sits apart: pinned
+ * The CRM tables are not reporting sections in the rail. They are the raw CRM
+ * mirror — every row for every client, unscoped — so they sit apart: pinned
  * to the bottom of the rail, under its own "CRM" rule, drawn as an outline
  * rather than a fill (components/nav.tsx owns the drawing).
  *
@@ -438,31 +430,25 @@ export const CRM_NAV_ITEMS: readonly CrmNavItem[] = [
  * items together. False means none of it reaches the DOM: a non-super-user sees
  * no item AND no section break, rather than an empty labelled section.
  *
- * TWO conditions, deliberately, although today either alone would do:
- *
- *   hasSuperUserPrivileges an explicit floor (super_user or admin). This is the requirement — the CRM
- *                          block is super-user-only — stated where it cannot be
- *                          weakened from somewhere else. Were /meetings ever
- *                          taken out of ADMIN_ONLY_ROUTES, the second check
- *                          would start returning true for matrix-granted roles;
- *                          this one keeps the block super-user-only regardless.
- *
- *   canAccessRoute(...)    the SAME predicate proxy.ts enforces with, so the nav
- *                          can never advertise a route the proxy would block.
+ * ONE condition (2026-10-16): canAccessRoute — the SAME predicate proxy.ts
+ * enforces with, so the nav can never advertise a route the proxy would block.
+ * The old super-user floor was dropped when Clients / Events / Meetings /
+ * Contacts became grantable: a role or person granted one of them now sees the
+ * CRM block with just those items. Tasks / Touchpoints / Notes are still in
+ * ADMIN_ONLY_ROUTES, so canAccessRoute keeps them super-user only here too.
  *
  * `role` is the EFFECTIVE role (resolved in app/layout.tsx), so a super-user
  * using "View as" loses this block exactly as the impersonated person would —
  * matching what the page itself does server-side.
  *
  * NONE OF THIS IS THE SECURITY BOUNDARY. proxy.ts gates the route before the
- * page renders, and app/meetings/page.tsx re-checks the effective role before it
- * fetches anything. This only decides whether a link is drawn.
+ * page renders, and each page re-checks page access before it fetches
+ * anything. This only decides whether a link is drawn.
  */
 export function canSeeCrmNav(
   role: Role | null,
   allowedRoutes: readonly string[],
 ): boolean {
-  if (!hasSuperUserPrivileges(role)) return false
   return CRM_NAV_ITEMS.some((item) => canAccessRoute(role, item.href, allowedRoutes))
 }
 

@@ -3,7 +3,6 @@ import "server-only"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { getSupabaseServer } from "@/lib/supabase"
 import { isUuid } from "@/lib/crm-write"
-import { resolveAccountTeamScope } from "@/lib/access/account-team-scope"
 import { isAutomationOrigin } from "@/lib/feedback-reports/policy"
 import { FEEDBACK_SUBTYPE, decideClose, decideSentClose } from "@/lib/feedback-claims/policy"
 import { loadClaimViewer, resolveClaimActor } from "@/lib/feedback-claims/server"
@@ -17,8 +16,8 @@ import { loadClaimViewer, resolveClaimActor } from "@/lib/feedback-claims/server
  *     Used by closeFeedbackTask (Feedback Reports + the event card, via
  *     prepare()), and by app/tasks/actions.ts closeTask / updateTask.
  *   Feedback Report Sent task → decideSentClose: the report's OPEN review task,
- *     and the viewer is its owner (the associate) OR on the client's account
- *     team OR has hasSuperUserPrivileges. Used by closeFeedbackReview (Feedback
+ *     and the viewer is its owner (the associate) OR has hasSuperUserPrivileges
+ *     (owner-only since 2026-10-16 — no account-team branch). Used by closeFeedbackReview (Feedback
  *     Reports + the event card's Send) and by closeTask / updateTask.
  *
  * Check only — nothing is written here.
@@ -140,11 +139,11 @@ export async function checkSentTaskClose(reviewTaskId: string): Promise<ActionRe
     clientId = (row.client_account_id as string | null) ?? clientId
   }
 
-  // The unified rule: owner OR account team OR super-user privileges.
-  const team = await resolveAccountTeamScope({ email: viewer.email })
+  // The unified rule (owner-only, 2026-10-16): the owner OR super-user privileges.
+  // clientId above still proves the task is a real report's review task.
+  void clientId
   const reason = decideSentClose({
     isOwner: !!r.owner_id && viewer.myIds.has(r.owner_id),
-    onClientTeam: !!clientId && team.mode === "filter" && team.accountIds.has(clientId),
     isAdmin: viewer.isAdmin,
   })
   if (reason) return fail(reason)
