@@ -15,7 +15,7 @@ Since 2026-10-15, a client has **one status everywhere**: its **Client Health ra
 Lists that sort or group by status use this order (most urgent first), with No Rating always last. **No numbers are shown anywhere.** The old "1 · / 2 · / 3 ·" prefixes are gone, though the database still stores the codes `"1"` / `"2"` / `"3"`.
 
 **Where you see it:**
-- **My Portfolio:** the Status column, its filter, severity sort, colour key and printed report.
+- **Portfolio:** the Status column, its filter, severity sort, colour key and printed report.
 - **Client Statistics:** the "Clients by Status" donut. Clicking a slice or legend row opens Portfolio filtered to it.
 - **Outreach Status** (`/clients/to-do`): the Status column, sort and Excel export.
 - **Client Detail:** the status pill beside the client's name.

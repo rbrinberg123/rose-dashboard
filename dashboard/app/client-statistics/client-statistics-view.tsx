@@ -468,7 +468,7 @@ export function ClientStatisticsView({
               Clients by Manager
             </CardTitle>
             <CardDescription className="text-xs">
-              Active clients by Account Manager · click a row to view them in My Portfolio
+              Active clients by Account Manager · click a row to view them in Portfolio
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -628,7 +628,7 @@ export function ClientStatisticsView({
               Clients by Days Left on Contract
             </CardTitle>
             <CardDescription className="text-xs">
-              Active clients by time to expiry · click a row to view them in My Portfolio
+              Active clients by time to expiry · click a row to view them in Portfolio
             </CardDescription>
           </CardHeader>
           <CardContent>

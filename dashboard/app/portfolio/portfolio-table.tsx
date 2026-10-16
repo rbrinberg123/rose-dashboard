@@ -703,7 +703,7 @@ export function PortfolioTable({
                 Rose &amp; Co
               </div>
               <div style={{ fontSize: 20, fontWeight: 700, color: "#111827", marginTop: 2 }}>
-                My Portfolio
+                Portfolio
               </div>
             </div>
             <div style={{ fontSize: 11, color: "#4B5563" }} suppressHydrationWarning>
@@ -716,7 +716,7 @@ export function PortfolioTable({
 
       <div className="mb-4 no-print">
         <ListTitleCard
-          title="My Portfolio"
+          title="Portfolio"
           subtitle={`${rows.length.toLocaleString()} clients — health at a glance`}
         />
       </div>

@@ -293,6 +293,12 @@ export const HIDDEN_PAGE_REGISTRY: readonly HiddenPage[] = [
     hidden: true,
     note: "Retired 2026-10-08 — superseded by My Dashboard (same feeds, flags and badge).",
   },
+  {
+    route: "/client-margin",
+    label: "Client Margin",
+    hidden: true,
+    note: "New 2026-10-15, Phase 1 — known client hours (no cost/margin yet). Super user only while in build.",
+  },
 ]
 
 /** Is `pathname` (or a page under it) a currently hidden route? */

@@ -55,7 +55,7 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   // its checkbox has no effect. Client Statistics is /client-statistics below.
   { route: "/", label: "Home (→ My Dashboard)", section: "Clients" },
   { route: "/client-statistics", label: "Client Statistics", section: "Clients" },
-  { route: "/portfolio", label: "My Portfolio", section: "Clients" },
+  { route: "/portfolio", label: "Portfolio", section: "Clients" },
   { route: "/client-detail", label: "Client Detail", section: "Clients" },
   // Label is the DISPLAY name (shown on the Admin → Roles matrix); the route is
   // the stable key that role grants are stored against, so it stays `to-do`.
@@ -103,6 +103,7 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   { route: "/contract-management", label: "Contract Management", section: "Contracts" },
   { route: "/renewals", label: "Contract Renewals", section: "Contracts" },
   { route: "/margin", label: "Margin by Client", section: "Contracts" },
+  { route: "/client-margin", label: "Client Margin (hidden, super-user only — Admin → Hidden Pages)", section: "Contracts" },
   { route: "/revenue-overrides", label: "Revenue Overrides", section: "Contracts" },
   { route: "/direct-costs", label: "Direct Costs", section: "Contracts" },
   { route: "/cost-assumptions", label: "Cost Assumptions", section: "Contracts" },
@@ -198,7 +199,7 @@ export const DATA_PERMISSIONS: readonly DataPermissionEntry[] = [
     key: "data:financials",
     label: "Financials",
     description:
-      "See retainer / fee dollar figures — My Portfolio Retainer column + contract doc, Client Detail Annualized Retainer and $ per Meeting",
+      "See retainer / fee dollar figures — Portfolio Retainer column + contract doc, Client Detail Annualized Retainer and $ per Meeting",
   },
 ] as const
 

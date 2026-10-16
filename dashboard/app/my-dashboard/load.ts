@@ -77,7 +77,7 @@ export const FEEDBACK_SUBTYPES = ["Feedback", "Feedback Report Sent"] as const
 
 /** The "Jump to" bar's destinations, in order (approved mockup quicklinks-v3, variant D·). */
 export const JUMP_LINKS = [
-  { href: "/portfolio", label: "My Portfolio" },
+  { href: "/portfolio", label: "Portfolio" },
   { href: "/clients/to-do", label: "Outreach Status" },
   // Shown only to viewers who may open Client Health (super users today) —
   // the same canAccessRoute filter as every link here.

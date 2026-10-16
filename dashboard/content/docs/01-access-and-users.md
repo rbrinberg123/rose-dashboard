@@ -167,7 +167,7 @@ The grantable set today:
 
 | Section | Grantable pages |
 |---|---|
-| Clients | Client Statistics, My Portfolio, Client Detail, Outreach Status |
+| Clients | Client Statistics, Portfolio, Client Detail, Outreach Status |
 | Institutions | Summary, Detail, Style / Set Finder, Relationships (parked) |
 | Productivity | People Statistics, Summary, Detail, Capacity |
 | Logistics | Planning, legacy Planning, NDRS Calendar, Host Calendar, Live Outreach, Profiles, Feedback Reports, Feedback Collection, Onboarding, Time Off, Upcoming Meetings / Conference Rooms / OOO Summary (parked) |

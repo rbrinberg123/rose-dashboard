@@ -272,7 +272,7 @@ function MeetingFormDialog({
               ) : (
                 <>
               Created directly in the dashboard (not in Dynamics). It appears on this page right away and flows
-              everywhere a meeting does — My Portfolio counts, Client Detail, Scheduler and the emails.
+              everywhere a meeting does — Portfolio counts, Client Detail, Scheduler and the emails.
                 </>
               )}
             </DialogDescription>

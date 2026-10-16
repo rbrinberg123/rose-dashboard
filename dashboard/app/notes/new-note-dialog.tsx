@@ -186,7 +186,7 @@ function NoteFormDialog({
               ) : (
                 <>
               Created directly in the dashboard (not in Dynamics). It appears on this page right away and
-              flows everywhere a note does — My Portfolio, Client Detail, the AI summary and Live Outreach.
+              flows everywhere a note does — Portfolio, Client Detail, the AI summary and Live Outreach.
                 </>
               )}
             </DialogDescription>

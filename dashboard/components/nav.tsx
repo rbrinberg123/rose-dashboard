@@ -114,7 +114,7 @@ const sections: NavSection[] = [
       // Super-user only (ADMIN_ONLY_ROUTES): canAccessRoute hides it from every
       // other role, matching the proxy.
       { href: "/client-health", label: "Client Health" },
-      { href: "/portfolio", label: "My Portfolio" },
+      { href: "/portfolio", label: "Portfolio" },
       // Client Detail (/client-detail) is NOT a nav item (2026-10-11): it is
       // reached by clicking a client name / ticker (My Portfolio, Outreach
       // Status, the CRM tables …). Route and page unchanged.

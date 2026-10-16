@@ -891,12 +891,6 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                   className="mt-3 flex flex-wrap items-center gap-x-1 gap-y-1.5 pt-2.5"
                   style={{ borderTop: "1px solid #E6EAF0" }}
                 >
-                  <span
-                    className="mr-1.5 shrink-0 font-bold uppercase"
-                    style={{ fontSize: 10.5, letterSpacing: "0.05em", color: TEXT_MUTED }}
-                  >
-                    My Book · {data.book.count}
-                  </span>
                   {data.book.groups.length === 0 && (
                     <span style={{ fontSize: 12, color: TEXT_MUTED }}>
                       You are not on any active client&apos;s account team.
@@ -950,7 +944,7 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                       className="ml-auto shrink-0 pl-2 font-semibold hover:underline"
                       style={{ fontSize: 11, color: "#0355A7" }}
                     >
-                      Open all in My Portfolio →
+                      Open all in Portfolio →
                     </Link>
                   )}
                 </div>
@@ -979,7 +973,7 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
           Three columns from lg up; one stacked column below. */}
             <div className="mb-3 px-1">
               <h2 className="font-bold" style={{ fontSize: 20, color: TEXT_PRIMARY }}>
-                My To-Dos &amp; Activity
+                To-Dos &amp; Activity
               </h2>
               <p style={{ fontSize: 12.5, color: TEXT_MUTED }}>
                 What needs your action, and what&apos;s moving on your clients.

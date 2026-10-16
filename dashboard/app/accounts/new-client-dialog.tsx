@@ -210,7 +210,7 @@ function ClientFormDialog({
               <FormSection panel icon={Tags} title="Status & Classification">
                 <SelectField
                   id="nl-active"
-                  label="Active/Inactive — only Active clients appear on My Portfolio"
+                  label="Active/Inactive — only Active clients appear on Portfolio"
                   value={form.active ? "1" : "0"}
                   onChange={(v) => set({ active: v === "1" })}
                   options={[
@@ -356,7 +356,7 @@ function ClientFormDialog({
                   <span className="font-medium">Test record</span>
                   <span className="block text-xs text-muted-foreground">
                     Marked TEST and removed by “Delete test clients”. It is NOT hidden anywhere — an Active test
-                    client appears on My Portfolio like any other.
+                    client appears on Portfolio like any other.
                   </span>
                 </span>
               </label>

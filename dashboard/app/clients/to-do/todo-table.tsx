@@ -879,7 +879,7 @@ export function TodoTable({
                 <SortHeader
                   label="Status"
                   sortKey="health_rating"
-                  title="Client status: the effective Client Health rating — same field and colours as My Portfolio"
+                  title="Client status: the effective Client Health rating — same field and colours as Portfolio"
                   {...headerProps}
                 />
               </TableHead>

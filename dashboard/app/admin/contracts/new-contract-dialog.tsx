@@ -185,7 +185,7 @@ function ContractFormDialog({
           <DialogDescription>
             {editId
               ? "Editing a contract created in the dashboard. Changes are saved directly and audited."
-              : "Created directly in the dashboard (not in Dynamics). It appears on this page right away; My Portfolio and the contract reports still read Dynamics contracts only."}
+              : "Created directly in the dashboard (not in Dynamics). It appears on this page right away; Portfolio and the contract reports still read Dynamics contracts only."}
           </DialogDescription>
         </DialogHeader>
 
