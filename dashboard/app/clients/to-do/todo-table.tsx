@@ -1044,6 +1044,7 @@ export function TodoTable({
                         links to Client Detail, full client name on hover. */}
                     <TableCell className={CELL}>
                       <Link
+                        prefetch={false}
                         href={`/client-detail?account_id=${r.account_id}`}
                         title={r.client_name}
                         // Inherits the table's own font family and size (no

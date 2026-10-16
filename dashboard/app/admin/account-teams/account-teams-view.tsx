@@ -293,6 +293,7 @@ export function AccountTeamsView({
                     {selected.name}
                   </h2>
                   <Link
+                    prefetch={false}
                     href={`/client-detail?account_id=${selected.accountId}`}
                     className="text-[12px] font-medium hover:underline"
                     style={{ color: BRAND_BLUE }}

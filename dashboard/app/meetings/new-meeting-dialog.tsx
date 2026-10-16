@@ -50,6 +50,7 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   MEETING_CANCELLED_OPTIONS,
   MEETING_STATUS_OPTIONS,
+  MEETING_TYPE_LIVE,
   MEETING_TYPE_OPTIONS,
   NEW_MEETING_TEST_DEFAULT,
   validateMeetingRequired,
@@ -232,20 +233,29 @@ function MeetingFormDialog({
 
   // REQUIRED fields: shown once the user has tried to submit, then live.
   const [showErrors, setShowErrors] = React.useState(false)
-  const fieldErrors: MeetingFieldErrors = showErrors ? validateMeetingRequired(form) : {}
+  // City pre-fill (Add Meeting copies the event's free-text Location) is only a
+  // convenience: once the city list loads, a value that matches no city counts
+  // as blank — shown, validated and saved as blank. City is required only on Live.
+  const cityMatch = (name: string | null | undefined) =>
+    !choices || !name?.trim()
+      ? (name ?? null)
+      : (choices.cities.find((c) => c.name.toLowerCase() === name.trim().toLowerCase())?.name ?? null)
+  const checked: NewMeetingInput = { ...form, cityName: cityMatch(form.cityName) }
+  const cityRequired = form.typeCode === MEETING_TYPE_LIVE
+  const fieldErrors: MeetingFieldErrors = showErrors ? validateMeetingRequired(checked) : {}
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
     setShowErrors(true)
-    if (Object.keys(validateMeetingRequired(form)).length) {
+    if (Object.keys(validateMeetingRequired(checked)).length) {
       return setError("Fill in the required fields marked below.")
     }
     if (!form.start) return setError("Enter the date and time.")
     startTransition(async () => {
       const r = editId
-        ? await updateMeeting(editId, form)
-        : await createMeeting(form, lockedEvent ? { fromEventId: lockedEvent.id } : undefined)
+        ? await updateMeeting(editId, checked)
+        : await createMeeting(checked, lockedEvent ? { fromEventId: lockedEvent.id } : undefined)
       if (!r.ok) {
         setError(r.error)
         return
@@ -281,7 +291,7 @@ function MeetingFormDialog({
           <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
             <div className="grid min-h-0 flex-1 gap-x-4 gap-y-2.5 overflow-y-auto px-4 py-3 lg:grid-cols-3">
               {/* ---- Column 1: the meeting itself ---- */}
-              <div className="grid content-start gap-2.5">
+              <div className="grid min-w-0 content-start gap-2.5">
                 <FormSection panel icon={CalendarClock} title="Meeting">
                   <div className="grid gap-1.5">
                     <Label>
@@ -359,7 +369,14 @@ function MeetingFormDialog({
                       id="nm-event"
                       value={form.eventId ?? ""}
                       onChange={(e) => setForm((f) => ({ ...f, eventId: e.target.value }))}
-                      className={SELECT_CLASS}
+                      // w-full + min-w-0: a long event title must never size the
+                      // column — the select clips it; the full name is on hover.
+                      className={`${SELECT_CLASS} w-full min-w-0`}
+                      title={
+                        lockedEvent?.name ??
+                        events.find((ev) => ev.event_id === form.eventId)?.name ??
+                        undefined
+                      }
                       disabled={!form.clientAccountId || !!lockedEvent}
                     >
                       <option value="">— none —</option>
@@ -455,10 +472,11 @@ function MeetingFormDialog({
                   <div className="grid grid-cols-2 gap-2">
                     <SelectField
                       id="nm-cityName"
-                      label="City"
-                      value={form.cityName ?? ""}
+                      label={cityRequired ? <>City <Req /></> : "City"}
+                      value={checked.cityName ?? ""}
                       onChange={(v) => set({ cityName: v || null })}
                       options={(choices?.cities ?? []).map((o) => ({ value: o.name, label: o.name }))}
+                      error={fieldErrors.cityName}
                     />
                     <SelectField
                       id="nm-stateRegionName"
@@ -484,7 +502,7 @@ function MeetingFormDialog({
               </div>
 
               {/* ---- Column 2: flags, representatives, planning, logistics ---- */}
-              <div className="grid content-start gap-2.5">
+              <div className="grid min-w-0 content-start gap-2.5">
                 <FormSection panel icon={Flag} title="Flags">
                   <div className="grid grid-cols-2 gap-2">
                     <YesNo label="Group Meeting" checked={form.groupMeeting} onChange={(v) => set({ groupMeeting: v })} />
@@ -591,7 +609,7 @@ function MeetingFormDialog({
               </div>
 
               {/* ---- Column 3: feedback, cancellation, rescheduling ---- */}
-              <div className="grid content-start gap-2.5">
+              <div className="grid min-w-0 content-start gap-2.5">
                 <FormSection panel icon={MessageSquare} title="Feedback">
                   <SelectField
                     id="nm-feedbackStatusCode"
@@ -803,7 +821,8 @@ export function EditMeetingDialog({
 /**
  * "Add Meeting" from an event (event drawer + event edit dialog) — this same
  * create form, with Client + Event pre-filled and LOCKED to the event, and the
- * event's location as the meeting City (editable). createMeeting re-checks
+ * event's location as the meeting City (editable; a pre-fill only — ignored when
+ * it matches no known city, and City is required only on Live). createMeeting re-checks
  * server-side that the event may take it (canAddMeetingFromEvent) and lets it
  * link whatever the event's stage. Mounted only while open.
  */

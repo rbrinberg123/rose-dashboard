@@ -55,15 +55,21 @@ export function canAddMeetingFromEvent(origin: string | null | undefined): boole
   return origin === "dashboard" || (ADD_MEETING_FROM_EVENT_INCLUDES_DYNAMICS && origin === "dynamics")
 }
 
-export type MeetingFieldErrors = Partial<Record<"clientAccountId" | "typeCode" | "institutionId" | "investor", string>>
+export type MeetingFieldErrors = Partial<
+  Record<"clientAccountId" | "typeCode" | "institutionId" | "investor" | "cityName", string>
+>
+
+/** The "Live" (in-person) meeting type code — the only type that requires a City. */
+export const MEETING_TYPE_LIVE = 755860001
 
 /**
- * REQUIRED fields — Client, Type, Institution, Investor. Pure: the form calls
+ * REQUIRED fields — Client, Type, Institution, Investor, and City ONLY for a
+ * Live meeting (a Virtual meeting saves with City blank). Pure: the form calls
  * it to block submit and mark the fields; createMeeting / updateMeeting call it
  * again server-side. Empty object = valid.
  */
 export function validateMeetingRequired(
-  input: Pick<NewMeetingInput, "clientAccountId" | "typeCode" | "institutionId" | "investor">,
+  input: Pick<NewMeetingInput, "clientAccountId" | "typeCode" | "institutionId" | "investor" | "cityName">,
 ): MeetingFieldErrors {
   const errors: MeetingFieldErrors = {}
   if (!(input.clientAccountId ?? "").trim()) errors.clientAccountId = "Pick a client."
@@ -72,6 +78,9 @@ export function validateMeetingRequired(
   }
   if (!(input.institutionId ?? "").trim()) errors.institutionId = "Pick an institution."
   if (!(input.investor ?? "").trim()) errors.investor = "Enter the investor."
+  if (input.typeCode === MEETING_TYPE_LIVE && !(input.cityName ?? "").trim()) {
+    errors.cityName = "Pick a city — required for a Live meeting."
+  }
   return errors
 }
 

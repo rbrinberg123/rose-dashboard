@@ -668,6 +668,7 @@ export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
                   <TableCell className="px-2.5 py-1.5 align-middle">
                     <div className="max-w-[220px] truncate" title={r.name}>
                       <Link
+                        prefetch={false}
                         href={`/client-detail?account_id=${r.account_id}`}
                         className="font-medium hover:underline"
                         style={{ color: NAVY }}

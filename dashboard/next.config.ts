@@ -9,6 +9,12 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/admin/docs": ["./content/docs/**/*.md", "./vercel.json", "./.env.example"],
   },
+  // Let proxy.ts see the `next-router-prefetch` header (Next strips it from the
+  // proxy's request otherwise) so link prefetches can skip the session refresh —
+  // see "How the session is checked on each request" in
+  // content/docs/01-access-and-users.md. Side effect: the proxy's URL keeps the
+  // internal `_rsc` query param (proxy.ts drops it from the /login `next=`).
+  skipProxyUrlNormalize: true,
 };
 
 export default nextConfig;

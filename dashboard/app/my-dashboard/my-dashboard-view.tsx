@@ -96,6 +96,7 @@ function Chip({ label, outline = false, strong = false }: { label: string; outli
 function RowLink({ href, children }: { href: string | null; children: React.ReactNode }) {
   return href ? (
     <Link
+      prefetch={false}
       href={href}
       className="block transition-colors hover:bg-[rgba(16,24,40,0.02)] focus:outline-none focus-visible:bg-[rgba(16,24,40,0.04)]"
     >
@@ -926,6 +927,7 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                           return c.href ? (
                             <Link
                               key={c.accountId}
+                              prefetch={false}
                               href={c.href}
                               className="[&>span]:hover:border-[#0355A7] [&>span]:hover:text-[#0355A7]"
                             >

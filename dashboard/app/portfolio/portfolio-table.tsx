@@ -1403,6 +1403,7 @@ export function PortfolioTable({
                     >
                       <div className="truncate" title={r.name}>
                         <Link
+                          prefetch={false}
                           href={`/client-detail?account_id=${r.account_id}`}
                           className="font-medium hover:underline"
                           style={{ color: NAVY }}

@@ -264,6 +264,7 @@ export function ContractManagementView({
                       <td className="px-3 py-2 text-left">
                         <span className="inline-flex items-center gap-1.5">
                           <Link
+                            prefetch={false}
                             href={`/client-detail?account_id=${r.account_id}`}
                             className="font-medium text-[#1E2858] hover:underline"
                           >

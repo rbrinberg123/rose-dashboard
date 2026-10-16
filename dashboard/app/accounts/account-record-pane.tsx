@@ -152,6 +152,7 @@ function Field({
           // destination the rest of the app uses.
           body = (
             <Link
+              prefetch={false}
               href={`/client-detail?account_id=${accountId}`}
               className="font-medium hover:underline"
               style={{ color: BRAND_BLUE }}

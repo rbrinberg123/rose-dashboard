@@ -818,6 +818,7 @@ function renderCell(
       if (!row.client_account_id) return text
       return (
         <Link
+          prefetch={false}
           href={`/client-detail?account_id=${row.client_account_id}`}
           className="block min-w-0 truncate font-medium hover:underline"
           style={{ color: BRAND_BLUE }}

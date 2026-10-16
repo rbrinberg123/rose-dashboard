@@ -178,6 +178,7 @@ function AlertRowLine({ row }: { row: AlertRow }) {
   // still drawn, so the rows stay aligned).
   return row.accountId ? (
     <Link
+      prefetch={false}
       href={"/client-detail?account_id=" + row.accountId}
       className="block focus:outline-none focus-visible:bg-[rgba(3,85,167,0.06)]"
     >

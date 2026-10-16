@@ -147,6 +147,7 @@ function Field({
         if (def.sourceKey === "client_account_name" && clientAccountId) {
           body = (
             <Link
+              prefetch={false}
               href={`/client-detail?account_id=${clientAccountId}`}
               className="font-medium hover:underline"
               style={{ color: BRAND_BLUE }}

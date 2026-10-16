@@ -1753,6 +1753,7 @@ export function ClientDetailView({
               // view= the built-in "All meetings" view (lib/meetings/spec.ts) —
               // no date filter, so the page does not fall back to its
               // "Upcoming" default; client= is then the ONLY filter.
+              prefetch={false}
               href={`/meetings?view=${encodeURIComponent(`${BUILTIN_PREFIX}all`)}&client=${encodeURIComponent(selected.account_id)}`}
               className="shrink-0 text-xs font-semibold text-[#0355A7] hover:underline"
             >

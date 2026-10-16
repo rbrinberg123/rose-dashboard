@@ -1,6 +1,7 @@
 import { cookies } from "next/headers"
 import { createServerClient } from "@supabase/ssr"
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { singleFlightRefreshFetch } from "@/lib/supabase/refresh-single-flight"
 
 /**
  * Server-side Supabase auth client for Server Components, Server Actions,
@@ -27,6 +28,8 @@ export async function getSupabaseServerAuth(): Promise<SupabaseClient> {
   }
 
   return createServerClient(url, key, {
+    // Parallel requests needing a token refresh share one call (see file).
+    global: { fetch: singleFlightRefreshFetch },
     cookies: {
       getAll() {
         return cookieStore.getAll()

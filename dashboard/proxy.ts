@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { getSupabaseProxy } from "@/lib/supabase/proxy"
+import { getSupabaseProxy, readSessionAccessToken } from "@/lib/supabase/proxy"
 import {
   canAccessRoute,
   effectiveAccessEmail,
@@ -88,7 +88,30 @@ export async function proxy(request: NextRequest) {
   // everywhere, deleted user) stays valid until its access token expires (≤1h).
   // Access itself is unaffected: the role is still read from user_role_grants
   // on every request below, so removing someone's role takes effect at once.
-  const { data: claimsData } = await timed("proxy", "auth.getClaims", supabase.auth.getClaims())
+  //
+  // PREFETCH (2026-10-16): a <Link> prefetch is not a real navigation, and a
+  // page of links fires many at once. If each one refreshed a nearly-expired
+  // token, Supabase rate-limited the burst (429) and the failed refresh deleted
+  // the session cookies — intermittent stalls and bounces to /login. So for a
+  // prefetch we verify the token ALREADY in the cookie (getClaims(token): same
+  // signature + expiry check, no refresh). If it is no longer valid we answer
+  // 204 "nothing to prefetch" — never a page, never a redirect — and the click
+  // itself, a real navigation, refreshes as usual below. No session cookie at
+  // all → normal path (it makes no network call either).
+  const prefetchToken = request.headers.has("next-router-prefetch")
+    ? await readSessionAccessToken(request)
+    : null
+  let claimsData: Awaited<ReturnType<typeof supabase.auth.getClaims>>["data"]
+  if (prefetchToken) {
+    // getClaims(token) THROWS (rather than returning an error) for an expired
+    // token, so any failure here means "not valid" → nothing to prefetch.
+    claimsData = await timed("proxy", "auth.getClaims(prefetch)", supabase.auth.getClaims(prefetchToken))
+      .then((r) => r.data)
+      .catch(() => null)
+    if (!claimsData?.claims) return new NextResponse(null, { status: 204 })
+  } else {
+    ;({ data: claimsData } = await timed("proxy", "auth.getClaims", supabase.auth.getClaims()))
+  }
   const user = claimsData?.claims
     ? { email: (claimsData.claims.email as string | undefined) ?? undefined }
     : null
@@ -115,7 +138,12 @@ export async function proxy(request: NextRequest) {
   if (!user) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
-    url.search = pathname !== "/" ? `?next=${encodeURIComponent(pathname + search)}` : ""
+    // skipProxyUrlNormalize (next.config.ts) leaves Next's internal `_rsc`
+    // cache-buster on the URL; keep it out of the post-login destination.
+    const nextParams = new URLSearchParams(search)
+    nextParams.delete("_rsc")
+    const nextSearch = nextParams.toString() ? `?${nextParams}` : ""
+    url.search = pathname !== "/" ? `?next=${encodeURIComponent(pathname + nextSearch)}` : ""
     return NextResponse.redirect(url)
   }
 

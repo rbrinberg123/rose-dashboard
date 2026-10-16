@@ -639,6 +639,7 @@ function Row({
       <TableCell className="truncate px-2 py-0.5 text-[13px]" title={row.record_id ?? undefined}>
         {accountId ? (
           <Link
+            prefetch={false}
             href={`/client-detail?account_id=${accountId}`}
             className="font-medium hover:underline"
             style={{ color: BRAND_BLUE }}

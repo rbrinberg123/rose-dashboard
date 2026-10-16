@@ -883,6 +883,7 @@ function renderCell(
         // long ticker. A row with no team keeps the link on the left.
         <div className="flex min-w-0 items-center justify-between gap-1.5">
           <Link
+            prefetch={false}
             href={`/client-detail?account_id=${row.client_account_id}`}
             className="min-w-0 truncate font-medium hover:underline"
             style={{ color: BRAND_BLUE }}

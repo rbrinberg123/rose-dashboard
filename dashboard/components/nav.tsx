@@ -518,6 +518,7 @@ function Section({
     return (
       <div className="px-3 py-[2px]">
         <Link
+          prefetch={false}
           href={href}
           onClick={onNavigate}
           aria-current={active ? "page" : undefined}
@@ -558,6 +559,7 @@ function Section({
           return (
             <li key={itemHref}>
               <Link
+                prefetch={false}
                 href={itemHref}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
@@ -596,6 +598,7 @@ function Section({
               return (
                 <li key={itemHref}>
                   <Link
+                    prefetch={false}
                     href={itemHref}
                     onClick={onNavigate}
                     aria-current={active ? "page" : undefined}
@@ -734,6 +737,7 @@ function CrmNavRow({
   return (
     <div className={nested ? "py-px pl-7 pr-3" : "px-3 py-px"}>
       <Link
+        prefetch={false}
         href={href}
         onClick={onNavigate}
         aria-current={active ? "page" : undefined}
@@ -1232,6 +1236,7 @@ function RailIconLink({
   return (
     <div className={RAIL_ROW_CLASS}>
       <Link
+        prefetch={false}
         href={href}
         title={label}
         aria-label={alertsAriaLabel(label, badge)}
@@ -1276,6 +1281,7 @@ function RailSection({
   return (
     <div className={RAIL_ROW_CLASS} {...triggerProps}>
       <Link
+        prefetch={false}
         href={target}
         aria-label={badge > 0 ? `${label} — ${badge} critical alerts` : label}
         aria-current={active ? "page" : undefined}
@@ -1299,6 +1305,7 @@ function RailSection({
               return (
                 <li key={href}>
                   <Link
+                    prefetch={false}
                     href={href}
                     aria-current={itemActive ? "page" : undefined}
                     aria-label={
@@ -1353,6 +1360,7 @@ function RailSection({
                   return (
                     <li key={href}>
                       <Link
+                        prefetch={false}
                         href={href}
                         aria-current={itemActive ? "page" : undefined}
                         className={cn(
@@ -1496,6 +1504,7 @@ function RailCrmIconLink({ item, active }: { item: CrmItem; active: boolean }) {
   return (
     <div className={RAIL_ROW_CLASS}>
       <Link
+        prefetch={false}
         href={href}
         title={label}
         aria-label={label}
@@ -1585,6 +1594,7 @@ function RailCrmGroup({ items, current }: { items: CrmItem[]; current: string })
               return (
                 <li key={href}>
                   <Link
+                    prefetch={false}
                     href={href}
                     onClick={() => setOpen(false)}
                     aria-current={itemActive ? "page" : undefined}
@@ -2094,6 +2104,7 @@ function UserPanel({
       </div>
       {showAdmin ? (
         <Link
+          prefetch={false}
           href="/admin"
           aria-label="Admin"
           aria-current={adminActive ? "page" : undefined}

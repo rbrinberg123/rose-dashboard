@@ -37,6 +37,7 @@ import {
   MEETING_STATUS_OPTIONS,
   canAddMeetingFromEvent,
   validateMeetingRequired,
+  MEETING_TYPE_LIVE,
   MEETING_TYPE_OPTIONS,
   type ChoiceOption,
   type MeetingChoiceOptions,
@@ -462,7 +463,7 @@ async function buildMeetingColumns(
   /** Edit only: people already on the meeting — kept even if now inactive. */
   currentPeople: ReadonlySet<string> = new Set(),
 ): Promise<ActionResult<{ cols: Record<string, unknown>; raw: Record<string, unknown> }>> {
-  // REQUIRED: Client, Type, Institution, Investor — the same rule the form
+  // REQUIRED: Client, Type, Institution, Investor (+ City on Live only) — the same rule the form
   // applies before submit (lib/meetings/create.ts validateMeetingRequired).
   const missing = Object.values(validateMeetingRequired(input))
   if (missing.length) return fail(missing.join(" "))
@@ -553,7 +554,10 @@ async function buildMeetingColumns(
 
   const cityName = cleanText(input.cityName)
   const city = cityName ? opts.cities.find((c) => c.name === cityName) : null
-  if (cityName && !city) return fail("Pick a city from the list.")
+  // An unknown city (e.g. the event's free-text Location pre-filled by Add
+  // Meeting) blocks only a Live meeting; on Virtual, City is optional, so it is
+  // simply not saved (city stays null below).
+  if (cityName && !city && input.typeCode === MEETING_TYPE_LIVE) return fail("Pick a city from the list.")
   const stateName = cleanText(input.stateRegionName)
   const stateRegion = stateName ? opts.states.find((c) => c.name === stateName) : null
   if (stateName && !stateRegion) return fail("Pick a state / region from the list.")

@@ -1028,6 +1028,7 @@ function ClientDetailLink({
 }) {
   return (
     <Link
+      prefetch={false}
       href={`/client-detail?account_id=${accountId}`}
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}

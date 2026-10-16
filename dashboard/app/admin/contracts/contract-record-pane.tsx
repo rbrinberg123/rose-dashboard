@@ -109,6 +109,7 @@ function Field({ def, record }: { def: ContractFieldDef; record: ContractRecord 
       case "link":
         body = record.account_id ? (
           <Link
+            prefetch={false}
             href={`/client-detail?account_id=${record.account_id}`}
             className="font-medium hover:underline"
             style={{ color: BRAND_BLUE }}

@@ -703,7 +703,7 @@ export function HealthView({
                         </div>
                       </td>
                       <td className="px-4 py-2.5 font-medium">
-                        <Link href={`/client-detail?account_id=${r.account_id}`} className="hover:underline">
+                        <Link prefetch={false} href={`/client-detail?account_id=${r.account_id}`} className="hover:underline">
                           {r.client_name}
                         </Link>
                       </td>

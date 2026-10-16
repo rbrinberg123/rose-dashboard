@@ -731,6 +731,7 @@ export function InstitutionDetailView({
                   </td>
                   <td className="px-2 py-2">
                     <Link
+                      prefetch={false}
                       href={`/client-detail?account_id=${row.client_account_id}`}
                       className="font-medium hover:underline"
                       style={{ color: NAVY_DEEP }}
@@ -814,6 +815,7 @@ export function InstitutionDetailView({
                     <td className="px-2 py-2">
                       {m.client_account_id && m.client_account_name ? (
                         <Link
+                          prefetch={false}
                           href={`/client-detail?account_id=${m.client_account_id}`}
                           className="font-medium hover:underline"
                           style={{ color: NAVY_DEEP }}

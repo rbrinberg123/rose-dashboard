@@ -345,6 +345,8 @@ An **Add Meeting** button sits at the top-right of the **Meetings & Reports** pa
 | Event | this event (`event_id`; label = event name) | **Locked** |
 | City | the event's Location | Yes |
 
+**City is required only for Live (in-person) meetings, not Virtual** (2026-10-16). The pre-filled City is a convenience only: when the event's Location matches no known city it is treated as blank, so it never blocks saving a Virtual meeting. A Live meeting asks for a city from the list. Enforced in the form and server-side; see [Meetings → Create & edit](12-meetings-all.md).
+
 There is no separate ticker field on a meeting — it comes from the client. **Stage rule:** the normal form only lists Pre-Launch / Live Outreach / Meetings Ongoing events, but here the event is kept **whatever its stage**, because the user chose it explicitly. `createMeeting(input, { fromEventId })` enforces this on the server. The meeting's event must equal `fromEventId`, the event must exist, and its origin must pass `canAddMeetingFromEvent`. The event's client must still match, and the usual `requireCrmWriter` gate applies (super user, not in View as). Saving refreshes the page.
 
 **Origin gate — now ON for Dynamics events too (2026-10-14):** `ADD_MEETING_FROM_EVENT_INCLUDES_DYNAMICS` (`lib/meetings/create.ts`) is `true`, so the button works on every event and the server accepts it. The new meeting is always **origin = 'dashboard'**, linked to the Dynamics event by `event_id`, and it shows up in that event's read-only list. This is safe because:

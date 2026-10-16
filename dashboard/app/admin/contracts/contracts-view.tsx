@@ -806,6 +806,7 @@ function renderCell(col: ContractColumnDef, row: AdminContractRow, raw: unknown)
       if (!row.account_id) return text
       const link = (
         <Link
+          prefetch={false}
           href={`/client-detail?account_id=${row.account_id}`}
           className="block min-w-0 truncate font-medium hover:underline"
           style={{ color: BRAND_BLUE }}

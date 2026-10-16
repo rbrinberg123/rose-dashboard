@@ -1183,6 +1183,7 @@ function renderCell(col: MeetingColumnDef, row: AdminMeetingRow, raw: unknown): 
       if (!row.client_account_id) return text
       return (
         <Link
+          prefetch={false}
           href={`/client-detail?account_id=${row.client_account_id}`}
           className="font-medium hover:underline"
           style={{ color: BRAND_BLUE }}

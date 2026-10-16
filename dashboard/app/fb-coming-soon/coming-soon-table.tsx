@@ -136,7 +136,7 @@ export function ComingSoonTable({ rows, readOnly }: { rows: ComingSoonRow[]; rea
                 </td>
                 <td className="truncate px-2.5 py-1 font-medium" title={r.clientName ?? undefined}>
                   {r.clientId ? (
-                    <Link href={"/client-detail?account_id=" + r.clientId} className="hover:underline">
+                    <Link prefetch={false} href={"/client-detail?account_id=" + r.clientId} className="hover:underline">
                       {r.clientName ?? "—"}
                     </Link>
                   ) : (

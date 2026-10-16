@@ -110,6 +110,7 @@ export function SectionNav({
             class, and the palette tokens shouldn't be re-typed as literals just
             to get a hover. */}
         <Link
+          prefetch={false}
           href={sectionHome}
           className="shrink-0 pt-[7px] pb-[5px] text-[14px] font-extrabold uppercase leading-[1.4] text-[var(--section-label)] transition-colors hover:text-[var(--section-label-hover)]"
           style={
@@ -149,6 +150,7 @@ export function SectionNav({
             return (
               <li key={item.href}>
                 <Link
+                  prefetch={false}
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={cn(

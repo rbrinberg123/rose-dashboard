@@ -224,7 +224,7 @@ export function canAccessRoute(
 
 The real security boundary is the **proxy** (Next.js 16's name for middleware), which runs on the server *before any page renders*:
 
-1. It calls `supabase.auth.getUser()` to validate the session and refresh the cookie.
+1. It calls `supabase.auth.getClaims()` to validate the session (signature + expiry, checked locally) and refresh the cookie when the token is about to expire. Link **prefetches** are the exception — they verify the existing token but never refresh it (see _How the session is checked on each request_ below).
 2. **No session** on a protected path → redirect to `/login` (preserving the intended destination in `?next=`).
 3. **Signed in** → resolve the **effective** role (View-as aware), load `getAllowedRoutes(effectiveRole)` once, and call `canAccessRoute(role, pathname, allowedRoutes)`. If denied, redirect to the role's **first allowed page** (`allowedRoutes[0]`), or `/no-access` if they have none. This replaces the old fixed `USER_HOME_ROUTE` and can never redirect-loop (the target is always reachable).
 
@@ -244,7 +244,7 @@ Resolving "who is this and what may they see?" costs real time: `auth.getUser()`
 | `getUserScopes` | `dashboard/lib/access/data-scope.ts` |
 | `lookupPerson` | `dashboard/lib/impersonation.ts` |
 | `loadIdentity` | `dashboard/lib/access/identity.ts` |
-| `readRealIdentity` (the `auth.getUser()` call) | `dashboard/lib/effective-identity.ts` |
+| `readRealIdentity` (the `auth.getClaims()` call) | `dashboard/lib/effective-identity.ts` |
 
 > 🔒 **These caches are per-REQUEST and must stay that way.** React's `cache()` stores its memo on the per-request cache dispatcher Next.js installs around each render; a new request gets a cold cache. **Never** move any identity-, role-, scope- or permission-derived value to a module-level `Map`, a global, or any process cache — that would serve one user's permissions to another. Each wrapped function carries this warning in its own header. The cache key is always the **normalised (lower-cased) email**, so callers passing different casings share the lookup instead of missing it.
 >
@@ -260,6 +260,30 @@ Resolving "who is this and what may they see?" costs real time: `auth.getUser()`
 > The header is **not** an authorization decision. `canAccessRoute` in the proxy has already enforced access before the value exists, and self-guarding pages (`/meetings`, `/events`) still re-check through `getEffectiveRole`. The header only saves the nav from re-deriving what was just computed.
 
 Verified live: a request carrying a forged `super_user` header still gets `307`'d off `/portfolio` and `/admin`, and `/login` renders with **zero** admin/meetings/events links and no attacker email.
+
+### How the session is checked on each request — and why Supabase Auth is called so rarely (2026-10-16)
+
+**In plain language.** Every page, and every background "prefetch" the browser makes for a link, has to prove who you are. That proof is a signed token in your session cookie. The app checks the signature **itself** — no call to Supabase — on every request. It only talks to Supabase Auth to **refresh** the token, which lasts an hour, and it now makes sure that happens **once**, not dozens of times at the same moment.
+
+**Why it mattered.** Production logs showed bursts of ~36 `AuthApiError: Request rate limit reached` (`429 over_request_rate_limit`) inside two seconds. In the last ~90 s of a token's life (or after an idle hour), opening a long list made the browser prefetch every link in view — sidebar pages plus a `/client-detail?account_id=…` per row. Each prefetch is its own server request with its own fresh Supabase client, so **each one** tried to refresh the same token. Supabase limits refreshes **per IP** (all our traffic leaves Vercel from shared IPs; the documented default is roughly 1,800/hour with bursts of ~30 — check Dashboard → Authentication → Rate Limits). Worse, on a 429 the auth library treats the refresh as failed and **deletes the session cookies**, so users saw 15–20 s stalls and were bounced to `/login`.
+
+**How it works now — three layers, none of which changes who is let in:**
+
+| Layer | Where | What it does |
+| --- | --- | --- |
+| Local verification | `proxy.ts`, `lib/effective-identity.ts` | `auth.getClaims()` verifies the JWT's ES256 signature and expiry in-process against Supabase's public key set (fetched once per server instance, cached 10 min). No Supabase Auth call unless the token needs refreshing. The page/action reuses one check per request via React `cache()` (`readRealIdentity`). |
+| Prefetches never refresh | `proxy.ts` + `readSessionAccessToken` in `lib/supabase/proxy.ts` | A request with the `next-router-prefetch` header reads the access token straight from the cookie and calls `getClaims(token)` — the **same** signature + expiry check, but it can never trigger a refresh. If the token is no longer valid the proxy answers **204 "nothing to prefetch"** (no page, no redirect, cookies untouched); the click itself is a real navigation and refreshes normally. Requires `skipProxyUrlNormalize: true` in `next.config.ts`: Next 16 otherwise strips `next-router-prefetch` (and `rsc`) from the proxy's request. That flag also leaves Next's internal `_rsc` query on the proxy's URL, which `proxy.ts` drops from the `/login?next=` destination. |
+| Single-flight refresh | `lib/supabase/refresh-single-flight.ts` (passed as `global.fetch` to both server clients) | When several real requests on one server instance need a refresh at the same moment, they share **one** call to `/auth/v1/token?grant_type=refresh_token`. Keyed by the refresh token itself, so only a caller already holding that token can receive its result. A successful result is reused for 10 s (Supabase's own refresh-token reuse window) so stragglers don't fire again; failures are never reused. |
+
+Plus fewer prefetches in the first place: table-row and record-pane links to Client Detail (Clients, Events, Meetings, Contacts, Notes, Tasks, Touches, Portfolio, Onboarding, To-Do, Contracts, Client Health, FB Coming Soon, Institution Detail, Audit Log, Alerts, My Dashboard) and the sidebar / section-nav links use `prefetch={false}`. Next.js then prefetches a link only when you **hover** it, instead of every link the moment it scrolls into view. Navigation still feels instant on hover; a 50-row list no longer fans out 50 server requests.
+
+**Background refresh is off on the server.** `@supabase/ssr`'s `createServerClient` forces `autoRefreshToken: false` (and `persistSession: true`, `skipAutoInitialize: true`), so nothing refreshes on a timer — refreshes only happen when a real request finds the token within 90 s of expiry. The only browser Supabase client is on `/login`.
+
+> 🔒 **What did NOT change.** What counts as signed in (a token with a valid signature that hasn't expired) and every role / page / scope check are identical. A stale session is still refreshed on a real navigation or server action. A prefetch with a stale token now gets *less* (nothing) rather than more. Trade-off, unchanged from 2026-10-02: local verification means a session revoked at Supabase (sign-out-everywhere, deleted user) stays valid until its access token expires (≤ 1 h); role removal still takes effect on the next request because roles are read from the database every time.
+
+**Still calling Supabase Auth on every use** (`getUser()`, ~1 network call each; not part of the burst): `/live-outreach`, `/time-off`, `/feedback-collection`, `/pipeline`, `/no-access`, `/login`, Admin → Users (session banner), `recordAudit` (one per audited write), the `/api` guards in `lib/api-auth.ts`, the reconciliation actions, and the layout's rarely-used fallback. These are candidates to move to `getClaims()` later.
+
+**Verifying in production.** The burst only happens on Vercel. After deploying, open a list-heavy page (Clients, Events, Meetings) and scroll while watching the Vercel logs: success = no `over_request_rate_limit` lines.
 
 ### The nav mirrors the gate — `dashboard/components/nav.tsx`
 
