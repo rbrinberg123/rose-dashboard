@@ -72,12 +72,16 @@ export async function getEffectiveRole(): Promise<ViewAsRole | null> {
  * as → that person's grants; ROLE View as → role pages only). Hand the result
  * to canAccessRoute with getEffectiveRole(). See lib/page-access.ts.
  */
-export async function getEffectiveAllowedRoutes(): Promise<string[]> {
+// Memoised per request (2026-10-16 perf): a bundled server action calls several
+// gated loaders at once, each asking. Same inputs (this request's sign-in and
+// cookies) → same answer, so the read happens once. Never global — see
+// readRealIdentity.
+export const getEffectiveAllowedRoutes = cache(async (): Promise<string[]> => {
   const { email, role: realRole } = await readRealIdentity()
   const cookieVals = await readViewCookies()
   const resolution = await resolveEffective(realRole, cookieVals.user, cookieVals.role)
   return getAllowedRoutes(resolution.effectiveRole, effectiveAccessEmail(email, resolution))
-}
+})
 
 /**
  * The effective CRM ACCESS LEVELS (2026-10-16) for the four level-gated CRM

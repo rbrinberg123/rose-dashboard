@@ -13,7 +13,6 @@ import { MAX_REPORTS_PER_EVENT } from "@/lib/feedback-reports/policy"
 import {
   addFeedbackReport,
   deleteFeedbackReport,
-  loadEventFeedbackReports,
   saveFeedbackReportAssignments,
   type EventFeedbackReports,
   type FeedbackReportMeeting,
@@ -26,9 +25,8 @@ import {
   confirmReallocation,
   reportSelectable,
 } from "./report-locks"
-import { loadEventReportLifecycles, type EventReportLifecycles } from "./feedback-lifecycle-actions"
+import { loadEventReportsTab, type EventReportLifecycles } from "./feedback-lifecycle-actions"
 import { ReportLifecycleCard } from "./report-lifecycle-card"
-import { loadClaimControls } from "@/app/feedback-manager/actions"
 import type { ClaimControls } from "@/lib/feedback-claims/types"
 import { MEETING_ROW_CLICKABLE, OpenMeetingIcon, useMeetingOpener } from "./meeting-opener"
 
@@ -143,7 +141,9 @@ export function MeetingsReportsPanel({
   // The effect owns only the async fetch — every setState is in its callback.
   React.useEffect(() => {
     let cancelled = false
-    loadEventFeedbackReports(eventId).then((res) => {
+    // ONE call (2026-10-16 perf): reports + lifecycles + claim controls,
+    // each still its own result, handled exactly as the three calls were.
+    loadEventReportsTab(eventId).then(({ reports: res, lifecycles: life, controls }) => {
       if (cancelled) return
       if (res.ok) {
         setData(res.data)
@@ -151,14 +151,9 @@ export function MeetingsReportsPanel({
         setDraft(null)
         setOverride(false)
       } else setError(res.error)
-    })
-    loadEventReportLifecycles(eventId).then((res) => {
-      if (cancelled) return
-      if (res.ok) setLifecycles(res.data ?? null)
-      else console.warn("[meetings-reports] lifecycle:", res.error)
-    })
-    loadClaimControls().then((res) => {
-      if (!cancelled) setClaimControls(res.ok ? (res.data ?? null) : null)
+      if (life.ok) setLifecycles(life.data ?? null)
+      else console.warn("[meetings-reports] lifecycle:", life.error)
+      setClaimControls(controls.ok ? (controls.data ?? null) : null)
     })
     return () => {
       cancelled = true

@@ -9,7 +9,10 @@ import { canViewEvent } from "@/lib/events/view-gate"
 import { isAutomationOrigin } from "@/lib/feedback-reports/policy"
 import { loadClaimViewer } from "@/lib/feedback-claims/server"
 import type { LifecycleReportTask, LifecycleSentTask } from "@/lib/feedback-reports/lifecycle"
-import { closeFeedbackReview } from "@/app/feedback-manager/actions"
+import { closeFeedbackReview, loadClaimControls } from "@/app/feedback-manager/actions"
+import { loadEventFeedbackReports, type EventFeedbackReports } from "./feedback-report-actions"
+import type { ClaimControls } from "@/lib/feedback-claims/types"
+import { perfTimer } from "@/lib/perf-log"
 
 /**
  * Event drawer → Meetings & Reports → the per-report LIFECYCLE card's own
@@ -190,4 +193,26 @@ export async function sendReport(reportTaskId: string): Promise<ActionResult> {
   const res = await closeFeedbackReview(sent.taskId)
   if (res.ok) revalidate()
   return res
+}
+
+/**
+ * Meetings & Reports tab (2026-10-16 perf): feedback reports + lifecycles +
+ * claim controls in ONE call — still fired only when the tab is open. It calls
+ * the same three loaders (same gates, each its own ActionResult) side by side,
+ * so the per-request cache() memos — the claim viewer and the active-users
+ * table (loadIdentity) — are read once and shared instead of once per call.
+ */
+export async function loadEventReportsTab(eventId: string): Promise<{
+  reports: ActionResult<EventFeedbackReports>
+  lifecycles: ActionResult<EventReportLifecycles>
+  controls: ActionResult<ClaimControls>
+}> {
+  const perf = perfTimer("event:reports")
+  const [reports, lifecycles, controls] = await Promise.all([
+    loadEventFeedbackReports(eventId),
+    loadEventReportLifecycles(eventId),
+    loadClaimControls(),
+  ])
+  perf.step("reports+life+claims")
+  return { reports, lifecycles, controls }
 }

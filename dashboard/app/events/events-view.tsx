@@ -66,13 +66,14 @@ import {
 } from "@/lib/events/spec"
 import type { EventQuickFilters } from "@/lib/events/filters"
 import type { EventRecord } from "@/lib/events/record"
+import type { EventMeetingRow } from "@/lib/event-meetings"
 import type { AdminEventRow } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import {
   createSavedView,
   deleteSavedView,
   loadEventFilterOptions,
-  loadEventRecord,
+  loadEventDrawerBundle,
   loadEventRowsForExport,
   setDefaultSavedView,
   updateSavedView,
@@ -365,12 +366,34 @@ export function EventsView({
     [closeRecord, openRecord, router],
   )
 
+  // ONE call on open (2026-10-16 perf): the record + its meetings list +
+  // representatives together (loadEventDrawerBundle — the same gated loaders,
+  // side by side), handed to the pane so it fires none of its own.
+  const [drawerExtras, setDrawerExtras] = React.useState<React.ComponentProps<typeof EventRecordPane>["preloaded"]>(null)
+  // The pane's current meetings list (bundle, or a later reload) — the Edit
+  // form reuses it instead of fetching it again.
+  const [paneMeetings, setPaneMeetings] = React.useState<{ eventId: string; rows: EventMeetingRow[] } | null>(null)
+  const onMeetingsChange = React.useCallback(
+    (eventId: string, rows: EventMeetingRow[]) => setPaneMeetings({ eventId, rows }),
+    [],
+  )
+
   // The effect owns only the async fetch — every setState is in a callback.
   React.useEffect(() => {
     if (!openId) return
     let cancelled = false
-    loadEventRecord(openId).then((res) => {
+    loadEventDrawerBundle(openId).then(({ record: res, meetings, representatives }) => {
       if (cancelled) return
+      setDrawerExtras({
+        eventId: openId,
+        // Exactly what the pane's own loaders would have set.
+        meetings: {
+          eventId: openId,
+          rows: meetings.ok ? (meetings.data ?? []) : null,
+          error: meetings.ok ? null : meetings.error,
+        },
+        representatives: representatives.ok ? (representatives.data ?? []) : [],
+      })
       if (res.ok) setRecord(res.data ?? null)
       else setRecordError(res.error)
     })
@@ -722,12 +745,20 @@ export function EventsView({
         // are), exactly as on My Dashboard's event drawer.
         showFeedbackReports={canWrite}
         canAddMeeting={canAddMeeting}
+        preloaded={drawerExtras?.eventId === openId ? drawerExtras : null}
+        onMeetingsChange={onMeetingsChange}
+        editPending={editId !== null}
         record={record}
         loading={openId !== null && record === null && recordError === null}
         error={recordError}
         onClose={closeRecord}
       />
-      <EditEventDialog id={editId} onClose={closeEdit} onSaved={afterEdit} />
+      <EditEventDialog
+        id={editId}
+        onClose={closeEdit}
+        onSaved={afterEdit}
+        meetings={paneMeetings && paneMeetings.eventId === editId ? paneMeetings : null}
+      />
     </>
   )
 }

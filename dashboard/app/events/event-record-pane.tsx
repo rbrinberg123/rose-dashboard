@@ -34,8 +34,10 @@ import {
   eventMeetingCount,
   useEventMeetings,
   type EventTabKey,
+  type PreloadedEventMeetings,
 } from "./event-meetings-tabs"
 import { loadEventRepresentatives } from "./actions"
+import type { EventMeetingRow } from "@/lib/event-meetings"
 import type { EventRepresentative } from "@/lib/events/create"
 import { isAutomationOrigin } from "@/lib/feedback-reports/policy"
 import { BRAND_BLUE, KPI_CARD_CLASS, STATUS_PILL_LIGHT } from "@/lib/design"
@@ -326,9 +328,17 @@ const TEAM_ROLE_COLOURS: Record<string, { bg: string; fg: string }> = {
  * the form's old role dropdowns; the event's own Account Manager / Logistics /
  * Feedback Report fields below are the snapshot taken when it was created.
  */
-function CompanyRepresentatives({ eventId }: { eventId: string }) {
-  const [reps, setReps] = React.useState<EventRepresentative[] | null>(null)
+function CompanyRepresentatives({
+  eventId,
+  preloaded,
+}: {
+  eventId: string
+  /** Already loaded by the drawer bundle (2026-10-16 perf) — skips the fetch. */
+  preloaded?: EventRepresentative[]
+}) {
+  const [reps, setReps] = React.useState<EventRepresentative[] | null>(preloaded ?? null)
   React.useEffect(() => {
+    if (preloaded) return
     let live = true
     loadEventRepresentatives(eventId).then((r) => {
       if (live) setReps(r.ok ? (r.data ?? []) : [])
@@ -336,7 +346,7 @@ function CompanyRepresentatives({ eventId }: { eventId: string }) {
     return () => {
       live = false
     }
-  }, [eventId])
+  }, [eventId, preloaded])
   if (!reps || reps.length === 0) return null
   return (
     <section className="mb-5">
@@ -529,6 +539,9 @@ export function EventRecordPane({
   canAddMeeting = true,
   initialTab,
   focusReportId = null,
+  preloaded = null,
+  onMeetingsChange,
+  editPending = false,
 }: {
   record: EventRecord | null
   loading: boolean
@@ -555,6 +568,21 @@ export function EventRecordPane({
   initialTab?: EventTabKey
   /** Scroll Meetings & Reports to this report (its Feedback task id) and highlight it. */
   focusReportId?: string | null
+  /**
+   * The CRM Events page's drawer bundle (loadEventDrawerBundle, 2026-10-16
+   * perf): the meetings list and representatives, already loaded with the
+   * record in ONE call, so the pane doesn't fire its own two. Other hosts omit
+   * it and load as before.
+   */
+  preloaded?: {
+    eventId: string
+    meetings: PreloadedEventMeetings
+    representatives: EventRepresentative[]
+  } | null
+  /** The current meetings list, whenever it (re)loads — lets the host reuse it (Edit form). */
+  onMeetingsChange?: (eventId: string, rows: EventMeetingRow[]) => void
+  /** The edit form is opening — Edit is disabled so repeat clicks queue nothing. */
+  editPending?: boolean
 }) {
   // Tab + meeting-list reload, both reset per event (tab back to the initial one).
   const eventId = record?.event_id ?? null
@@ -563,7 +591,10 @@ export function EventRecordPane({
   const [reload, setReload] = React.useState(0)
   // The meeting list (all statuses) — the Dynamics read-only list and the
   // badge. Readable by anyone who can view the event (2026-10-16).
-  const meetings = useEventMeetings(eventId, true, reload)
+  const meetings = useEventMeetings(eventId, true, reload, preloaded?.meetings ?? null)
+  React.useEffect(() => {
+    if (eventId && meetings.rows) onMeetingsChange?.(eventId, meetings.rows)
+  }, [eventId, meetings.rows, onMeetingsChange])
   const meetingCount = eventMeetingCount(meetings.rows)
 
   const open = loading || !!record || !!error
@@ -625,7 +656,7 @@ export function EventRecordPane({
               {record && (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {record?.is_test && <TestBadge />}
-                  <RecordEditBar origin={record?.origin} onEdit={onEdit} />
+                  <RecordEditBar origin={record?.origin} onEdit={onEdit} pending={editPending} />
                   <Pill bg={statePill.bg} text={statePill.text}>
                     {record.event_state_label ?? "No state"}
                   </Pill>
@@ -665,7 +696,7 @@ export function EventRecordPane({
               </button>
             </div>
           </div>
-          {record && <LifecycleStepper record={record} onEdit={onEdit} />}
+          {record && <LifecycleStepper record={record} onEdit={editPending ? undefined : onEdit} />}
         </header>
 
         {error && (
@@ -703,7 +734,11 @@ export function EventRecordPane({
                   {record.client_team && <AccountTeamStrip team={record.client_team} />}
                   {/* Dashboard-added company representatives (event_contacts).
                       Keyed per event so it reloads on switch. */}
-                  <CompanyRepresentatives key={`reps-${record.event_id}`} eventId={record.event_id} />
+                  <CompanyRepresentatives
+                    key={`reps-${record.event_id}`}
+                    eventId={record.event_id}
+                    preloaded={preloaded?.eventId === record.event_id ? preloaded.representatives : undefined}
+                  />
                   {EVENT_SECTIONS.map((section) => (
                     <FieldSection
                       key={section.key}

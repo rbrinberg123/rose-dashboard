@@ -47,6 +47,7 @@ export function RepresentativesPicker({
   allowAll = true,
   inputId,
   loadOptions = loadEventContactOptions,
+  initialOptions,
 }: {
   clientAccountId: string | null
   value: EventRepresentative[]
@@ -57,12 +58,16 @@ export function RepresentativesPicker({
   inputId?: string
   /** The candidate-contacts loader. Default: the event form's. */
   loadOptions?: typeof loadEventContactOptions
+  /** The client's contacts, already loaded (Edit bundle, 2026-10-16 perf) — skips the first fetch. */
+  initialOptions?: { clientAccountId: string; items: EventContactOption[] }
 }) {
   const [allToggle, setAll] = React.useState(false)
   const all = allowAll && allToggle
   // Client-only mode with no client: nothing to offer, so the field is locked.
   const disabled = !allowAll && !clientAccountId
-  const [loaded, setLoaded] = React.useState<{ key: string; items: EventRepresentative[] } | null>(null)
+  const [loaded, setLoaded] = React.useState<{ key: string; items: EventRepresentative[] } | null>(() =>
+    initialOptions ? { key: initialOptions.clientAccountId, items: initialOptions.items.map(toRep) } : null,
+  )
   const [error, setError] = React.useState<string | null>(null)
   const anchorRef = React.useRef<HTMLDivElement>(null)
   const key = all ? "all" : (clientAccountId ?? "")

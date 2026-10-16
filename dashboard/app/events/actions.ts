@@ -17,6 +17,7 @@
  */
 
 import { getSupabaseServer } from "@/lib/supabase"
+import { perfTimer } from "@/lib/perf-log"
 import { getEffectiveRole } from "@/lib/effective-identity"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { randomUUID } from "node:crypto"
@@ -268,21 +269,15 @@ async function readEventRecord(eventId: string): Promise<ActionResult<EventRecor
   if (!eventId) return fail("No event id.")
 
   const sb = getSupabaseServer()
-  const { data, error } = await sb
-    .from(EVENTS_SPEC.viewName)
-    .select(RECORD_COLUMNS)
-    .eq("event_id", eventId)
-    .maybeSingle()
+  // The view row and the table flags (is_test for the drawer TEST badge — the
+  // view lacks it) are independent reads: run them together (2026-10-16 perf).
+  const [{ data, error }, { data: flag }] = await Promise.all([
+    sb.from(EVENTS_SPEC.viewName).select(RECORD_COLUMNS).eq("event_id", eventId).maybeSingle(),
+    sb.from("events").select("is_test, origin, mining, paused").eq("event_id", eventId).maybeSingle(),
+  ])
 
   if (error) return fail(describeError(error))
   if (!data) return fail("Event not found.")
-
-  // is_test for the drawer TEST badge, read off the table (the view lacks it).
-  const { data: flag } = await sb
-    .from("events")
-    .select("is_test, origin, mining, paused")
-    .eq("event_id", eventId)
-    .maybeSingle()
 
   // The client's CURRENT account team, for the drawer's icons — read live off
   // the account (projected from account_team_members for dashboard clients).
@@ -781,4 +776,63 @@ export async function purgeTestEvents(): Promise<ActionResult<{ deleted: number 
     path: "/events",
     context: "/events · Delete test events",
   })
+}
+
+/* -------------------------------------------- consolidated loaders (perf) */
+// Next dispatches client-called server actions ONE AT A TIME, so a drawer that
+// fired three loaders queued three round trips (each re-resolving sign-in and
+// role). These bundles make ONE call per surface. They call the SAME exported
+// loaders — every gate runs exactly as before, each on its own, and each part
+// keeps its own ActionResult — just side by side in one request, where the
+// per-request cache() memos (identity, role, allowed routes, CRM levels) are
+// shared. (2026-10-16; docs: 13-events.md → Drawer and Edit loaders.)
+
+export type EventDrawerBundle = {
+  record: ActionResult<EventRecord>
+  meetings: ActionResult<EventMeetingRow[]>
+  representatives: ActionResult<EventRepresentative[]>
+}
+
+/** CRM → Events drawer open: record + meetings list + representatives, in one call. */
+export async function loadEventDrawerBundle(eventId: string): Promise<EventDrawerBundle> {
+  const perf = perfTimer("event:drawer")
+  const [record, meetings, representatives] = await Promise.all([
+    loadEventRecord(eventId),
+    loadEventMeetingsList(eventId),
+    loadEventRepresentatives(eventId),
+  ])
+  perf.step("record+meetings+reps")
+  // The old flow never fetched these when the record failed (the pane had no
+  // event to load them for), so they are withheld then too — same payload.
+  if (!record.ok) return { record, meetings: fail(record.error), representatives: fail(record.error) }
+  return { record, meetings, representatives }
+}
+
+export type EventEditBundle = {
+  edit: Awaited<ReturnType<typeof loadEventForEdit>>
+  /** Each null when the event has no client (the form then loads nothing either). */
+  clients: ActionResult<AccountOption[]> | null
+  taskDates: ActionResult<EventTaskDates> | null
+  contacts: ActionResult<EventContactOption[]> | null
+}
+
+/**
+ * Edit Event open: the edit data, then — in parallel — the form's client list,
+ * the client's task dates and its contacts (the representatives picker's
+ * default scope). Exactly the calls the form made on mount, with the same
+ * arguments; the meetings list is reused from the drawer.
+ */
+export async function loadEventEditBundle(id: string): Promise<EventEditBundle> {
+  const perf = perfTimer("event:edit")
+  const edit = await loadEventForEdit(id)
+  perf.step("edit data")
+  if (!edit.ok) return { edit, clients: null, taskDates: null, contacts: null }
+  const clientId = edit.data!.input.clientAccountId
+  const [clients, taskDates, contacts] = await Promise.all([
+    loadEventClientOptions(clientId ?? null),
+    clientId ? loadClientTaskDates(clientId) : Promise.resolve(null),
+    clientId ? loadEventContactOptions({ clientAccountId: clientId, all: false }) : Promise.resolve(null),
+  ])
+  perf.step("clients+dates+contacts")
+  return { edit, clients, taskDates, contacts }
 }

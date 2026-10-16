@@ -230,6 +230,25 @@ The same shape as Meetings, and the reasons are documented there:
 
 Indexes added by the patch: `(state_label, event_state_label)` for the default view, `event_state_label` for the dropdown, and `sales_lead_primary_id` for the Account Manager filter. `client_account_id` and `event_start_actual` were already indexed by `sql/16_events_table.sql`.
 
+### Drawer and Edit loaders — one call per surface (2026-10-16)
+
+**Why:** Next.js sends server actions from the browser **one at a time**. The drawer and the Edit form each fired several separate loaders, so they queued behind one another, and each paid its own sign-in + role resolution. Opening an event and then clicking Edit could take 6–11 queued calls.
+
+**Now, one call per surface.** Each bundle **calls the same exported, gated loaders**, side by side, in one request. Every permission check runs exactly as before, each part keeps its own result, and the per-request `cache()` memos are shared (identity, role, allowed routes, CRM levels, the claim viewer, the active-users table).
+
+| Surface | Bundle | What it runs together |
+|---|---|---|
+| Drawer open (CRM → Events) | `loadEventDrawerBundle` (`app/events/actions.ts`) | `loadEventRecord` + `loadEventMeetingsList` + `loadEventRepresentatives`. Meetings and representatives are withheld when the record fails, as before. |
+| Meetings & Reports tab (still only when the tab opens) | `loadEventReportsTab` (`app/events/feedback-lifecycle-actions.ts`) | `loadEventFeedbackReports` + `loadEventReportLifecycles` + `loadClaimControls`. The users table loads once instead of twice. |
+| Edit event | `loadEventEditBundle` (`app/events/actions.ts`) | `loadEventForEdit`, then in parallel the client list, the client's task dates and its contacts. The meetings list is reused from the drawer. |
+
+- **Parallel queries:** `readEventRecord` now reads the view row and the table flags together.
+- **Representatives** are still two queries (`event_contacts`, then `contacts`). A single embedded select needs a database foreign key, and these mirror tables don't enforce one.
+- **Fallback:** the pane, form and picker take the pre-loaded data through optional props (`preloaded`, `initialOptions`). Other hosts (My Dashboard, Feedback Reports, FB Coming Soon, Client Detail) omit them and load exactly as before. A reload always fetches fresh, and a failed part falls back to the component's own fetch, which shows its error as before.
+- **Pending UI:** Edit opens the dialog **immediately** with a skeleton (`EventFormLoading`), and the drawer's Edit button is disabled with a spinner while the form is open, so repeat clicks queue nothing.
+- **Measuring:** with `PERF_LOG=1` (the local dev server's default) each bundle logs `[perf] event:drawer`, `event:edit` and `event:reports` timings.
+- **Not changed:** `proxy.ts` still resolves sign-in + role for every request, and the action resolves them again. The proxy runs in its own context, so a request cache can't be shared with the action. Removing that duplicate would mean trusting the proxy's identity header inside actions, which is an auth change, so it was left alone.
+
 ## Shared architecture
 
 Events is not a copy of Meetings. The machinery was **generalised** when Events was built, and Meetings was moved onto it — so there is one implementation, not two:

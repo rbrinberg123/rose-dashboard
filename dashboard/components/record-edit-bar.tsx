@@ -1,6 +1,6 @@
 "use client"
 
-import { Pencil } from "lucide-react"
+import { Loader2, Pencil } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 
@@ -14,15 +14,26 @@ import { Button } from "@/components/ui/button"
 export function RecordEditBar({
   origin,
   onEdit,
+  pending = false,
 }: {
   origin: string | null | undefined
   onEdit?: () => void
+  /** The edit form is opening: disabled with a spinner, so repeat clicks queue nothing. */
+  pending?: boolean
 }) {
   if (origin === "dashboard") {
     if (!onEdit) return null
     return (
-      <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={onEdit}>
-        <Pencil className="size-3" /> Edit
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-6 px-2 text-[11px]"
+        onClick={onEdit}
+        disabled={pending}
+        aria-busy={pending || undefined}
+      >
+        {pending ? <Loader2 className="size-3 animate-spin" /> : <Pencil className="size-3" />} Edit
       </Button>
     )
   }

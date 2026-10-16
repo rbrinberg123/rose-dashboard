@@ -1,3 +1,4 @@
+import { cache } from "react"
 import { getEffectiveIdentity } from "@/lib/effective-identity"
 import { loadFeedbackCapabilities } from "@/lib/access/feedback-capabilities"
 import { loadIdentity } from "@/lib/access/identity"
@@ -29,7 +30,10 @@ export type ClaimViewer = ClaimActor & {
   email: string | null
 }
 
-export async function loadClaimViewer(): Promise<ClaimViewer> {
+// Memoised per request (2026-10-16 perf): the Meetings & Reports bundle asks
+// twice (lifecycles + claim controls). Depends only on this request's
+// effective identity, so the answer is identical; never global.
+export const loadClaimViewer = cache(async function loadClaimViewer(): Promise<ClaimViewer> {
   const identity = await getEffectiveIdentity()
   const [caps, viewer] = await Promise.all([
     loadFeedbackCapabilities(identity.email),
@@ -47,7 +51,7 @@ export async function loadClaimViewer(): Promise<ClaimViewer> {
     name: identity.name,
     email: identity.email,
   }
-}
+})
 
 export async function resolveClaimActor(): Promise<
   { ok: true; actor: ClaimViewer } | { ok: false; error: string }

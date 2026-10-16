@@ -27,18 +27,31 @@ import { MEETING_ROW_CLICKABLE, OpenMeetingIcon, useMeetingOpener } from "./meet
 
 export type EventTabKey = "details" | "meetings" | "targeting"
 
-/** The event's meetings (all statuses), reloaded when `reloadKey` changes. */
-export function useEventMeetings(eventId: string | null, enabled: boolean, reloadKey = 0) {
+/** Meetings already loaded by a bundled call (2026-10-16 perf) — same shape as the hook's state. */
+export type PreloadedEventMeetings = { eventId: string; rows: EventMeetingRow[] | null; error: string | null }
+
+/**
+ * The event's meetings (all statuses), reloaded when `reloadKey` changes.
+ * `preloaded` (same event) stands in for the FIRST load only — a reload
+ * always fetches fresh, exactly as before.
+ */
+export function useEventMeetings(
+  eventId: string | null,
+  enabled: boolean,
+  reloadKey = 0,
+  preloaded: PreloadedEventMeetings | null = null,
+) {
   const [state, setState] = React.useState<{
     key: string
     rows: EventMeetingRow[] | null
     error: string | null
   } | null>(null)
   const key = `${eventId}:${reloadKey}`
+  const usePreloaded = !!preloaded && preloaded.eventId === eventId && reloadKey === 0
 
   // The effect owns only the async fetch — every setState is in its callback.
   React.useEffect(() => {
-    if (!eventId || !enabled) return
+    if (!eventId || !enabled || usePreloaded) return
     let live = true
     loadEventMeetingsList(eventId).then((r) => {
       if (!live) return
@@ -47,8 +60,9 @@ export function useEventMeetings(eventId: string | null, enabled: boolean, reloa
     return () => {
       live = false
     }
-  }, [eventId, enabled, key])
+  }, [eventId, enabled, key, usePreloaded])
 
+  if (usePreloaded) return { rows: preloaded!.rows, error: preloaded!.error }
   const current = state?.key === key ? state : null
   return { rows: current?.rows ?? null, error: current?.error ?? null }
 }

@@ -55,7 +55,21 @@ import {
   loadEventClientOptions,
   purgeTestEvents,
 } from "./actions"
-import { loadEventForEdit, updateEvent } from "./actions"
+import { loadEventEditBundle, updateEvent, type EventContactOption } from "./actions"
+import type { EventMeetingRow } from "@/lib/event-meetings"
+import type { PreloadedEventMeetings } from "./event-meetings-tabs"
+
+/**
+ * What the Edit form's bundle (loadEventEditBundle, 2026-10-16 perf) already
+ * loaded — each piece only when its call succeeded, so a failure falls back to
+ * the form's own fetch and shows its error exactly as before.
+ */
+type EventFormPreloaded = {
+  clients?: AccountOption[]
+  taskDates?: { clientId: string; dates: EventTaskDates }
+  contacts?: { clientAccountId: string; items: EventContactOption[] }
+  meetings?: PreloadedEventMeetings | null
+}
 import { LifecycleStepper } from "./event-record-pane"
 import { MeetingsReportsPanel } from "./meetings-reports-panel"
 import { AddMeetingFromEventButton } from "./add-meeting-button"
@@ -156,6 +170,7 @@ function EventFormDialog({
   editId,
   stage = null,
   onSaved,
+  preloaded,
 }: {
   open: boolean
   setOpen: (o: boolean) => void
@@ -164,10 +179,12 @@ function EventFormDialog({
   /** Edit only: the event's stored stage, for the read-only stepper. */
   stage?: StoredStage | null
   onSaved: () => void
+  /** Edit only: data the bundle already loaded, so the form skips those calls. */
+  preloaded?: EventFormPreloaded
 }) {
   const router = useRouter()
   const [form, setForm] = React.useState<NewEventInput>(() => initial ?? emptyForm())
-  const [clients, setClients] = React.useState<AccountOption[] | null>(null)
+  const [clients, setClients] = React.useState<AccountOption[] | null>(() => preloaded?.clients ?? null)
   const set = (p: Partial<NewEventInput>) => setForm((f) => ({ ...f, ...p }))
   const [error, setError] = React.useState<string | null>(null)
   const [pending, startTransition] = React.useTransition()
@@ -176,7 +193,7 @@ function EventFormDialog({
   // Reports badge; `reload` refreshes it and the panel after Add Meeting.
   const [tab, setTab] = React.useState<EventTabKey>("details")
   const [reload, setReload] = React.useState(0)
-  const meetings = useEventMeetings(editId, !!editId, reload)
+  const meetings = useEventMeetings(editId, !!editId, reload, preloaded?.meetings ?? null)
   const meetingCount = eventMeetingCount(meetings.rows)
 
   React.useEffect(() => {
@@ -197,10 +214,14 @@ function EventFormDialog({
   // Last Data Upload / Memo Date are LOOKED UP for the picked client (its
   // latest completed task of each sub-type) and shown read-only; the server
   // re-reads them (and Targeting Date, no longer on the form) on save.
-  const [taskDates, setTaskDates] = React.useState<{ clientId: string; dates: EventTaskDates } | null>(null)
+  const [taskDates, setTaskDates] = React.useState<{ clientId: string; dates: EventTaskDates } | null>(
+    () => preloaded?.taskDates ?? null,
+  )
+  const taskDatesFor = taskDates?.clientId ?? null
   React.useEffect(() => {
     const clientId = form.clientAccountId
-    if (!open || !clientId) return
+    // Already have this client's dates (the edit bundle) — nothing to fetch.
+    if (!open || !clientId || taskDatesFor === clientId) return
     let live = true
     loadClientTaskDates(clientId).then((r) => {
       if (live && r.ok) setTaskDates({ clientId, dates: r.data! })
@@ -208,7 +229,7 @@ function EventFormDialog({
     return () => {
       live = false
     }
-  }, [open, form.clientAccountId])
+  }, [open, form.clientAccountId, taskDatesFor])
   function taskDateText(key: EventTaskDateKey, none: string): string {
     if (!form.clientAccountId) return ""
     if (taskDates?.clientId !== form.clientAccountId) return "Looking up…"
@@ -529,6 +550,7 @@ function EventFormDialog({
               <div className="col-span-full">
                 <FormSection title="Company representatives">
                   <RepresentativesPicker
+                    initialOptions={preloaded?.contacts}
                     clientAccountId={form.clientAccountId}
                     value={form.representatives}
                     onChange={(representatives) => set({ representatives })}
@@ -654,20 +676,41 @@ export function EditEventDialog({
   id,
   onClose,
   onSaved,
+  meetings = null,
 }: {
   id: string | null
   onClose: () => void
   onSaved: (id: string) => void
+  /** The drawer's already-loaded meetings list for this event — reused, not refetched. */
+  meetings?: { eventId: string; rows: EventMeetingRow[] } | null
 }) {
-  const [loaded, setLoaded] = React.useState<{ id: string; input: NewEventInput; stage: StoredStage } | null>(null)
+  const [loaded, setLoaded] = React.useState<{
+    id: string
+    input: NewEventInput
+    stage: StoredStage
+    preloaded: EventFormPreloaded
+  } | null>(null)
 
+  // ONE call (2026-10-16 perf): the edit data, then — in parallel on the
+  // server — the client list, task dates and client contacts the form needs.
   React.useEffect(() => {
     if (!id) return
     let live = true
-    loadEventForEdit(id).then((r) => {
+    loadEventEditBundle(id).then(({ edit: r, clients, taskDates, contacts }) => {
       if (!live) return
-      if (r.ok) setLoaded({ id, input: r.data.input, stage: r.data.stage })
-      else {
+      if (r.ok) {
+        const clientId = r.data!.input.clientAccountId
+        setLoaded({
+          id,
+          input: r.data!.input,
+          stage: r.data!.stage,
+          preloaded: {
+            clients: clients?.ok ? clients.data : undefined,
+            taskDates: clientId && taskDates?.ok ? { clientId, dates: taskDates.data! } : undefined,
+            contacts: clientId && contacts?.ok ? { clientAccountId: clientId, items: contacts.data ?? [] } : undefined,
+          },
+        })
+      } else {
         toast.error("This record can't be edited", { description: r.error })
         onClose()
       }
@@ -678,9 +721,18 @@ export function EditEventDialog({
   }, [id, onClose])
 
   const current = id && loaded?.id === id ? loaded : null
+  // Open at once with a skeleton (2026-10-16): no blank wait while it loads.
+  if (id && !current) return <EventFormLoading onClose={onClose} />
   if (!current) return null
   return (
     <EventFormDialog
+      preloaded={{
+        ...current.preloaded,
+        meetings:
+          meetings && meetings.eventId === current.id
+            ? { eventId: current.id, rows: meetings.rows, error: null }
+            : null,
+      }}
       key={current.id}
       open
       setOpen={(o) => {
@@ -697,6 +749,34 @@ export function EditEventDialog({
         onSaved(current.id)
       }}
     />
+  )
+}
+
+/**
+ * The Edit form's loading state: the same dialog frame, shown the moment Edit
+ * is clicked, with a quiet skeleton until loadEventEditBundle returns. Closing
+ * it cancels the open (the late result is ignored).
+ */
+function EventFormLoading({ onClose }: { onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className={cn("flex h-[min(92vh,880px)] w-[96vw] flex-col gap-0 p-0", "sm:max-w-[1280px]")}>
+        <DialogHeader className="border-b px-5 py-4">
+          <DialogTitle>Edit event</DialogTitle>
+          <DialogDescription className="inline-flex items-center gap-1.5">
+            <Loader2 className="size-3.5 animate-spin" style={{ color: "#0154a6" }} /> Loading the event…
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid flex-1 content-start gap-4 p-5 sm:grid-cols-2" aria-hidden="true">
+          {Array.from({ length: 8 }, (_, i) => (
+            <div key={i} className="space-y-1.5">
+              <div className="h-3 w-24 animate-pulse rounded" style={{ backgroundColor: "#e6eaf0" }} />
+              <div className="h-8 animate-pulse rounded-md" style={{ backgroundColor: "#f1f4f8" }} />
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
