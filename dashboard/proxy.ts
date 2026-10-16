@@ -10,7 +10,7 @@ import { getRealRole } from "@/lib/user-role"
 import { resolveEffective } from "@/lib/impersonation"
 import { getAllowedRoutes } from "@/lib/page-access"
 import { homeRouteFor, landingRouteFor } from "@/lib/access-control"
-import { perfTimer } from "@/lib/perf-log"
+import { perfTimer, timed } from "@/lib/perf-log"
 import {
   ANONYMOUS_IDENTITY,
   IDENTITY_HEADER,
@@ -88,7 +88,7 @@ export async function proxy(request: NextRequest) {
   // everywhere, deleted user) stays valid until its access token expires (≤1h).
   // Access itself is unaffected: the role is still read from user_role_grants
   // on every request below, so removing someone's role takes effect at once.
-  const { data: claimsData } = await supabase.auth.getClaims()
+  const { data: claimsData } = await timed("proxy", "auth.getClaims", supabase.auth.getClaims())
   const user = claimsData?.claims
     ? { email: (claimsData.claims.email as string | undefined) ?? undefined }
     : null
@@ -127,7 +127,7 @@ export async function proxy(request: NextRequest) {
   // exactly as the impersonated person/role does. resolveEffective honors the
   // view_as cookies ONLY when the REAL role is super_user, so they can't be
   // spoofed. (The proxy reads cookies off the request — no next/headers here.)
-  const realRole = await getRealRole(user.email)
+  const realRole = await timed("proxy", "role lookup", getRealRole(user.email))
   perf.step("role lookup")
   const { effectiveRole: role, person, roleView } = await resolveEffective(
     realRole,

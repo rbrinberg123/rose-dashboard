@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
+import { SLOW_MS } from "@/lib/perf-log"
 
 /**
  * Server-only Supabase client factory.
@@ -31,7 +32,49 @@ export function getSupabaseServer(): SupabaseClient {
       persistSession: false,
       autoRefreshToken: false,
     },
+    global: { fetch: timedFetch },
   })
 
   return cached
+}
+
+/**
+ * OBSERVE-ONLY fetch for the client above (2026-10-16): passes input/init
+ * through unchanged and returns the real response / throws the real error. It
+ * writes one `[slow-db]` line only when a call is slow (PERF_SLOW_MS), failed
+ * at the network, got a 5xx, or is one of supabase-js's silent automatic
+ * retries (X-Retry-Count) — the hidden 1s/2s/4s back-off. Logs the method,
+ * table/path (no query string), status, timing and retry count — never data.
+ */
+const timedFetch: typeof fetch = async (input, init) => {
+  const t0 = performance.now()
+  try {
+    const res = await fetch(input, init)
+    logDbCall(input, init, res.status, t0)
+    return res
+  } catch (e) {
+    logDbCall(input, init, "NETWORK", t0, e)
+    throw e
+  }
+}
+
+function logDbCall(
+  input: Parameters<typeof fetch>[0],
+  init: Parameters<typeof fetch>[1],
+  status: number | "NETWORK",
+  t0: number,
+  err?: unknown,
+): void {
+  try {
+    const ms = Math.round(performance.now() - t0)
+    const retry = new Headers(init?.headers).get("X-Retry-Count") ?? "0"
+    const failed = status === "NETWORK" || status >= 500
+    if (ms < SLOW_MS && retry === "0" && !failed) return
+    const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+    const path = new URL(href).pathname.replace(/^\/rest\/v1\//, "")
+    const why = err instanceof Error ? ` ${err.name}` : ""
+    console.warn(`[slow-db] ${init?.method ?? "GET"} ${path} ${status} ${ms}ms retry=${retry}${why}`)
+  } catch {
+    // Instrumentation must never affect the request.
+  }
 }

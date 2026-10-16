@@ -17,7 +17,7 @@
  */
 
 import { getSupabaseServer } from "@/lib/supabase"
-import { perfTimer } from "@/lib/perf-log"
+import { perfTimer, timed } from "@/lib/perf-log"
 import { getEffectiveRole } from "@/lib/effective-identity"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { randomUUID } from "node:crypto"
@@ -797,9 +797,9 @@ export type EventDrawerBundle = {
 export async function loadEventDrawerBundle(eventId: string): Promise<EventDrawerBundle> {
   const perf = perfTimer("event:drawer")
   const [record, meetings, representatives] = await Promise.all([
-    loadEventRecord(eventId),
-    loadEventMeetingsList(eventId),
-    loadEventRepresentatives(eventId),
+    timed("event:drawer", "record", loadEventRecord(eventId)),
+    timed("event:drawer", "meetings", loadEventMeetingsList(eventId)),
+    timed("event:drawer", "reps", loadEventRepresentatives(eventId)),
   ])
   perf.step("record+meetings+reps")
   // The old flow never fetched these when the record failed (the pane had no
@@ -824,14 +824,16 @@ export type EventEditBundle = {
  */
 export async function loadEventEditBundle(id: string): Promise<EventEditBundle> {
   const perf = perfTimer("event:edit")
-  const edit = await loadEventForEdit(id)
+  const edit = await timed("event:edit", "edit data", loadEventForEdit(id))
   perf.step("edit data")
   if (!edit.ok) return { edit, clients: null, taskDates: null, contacts: null }
   const clientId = edit.data!.input.clientAccountId
   const [clients, taskDates, contacts] = await Promise.all([
-    loadEventClientOptions(clientId ?? null),
-    clientId ? loadClientTaskDates(clientId) : Promise.resolve(null),
-    clientId ? loadEventContactOptions({ clientAccountId: clientId, all: false }) : Promise.resolve(null),
+    timed("event:edit", "clients", loadEventClientOptions(clientId ?? null)),
+    clientId ? timed("event:edit", "task dates", loadClientTaskDates(clientId)) : Promise.resolve(null),
+    clientId
+      ? timed("event:edit", "contacts", loadEventContactOptions({ clientAccountId: clientId, all: false }))
+      : Promise.resolve(null),
   ])
   perf.step("clients+dates+contacts")
   return { edit, clients, taskDates, contacts }

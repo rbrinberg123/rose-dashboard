@@ -12,7 +12,7 @@ import type { LifecycleReportTask, LifecycleSentTask } from "@/lib/feedback-repo
 import { closeFeedbackReview, loadClaimControls } from "@/app/feedback-manager/actions"
 import { loadEventFeedbackReports, type EventFeedbackReports } from "./feedback-report-actions"
 import type { ClaimControls } from "@/lib/feedback-claims/types"
-import { perfTimer } from "@/lib/perf-log"
+import { perfTimer, timed } from "@/lib/perf-log"
 
 /**
  * Event drawer → Meetings & Reports → the per-report LIFECYCLE card's own
@@ -209,9 +209,9 @@ export async function loadEventReportsTab(eventId: string): Promise<{
 }> {
   const perf = perfTimer("event:reports")
   const [reports, lifecycles, controls] = await Promise.all([
-    loadEventFeedbackReports(eventId),
-    loadEventReportLifecycles(eventId),
-    loadClaimControls(),
+    timed("event:reports", "reports", loadEventFeedbackReports(eventId)),
+    timed("event:reports", "lifecycles", loadEventReportLifecycles(eventId)),
+    timed("event:reports", "claims", loadClaimControls()),
   ])
   perf.step("reports+life+claims")
   return { reports, lifecycles, controls }
