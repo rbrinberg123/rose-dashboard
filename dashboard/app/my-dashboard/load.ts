@@ -113,6 +113,14 @@ export type TodoItem = {
   taskId: string | null
   /** The meeting behind this item (Host rows) — opens the meeting drawer. */
   meetingId: string | null
+  /**
+   * The event behind a feedback report (both Report cards, 2026-10-17): with
+   * the CRM Events page granted, the row opens the event drawer on Meetings &
+   * Reports, focused on `reportTaskId` — the Feedback Reports page's deep link.
+   */
+  eventId?: string | null
+  /** The report's Feedback task id — the Meetings & Reports focus target. */
+  reportTaskId?: string | null
   key: string
   kind: TodoKind
   urgency: Urgency
@@ -243,6 +251,13 @@ export type MyDashboardData = {
    * Meetings & Reports tab itself is read-only for everyone else.)
    */
   canOpenEvents: boolean
+  /**
+   * May the viewer open ANY event's drawer — the CRM Events page granted, the
+   * same check the Feedback Reports page uses for its row → event deep link
+   * (loadEventRecord re-checks it server-side). Report rows open the event on
+   * Meetings & Reports only when true; otherwise they keep the task drawer.
+   */
+  canOpenEventsPage: boolean
   /** Dynamics deep-link base for the meeting drawer (as on /meetings). */
   crmBase: string
   /**
@@ -430,7 +445,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
   const claimedQ = ids.length
     ? sb
         .from("v_feedback_pipeline")
-        .select("task_id, event_name, client_account_id, client_account_name, client_ticker, due_date, received_date")
+        .select("task_id, event_id, event_name, client_account_id, client_account_name, client_ticker, due_date, received_date")
         .eq("category", "in_progress")
         .in("claimed_by_id", ids)
         .limit(C)
@@ -581,7 +596,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
   const reviewRows = rowsOf<{
     task_id: string; event_name: string | null; client_account_id: string | null
     client_account_name: string | null; due_date: string | null; claimed_by_name: string | null
-    account_manager_name?: string | null; review_task_id?: string | null
+    account_manager_name?: string | null; review_task_id?: string | null; event_id?: string | null
   }>(reviewRes)
   for (const r of reviewRows) {
     const day = storedDay(r.due_date)
@@ -592,6 +607,8 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
       taskId: r.review_task_id ?? r.task_id,
       key: "review:" + r.task_id,
       meetingId: null,
+      eventId: r.event_id ?? null,
+      reportTaskId: r.task_id,
       kind: "review",
       urgency: urgencyFor(day, today),
       due: day,
@@ -608,7 +625,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
 
   for (const r of rowsOf<{
     task_id: string; event_name: string | null; client_account_id: string | null
-    client_account_name: string | null; due_date: string | null
+    client_account_name: string | null; due_date: string | null; event_id: string | null
   }>(claimedRes)) {
     if (sidecarClosed.has(r.task_id)) continue
     const day = storedDay(r.due_date)
@@ -616,6 +633,8 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
       taskId: r.task_id,
       key: "report:" + r.task_id,
       meetingId: null,
+      eventId: r.event_id,
+      reportTaskId: r.task_id,
       kind: "report",
       urgency: urgencyFor(day, today),
       due: day,
@@ -788,7 +807,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
     if (c.is_test) continue
     const notice = storedDay(c.notice_date)
     const termEnd = storedDay(c.term_end)
-    // Listed only when the TERM END (expiry) is within the next 90 days.
+    // Listed only when the TERM END (expiry) is within the next 60 days.
     const daysLeft = contractDaysToExpiry(termEnd, today)
     if (daysLeft == null || !termEnd) continue
     const noticeAhead = daysUntil(notice, today)
@@ -862,6 +881,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
     canReviewTimeOff: !identity.impersonated,
     canOpenMeetings: can("/meetings"),
     canOpenEvents: hasSuperUserPrivileges(role),
+    canOpenEventsPage: can("/events"),
     crmBase: process.env.NEXT_PUBLIC_DYNAMICS_URL?.replace(/\/$/, "") || "https://clientcrm.crm.dynamics.com",
     jumpLinks: JUMP_LINKS.filter((l) => can(l.href)).map((l) => ({ href: l.href, label: l.label })),
     links: {

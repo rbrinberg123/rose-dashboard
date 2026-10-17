@@ -34,7 +34,7 @@ export default async function MyDashboardPage() {
   const allowed = await getEffectiveAllowedRoutes()
   if (!canAccessRoute(role, "/my-dashboard", allowed)) redirect(allowed[0] ?? "/no-access")
 
-  // The "Needs you now" headline is the SAME function as the nav badge (and
+  // The "Items Requiring Attention" KPI is the SAME function as the nav badge (and
   // memoised with it per request), so the two can never disagree.
   const identity = await getEffectiveIdentity()
   const [data, criticalCount] = await Promise.all([

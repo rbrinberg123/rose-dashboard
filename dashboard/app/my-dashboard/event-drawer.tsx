@@ -2,7 +2,7 @@
 
 import * as React from "react"
 
-import { loadDashboardEventRecord } from "@/app/events/actions"
+import { loadDashboardEventRecord, loadEventRecord } from "@/app/events/actions"
 import { EventRecordPane } from "@/app/events/event-record-pane"
 import type { EventRecord } from "@/lib/events/record"
 
@@ -17,21 +17,32 @@ import type { EventRecord } from "@/lib/events/record"
  * (super users / admins only) adds the editor controls — clickable meetings.
  */
 
-const OpenEventContext = React.createContext<((eventId: string) => void) | null>(null)
+/**
+ * `reportTaskId` (2026-10-17) = the Feedback Reports page's row deep link: open
+ * on Meetings & Reports, scrolled to that report. Those opens read through
+ * loadEventRecord — the SAME loader and gate (CRM Events page granted) the
+ * Feedback Reports page uses — and are only offered when the viewer has it.
+ */
+type OpenEvent = (eventId: string, opts?: { reportTaskId?: string | null }) => void
+
+const OpenEventContext = React.createContext<OpenEvent | null>(null)
 
 export function EventDrawerHost({ showAdminPanels, children }: { showAdminPanels: boolean; children: React.ReactNode }) {
   const [openId, setOpenId] = React.useState<string | null>(null)
+  const [focusReportId, setFocusReportId] = React.useState<string | null>(null)
   const [record, setRecord] = React.useState<EventRecord | null>(null)
   const [recordError, setRecordError] = React.useState<string | null>(null)
 
-  const openRecord = React.useCallback((id: string) => {
+  const openRecord = React.useCallback<OpenEvent>((id, opts) => {
     setRecord(null)
     setRecordError(null)
+    setFocusReportId(opts?.reportTaskId ?? null)
     setOpenId(id)
   }, [])
   const closeRecord = React.useCallback(() => {
     setRecord(null)
     setRecordError(null)
+    setFocusReportId(null)
     setOpenId(null)
   }, [])
 
@@ -39,7 +50,8 @@ export function EventDrawerHost({ showAdminPanels, children }: { showAdminPanels
   React.useEffect(() => {
     if (!openId) return
     let cancelled = false
-    loadDashboardEventRecord(openId).then((res) => {
+    const load = focusReportId ? loadEventRecord : loadDashboardEventRecord
+    load(openId).then((res) => {
       if (cancelled) return
       if (res.ok) setRecord(res.data ?? null)
       else setRecordError(res.error)
@@ -47,7 +59,7 @@ export function EventDrawerHost({ showAdminPanels, children }: { showAdminPanels
     return () => {
       cancelled = true
     }
-  }, [openId])
+  }, [openId, focusReportId])
 
   return (
     <OpenEventContext.Provider value={openRecord}>
@@ -58,8 +70,36 @@ export function EventDrawerHost({ showAdminPanels, children }: { showAdminPanels
         error={recordError}
         onClose={closeRecord}
         showFeedbackReports={showAdminPanels}
+        initialTab={focusReportId ? "meetings" : undefined}
+        focusReportId={focusReportId}
       />
     </OpenEventContext.Provider>
+  )
+}
+
+/**
+ * A feedback-report row that opens its EVENT on Meetings & Reports, focused on
+ * the report — the Feedback Reports page's row behaviour (2026-10-17).
+ */
+export function OpenEventReportRow({
+  eventId,
+  reportTaskId,
+  children,
+}: {
+  eventId: string
+  reportTaskId: string | null
+  children: React.ReactNode
+}) {
+  const open = React.useContext(OpenEventContext)
+  return (
+    <button
+      type="button"
+      onClick={() => open?.(eventId, { reportTaskId })}
+      title="Open the event — Meetings & Reports"
+      className="block w-full cursor-pointer text-left transition-colors hover:bg-[rgba(16,24,40,0.02)] focus:outline-none focus-visible:bg-[rgba(16,24,40,0.04)]"
+    >
+      {children}
+    </button>
   )
 }
 

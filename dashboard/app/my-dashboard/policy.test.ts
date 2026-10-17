@@ -70,12 +70,13 @@ test("feedback is due 10 days after the meeting and never waits in later", () =>
 
 // ---- contracts ------------------------------------------------------------
 
-test("a contract is expiring when its TERM END is within 0..90 days", () => {
-  assert.equal(contractDaysToExpiry("2026-12-31", TODAY), 85)
+test("a contract is expiring when its TERM END is within 0..60 days", () => {
+  assert.equal(contractDaysToExpiry("2026-11-30", TODAY), 54)
   assert.equal(contractDaysToExpiry(TODAY, TODAY), 0)
-  assert.equal(contractDaysToExpiry("2027-01-05", TODAY), 90)
-  // Beyond 90 days, already past, or no term end → not listed.
-  assert.equal(contractDaysToExpiry("2027-01-06", TODAY), null)
+  assert.equal(contractDaysToExpiry("2026-12-06", TODAY), 60)
+  // Beyond 60 days, already past, or no term end → not listed.
+  assert.equal(contractDaysToExpiry("2026-12-07", TODAY), null)
+  assert.equal(contractDaysToExpiry("2026-12-31", TODAY), null)
   assert.equal(contractDaysToExpiry("2026-10-06", TODAY), null)
   assert.equal(contractDaysToExpiry(null, TODAY), null)
 })

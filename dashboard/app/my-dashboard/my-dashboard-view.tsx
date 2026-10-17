@@ -17,7 +17,7 @@ import { fmtDay, type Feed, type MyDashboardData, type TodoItem } from "./load"
 import { OpenTaskRow, TaskDrawerHost } from "./task-drawer"
 import { MeetingDrawerHost, OpenMeetingRow } from "./meeting-drawer"
 import { TimeOffApprovalRow, TimeOffDrawerHost } from "./time-off-drawer"
-import { EventDrawerHost, OpenEventRow } from "./event-drawer"
+import { EventDrawerHost, OpenEventReportRow, OpenEventRow } from "./event-drawer"
 import { OnboardingDrawerHost, OpenOnboardingRow } from "./onboarding-drawer"
 
 /**
@@ -29,19 +29,30 @@ import { OnboardingDrawerHost, OpenOnboardingRow } from "./onboarding-drawer"
  * surfaces and the app's type scale. NO decorative colour: colour appears only
  * for the two semantic states, overdue (red) and due soon (amber).
  *
- * Layout (approved mockup my-dashboard-v5): every Alerts-style workflow is its
- * own compact card (≤ ROW_LIMIT rows + "All →"), in an EXPLICIT three-column
- * grid under light group labels — every card has a fixed home:
- *   Feedback Tasks           Feedback to Collect → Reports · Pending Review → Reports · Open / Claimed
- *   Other Tasks and Activity Other Open Tasks → Hosting · Next 7 Days → Profiles to Review → Onboarding
- *   Administrative & Planning Time Off Approvals → Active Marketing → Contracts Expiring
+ * Layout (2026-10-17, was three columns per mockup my-dashboard-v5): every
+ * Alerts-style workflow is its own compact card (≤ ROW_LIMIT rows + "All →"), in
+ * an EXPLICIT two-column grid under light group labels (each with a one-line
+ * description) — every card has a fixed home:
+ *   left   Things To Do: Feedback Collection → Feedback Reports Pending Review → Feedback Reports In Process
+ *          → Profiles to Review → Other Open Tasks → Hosting · Next 7 Days
+ *   right  Administrative & More: Time Off Approvals → Onboarding → Contracts Expiring
+ *          → Active Marketing
  * A card's count takes the same colour as its KPI tile (cardTone).
+ *
+ * FLAGS (2026-10-17, borrowed from the first My Dashboard and the retired Alerts
+ * page): a red/amber left edge on overdue / due-soon rows, a faint red wash on
+ * critical rows (no per-card "N critical" total — removed 2026-10-17), a days-left pill on
+ * contracts, and a one-line legend at the top right of the banner.
  */
 
 const RED = STATUS_PILL_LIGHT.atRisk
 const AMBER = STATUS_PILL_LIGHT.watch
 const NEUTRAL = STATUS_PILL_LIGHT.neutral
 const RULE = "rgba(16,24,40,0.07)"
+// IQ palette (2026-10-17 flag treatments): graphite text, sand / stone fills, rule lines.
+const IQ_GRAPHITE = "#3a4655"
+const IQ_SAND = "#f1f4f8"
+const IQ_RULE = "#c8d4e3"
 
 /** Rows shown per card; the header count and "All →" cover the rest. */
 const ROW_LIMIT = 5
@@ -156,10 +167,22 @@ function CriticalFlag() {
   )
 }
 
+/**
+ * Urgency edge + tint, borrowed from the first My Dashboard (2026-10-07: a 3px
+ * left edge per urgency bucket) and the retired Alerts page (critical rows get a
+ * faint red wash). Red = overdue / critical, amber = due soon; plain rows none.
+ */
+function rowAccent(edge: Tone | DueTone, critical: boolean): React.CSSProperties | undefined {
+  if (critical) return { background: "rgba(180,35,24,0.035)", boxShadow: "inset 3px 0 0 " + RED.text }
+  const color = toneColor(edge)
+  return color ? { boxShadow: "inset 3px 0 0 " + color } : undefined
+}
+
 /** One compact row: optional lead (dot) or critical flag, title + sub, right-hand meta. */
 function Line({
   lead,
   critical = false,
+  edge,
   title,
   sub,
   right,
@@ -167,12 +190,17 @@ function Line({
   lead?: React.ReactNode
   /** Severely overdue — shows the red flag (in place of any lead dot). */
   critical?: boolean
+  /** Urgency of the row — draws the coloured left edge (see rowAccent). */
+  edge?: Tone | DueTone
   title: React.ReactNode
   sub?: React.ReactNode
   right?: React.ReactNode
 }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5" style={{ borderBottom: "1px solid " + RULE }}>
+    <div
+      className="flex items-center gap-2 px-3 py-1.5"
+      style={{ borderBottom: "1px solid " + RULE, ...rowAccent(edge, critical) }}
+    >
       {critical ? <CriticalFlag /> : lead}
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium" style={{ fontSize: 12.5, color: TEXT_PRIMARY }}>
@@ -239,9 +267,33 @@ function Dot({ tone }: { tone: Tone | DueTone }) {
   )
 }
 
+/**
+ * Days-left pill on a contract row — from the first My Dashboard ("42d"): red
+ * within 7 days, amber within 30, otherwise a quiet IQ sand pill.
+ */
+function DaysLeft({ days, tone }: { days: number; tone: DueTone }) {
+  const tint = tone === "over" ? RED : tone === "soon" ? AMBER : null
+  return (
+    <span
+      className="inline-flex w-[38px] shrink-0 justify-center rounded-full font-semibold tabular-nums"
+      style={{
+        fontSize: 10.5,
+        padding: "1px 0",
+        background: tint?.bg ?? IQ_SAND,
+        color: tint?.text ?? IQ_GRAPHITE,
+        border: "1px solid " + (tint ? "transparent" : IQ_RULE),
+      }}
+      title={days + " day" + (days === 1 ? "" : "s") + " to expiry"}
+    >
+      {days}d
+    </span>
+  )
+}
+
 function Card({
   id,
   title,
+  description,
   count,
   tone,
   moreHref,
@@ -251,6 +303,8 @@ function Card({
 }: {
   id: string
   title: string
+  /** One line under the title saying what the card is. */
+  description: string
   count: number
   tone?: Tone
   moreHref?: string | null
@@ -262,8 +316,10 @@ function Card({
   const color = count > 0 ? toneColor(tone) : undefined
   return (
     <section id={id} className={CARD_CLASS + " scroll-mt-4 overflow-hidden"}>
-      <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: "1px solid " + RULE }}>
-        <h2 className="truncate font-bold" style={{ fontSize: 14, color: TEXT_PRIMARY }}>
+      <div className="px-3 py-2" style={{ borderBottom: "1px solid " + RULE }}>
+      <div className="flex items-center gap-2">
+        {/* Semibold (2026-10-17): reads clearly, but the bold category headings above lead. */}
+        <h2 className="truncate font-semibold" style={{ fontSize: 14, color: TEXT_PRIMARY }}>
           {title}
         </h2>
         <span
@@ -286,6 +342,10 @@ function Card({
             All →
           </Link>
         )}
+      </div>
+      <p className="truncate" style={{ fontSize: 11.5, color: TEXT_MUTED }} title={description}>
+        {description}
+      </p>
       </div>
       {feed.error ? (
         <div className="px-3 py-2" style={{ fontSize: 12, color: RED.text, background: RED.bg }}>
@@ -314,14 +374,48 @@ function Card({
   )
 }
 
-/** Cluster header above a column — a real section header, with a thin rule. */
-function GroupLabel({ label }: { label: string }) {
+/**
+ * What the flags mean — the retired Alerts page's severity legend, said once
+ * at the top right of the banner (in place of the removed "Needs you now" pill).
+ */
+function FlagLegend() {
+  const edge = (color: string) => (
+    <span aria-hidden="true" className="inline-block shrink-0 rounded-[1px]" style={{ width: 3, height: 12, background: color }} />
+  )
+  const items: { mark: React.ReactNode; text: string }[] = [
+    { mark: <CriticalFlag />, text: "Critical — 7+ days overdue, or awaiting your approval" },
+    { mark: edge(AMBER.text), text: "Due soon (next 7 days)" },
+  ]
   return (
-    <div className="mt-1 flex items-center gap-2 px-1">
-      <span className="shrink-0 font-bold" style={{ fontSize: 16, color: TEXT_PRIMARY }}>
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1" style={{ fontSize: 11.5, color: IQ_GRAPHITE }}>
+      {items.map((i) => (
+        <span key={i.text} className="inline-flex items-center gap-1.5">
+          {i.mark}
+          {i.text}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Category header above a group of cards (style A, 2026-10-17): a small
+ * uppercase overline, a large bold title, and the one-line description. Plain
+ * text, no colour accent, no rule under it.
+ */
+function GroupLabel({ overline, label, description }: { overline: string; label: string; description: string }) {
+  return (
+    <div className="mt-1 px-1">
+      <div
+        className="font-semibold uppercase"
+        style={{ fontSize: 11, letterSpacing: "0.08em", color: TEXT_MUTED }}
+      >
+        {overline}
+      </div>
+      <h2 className="font-bold" style={{ fontSize: 20, lineHeight: 1.2, color: TEXT_PRIMARY }}>
         {label}
-      </span>
-      <span className="h-px flex-1" style={{ background: "rgba(16,24,40,0.14)" }} />
+      </h2>
+      <p style={{ fontSize: 12, color: IQ_GRAPHITE }}>{description}</p>
     </div>
   )
 }
@@ -370,7 +464,8 @@ function CollectCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
   return (
     <Card
       id="collect"
-      title="Feedback to Collect"
+      title="Feedback Collection"
+      description="Meetings that have happened where investor feedback still needs collecting."
       count={total(f)}
       tone={tone}
       moreHref={data.links.collect}
@@ -386,6 +481,7 @@ function CollectCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
         <ItemTarget key={r.key} data={data} meetingId={r.meetingId} href={r.href}>
           <Line
             critical={isCritical(r.due, data.today)}
+            edge={dueTone(r.due, data.today)}
             title={r.subject}
             sub={withReason(r)}
             right={<DueText day={r.due} label={r.dueLabel} today={data.today} />}
@@ -400,6 +496,7 @@ function ReportCard({
   data,
   id,
   title,
+  description,
   feed,
   tone,
   empty,
@@ -407,22 +504,45 @@ function ReportCard({
   data: MyDashboardData
   id: string
   title: string
+  description: string
   feed: Feed<TodoItem>
   tone: Tone
   empty: string
 }) {
   return (
-    <Card id={id} title={title} count={total(feed)} tone={tone} moreHref={data.links.reports} feed={feed} empty={empty}>
-      {feed.rows.slice(0, ROW_LIMIT).map((r) => (
-        <ItemTarget key={r.key} data={data} taskId={r.taskId} href={r.href}>
+    <Card
+      id={id}
+      title={title}
+      description={description}
+      count={total(feed)}
+      tone={tone}
+      moreHref={data.links.reports}
+      feed={feed}
+      empty={empty}
+    >
+      {feed.rows.slice(0, ROW_LIMIT).map((r) => {
+        const line = (
           <Line
             critical={isCritical(r.due, data.today)}
+            edge={dueTone(r.due, data.today)}
             title={r.subject}
             sub={withReason(r)}
             right={r.due ? <DueText day={r.due} label={r.dueLabel} today={data.today} /> : <span>No date</span>}
           />
-        </ItemTarget>
-      ))}
+        )
+        // Row → the event on Meetings & Reports, focused on this report (the
+        // Feedback Reports page's deep link), for viewers who may open events;
+        // otherwise the task drawer / link as before.
+        return r.eventId && data.canOpenEventsPage ? (
+          <OpenEventReportRow key={r.key} eventId={r.eventId} reportTaskId={r.reportTaskId ?? null}>
+            {line}
+          </OpenEventReportRow>
+        ) : (
+          <ItemTarget key={r.key} data={data} taskId={r.taskId} href={r.href}>
+            {line}
+          </ItemTarget>
+        )
+      })}
     </Card>
   )
 }
@@ -437,6 +557,7 @@ function TasksCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
     <Card
       id="tasks"
       title="Other Open Tasks"
+      description="Open CRM tasks assigned to you or your account teams."
       count={total(f)}
       tone={tone}
       moreHref={data.links.tasks}
@@ -450,6 +571,7 @@ function TasksCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
           <ItemTarget key={t.key} data={data} taskId={t.taskId} href={t.href}>
             <Line
               critical={isCritical(t.due, data.today)}
+              edge={tTone}
               lead={<Dot tone={tTone} />}
               title={t.subject + (t.client ? " — " + t.client : "")}
               sub={
@@ -473,6 +595,7 @@ function HostingCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
     <Card
       id="hosting"
       title="Hosting · Next 7 Days"
+      description="Client meetings you are hosting in the coming week."
       count={total(f)}
       tone={tone}
       moreHref={data.links.hosting}
@@ -484,6 +607,7 @@ function HostingCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
         return (
           <ItemTarget key={r.key} data={data} meetingId={r.meetingId} href={r.href}>
             <Line
+              edge={d != null && d <= 1 ? "soon" : "plain"}
               title={r.subject}
               sub={r.sub}
               right={
@@ -508,6 +632,7 @@ function ProfilesCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
     <Card
       id="profiles"
       title="Profiles to Review"
+      description="Investor profiles for upcoming meetings, waiting on your review."
       count={total(f)}
       tone={tone}
       moreHref={data.links.profiles}
@@ -518,6 +643,7 @@ function ProfilesCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
         <ItemTarget key={r.key} data={data} href={r.href}>
           <Line
             critical={isCritical(r.due, data.today)}
+            edge={dueTone(r.due, data.today)}
             title={r.subject}
             sub={r.lead.replace(/ — $/, "")}
             right={<DueText day={r.due} label={r.dueLabel} today={data.today} />}
@@ -538,6 +664,7 @@ function MarketingCard({ data }: { data: MyDashboardData }) {
     <Card
       id="marketing"
       title="Active Marketing"
+      description="Your clients in Live Outreach, with meetings booked against the target."
       count={total(f)}
       moreHref={data.links.liveOutreach}
       feed={f}
@@ -585,17 +712,21 @@ function ContractsCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
     <Card
       id="contracts"
       title="Contracts Expiring"
+      description="Client contracts whose term ends in the next 60 days."
       count={total(f)}
       tone={tone}
       moreHref={data.links.contracts}
       feed={f}
-      empty="No contracts expire in the next 90 days."
+      empty="No contracts expire in the next 60 days."
     >
       {f.rows.slice(0, CONTRACT_LIMIT).map((c) => {
         const cTone = contractTone(c.daysLeft)
         return (
-          <RowLink key={c.key} href={c.href}>
+          // Non-interactive for now (2026-10-17): no link, no hover — display only.
+          <div key={c.key}>
             <Line
+              edge={cTone}
+              lead={<DaysLeft days={c.daysLeft} tone={cTone} />}
               title={<ClientName name={c.client} ticker={c.ticker} />}
               sub={
                 // Every date is labelled; the notice date only while still ahead.
@@ -613,7 +744,7 @@ function ContractsCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
                 </span>
               }
             />
-          </RowLink>
+          </div>
         )
       })}
     </Card>
@@ -626,6 +757,7 @@ function OnboardingCard({ data }: { data: MyDashboardData }) {
     <Card
       id="onboarding"
       title="Onboarding"
+      description="New clients working through their onboarding checklist."
       count={total(f)}
       moreHref={data.links.onboarding}
       feed={f}
@@ -675,6 +807,7 @@ function TimeOffCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
     <Card
       id="time-off"
       title="Time Off Approvals"
+      description="Time-off requests waiting on your approval — approve or deny inline."
       count={total(f)}
       tone={tone}
       moreHref={data.links.timeOff}
@@ -767,20 +900,13 @@ function JumpBar({ links }: { links: { href: string; label: string }[] }) {
 
 /**
  * KPI tile = the shared floating StatCard (white, subtle border + shadow, number
- * over label — the original look), wrapped as a jump link to its card. Restored
- * 2026-10-08 after a brief condensed inline version; it now sits inside the top
- * banner, above My Book.
+ * over label — the original look). Restored 2026-10-08 after a brief condensed
+ * inline version; it sits inside the top banner, above My Book. Display-only
+ * since 2026-10-17 (was a jump link to its card).
  */
-function Kpi({ href, value, label, tone }: { href: string; value: number; label: string; tone?: Tone }) {
+function Kpi({ value, label, tone }: { value: number; label: string; tone?: Tone }) {
   const color = value > 0 ? toneColor(tone) : undefined
-  return (
-    <a
-      href={href}
-      className="block rounded-[13px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(16,24,40,0.12)]"
-    >
-      <StatCard floating compact label={label} value={value} valueColor={color} />
-    </a>
-  )
+  return <StatCard floating compact label={label} value={value} valueColor={color} />
 }
 
 /** My Book role tags, as in the mockup (full role name on hover). */
@@ -792,72 +918,13 @@ const BOOK_ROLE_TAG: Record<string, string> = {
 }
 
 /**
- * @param criticalCount — the nav badge's own number (loadMyDashboardCriticalCount):
- *   every row the page flags critical. The pill headline shows exactly this, so
- *   the headline, the red flags and the badge share ONE definition (isCritical +
- *   always-critical approvals) and can never diverge.
+ * @param criticalCount — the nav badge's own number (loadMyDashboardCriticalCount,
+ *   memoised with the badge per request): every row the page flags critical.
+ *   Shown as the "Items Requiring Attention" KPI (2026-10-17), so the tile and
+ *   the Home badge are ONE number and can never disagree.
  */
 export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData; criticalCount: number }) {
-  const { today } = data
   const t = tones(data)
-  const isOver = (day: string | null) => dueTone(day, today) === "over"
-  const overdue =
-    [data.collect, data.review, data.claimed, data.profiles].reduce(
-      (n, f) => n + f.rows.filter((r) => isOver(r.due)).length,
-      0,
-    ) +
-    data.tasks.rows.filter((r) => r.mine && isOver(r.due)).length +
-    data.approvals.rows.filter((a) => isOver(a.start)).length
-
-  // HEADLINE: the critical count (= red flags = nav badge; approvals are inside
-  // it, so they are not listed again). Then hosting soon. "N overdue" (any
-  // past-due own item, 1+ days) stays only as a muted secondary figure.
-  const urgent: React.ReactNode[] = []
-  if (criticalCount > 0)
-    urgent.push(
-      <b key="c" className="font-semibold" style={{ color: RED.text }}>
-        {criticalCount} critical
-      </b>,
-    )
-  if (data.hostSoon > 0)
-    urgent.push(
-      <span key="h">
-        <b className="font-semibold">{data.hostSoon} to host</b> today/tomorrow
-      </span>,
-    )
-  if (urgent.length > 0 && overdue > 0)
-    urgent.push(
-      <span key="o" style={{ color: TEXT_MUTED }}>
-        {overdue} overdue
-      </span>,
-    )
-
-  // "Needs you now" — only when something is critical or hosting is imminent.
-  const needsYou =
-    urgent.length > 0 ? (
-      <div
-        className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-full"
-        style={{
-          background: RED.bg,
-          padding: "5px 12px",
-          fontSize: 12,
-          color: TEXT_PRIMARY,
-        }}
-      >
-        <span className="font-semibold" style={{ color: RED.text }}>
-          Needs you now
-        </span>
-        <span>
-          {urgent.map((u, i) => (
-            <React.Fragment key={i}>
-              {i > 0 && " · "}
-              {u}
-            </React.Fragment>
-          ))}
-        </span>
-      </div>
-    ) : undefined
-
   return (
     <TaskDrawerHost>
       <TimeOffDrawerHost>
@@ -870,17 +937,25 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                 compact
                 title={greeting() + (data.firstName ? ", " + data.firstName : "")}
                 subtitle={LONG_DATE.format(new Date(data.today + "T00:00:00Z"))}
-                rightSlot={needsYou}
+                // Flag legend top-right of the banner (2026-10-17), where the removed pill sat.
+                rightSlot={<FlagLegend />}
               >
-                {/* ONE top banner (2026-10-08, mockup my-dashboard-topbanner): greeting + pill
-                    (above), the KPI tiles (original white StatCards), then My Book under a thin rule. */}
+                {/* ONE top banner (2026-10-08, mockup my-dashboard-topbanner): greeting
+                    (above; the "Needs you now" pill was removed 2026-10-17), the KPI tiles (original white StatCards), then My Book under a thin rule. */}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-                  <Kpi href="#collect" value={overdue} label="Overdue Items" tone="over" />
-                  <Kpi href="#collect" value={total(data.collect)} label="To collect" tone={t.collect} />
-                  <Kpi href="#review" value={total(data.review)} label="Pending review" tone={t.review} />
-                  <Kpi href="#hosting" value={total(data.hosting)} label="Host · 7d" tone={t.hosting} />
-                  <Kpi href="#contracts" value={total(data.contracts)} label="Contracts ≤90d" tone={t.contracts} />
-                  <Kpi href="#time-off" value={total(data.approvals)} label="Approvals" tone={t.approvals} />
+                  {/* The six KPIs (2026-10-17), display-only. "Items Requiring Attention" is
+                      the Home nav badge's number (criticalCount — every "!" row; replaced
+                      the "Overdue Items" count); "Feedback Reports" = Pending Review + In Process. */}
+                  <Kpi value={criticalCount} label="Items Requiring Attention" tone="over" />
+                  <Kpi value={total(data.collect)} label="Feedback Collection" tone={t.collect} />
+                  <Kpi
+                    value={total(data.review) + total(data.claimed)}
+                    label="Feedback Reports"
+                    tone={cardTone([t.review, t.claimed])}
+                  />
+                  <Kpi value={total(data.hosting)} label="Hosting (Next 7 Days)" tone={t.hosting} />
+                  <Kpi value={total(data.contracts)} label="Contracts Expiring (≤ 60 days)" tone={t.contracts} />
+                  <Kpi value={total(data.approvals)} label="Approvals" tone={t.approvals} />
                 </div>
 
                 {/* My Book — inside the banner, under a thin rule. Same data and links as
@@ -971,24 +1046,24 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
               </div>
             )}
 
-            {/* Explicit grid: one cluster per column, fixed homes, no masonry.
-          Three columns from lg up; one stacked column below. */}
-            <div className="mb-3 px-1">
-              <h2 className="font-bold" style={{ fontSize: 20, color: TEXT_PRIMARY }}>
-                To-Dos &amp; Activity
-              </h2>
-              <p style={{ fontSize: 12.5, color: TEXT_MUTED }}>
-                What needs your action, and what&apos;s moving on your clients.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+            {/* Explicit grid, fixed homes, no masonry (2026-10-17: two columns, was
+          three). Left = Things To Do; right = Administrative & More. Two columns from lg up; one stacked column below. */}
+            {/* Vertical divider (2026-10-17): a 1px stone (#e6eaf0) hairline down the centre of
+                the column gap, drawn as a ::before so it spans the taller column;
+                lg only — gone when the grid stacks to one column. */}
+            <div className="relative grid grid-cols-1 items-start gap-4 lg:grid-cols-2 lg:gap-x-8 lg:before:absolute lg:before:inset-y-0 lg:before:left-1/2 lg:before:w-px lg:before:-translate-x-1/2 lg:before:bg-[#e6eaf0] lg:before:content-['']">
               <div className="flex min-w-0 flex-col gap-3">
-                <GroupLabel label="Feedback Tasks" />
+                <GroupLabel
+                  overline="Action items"
+                  label="Things To Do"
+                  description="Feedback to collect, reports to write or review, profiles, open tasks, and meetings you host."
+                />
                 <CollectCard data={data} tone={t.collect} />
                 <ReportCard
                   data={data}
                   id="review"
-                  title="Reports · Pending Review"
+                  title="Feedback Reports Pending Review"
+                  description="Feedback reports on your clients that are written and waiting for review."
                   feed={data.review}
                   tone={t.review}
                   empty="No reports pending review on your clients."
@@ -996,24 +1071,26 @@ export function MyDashboardView({ data, criticalCount }: { data: MyDashboardData
                 <ReportCard
                   data={data}
                   id="claimed"
-                  title="Reports · Open / Claimed"
+                  title="Feedback Reports In Process"
+                  description="Feedback reports you have claimed and still need to finish."
                   feed={data.claimed}
                   tone={t.claimed}
                   empty="You haven't claimed any open reports."
                 />
-              </div>
-              <div className="flex min-w-0 flex-col gap-3">
-                <GroupLabel label="Other Tasks and Activity" />
+                <ProfilesCard data={data} tone={t.profiles} />
                 <TasksCard data={data} tone={t.tasks} />
                 <HostingCard data={data} tone={t.hosting} />
-                <ProfilesCard data={data} tone={t.profiles} />
-                <OnboardingCard data={data} />
               </div>
               <div className="flex min-w-0 flex-col gap-3">
-                <GroupLabel label="Administrative & Planning" />
+                <GroupLabel
+                  overline="Informational"
+                  label="Administrative & More"
+                  description="Time-off approvals, client onboarding, expiring contracts, and live marketing."
+                />
                 <TimeOffCard data={data} tone={t.approvals} />
-                <MarketingCard data={data} />
+                <OnboardingCard data={data} />
                 <ContractsCard data={data} tone={t.contracts} />
+                <MarketingCard data={data} />
               </div>
             </div>
           </div>

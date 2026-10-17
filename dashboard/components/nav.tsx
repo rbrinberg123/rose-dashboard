@@ -100,8 +100,9 @@ const sections: NavSection[] = [
     // FIRST in the rail: the personal home page. Single clickable item.
     // Open to every signed-in user (ALWAYS_ALLOWED_ROUTES); each sees only
     // their own data.
-    // Nav label "My Dash" (2026-10-12) — label only; the page is still My Dashboard.
-    label: "My Dash",
+    // Nav label "Home" (2026-10-17; was "Dashboard" briefly, "My Dash" from 2026-10-12) — label
+    // only; the page is still My Dashboard.
+    label: "Home",
     icon: LayoutDashboard,
     href: "/my-dashboard",
   },
@@ -1362,7 +1363,7 @@ const RAIL_WIDE = RAIL_LABEL_TILES && RAIL_FIT_WIDTH
 /** Captions under the icon — full single words that fit the 42px tile on one
  *  line (shorten one only if it genuinely won't fit; none of these need it). */
 const RAIL_SHORT_LABEL: Record<string, string> = {
-  "My Dash": "My Dash",
+  Home: "Home",
   Insights: "Insights",
   Tools: "Tools",
   Admin: "Admin",

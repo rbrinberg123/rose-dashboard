@@ -76,11 +76,11 @@ export function sortByDue<T extends { due: string | null }>(items: readonly T[])
 // ---------------------------------------------------------------------------
 
 /** "Expiring soon" window, in days. */
-export const CONTRACT_WINDOW_DAYS = 90
+export const CONTRACT_WINDOW_DAYS = 60
 
 /**
  * "Expiring" = the contract's TERM END (its expiration date) falls inside
- * today .. today + 90 days. Returns the days left, or null when it is outside
+ * today .. today + 60 days (was 90 until 2026-10-17). Returns the days left, or null when it is outside
  * the window (already past, further out, or no term end). The notice date is
  * shown as a labelled extra, never used for the window (changed 2026-10-08:
  * it used to count against the notice date first, which listed contracts by an
