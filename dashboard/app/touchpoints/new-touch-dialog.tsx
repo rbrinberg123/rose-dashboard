@@ -555,7 +555,8 @@ export function NewTouchForClientDialog({
   api,
   typeCodes,
 }: {
-  clientAccountId: string
+  /** null = no client pre-filled (Onboarding's general quick-add). */
+  clientAccountId: string | null
   onClose: () => void
   typeCode?: string
   subject?: string

@@ -6,6 +6,26 @@ This is the map of every page in the dashboard: what it's for, who can see it, a
 
 Remember the access rule from [01 — Access & Users](01-access-and-users.md): plain **users** see only the **Logistics** section; **super-users** see everything. A handful of finance pages exist but aren't linked in the sidebar at all — you reach them by typing the URL (super-user only).
 
+> **Sidebar restructure (2026-10-16) — this supersedes the older "Nav (…)" notes further down.** The top of the sidebar is now five items, all drawn in the same style (the CRM tables lost their teal outline up here). A **group** (Clients, Events, Actions) is both a link and a folder: clicking its name opens its default page, and the chevron beside it shows or hides its children. It opens automatically when you're on one of its pages.
+>
+> 1. **My Dash** → `/my-dashboard`
+> 2. **Clients** → `/accounts` (the Clients CRM table). Children: Client Statistics `/client-statistics` · Client Health `/client-health` · Portfolio `/portfolio` · **Outreach Summary** `/clients/to-do` (nav label was "Outreach Status") · Onboarding `/onboarding` · Contract Management `/contract-management` (the report — *not* Admin → `/admin/contracts`)
+> 3. **Events** → `/events` (the Events CRM table). Children: Planning `/planning-v2` · NDRS Calendar `/calendar` · Host Calendar `/scheduler` · Live Outreach `/live-outreach` · Profiles `/profiles` · Feedback Reports `/feedback-manager` · Feedback Collection `/feedback-collection` · Meetings `/meetings` (the Meetings CRM table)
+> 4. **Actions** → `/tasks` (the Tasks CRM table). Children: Tasks `/tasks` · Touchpoints `/touchpoints` · Notes `/notes` — the Actions group that used to sit in the bottom CRM block, **moved up here 2026-10-17** (there is now only one Actions). Clicking the Actions row (or its rail tile) opens Tasks; in the collapsed rail's pop-out the **"Actions" heading is a plain, non-clickable label** (no link, no pill), because its page is already the first child. All three are super-user / admin only, so only they see this group.
+> 5. **Contacts** → `/contacts` (the Contacts CRM table)
+>
+> Below that, unchanged in place: **Insights** (renamed back from "Client Insights" 2026-10-17; the *Productivity Insights* sub-heading was removed, so its pop-out is one **Insights** heading over Resource Statistics · Summary by Person · Person Detail · Capacity — plus Alerts, which stays retired/hidden), **Tools** (renamed from "Workflows" 2026-10-17, label only — still just Time Off, whose page has the *Manage Time Off* button), the bottom **CRM** area (no links left — just the super-user "+" quick-add; the green rule that sat above the "+" in the collapsed rail was removed 2026-10-17), and the footer **Admin** gear.
+>
+> **CRM pill (2026-10-17).** Any nav link that goes to a CRM table carries a small teal **CRM** tag after its label: Clients, Events, Meetings, Contacts, Actions (it lands on Tasks), and Tasks / Touchpoints / Notes. It is driven by the page registry, not a hardcoded list: a link gets the pill when its destination is in the **"CRM" section of `lib/page-registry.ts`** (`isCrmTableRoute`). Tasks / Touchpoints / Notes were added to that section for this — still `ADMIN_ONLY_ROUTES`, so their Admin → Roles rows read "(super-user only)" and their checkboxes have no effect. Non-navigating headers (the pop-out's "Actions" heading, plain category labels) never get it, and the narrow rail icon tiles don't either (no room). A long label truncates before the pill shrinks.
+>
+> **Top-row styling (2026-10-17).** Non-active top-level labels are a shade darker (#9AA1AD → #7F8795 in the full sidebar; rail captions #7F8795 → #6B7381), and the icon–label gap grew by ~2px (sidebar 8 → 10px; rail tile icon-over-caption 1.5 → 3px). Colour and spacing only.
+>
+> **Page copy (2026-10-17).** The internal "No row scoping is applied…" sentence was removed from the Events, Tasks, Touchpoints and Notes page subtitles, and the Contacts page has no subtitle line at all now. Copy only — Tasks / Touchpoints / Notes are still super-user only. (Meetings and Admin → Contract Management still carry the sentence.)
+>
+> **Institutions** (`/institutions`) is **unlinked from the nav** (route and grant unchanged; reachable by URL) — to be re-placed later.
+>
+> **Access is unchanged.** Every item is still filtered by `canAccessRoute`; a group shows if you can reach its default page *or* any child; if you can't reach the default page, clicking the group name goes to the first child you can. The sectional tab strip on a group page now leads with the group's default page (e.g. *Clients › Clients · Client Statistics · …*).
+
 ## Technical
 
 "Required role" is derived from `USER_ALLOWED_ROUTES` in `dashboard/lib/access-control.ts`: a route in that list is reachable by `user` **and** `super_user`; anything else is `super_user` only. "Reads" is the main Supabase view/table the page's `page.tsx` queries via `.from(...)`. Labels and grouping come from `dashboard/components/nav.tsx`.
@@ -360,7 +380,7 @@ columns read as `0` (or `—` for Next) rather than erroring.
 
 | Route | Label | Reads | Purpose |
 |-------|-------|-------|---------|
-| `/planning-v2` | Planning | `v_planning_events` | Event planning & logistics tracker (current planning tool). |
+| `/planning-v2` | Planning | `v_planning_events` | Event planning & logistics tracker (current planning tool). Browser-tab, loading and error titles read **Planning** (were "Planning Lab" until 2026-10-17). |
 | `/calendar` | NDRS Calendar | `v_marketing_calendar` + `public.meetings` (confirmed) | Marketing calendar Gantt. Box source and style depend on the event's stage — see [Calendar box logic](#calendar-box-logic) below. **Note:** the view's trailing two-month cutoff was removed on 2026-09-08 (so Client Detail's event pool would match Outreach Status's), which also widened this page from ~168 to ~838 events and ~93 to ~141 client lanes. Events outside the visible month window draw nothing, so the extra rows surface as **client lanes that look empty** at most zoom levels. If that becomes noisy, re-apply the window in this page's loader rather than in the view. |
 | `/scheduler` | Host Calendar | `v_scheduler_meetings`, `v_scheduler_unassigned`, `v_scheduler_time_off` (+ Graph free/busy) | Host availability & scheduling. Also the plain-user home (`USER_HOME_ROUTE`). |
 | `/live-outreach` | Live Outreach | `v_live_outreach` | Event outreach board with per-client cards, led by an **Event Summary** roll-up — see below. |
@@ -531,6 +551,8 @@ There is no "the company itself" contact option: the form and data model only ca
 4. writes are refused in "View as".
 
 Dynamics-origin touchpoints are view-only until cutover, and new ones are always dashboard-origin. The form, the contact picker and the drawer are the existing components. They take the onboarding actions as an `api` / `loadOptions` / `loadContacts` prop. The ungated touchpoint core they share with the Touchpoints tab lives in `lib/touchpoints/write.ts`.
+
+**Quick Add on the Onboarding masthead (2026-10-17).** Super users / admins see a **Quick Add** button at the top right of the page (the same `ClientQuickAdd` menu as Client Detail, limited to **New Task** and **New Touchpoint**). These are the **general** create forms from `/tasks` and `/touchpoints`: no client pre-filled, no touchpoint type forced, not tied to onboarding or Teach-in. Saving goes through the normal Tasks / Touchpoints actions (`requireCrmWriter` — super user / admin, not in "View as"), so nobody else sees the button and access is unchanged. The scoped Onboarding Call / Teach-in cell flow above is separate and unchanged.
 
 **Open item: company as contact.** Pre-filling "the company" as the contact needs a new choice in the model, such as a "Company" contact type, or contact-party sync from Dynamics. Until then, the user picks a Contact Type before saving.
 

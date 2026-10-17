@@ -476,7 +476,7 @@ export function EventsView({
           compact
           eyebrow="CRM"
           title="Events"
-          subtitle="Every marketing event in the CRM — all states, all dates. No row scoping is applied."
+          subtitle="Every marketing event in the CRM — all states, all dates."
           rightSlot={
             <div className="flex items-center gap-2">
               {canManage && (

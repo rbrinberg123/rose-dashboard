@@ -445,7 +445,7 @@ export function TasksView({
           compact
           eyebrow="CRM"
           title="Tasks"
-          subtitle="Every task in the CRM — all types, all states. No row scoping is applied, so this page is super-user only."
+          subtitle="Every task in the CRM — all types, all states."
           rightSlot={
             <div className="flex items-center gap-2">
               <PurgeTestTasksButton />

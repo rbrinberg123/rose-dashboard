@@ -628,7 +628,8 @@ export function NewTaskForClientDialog({
   clientAccountId,
   onClose,
 }: {
-  clientAccountId: string
+  /** null = no client pre-filled (Onboarding's general quick-add). */
+  clientAccountId: string | null
   onClose: () => void
 }) {
   const [initial] = React.useState(() => ({ ...emptyForm(), clientAccountId }))

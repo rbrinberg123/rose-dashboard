@@ -9,5 +9,5 @@ export default function PlanningError({
   error: Error & { digest?: string }
   reset: () => void
 }) {
-  return <ErrorState title="Planning Lab" error={error} reset={reset} />
+  return <ErrorState title="Planning" error={error} reset={reset} />
 }

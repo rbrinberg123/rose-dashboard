@@ -118,12 +118,18 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   // The four primary CRM list pages, grantable since 2026-10-16 (they left
   // ADMIN_ONLY_ROUTES). A grant opens the WHOLE list — no row scoping — plus
   // filters, export, saved views and the read-only row drawers. Writes stay
-  // super-user only; Client Detail keeps its account-team scoping. Tasks /
-  // Touchpoints / Notes are still super-user only and are not listed here.
+  // super-user only; Client Detail keeps its account-team scoping.
   { route: "/accounts", label: "Clients (CRM list — all rows)", section: "CRM" },
   { route: "/events", label: "Events (CRM list — all rows)", section: "CRM" },
   { route: "/meetings", label: "Meetings (CRM list — all rows)", section: "CRM" },
   { route: "/contacts", label: "Contacts (CRM list — all rows)", section: "CRM" },
+  // Tasks / Touchpoints / Notes (2026-10-17): listed so the nav's CRM pill marks
+  // them (and Actions, which lands on Tasks). Still ADMIN_ONLY — isGrantableRoute
+  // rejects them, so their matrix checkboxes have no effect, like the other
+  // "(super-user only)" rows.
+  { route: "/tasks", label: "Tasks (CRM list — super-user only)", section: "CRM" },
+  { route: "/touchpoints", label: "Touchpoints (CRM list — super-user only)", section: "CRM" },
+  { route: "/notes", label: "Notes (CRM list — super-user only)", section: "CRM" },
 
   // ---- Admin ----
   { route: "/admin", label: "Admin Hub", section: "Admin" },
@@ -176,6 +182,12 @@ export const ASSIGNABLE_ROLES: readonly {
 /** True when `route` is a real registered page (guards the save action). */
 export function isRegisteredRoute(route: string): boolean {
   return PAGE_REGISTRY.some((p) => p.route === route)
+}
+
+/** True when `route` is one of the registry's "CRM" section pages (the CRM
+ *  tables). Drives the nav's small "CRM" pill, so the pill follows this list. */
+export function isCrmTableRoute(route: string | undefined): boolean {
+  return PAGE_REGISTRY.some((p) => p.route === route && p.section === "CRM")
 }
 
 // ---- data permissions (matrix rows that are NOT pages) ---------------------

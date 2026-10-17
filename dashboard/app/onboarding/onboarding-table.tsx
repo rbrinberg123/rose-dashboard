@@ -36,6 +36,7 @@ import { formatDay, stripTickerPrefix } from "@/lib/client-todo-format"
 import type { ClientOnboardingRow } from "@/lib/types"
 import type { OnboardingTouchKind } from "@/lib/onboarding/touch-link"
 import { OnboardingTouchHost, type OnboardingTouchTarget } from "./touch-cell"
+import { ClientQuickAdd } from "@/app/client-detail/client-quick-add"
 
 const NAVY = "#1E2858"
 // The app-wide "complete / positive" green — the same value carried as GREEN or
@@ -444,7 +445,14 @@ function LegendItem({ swatch, text }: { swatch: React.ReactNode; text: string })
   )
 }
 
-export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
+export function OnboardingTable({
+  rows,
+  canQuickAdd = false,
+}: {
+  rows: ClientOnboardingRow[]
+  /** Super users / admins (the CRM create gate) — shows the masthead Quick Add. */
+  canQuickAdd?: boolean
+}) {
   // Onboarding Call / Teach-in cell clicks → the touchpoint form or drawer.
   const [touchTarget, setTouchTarget] = React.useState<OnboardingTouchTarget | null>(null)
   const closeTouch = React.useCallback(() => setTouchTarget(null), [])
@@ -506,6 +514,11 @@ export function OnboardingTable({ rows }: { rows: ClientOnboardingRow[] }) {
         <ListTitleCard
           title="Onboarding"
           subtitle={`${rows.length.toLocaleString()} clients still onboarding · ${stalledCount.toLocaleString()} stalled (${STALLED_DAYS}+ days)`}
+          rightSlot={
+            // General New Task / New Touchpoint — the same create forms as
+            // /tasks and /touchpoints, no client or type forced.
+            canQuickAdd ? <ClientQuickAdd accountId={null} kinds={["task", "touch"]} /> : undefined
+          }
         />
       </div>
 

@@ -1,8 +1,9 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
-import { getEffectiveIdentity } from "@/lib/effective-identity"
+import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { resolveClientScope } from "@/lib/access/data-scope"
+import { hasSuperUserPrivileges } from "@/lib/access-control"
 import { NoClientsAssigned } from "@/components/scoped-empty"
 import type { ClientOnboardingRow } from "@/lib/types"
 import { OnboardingTable } from "./onboarding-table"
@@ -61,7 +62,9 @@ export default async function OnboardingPage() {
       hideHeader
       canvas
     >
-      <OnboardingTable rows={rows} />
+      {/* Quick Add shows to the CRM task/touch creators (requireCrmWriter:
+          super users / admins); the server action still enforces it. */}
+      <OnboardingTable rows={rows} canQuickAdd={hasSuperUserPrivileges(await getEffectiveRole())} />
     </PageShell>
   )
 }

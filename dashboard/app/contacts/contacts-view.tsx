@@ -481,7 +481,6 @@ export function ContactsView({
           compact
           eyebrow="CRM"
           title="Contacts"
-          subtitle="Every contact in the CRM — the people at client companies, with their role, type and flags. No row scoping is applied."
           rightSlot={
             <div className="flex items-center gap-2">
               {canManage && (

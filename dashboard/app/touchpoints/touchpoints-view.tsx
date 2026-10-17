@@ -463,7 +463,7 @@ export function TouchpointsView({
           compact
           eyebrow="CRM"
           title="Touchpoints"
-          subtitle="Every logged client contact in the CRM — calls, virtual meetings, emails, in-person. No row scoping is applied, so this page is super-user only."
+          subtitle="Every logged client contact in the CRM — calls, virtual meetings, emails, in-person."
           rightSlot={
             <div className="flex items-center gap-2">
               <PurgeTestTouchesButton />

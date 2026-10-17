@@ -12,7 +12,7 @@ import { PlanningV2View } from "./planning-v2-view"
 
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = { title: "Planning Lab" }
+export const metadata: Metadata = { title: "Planning" }
 
 export default async function PlanningV2Page() {
   const sb = getSupabaseServer()
@@ -35,7 +35,7 @@ export default async function PlanningV2Page() {
 
     if (error) {
       return (
-        <PageShell title="Planning Lab">
+        <PageShell title="Planning">
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
             <div className="font-medium text-destructive">
               Could not load v_planning_events
@@ -52,7 +52,7 @@ export default async function PlanningV2Page() {
   }
 
   return (
-    <PageShell title="Planning Lab" hideHeader canvas>
+    <PageShell title="Planning" hideHeader canvas>
       <PlanningV2View rows={rows} />
     </PageShell>
   )

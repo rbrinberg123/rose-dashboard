@@ -69,6 +69,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { signOutAction } from "@/app/auth/actions"
+import { isCrmTableRoute } from "@/lib/page-registry"
 
 type NavItem = { href: string; label: string }
 /** A labelled sub-section nested INSIDE a section (e.g. Productivity under
@@ -83,6 +84,10 @@ type NavSection = {
   /** Nested sub-sections, rendered after `items` (expanded sidebar, rail
    *  fly-out); each is access-filtered like `items`, and dropped when empty. */
   subgroups?: NavSubgroup[]
+  // With `items` too (2026-10-16 groups: Clients, Events), `href` is the
+  // group's DEFAULT page: the parent row links to it and a chevron expands the
+  // children. If the viewer can't reach it, the parent falls back to the first
+  // child they can (see visibleSections / groupTarget).
   href?: string
   // COLLAPSED RAIL ONLY: the sub-page this section's rail icon links to when
   // clicked. Must be one of `items`; if the user can't reach it the rail falls
@@ -100,65 +105,44 @@ const sections: NavSection[] = [
     icon: LayoutDashboard,
     href: "/my-dashboard",
   },
+  /* -------------------------------------------------------------------------
+   * TOP GROUPS (2026-10-16): Clients · Events · Actions · Contacts, all drawn
+   * in the same style as My Dash (no CRM teal). The CRM tables /accounts,
+   * /events, /meetings and /contacts moved up here from the bottom CRM block
+   * (TOP_NAV_CRM_HREFS); their access gate is unchanged — canAccessRoute.
+   * ---------------------------------------------------------------------- */
   {
-    // Displayed as "Client Insights" (2026-10-12; was "Insights", before that
-    // "Clients"). Label only — same items and routes. Not the CRM block's
-    // "Clients" (/accounts) record table. The collapsed-rail caption stays
-    // "Insights" (RAIL_SHORT_LABEL below) until that is decided separately.
-    label: "Client Insights",
-    // ChartColumn (= bar-chart-3): reporting / analytics (2026-10-11; was Building2).
-    icon: ChartColumn,
-    defaultHref: "/portfolio",
+    // Parent → the Clients CRM table (/accounts). Children are the client
+    // reporting pages, moved here from Client Insights / Workflows.
+    label: "Clients",
+    icon: Briefcase,
+    href: "/accounts",
     items: [
       { href: "/client-statistics", label: "Client Statistics" },
-      // Directly below Client Statistics (2026-10-12).
       // Super-user only (ADMIN_ONLY_ROUTES): canAccessRoute hides it from every
       // other role, matching the proxy.
       { href: "/client-health", label: "Client Health" },
       { href: "/portfolio", label: "Portfolio" },
       // Client Detail (/client-detail) is NOT a nav item (2026-10-11): it is
-      // reached by clicking a client name / ticker (My Portfolio, Outreach
-      // Status, the CRM tables …). Route and page unchanged.
+      // reached by clicking a client name / ticker. Route and page unchanged.
       // Display name only — the route stays /clients/to-do (see the note in
-      // app/clients/to-do/page.tsx). This label also drives the Clients tab in
-      // the sectional nav strip, which reads the same `sections` array.
-      { href: "/clients/to-do", label: "Outreach Status" },
-      { href: "/clients/alerts", label: "Alerts" },
-      // (/contract-management moved to the END of Workflows, 2026-10-12.)
-      // LAST (2026-10-11) — moved here from its own top-level item. Route and
-      // grant unchanged. /institution-detail stays unlinked (reached by
-      // drilling in from the Directory); /institution-style ("Finder") is
-      // reached from the Directory banner.
-      { href: "/institutions", label: "Institutions" },
-    ],
-    // Productivity is NESTED inside Insights (2026-10-11), not a top-level
-    // group: an indented sub-section with its own header. Menu nesting only —
-    // the same four routes, each still filtered by canAccessRoute.
-    // Labels renamed 2026-10-12 (routes unchanged): "Productivity" →
-    // "Productivity Insights"; Statistics → Resource Statistics; Summary →
-    // Summary by Person; Detail → Person Detail.
-    subgroups: [
-      {
-        label: "Productivity Insights",
-        items: [
-          { href: "/people-statistics", label: "Resource Statistics" },
-          { href: "/productivity", label: "Summary by Person" },
-          { href: "/productivity-detail", label: "Person Detail" },
-          { href: "/capacity", label: "Capacity" },
-        ],
-      },
+      // app/clients/to-do/page.tsx). Nav label "Outreach Summary" (2026-10-16;
+      // was "Outreach Status").
+      { href: "/clients/to-do", label: "Outreach Summary" },
+      { href: "/onboarding", label: "Onboarding" },
+      // The /contract-management REPORT (was last in Workflows). NOT Admin →
+      // Contract Management (/admin/contracts), which stays on the Admin hub.
+      { href: "/contract-management", label: "Contract Management" },
     ],
   },
   {
-    // Displayed as "Workflows" (2026-10-11; was "Logistics"). Label only — the
-    // same items and routes.
-    label: "Workflows",
-    // Workflow: connected process steps (2026-10-11; was CalendarDays).
-    icon: Workflow,
-    defaultHref: "/planning-v2",
+    // Parent → the Events CRM table (/events).
+    label: "Events",
+    icon: CalendarRange,
+    href: "/events",
     items: [
       // The original /planning page is hidden from the nav (route kept, unlinked);
-      // "Planning" now points at the former Planning Lab (app/planning-v2).
+      // "Planning" points at the former Planning Lab (app/planning-v2).
       { href: "/planning-v2", label: "Planning" },
       { href: "/calendar", label: "NDRS Calendar" },
       { href: "/scheduler", label: "Host Calendar" },
@@ -168,14 +152,63 @@ const sections: NavSection[] = [
       // with independent route grants; /feedback redirects to Collection.
       { href: "/feedback-manager", label: "Feedback Reports" },
       { href: "/feedback-collection", label: "Feedback Collection" },
-      { href: "/onboarding", label: "Onboarding" },
+      // The Meetings CRM table (moved from the CRM block).
+      { href: "/meetings", label: "Meetings" },
+    ],
+  },
+  {
+    // The "Actions" group (2026-10-17), moved up from the bottom CRM block:
+    // parent → the Tasks CRM table, children = the same three CRM tables it
+    // held there. All ADMIN_ONLY, so canAccessRoute shows it to super users /
+    // admins only.
+    label: "Actions",
+    icon: Layers,
+    href: "/tasks",
+    items: [
+      { href: "/tasks", label: "Tasks" },
+      { href: "/touchpoints", label: "Touchpoints" },
+      { href: "/notes", label: "Notes" },
+    ],
+  },
+  {
+    // The Contacts CRM table (moved from the CRM block). Single clickable item.
+    label: "Contacts",
+    icon: Contact2,
+    href: "/contacts",
+  },
+  {
+    // Displayed as "Client Insights" (2026-10-12; was "Insights", before that
+    // "Clients"). Label only. Its client pages moved up into the Clients group
+    // (2026-10-16); Institutions was unlinked from the nav (route kept). What is
+    // left: Alerts (retired / hidden) and the Productivity Insights sub-group.
+    // (2026-10-17) Displayed as "Insights" again, and the "Productivity
+    // Insights" sub-group was flattened into it: the pop-out is now ONE
+    // "Insights" header over the four productivity pages (routes unchanged).
+    label: "Insights",
+    // ChartColumn (= bar-chart-3): reporting / analytics (2026-10-11; was Building2).
+    icon: ChartColumn,
+    items: [
+      // Retired / hidden (HIDDEN_PAGE_REGISTRY) — drawn nowhere until re-enabled.
+      { href: "/clients/alerts", label: "Alerts" },
+      // Labels renamed 2026-10-12 (routes unchanged): Statistics → Resource
+      // Statistics; Summary → Summary by Person; Detail → Person Detail.
+      { href: "/people-statistics", label: "Resource Statistics" },
+      { href: "/productivity", label: "Summary by Person" },
+      { href: "/productivity-detail", label: "Person Detail" },
+      { href: "/capacity", label: "Capacity" },
+    ],
+  },
+  {
+    // Displayed as "Tools" (2026-10-17; was "Workflows", before that
+    // "Logistics"). Label only — the same items and routes.
+    label: "Tools",
+    // Workflow: connected process steps (2026-10-11; was CalendarDays).
+    icon: Workflow,
+    items: [
+      // Planning … Feedback Collection moved to the Events group, Onboarding
+      // and Contract Management to the Clients group (2026-10-16). Time Off
+      // stays here; its page carries the "Manage Time Off" button.
       { href: "/time-off", label: "Time Off" },
-      // LAST (2026-10-12) — the /contract-management REPORT, moved here from the
-      // end of Client Insights. Nav location only: the route and its
-      // Roles-matrix grant are unchanged (canAccessRoute hides it from roles
-      // without it). NOT Admin → Contract Management (/admin/contracts), which
-      // stays a card on the Admin hub.
-      { href: "/contract-management", label: "Contract Management" },
       // FB Coming Soon (/fb-coming-soon) was removed from the nav 2026-10-12.
       // The route, page and its ADMIN_ONLY_ROUTES gate are unchanged — it is
       // simply unlinked (reachable by URL, super-user only).
@@ -222,9 +255,19 @@ const CRM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
 
 type CrmItem = CrmNavItem & { icon: React.ComponentType<{ className?: string }> }
 
+/** CRM tables now drawn in the top groups (2026-10-16), so the bottom block
+ *  skips them. Drawing only — CRM_NAV_ITEMS and its gate are unchanged. */
+const TOP_NAV_CRM_HREFS: readonly string[] = [
+  "/accounts", "/events", "/meetings", "/contacts",
+  // The Actions group moved to the top too (2026-10-17).
+  "/tasks", "/touchpoints", "/notes",
+]
+
 /** The CRM items to draw, with icons attached. Empty ⇒ nothing renders at all. */
 function crmItemsFor(role: ViewAsRole | null, allowedRoutes: readonly string[]): CrmItem[] {
-  return visibleCrmNavItems(role, allowedRoutes).map((item) => ({
+  return visibleCrmNavItems(role, allowedRoutes)
+    .filter((item) => !TOP_NAV_CRM_HREFS.includes(item.href))
+    .map((item) => ({
     ...item,
     icon: CRM_ICONS[item.href] ?? Database,
   }))
@@ -443,6 +486,23 @@ function AlertCountPill({ count }: { count: number }) {
 }
 
 /**
+ * Small "CRM" tag after the label of any nav link whose destination is a CRM
+ * table (the "CRM" section of lib/page-registry.ts — not a hardcoded list).
+ * shrink-0 so a long label truncates before the pill is squeezed.
+ */
+function CrmPill({ href }: { href: string | undefined }) {
+  if (!isCrmTableRoute(href)) return null
+  return (
+    <span
+      aria-label="CRM table"
+      className="shrink-0 rounded-[4px] border border-[#13897D]/30 bg-[#13897D]/[0.08] px-1 py-px text-[8.5px] font-semibold uppercase leading-none tracking-[0.06em] text-[#13897D] dark:border-[#5FD3C6]/35 dark:bg-[#5FD3C6]/15 dark:text-[#7FE0D5]"
+    >
+      CRM
+    </span>
+  )
+}
+
+/**
  * Drive visibility off the SAME allowed-routes set the proxy enforces with, so
  * the nav and the security gate can never disagree. Filter items the user can't
  * access, then drop any section left with no items (no empty headers).
@@ -462,6 +522,13 @@ function visibleSections(
   return sections
     .map((section) => ({
       ...section,
+      // A GROUP's parent page (href + items) is dropped when the viewer can't
+      // reach it; the group then links to its first reachable child instead.
+      href:
+        section.href && section.items && !allowed({ href: section.href, label: section.label })
+          ? undefined
+          : section.href,
+      isGroup: Boolean(section.href && section.items),
       items: (section.items ?? []).filter(allowed),
       subgroups: (section.subgroups ?? [])
         .map((g) => ({ ...g, items: g.items.filter(allowed) }))
@@ -469,12 +536,18 @@ function visibleSections(
     }))
     .filter((section) =>
       // Header-link sections (href, no items) show if the target is allowed;
-      // list sections show only when at least one child (own or nested)
-      // survived the filter.
-      section.href
+      // groups and list sections show when the parent page or at least one
+      // child (own or nested) survived the filter.
+      section.href && !section.isGroup
         ? canAccessRoute(role, section.href, allowedRoutes)
-        : section.items.length > 0 || section.subgroups.length > 0,
+        : Boolean(section.href) || section.items.length > 0 || section.subgroups.length > 0,
     )
+}
+
+/** Where a group's parent row links: its own page when reachable (visibleSections
+ *  has already dropped `href` otherwise), else the first child the viewer can reach. */
+function groupTarget(section: { href?: string; items: NavItem[]; subgroups: NavSubgroup[] }) {
+  return section.href ?? allItemsOf(section)[0]?.href
 }
 
 /** Every link a (visible) section holds — its own items, then each sub-group's. */
@@ -490,7 +563,17 @@ function allItemsOf(section: { items: NavItem[]; subgroups: NavSubgroup[] }): Na
  */
 function visibleNavGroups(role: ViewAsRole | null, allowedRoutes: readonly string[]) {
   return visibleSections(role, allowedRoutes).flatMap((section) => [
-    { label: section.label, items: section.items, defaultHref: section.defaultHref },
+    {
+      label: section.label,
+      // A group's parent page leads its tabs (e.g. Clients › Clients · Client
+      // Statistics …), so the strip also shows on the parent page itself.
+      items:
+        // (Skipped when the parent page is also a child — Actions → Tasks.)
+        section.isGroup && section.href && !section.items.some((i) => i.href === section.href)
+          ? [{ href: section.href, label: section.label }, ...section.items]
+          : section.items,
+      defaultHref: section.isGroup ? section.href : section.defaultHref,
+    },
     ...section.subgroups.map((g) => ({ label: `${section.label} · ${g.label}`, items: g.items, defaultHref: undefined })),
   ])
 }
@@ -502,13 +585,23 @@ function Section({
   current,
   onNavigate,
 }: {
-  section: NavSection
+  section: NavSection & { isGroup?: boolean }
   current: string
   onNavigate?: () => void
 }) {
   const { label, icon: Icon, items, href, subgroups } = section
   const alertCount = React.useContext(AlertCountContext)
   const dashCount = React.useContext(MyDashboardCountContext)
+
+  if (section.isGroup) {
+    return (
+      <GroupSection
+        section={{ ...section, items: items ?? [], subgroups: subgroups ?? [] }}
+        current={current}
+        onNavigate={onNavigate}
+      />
+    )
+  }
 
   // Header-as-link: a section with an href and no child items renders the
   // category row itself as a clickable Link, with the same active/hover
@@ -524,10 +617,10 @@ function Section({
           aria-current={active ? "page" : undefined}
           aria-label={alertsAriaLabel(label, href === MY_DASHBOARD_ROUTE ? dashCount : 0)}
           className={cn(
-            "relative flex items-center gap-2 rounded-md px-2 py-1 text-[12px] font-medium uppercase tracking-wider transition-colors",
+            "relative flex items-center gap-2.5 rounded-md px-2 py-1 text-[12px] font-medium uppercase tracking-wider transition-colors",
             active
               ? "bg-[#EEF2FB] text-[#1E2858]"
-              : "text-[#9AA1AD] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
+              : "text-[#7F8795] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
           )}
         >
           {active && (
@@ -538,7 +631,8 @@ function Section({
             />
           )}
           <Icon className="size-[18px] shrink-0" />
-          <span>{label}</span>
+          <span className="truncate">{label}</span>
+          <CrmPill href={href} />
           <AlertCountPill count={href === MY_DASHBOARD_ROUTE ? dashCount : 0} />
         </Link>
       </div>
@@ -548,7 +642,7 @@ function Section({
   return (
     <div className="px-3 py-[2px]">
       {/* Non-clickable category label — static, no hover/navigation */}
-      <div className="mb-px flex items-center gap-2 px-2 text-[12px] font-medium uppercase tracking-wider text-[#9AA1AD]">
+      <div className="mb-px flex items-center gap-2.5 px-2 text-[12px] font-medium uppercase tracking-wider text-[#7F8795]">
         <Icon className="size-[18px] shrink-0" />
         <span>{label}</span>
       </div>
@@ -579,6 +673,7 @@ function Section({
                   />
                 )}
                 <span className="truncate">{itemLabel}</span>
+                <CrmPill href={itemHref} />
                 <AlertCountPill count={badge} />
               </Link>
             </li>
@@ -628,6 +723,121 @@ function Section({
   )
 }
 
+/** The parent-row style shared by the top items (My Dash, the groups,
+ *  Contacts) so they all read the same. (2026-10-17: idle label #9AA1AD →
+ *  #7F8795, icon–label gap 8 → 10px, here and on the other top rows.) */
+const TOP_ROW_CLASS =
+  "relative flex items-center gap-2.5 rounded-md px-2 py-1 text-[12px] font-medium uppercase tracking-wider transition-colors"
+const TOP_ROW_ACTIVE = "bg-[#EEF2FB] text-[#1E2858]"
+const TOP_ROW_IDLE = "text-[#7F8795] hover:bg-[#F4F6F9] hover:text-[#1E2858]"
+
+function ActiveBar() {
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute inset-y-1 left-0 w-[3px] rounded-full"
+      style={{ background: "linear-gradient(180deg, #1E2858, #0355A7)" }}
+    />
+  )
+}
+
+/**
+ * A top GROUP in the expanded sidebar (Clients, Events): the label is a link
+ * to the group's default page (groupTarget), the chevron beside it shows /
+ * hides the children. Starts open when the current page is in the group, and
+ * re-opens whenever you navigate into it, so the active link is never hidden.
+ * While closed over an active child, the parent row takes the active wash.
+ */
+function GroupSection({
+  section,
+  current,
+  onNavigate,
+}: {
+  section: NavSection & { items: NavItem[]; subgroups: NavSubgroup[] }
+  current: string
+  onNavigate?: () => void
+}) {
+  const { label, icon: Icon, items, href } = section
+  const target = groupTarget(section)
+  const parentActive = href ? isActive(current, href) : false
+  const childActive = items.some((item) => isActive(current, item.href))
+  const [open, setOpen] = React.useState(parentActive || childActive)
+  const listId = React.useId()
+
+  // Landing in the group re-opens it — adjusted during render, as CrmNavGroup does.
+  const [seenPath, setSeenPath] = React.useState(current)
+  if (seenPath !== current) {
+    setSeenPath(current)
+    if (parentActive || childActive) setOpen(true)
+  }
+
+  const rowActive = parentActive || (childActive && !open)
+  const Chevron = open ? ChevronDown : ChevronRight
+
+  return (
+    <div className="px-3 py-[2px]">
+      <div className="flex items-center gap-0.5">
+        <Link
+          prefetch={false}
+          href={target ?? "#"}
+          onClick={onNavigate}
+          aria-current={parentActive ? "page" : undefined}
+          className={cn(TOP_ROW_CLASS, "min-w-0 flex-1", rowActive ? TOP_ROW_ACTIVE : TOP_ROW_IDLE)}
+        >
+          {rowActive && <ActiveBar />}
+          <Icon className="size-[18px] shrink-0" />
+          <span className="truncate">{label}</span>
+          <CrmPill href={target} />
+        </Link>
+        {items.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            aria-controls={listId}
+            aria-label={`${open ? "Collapse" : "Expand"} ${label}`}
+            className="flex size-6 shrink-0 items-center justify-center rounded-md text-[#9AA1AD] transition-colors hover:bg-[#F4F6F9] hover:text-[#1E2858]"
+          >
+            <Chevron className="size-4" aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
+      {open && items.length > 0 ? (
+        <ul id={listId}>
+          {items.map(({ href: itemHref, label: itemLabel }) => {
+            const active = isActive(current, itemHref)
+            return (
+              <li key={itemHref}>
+                <Link
+                  prefetch={false}
+                  href={itemHref}
+                  onClick={onNavigate}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "relative flex items-center gap-2 rounded-md py-px pl-8 pr-2 text-sm transition-colors",
+                    active
+                      ? "bg-[#EEF2FB] font-medium text-[#1E2858]"
+                      : "text-[#5B6472] hover:bg-[#F4F6F9] hover:text-[#1E2858]",
+                  )}
+                >
+                  {active && <ActiveBar />}
+                  <span className="truncate">{itemLabel}</span>
+                  <CrmPill href={itemHref} />
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
+/** Top items (single links, groups) stack with no rule between them. */
+function isTopItem(section: NavSection & { isGroup?: boolean }) {
+  return Boolean(section.isGroup || (section.href && !section.items?.length))
+}
+
 function NavContents({
   pathname,
   role,
@@ -646,7 +856,9 @@ function NavContents({
     <>
       {visible.map((section, i) => (
         <React.Fragment key={section.label}>
-          {i > 0 ? <div className="mx-3 my-0.5 border-t border-[#EDEFF3]" /> : null}
+          {i > 0 && !(isTopItem(section) && isTopItem(visible[i - 1])) ? (
+            <div className="mx-3 my-0.5 border-t border-[#EDEFF3]" />
+          ) : null}
           <Section section={section} current={pathname} onNavigate={onNavigate} />
         </React.Fragment>
       ))}
@@ -655,7 +867,7 @@ function NavContents({
           the containing <nav> to be a flex column, which is why both navs carry
           `flex flex-col`. Renders nothing at all for a non-super-user: no
           divider, no label, no item. */}
-      {crm.length > 0 ? (
+      {crm.length > 0 || hasSuperUserPrivileges(role) ? (
         <div className="mt-auto pt-1">
           <CrmDivider quickAdd={hasSuperUserPrivileges(role)} />
           {groupCrmItems(crm).map((entry) =>
@@ -1086,14 +1298,26 @@ function FlyoutPanel({
 /** A fly-out's category heading: navy uppercase label over the blue→teal rule.
  *  Shared by a section's own heading and its nested sub-groups (Productivity
  *  inside Insights) so the two can never drift apart. */
-function FlyoutHeading({ label }: { label: string }) {
+function FlyoutHeading({ label, href }: { label: string; href?: string }) {
   return (
     <>
       {/* Navy, not the muted gray the in-rail category labels use — inside
-          the fly-out this is the panel's own heading. */}
-      <div className="px-2 pb-1 pt-0.5 text-[12px] font-medium uppercase tracking-wider text-[#1E2858]">
-        {label}
-      </div>
+          the fly-out this is the panel's own heading. A group's heading is a
+          link to its default page (Clients → /accounts). */}
+      {href ? (
+        <Link
+          prefetch={false}
+          href={href}
+          className="flex items-center gap-2 rounded-md px-2 pb-1 pt-0.5 text-[12px] font-medium uppercase tracking-wider text-[#1E2858] hover:bg-[#F4F6F9]"
+        >
+          <span className="truncate">{label}</span>
+          <CrmPill href={href} />
+        </Link>
+      ) : (
+        <div className="px-2 pb-1 pt-0.5 text-[12px] font-medium uppercase tracking-wider text-[#1E2858]">
+          {label}
+        </div>
+      )}
       {/* Blue→teal rule under the heading — the panel's one piece of brand
           colour, carrying the same two stops as the active rail icon. */}
       <div
@@ -1139,10 +1363,8 @@ const RAIL_WIDE = RAIL_LABEL_TILES && RAIL_FIT_WIDTH
  *  line (shorten one only if it genuinely won't fit; none of these need it). */
 const RAIL_SHORT_LABEL: Record<string, string> = {
   "My Dash": "My Dash",
-  // Section renamed "Client Insights" (2026-10-12); the rail caption is
-  // deliberately still "Insights" — pending a separate decision.
-  "Client Insights": "Insights",
-  Workflows: "Workflow",
+  Insights: "Insights",
+  Tools: "Tools",
   Admin: "Admin",
 }
 const RAIL_ICON_CLASS = RAIL_LABEL_TILES ? "size-[17px]" : "size-[18px]"
@@ -1158,7 +1380,7 @@ const CRM_TILE_BOX_OLD =
  * 16/15 -> 17/16px; captions 6.75 -> 7px; logo 40 -> 43px; rows py-px -> py-[2px];
  * footer avatar 28 -> 30px. Old values in the comments beside each. */
 const RAIL_TILE_SIZED =
-  "flex size-[45px] flex-col items-center justify-center gap-[1.5px] rounded-md transition-colors" // was size-[42px]
+  "flex size-[45px] flex-col items-center justify-center gap-[3px] rounded-md transition-colors" // was size-[42px]; gap 1.5 → 3px (2026-10-17)
 const RAIL_TILE_BOX = RAIL_FIT_WIDTH
   ? "flex h-[42px] w-full min-w-[42px] flex-col items-center justify-center gap-[2px] rounded-md px-[4px] transition-colors"
   : RAIL_TILE_SIZED
@@ -1183,7 +1405,8 @@ function RailTileCaption({ label, active }: { label: string; active: boolean }) 
         // Non-active caption (2026-10-12): one step deeper than the tile's
         // #9AA1AD (the icon keeps that) so it reads on the #F8F9FB resting fill;
         // on hover it follows the tile's #1E2858; active inherits white.
-        !active && "text-[#7F8795] group-hover/railtile:text-[#1E2858]",
+        // (2026-10-17: #7F8795 → #6B7381, a touch darker.)
+        !active && "text-[#6B7381] group-hover/railtile:text-[#1E2858]",
       )}
     >
       {RAIL_SHORT_LABEL[label] ?? label}
@@ -1260,14 +1483,20 @@ function RailSection({
   section,
   current,
 }: {
-  section: NavSection & { items: NavItem[]; subgroups: NavSubgroup[] }
+  section: NavSection & { items: NavItem[]; subgroups: NavSubgroup[]; isGroup?: boolean }
   current: string
 }) {
   const { label, icon: Icon, items, defaultHref, subgroups } = section
   const every = allItemsOf(section)
-  const active = every.some((item) => isActive(current, item.href))
-  const target =
-    every.find((item) => item.href === defaultHref)?.href ?? every[0].href
+  // A group's parent page (Clients → /accounts) counts as part of it, and is
+  // where the icon links (groupTarget: parent, else first reachable child).
+  const parentHref = section.isGroup ? section.href : undefined
+  const active =
+    (parentHref ? isActive(current, parentHref) : false) ||
+    every.some((item) => isActive(current, item.href))
+  const target = section.isGroup
+    ? groupTarget(section)!
+    : (every.find((item) => item.href === defaultHref)?.href ?? every[0].href)
   const { open, setOpen, triggerProps, panelProps } = useFlyout()
   const panelId = React.useId()
 
@@ -1297,7 +1526,12 @@ function RailSection({
       </Link>
       {open ? (
         <FlyoutPanel id={panelId} panelProps={panelProps}>
-          <FlyoutHeading label={label} />
+          {/* A plain, non-link heading when the parent page is already one of
+              the children (Actions → Tasks): no duplicate link, no CRM pill. */}
+          <FlyoutHeading
+            label={label}
+            href={items.some((item) => item.href === parentHref) ? undefined : parentHref}
+          />
           <ul className="space-y-0.5">
             {items.map(({ href, label: itemLabel }) => {
               const itemActive = isActive(current, href)
@@ -1341,6 +1575,7 @@ function RailSection({
                       style={{ backgroundColor: TEAL }}
                     />
                     <span className="truncate">{itemLabel}</span>
+                    <CrmPill href={href} />
                     <AlertCountPill count={itemBadge} />
                   </Link>
                 </li>
@@ -1433,7 +1668,7 @@ function RailContents({
       {/* CRM, pinned to the bottom of the rail — same gate, same treatment, just
           the icon and a 3-letter caption at 58px wide. Nothing renders here for
           a non-super-user. */}
-      {crm.length > 0 ? (
+      {crm.length > 0 || hasSuperUserPrivileges(role) ? (
         <div className="mt-auto pt-2">
           <RailCrmDivider quickAdd={hasSuperUserPrivileges(role)} />
           {groupCrmItems(crm).map((entry) =>
@@ -1464,13 +1699,8 @@ function RailContents({
 function RailCrmDivider({ quickAdd }: { quickAdd: boolean }) {
   return (
     <div className="px-2 pb-1">
-      <span
-        aria-hidden="true"
-        className="block h-px w-full"
-        style={{ backgroundColor: CRM_TEAL, opacity: 0.35 }}
-      />
-      {/* No "CRM" caption on the collapsed rail (2026-10-11) — the teal rule
-          alone marks the block; the expanded sidebar keeps its label. */}
+      {/* No "CRM" caption on the collapsed rail (2026-10-11), and no teal rule
+          above the quick-add either (removed 2026-10-17, by request). */}
       <div className="mt-1.5 flex justify-center">
         {quickAdd && <CrmQuickAdd variant="rail" />}
       </div>

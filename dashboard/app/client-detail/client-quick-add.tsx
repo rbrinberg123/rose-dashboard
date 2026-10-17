@@ -33,8 +33,20 @@ const ITEMS: { kind: Kind; label: string }[] = [
  * so the page's Events / Tasks / Touchpoints / Key Contacts reflect the record.
  * The caller renders this only for super users (the same audience as the CRM
  * pages); the server gate is what actually enforces it.
+ *
+ * Also used on Onboarding (2026-10-17) with `accountId={null}` and
+ * `kinds={["task", "touch"]}`: general New Task / New Touchpoint, no client
+ * pre-filled. The client-only forms (event / note / contact) need an account,
+ * so they never render without one.
  */
-export function ClientQuickAdd({ accountId }: { accountId: string }) {
+export function ClientQuickAdd({
+  accountId,
+  kinds,
+}: {
+  accountId: string | null
+  /** Which menu items to offer (default: all five, in ITEMS order). */
+  kinds?: readonly Kind[]
+}) {
   const [kind, setKind] = React.useState<Kind | null>(null)
   const close = React.useCallback(() => setKind(null), [])
 
@@ -50,7 +62,7 @@ export function ClientQuickAdd({ accountId }: { accountId: string }) {
           <Plus className="size-4 shrink-0" aria-hidden="true" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
-          {ITEMS.map((it) => (
+          {ITEMS.filter((it) => !kinds || kinds.includes(it.kind)).map((it) => (
             <DropdownMenuItem key={it.kind} onClick={() => setKind(it.kind)}>
               {it.label}
             </DropdownMenuItem>
@@ -58,11 +70,11 @@ export function ClientQuickAdd({ accountId }: { accountId: string }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {kind === "event" && <NewEventForClientDialog clientAccountId={accountId} onClose={close} />}
+      {kind === "event" && accountId && <NewEventForClientDialog clientAccountId={accountId} onClose={close} />}
       {kind === "task" && <NewTaskForClientDialog clientAccountId={accountId} onClose={close} />}
       {kind === "touch" && <NewTouchForClientDialog clientAccountId={accountId} onClose={close} />}
-      {kind === "note" && <NewNoteForClientDialog clientAccountId={accountId} onClose={close} />}
-      {kind === "contact" && <NewContactForClientDialog clientAccountId={accountId} onClose={close} />}
+      {kind === "note" && accountId && <NewNoteForClientDialog clientAccountId={accountId} onClose={close} />}
+      {kind === "contact" && accountId && <NewContactForClientDialog clientAccountId={accountId} onClose={close} />}
     </>
   )
 }

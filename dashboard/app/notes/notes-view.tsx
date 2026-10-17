@@ -468,7 +468,7 @@ export function NotesView({
           compact
           eyebrow="CRM"
           title="Notes"
-          subtitle="Every client-review note in the CRM — status, risk driver and agreed actions, one record per client per monthly cycle. No row scoping is applied, so this page is super-user only."
+          subtitle="Every client-review note in the CRM — status, risk driver and agreed actions, one record per client per monthly cycle."
           rightSlot={
             <div className="flex items-center gap-2">
               <PurgeTestNotesButton />
