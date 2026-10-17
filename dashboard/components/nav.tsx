@@ -107,7 +107,8 @@ const sections: NavSection[] = [
     href: "/my-dashboard",
   },
   /* -------------------------------------------------------------------------
-   * TOP GROUPS (2026-10-16): Clients · Events · Actions · Contacts, all drawn
+   * TOP GROUPS (2026-10-16): Clients · Events · Actions (Contacts moved under
+   * Clients 2026-10-17), all drawn
    * in the same style as My Dash (no CRM teal). The CRM tables /accounts,
    * /events, /meetings and /contacts moved up here from the bottom CRM block
    * (TOP_NAV_CRM_HREFS); their access gate is unchanged — canAccessRoute.
@@ -131,6 +132,9 @@ const sections: NavSection[] = [
       // was "Outreach Status").
       { href: "/clients/to-do", label: "Outreach Summary" },
       { href: "/onboarding", label: "Onboarding" },
+      // The Contacts CRM table (2026-10-17; was its own top-level item). CRM
+      // pill comes from isCrmTableRoute, as for every child.
+      { href: "/contacts", label: "Contacts" },
       // The /contract-management REPORT (was last in Workflows). NOT Admin →
       // Contract Management (/admin/contracts), which stays on the Admin hub.
       { href: "/contract-management", label: "Contract Management" },
@@ -170,12 +174,6 @@ const sections: NavSection[] = [
       { href: "/touchpoints", label: "Touchpoints" },
       { href: "/notes", label: "Notes" },
     ],
-  },
-  {
-    // The Contacts CRM table (moved from the CRM block). Single clickable item.
-    label: "Contacts",
-    icon: Contact2,
-    href: "/contacts",
   },
   {
     // Displayed as "Client Insights" (2026-10-12; was "Insights", before that

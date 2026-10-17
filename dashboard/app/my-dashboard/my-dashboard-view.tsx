@@ -872,7 +872,8 @@ function greeting(): string {
 function JumpBar({ links }: { links: { href: string; label: string }[] }) {
   if (links.length === 0) return null
   return (
-    <nav aria-label="Jump to page" className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+    // Bottom divider (2026-10-17): a 1px muted slate-grey (#9fb0c4) line underneath.
+    <nav aria-label="Jump to page" className="mb-4 flex flex-col gap-1 border-b border-[#9fb0c4] pb-3 sm:flex-row sm:items-center sm:gap-3">
       <span
         className="shrink-0 font-semibold uppercase"
         style={{ fontSize: 10.5, letterSpacing: "0.06em", color: TEXT_TERTIARY }}
