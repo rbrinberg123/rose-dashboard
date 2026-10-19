@@ -31,6 +31,14 @@
  * brief asked for; it will fill in if the CRM starts writing it.
  */
 
+/** A Marketing Memo's uploaded document (tasks.memo_file_*). */
+export type MemoFileRef = {
+  name: string | null
+  webUrl: string
+  uploadedAt: string | null
+  uploadedByName: string | null
+}
+
 /** One task, flattened for display. Keys are the field definitions' sourceKeys. */
 export type TaskRecord = {
   /** 'dashboard' = editable in the drawer; 'dynamics' = read-only until cutover. */
@@ -42,6 +50,14 @@ export type TaskRecord = {
   closed_by_name?: string | null
   /** May the viewer Close this task (owner or admin, still open, not in View as)? */
   can_close?: boolean
+  /** May the viewer open Edit? false when they reached the drawer only as a Marketing Memo's owner. */
+  can_edit?: boolean
+  /** Marketing Memo tasks only: the uploaded SharePoint document (null = none yet). */
+  memo_file?: MemoFileRef | null
+  /** Marketing Memo tasks only: may the viewer upload / replace the document (owner or super user)? */
+  can_upload_memo?: boolean
+  /** Marketing Memo tasks only: set when uploads can't work yet (the SQL patch isn't run). */
+  memo_upload_unavailable?: string | null
   task_id: string
   /** Drives the Client link; null when the task carries no account. */
   client_account_id: string | null

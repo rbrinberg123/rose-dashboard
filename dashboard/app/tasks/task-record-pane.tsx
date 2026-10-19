@@ -23,16 +23,19 @@ import * as React from "react"
 import { TestBadge } from "@/components/test-badge"
 import { RecordEditBar } from "@/components/record-edit-bar"
 import Link from "next/link"
-import { Check, Loader2, X } from "lucide-react"
+import { Check, ExternalLink, FileText, Loader2, Upload, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { closeTask } from "./actions"
+import { uploadMarketingMemo } from "./memo-upload-actions"
+import { MEMO_FILE_ACCEPT, MEMO_SUBTYPE_LABEL, validateMemoFile } from "@/lib/tasks/memo-file"
 
 import { AccountTeamAvatars as TeamAvatars } from "@/components/account-team-avatars"
 import { BRAND_BLUE, STATUS_PILL_LIGHT } from "@/lib/design"
 import {
   TASK_SECTIONS,
+  type MemoFileRef,
   type TaskFieldDef,
   type TaskRecord,
 } from "@/lib/tasks/record"
@@ -244,6 +247,116 @@ function CloseTaskButton({ taskId, onClosed }: { taskId: string; onClosed?: () =
   )
 }
 
+/**
+ * Marketing Memo tasks only: the uploaded Word document, as a link to
+ * SharePoint, and — for the task's owner or a super user (record.can_upload_memo,
+ * re-checked by uploadMarketingMemo) — Upload / Replace. The file is named after
+ * the task; a replace saves a new version of the same SharePoint file.
+ * Checks type and size before sending so a wrong file never travels; every
+ * server refusal (e.g. the missing SharePoint grant) is shown as a toast and
+ * inline, never swallowed.
+ */
+function MemoDocumentField({ record }: { record: TaskRecord }) {
+  const router = useRouter()
+  const inputRef = React.useRef<HTMLInputElement>(null)
+  const [file, setFile] = React.useState<MemoFileRef | null>(record.memo_file ?? null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [pending, startTransition] = React.useTransition()
+
+  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = e.target.files?.[0]
+    e.target.value = "" // picking the same file again still fires onChange
+    if (!picked) return
+    const invalid = validateMemoFile({ name: picked.name, size: picked.size })
+    if (invalid) {
+      setError(invalid)
+      toast.error("Could not upload the memo", { description: invalid })
+      return
+    }
+    setError(null)
+    const form = new FormData()
+    form.set("taskId", record.task_id)
+    form.set("file", picked)
+    startTransition(async () => {
+      let r: Awaited<ReturnType<typeof uploadMarketingMemo>>
+      try {
+        r = await uploadMarketingMemo(form)
+      } catch (err) {
+        // e.g. the request was refused before reaching the action (body too large).
+        r = { ok: false, error: err instanceof Error ? err.message : "The upload didn't reach the server." }
+      }
+      if (!r.ok) {
+        setError(r.error ?? "The upload failed.")
+        toast.error("Could not upload the memo", { description: r.error })
+        return
+      }
+      setFile(r.data!)
+      toast.success(file ? "Memo replaced — saved as a new version" : "Memo uploaded to SharePoint")
+      router.refresh()
+    })
+  }
+
+  const canUpload = record.can_upload_memo === true
+  return (
+    <section className="mb-6">
+      <SectionHeader title="Memo document" />
+      <div className="rounded-md border border-[#E4E9F4] bg-[#F4F6FB] px-2 py-1.5 text-[13px]">
+        {file ? (
+          <div className="flex items-start gap-2">
+            <FileText className="mt-0.5 size-4 shrink-0" style={{ color: BRAND_BLUE }} />
+            <div className="min-w-0 flex-1">
+              <a
+                href={file.webUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 break-all font-medium hover:underline"
+                style={{ color: BRAND_BLUE }}
+              >
+                {file.name ?? "Open document"} <ExternalLink className="size-3 shrink-0" />
+              </a>
+              <div className="text-[11px] text-muted-foreground">
+                In SharePoint · CRMDocuments
+                {file.uploadedAt ? ` · uploaded ${formatDate(file.uploadedAt)}` : ""}
+                {file.uploadedByName ? ` by ${file.uploadedByName}` : ""}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <span className="text-muted-foreground">No document uploaded yet.</span>
+        )}
+        {canUpload && (
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              ref={inputRef}
+              type="file"
+              accept={MEMO_FILE_ACCEPT}
+              className="hidden"
+              onChange={onPick}
+              aria-label="Choose the memo Word document"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-[11px]"
+              disabled={pending}
+              onClick={() => inputRef.current?.click()}
+            >
+              {pending ? <Loader2 className="size-3 animate-spin" /> : <Upload className="size-3" />}
+              {pending ? "Uploading…" : file ? "Replace" : "Upload Word document"}
+            </Button>
+            <span className="text-[11px] text-muted-foreground">.doc / .docx, up to 4 MB · named after the task</span>
+          </div>
+        )}
+        {record.memo_upload_unavailable && (
+          <div className="mt-1 text-[11px] text-muted-foreground">{record.memo_upload_unavailable}</div>
+        )}
+        {error && <div className="mt-1 text-[11px] text-destructive">{error}</div>}
+      </div>
+    </section>
+  )
+}
+
 export function TaskRecordPane({
   record,
   loading,
@@ -293,7 +406,7 @@ export function TaskRecordPane({
               {record && (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {record?.is_test && <TestBadge />}
-                  <RecordEditBar origin={record?.origin} onEdit={onEdit} />
+                  <RecordEditBar origin={record?.origin} onEdit={record.can_edit === false ? undefined : onEdit} />
                   {record.can_close && <CloseTaskButton taskId={record.task_id} onClosed={onClosed} />}
                   {/* Dynamics task closed here pre-cutover: still Open in the mirror. */}
                   {record.closed_at && record.state_label === "Open" && (
@@ -331,6 +444,10 @@ export function TaskRecordPane({
           )}
           {loading && !record && (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading record…</div>
+          )}
+          {record?.task_subtype_label === MEMO_SUBTYPE_LABEL && (
+            // Keyed by task so a different task's state never carries over.
+            <MemoDocumentField key={record.task_id} record={record} />
           )}
           {record &&
             TASK_SECTIONS.map((section) => (

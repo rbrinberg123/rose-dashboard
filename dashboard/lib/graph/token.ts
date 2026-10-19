@@ -14,8 +14,9 @@
  *   - It uses its OWN Azure app registration, read from GRAPH_TENANT_ID /
  *     GRAPH_CLIENT_ID / GRAPH_CLIENT_SECRET — deliberately SEPARATE from the
  *     Dynamics sync's AZURE_* vars. These are different Azure apps: the Graph
- *     app has application permission `Calendars.ReadBasic.All` (admin-consented)
- *     but no Dataverse access, while the Dynamics app is a Dataverse Application
+ *     app has application permissions `Calendars.ReadBasic.All` and `Mail.Send`
+ *     (admin-consented; the memo upload also needs `Sites.Selected` + a write
+ *     grant on CRMDocuments — see lib/graph/sharepoint.ts) but no Dataverse access, while the Dynamics app is a Dataverse Application
  *     User but has no Graph permission. They previously shared the AZURE_* names,
  *     and pointing those at the Graph app broke the Dynamics sync (Dataverse
  *     "user is not a member of the organization"). Never merge them back.

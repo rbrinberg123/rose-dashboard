@@ -11,6 +11,21 @@ Every **dashboard-created event** now gets its **feedback report** automatically
 
 5. **Review done → Mark Sent.** On Feedback Reports → **Pending Review**, the review task's **owner** (the associate) or a **Super User / Admin** sees a **Mark Sent** button (owner-only since 2026-10-16; the account team no longer can) (labelled *Close* until 2026-10-15; the unified Sent-close rule) — on **Dynamics and dashboard reports alike** (2026-10-08). It asks *"Mark this feedback report review complete?"*, completes the report's paired open **Feedback Report Sent** task (never the already-Completed collection task), and the row leaves Pending Review — the last step for that report.
 
+### Marketing Memo task (2026-10-19)
+
+**Event created → Marketing Memo task created too.** At the same moment a new dashboard event gets its Feedback report, it also gets **one Marketing Memo task**:
+
+| | |
+|---|---|
+| **Trigger** | Add New Event (`createEvent`), right after the event is saved — the same moment the database creates the Feedback report. Dashboard-origin events only. |
+| **Format** | The existing **Outreach / Marketing Memo** task type (`755860003` / `755860014`). Subject **"Marketing Memo – &lt;event&gt;"** (same shape as "Feedback Report – &lt;event&gt;"). Open / Not Started, linked to the event (Regarding + `bcs_event_id`) and its client (`bcs_account_id`), test flag copied from the event, created by "System (automation)". |
+| **Owner** | The client's **teaser** — `accounts.teaser_id` / `teaser_name` (memo = teaser; see [17 — Account teams](17-account-teams.md)). **No teaser:** the task is created **unassigned** (shown as "System") and its audit row is flagged (`context … · no teaser`, `changes.flag`). |
+| **Due date** | **7 days before the event's Launch Week** (`events.proposed_launch_date`, the date as entered), at Eastern midnight. Blank when Launch Week is blank. On every **Edit event**, the open automation memo's due date is re-synced to Launch Week − 7 (`syncEventMarketingMemoDue`); a closed memo, or one made by hand, keeps its date. |
+| **Skipped when** | The event's **Memo Not Required** is ticked at creation. |
+| **Duplicates** | Never: it is skipped when the event already has **any** Marketing Memo task (any state, any author) — the same "already has one" guard as the Feedback report. It fires only on create, so editing never creates one (events created before 2026-10-19 get none). |
+
+App-side (no SQL), best-effort like the review-owner hand-off: a failure is logged and never fails the event save. Audited as `automation:marketing-memo:event-created` / `automation:marketing-memo:launch-week-changed`. Code: `lib/events/marketing-memo.ts` (pure rules, unit-tested) and `lib/events/marketing-memo-server.ts`. Registered on Admin → Automations (`marketing-memo-auto-create`). The memo's completion feeds the event's **Memo Date** lookup as any Marketing Memo task does.
+
 **Report part chip (2026-10-08).** On Feedback Reports, a row whose event is **split into two or more reports** shows a small **Part A / B / C** chip right after the event name (`tasks.feedback_report_seq`: 1 → A, 2 → B, 3 → C). A single-report event shows no chip — a lone "Part A" would be noise. The chip uses the report's own accent (A blue · B green · C amber), the same colours as the event drawer's Meetings & Reports panel — both read `reportAccent()` in `lib/feedback-reports/accents.ts`. The page looks the parts up itself (`loadSplitReportParts` in `app/feedback-manager/page.tsx`); no view change. Dashboard-created (automation / Split) reports only — Dynamics reports carry no part.
 
 **Row shortcuts (Feedback Reports).** Every row in Open and Pending Review has two small icons just before **Actions**: a calendar (**Open event**) and a clipboard (**Open task**). They open the row's event, or its task — on **Open** rows the Feedback task, on **Pending Review** rows the paired **Feedback Report Sent** task (the one to act on; 2026-10-08) — in a drawer over the page — the same drawers as CRM → Events / CRM → Tasks — without leaving the list; closing returns you to where you were. They're shown only to people who can open the Events / Tasks pages, and an icon is greyed out when the row has no event or task linked.

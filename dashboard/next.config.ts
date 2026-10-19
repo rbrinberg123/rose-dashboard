@@ -15,6 +15,13 @@ const nextConfig: NextConfig = {
   // content/docs/01-access-and-users.md. Side effect: the proxy's URL keeps the
   // internal `_rsc` query param (proxy.ts drops it from the /login `next=`).
   skipProxyUrlNormalize: true,
+  // Marketing Memo document upload (app/tasks/memo-upload-actions.ts): files are
+  // capped at 4 MB (MEMO_FILE_MAX_BYTES); the default 1 MB server-action limit
+  // would refuse them. 4.5 MB leaves room for the multipart overhead and matches
+  // Vercel's own request-body cap, so it can't be raised further usefully.
+  experimental: {
+    serverActions: { bodySizeLimit: "4.5mb" },
+  },
 };
 
 export default nextConfig;

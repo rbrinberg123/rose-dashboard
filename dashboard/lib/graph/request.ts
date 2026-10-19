@@ -61,9 +61,21 @@ function retryAfterMs(res: Response): number {
  */
 export async function graphFetch<T>(
   path: string,
-  init: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
+  init: {
+    method?: string
+    body?: unknown
+    /** Raw bytes sent as-is (file uploads) instead of a JSON body; set Content-Type in headers. */
+    rawBody?: ArrayBuffer | Uint8Array
+    headers?: Record<string, string>
+  } = {},
 ): Promise<T> {
   const url = path.startsWith("https://") ? path : `${GRAPH_BASE}${path}`
+  const body: BodyInit | undefined =
+    init.rawBody !== undefined
+      ? new Uint8Array(init.rawBody)
+      : init.body !== undefined
+        ? JSON.stringify(init.body)
+        : undefined
 
   for (let attempt = 0; ; attempt++) {
     const token = await getGraphAccessToken()
@@ -76,7 +88,7 @@ export async function graphFetch<T>(
         ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
         ...init.headers,
       },
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      body,
     })
 
     if (res.status === 429 && attempt < MAX_THROTTLE_RETRIES) {

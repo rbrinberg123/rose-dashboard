@@ -62,6 +62,23 @@ export const AUTOMATIONS: readonly Automation[] = [
     notes: "Shows on Logistics → FB Coming Soon until feedback is received; then on Feedback Reports, claimable.",
   },
   {
+    id: "marketing-memo-auto-create",
+    name: "Auto-create Marketing Memo task on event creation",
+    kind: "Event-driven",
+    trigger:
+      "A new event is created (Add New Event — the same moment the Feedback report is created); its due date re-syncs on every Edit event.",
+    effect:
+      "Creates “Marketing Memo – <event>” (Outreach / Marketing Memo, Open, Not Started) linked to the event and its client. Owner = the client's teaser (accounts.teaser_id); with no teaser it is created unassigned and the audit row is flagged “no teaser”. Due = Launch Week − 7 days (blank until Launch Week is set; follows Launch Week edits while Open).",
+    scope:
+      "origin = 'dashboard' events only; skipped when Memo Not Required is ticked. Idempotent: never created if the event already has any Marketing Memo task. Inherits the event's test flag.",
+    applicability: "Dashboard now · Dynamics at cutover",
+    status: "Active",
+    where: [
+      "lib/events/marketing-memo-server.ts — createEventMarketingMemo (createEvent), syncEventMarketingMemoDue (updateEvent)",
+      "lib/events/marketing-memo.ts — subject + due-date rules",
+    ],
+  },
+  {
     id: "feedback-report-meeting-routing",
     name: "Feedback report meeting routing + due date",
     kind: "Event-driven",

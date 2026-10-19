@@ -55,6 +55,7 @@ import {
   buildEventName,
   type NewEventInput,
 } from "@/lib/events/create"
+import { createEventMarketingMemo, syncEventMarketingMemoDue } from "@/lib/events/marketing-memo-server"
 import { ACCOUNT_TEAM_KEYS } from "@/lib/account-team"
 import type { AccountOption, UserOption } from "@/lib/types"
 import {
@@ -670,6 +671,10 @@ export async function createEvent(input: NewEventInput): Promise<ActionResult<{ 
     context: "/events · Add New Event",
   })
 
+  // The event's Marketing Memo task — created at the same moment the database
+  // creates its Feedback report (lib/events/marketing-memo-server.ts).
+  await createEventMarketingMemo(row.event_id)
+
   // Company representatives — saved after the event exists (FK).
   const reps = await saveRepresentatives(
     row.event_id,
@@ -753,6 +758,8 @@ export async function updateEvent(id: string, input: NewEventInput): Promise<Act
   })
   // updateDashboardRow refused a Dynamics / missing row → never touch its reps.
   if (!updated.ok) return updated
+  // Launch Week may have moved → the open automation memo's due date follows.
+  await syncEventMarketingMemoDue(id)
   const reps = await saveRepresentatives(
     id,
     input.representatives ?? [],

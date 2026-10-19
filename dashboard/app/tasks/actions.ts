@@ -76,6 +76,8 @@ import {
   type TaskQuickFilters,
 } from "@/lib/tasks/filters"
 import type { TaskRecord } from "@/lib/tasks/record"
+import { MEMO_SUBTYPE_LABEL, canUploadMemo } from "@/lib/tasks/memo-file"
+import { readMemoFile } from "@/lib/tasks/memo-file-server"
 
 /** The actor for a task close: every CRM id of the REAL signed-in person. */
 async function closeActor() {
@@ -240,12 +242,24 @@ const RECORD_COLUMNS = [
 
 export async function loadTaskRecord(taskId: string): Promise<ActionResult<TaskRecord>> {
   // ---- GATE (must stay first) ----
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
-
-  if (!taskId) return fail("No task id.")
-
+  // Super users — or (2026-10-19) the OWNER of a Marketing Memo task, so the
+  // teaser can open it from My Dashboard and upload the memo document. That
+  // owner-only view gets no Edit (can_edit false; updateTask stays CRM-writer).
+  if (!taskId || !isUuid(taskId)) return fail("No task id.")
+  const { identity, actor } = await closeActor()
   const sb = getSupabaseServer()
+  if (!actor.isAdmin) {
+    const { data: own } = await sb
+      .from("tasks")
+      .select("owner_id, bcs_task_subtype_label")
+      .eq("task_id", taskId)
+      .maybeSingle()
+    const ownerId = (own?.owner_id as string | null | undefined) ?? null
+    if (own?.bcs_task_subtype_label !== MEMO_SUBTYPE_LABEL || !ownerId || !actor.myIds.has(ownerId)) {
+      return fail("Not authorised.")
+    }
+  }
+
   const { data, error } = await sb
     .from(TASKS_SPEC.viewName)
     .select(RECORD_COLUMNS)
@@ -263,7 +277,6 @@ export async function loadTaskRecord(taskId: string): Promise<ActionResult<TaskR
     .maybeSingle()
 
   // Close button: shown only when closeTask would allow it (it re-checks).
-  const { identity, actor } = await closeActor()
   const canClose =
     !!flag &&
     !identity.impersonated &&
@@ -277,8 +290,28 @@ export async function loadTaskRecord(taskId: string): Promise<ActionResult<TaskR
       actor,
     ) === null
 
+  // Marketing Memo document (2026-10-19): the stored SharePoint link + whether
+  // this viewer may upload (uploadMarketingMemo re-checks).
+  const rec = data as unknown as TaskRecord
+  let memo: Pick<TaskRecord, "memo_file" | "can_upload_memo" | "memo_upload_unavailable"> = {}
+  if (rec.task_subtype_label === MEMO_SUBTYPE_LABEL) {
+    const file = await readMemoFile(taskId)
+    memo = {
+      memo_file: file.ok ? file.ref : null,
+      memo_upload_unavailable: file.ok ? null : file.error,
+      can_upload_memo:
+        file.ok &&
+        canUploadMemo(
+          { subtypeLabel: rec.task_subtype_label, ownerId: (flag?.owner_id as string | null) ?? null },
+          { ...actor, impersonated: identity.impersonated },
+        ) === null,
+    }
+  }
+
   return ok({
-    ...(data as unknown as TaskRecord),
+    ...rec,
+    ...memo,
+    can_edit: actor.isAdmin,
     is_test: flag?.is_test === true,
     origin: (flag?.origin as string | undefined) ?? null,
     feedback_received_date: (flag?.crdfa_feedback_received_date as string | undefined) ?? null,

@@ -217,8 +217,30 @@ The Dynamics sync and the Graph calendar integration use **separate Azure AD app
 | | Env vars | Scope | Permission |
 |--|---------|-------|-----------|
 | **Dynamics** (`lib/sync/dynamics.ts`) | `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` | `${DYNAMICS_BASE_URL}/.default` | Dataverse Application User |
-| **Graph** (`lib/graph/token.ts`) | `GRAPH_TENANT_ID` / `GRAPH_CLIENT_ID` / `GRAPH_CLIENT_SECRET` | `https://graph.microsoft.com/.default` | `Calendars.ReadBasic.All` (admin-consented) |
+| **Graph** (`lib/graph/token.ts`) | `GRAPH_TENANT_ID` / `GRAPH_CLIENT_ID` / `GRAPH_CLIENT_SECRET` | `https://graph.microsoft.com/.default` | `Calendars.ReadBasic.All`, `Mail.Send` (admin-consented); **`Sites.Selected` + CRMDocuments write grant needed** for the memo upload, see below |
 
 The Graph app has **no** Dataverse access; the Dynamics app has **no** Graph permission. They previously shared the `AZURE_*` names, and pointing those at the Graph app broke the sync with a Dataverse *"user is not a member of the organization"* error. **Never merge them back** — even though the tenant is often the same directory, keep the vars explicit because they belong to different apps. This is documented in the `lib/graph/token.ts` header and in `.env.example`.
 
 > **Graph access policy:** the calendar/mail Graph app is `RestrictAccess`-scoped to the `dashboards@` group. Any app-only `getSchedule` / `sendMail` caller must run as `dashboards@` or Graph returns 403. Keep the mailbox/service identity aligned with that group.
+
+### Graph permissions
+
+The Graph app is **"Rose IQ Calendar Integration"**, app-only (client credentials; no signed-in user). Checked 2026-10-19 from its token's `roles` claim:
+
+| Permission (application) | Used by | Status |
+|---|---|---|
+| `Calendars.ReadBasic.All` | `getSchedule` (host busy, conference rooms) | Granted |
+| `Mail.Send` | `sendMail` (the email digests), limited by the Exchange Application Access Policy to `dashboards@roseandco.com` | Granted |
+| **`Sites.Selected`** + **write** on the CRMDocuments site | `uploadToCrmDocuments` (`lib/graph/sharepoint.ts`): the Marketing Memo document upload ([14 — Tasks](14-tasks.md#marketing-memo-document-2026-10-19)) | **Needs granting** |
+
+**To grant the SharePoint access (an Azure / SharePoint admin, no env change):**
+
+1. Azure portal → App registrations → *Rose IQ Calendar Integration* → API permissions → Add → Microsoft Graph → **Application** → **`Sites.Selected`** → **Grant admin consent**.
+2. Give this app **write** on `https://rosecoglobal.sharepoint.com/sites/CRMDocuments`. `Sites.Selected` grants nothing until this step. Either:
+   - PnP PowerShell: `Grant-PnPAzureADAppSitePermission -AppId <GRAPH_CLIENT_ID> -DisplayName "Rose IQ Calendar Integration" -Site https://rosecoglobal.sharepoint.com/sites/CRMDocuments -Permissions Write`
+   - or Graph (as an admin with `Sites.FullControl.All`): `POST /sites/{siteId}/permissions` with `{"roles":["write"],"grantedToIdentities":[{"application":{"id":"<GRAPH_CLIENT_ID>","displayName":"Rose IQ Calendar Integration"}}]}`. Find the site id with `GET /sites/rosecoglobal.sharepoint.com:/sites/CRMDocuments`.
+3. Nothing to redeploy: the next token picks the permission up. A cached token lives up to an hour, so allow that long.
+
+The broader alternative is `Sites.ReadWrite.All`: one checkbox, but write access to **every** site in the tenant. `Sites.Selected` limits the app to this one site. The Exchange Application Access Policy doesn't apply to SharePoint, and uploads show in SharePoint as modified by the app, not the person (who uploaded is stored on the task). Until the grant is in place, an upload fails with *"SharePoint upload isn't enabled yet…"*, never silently.
+
+Calls used: `GET /sites/{host}:/sites/CRMDocuments` → site id; `GET /sites/{siteId}/drive` → the Documents library (both cached per warm instance); `PUT /drives/{driveId}/root:/{name}:/content?@microsoft.graph.conflictBehavior=rename` (new file) or `PUT /drives/{driveId}/items/{itemId}/content` (new version). Simple upload only, which suits files of 4 MB and under.

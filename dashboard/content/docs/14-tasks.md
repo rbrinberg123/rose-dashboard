@@ -27,6 +27,8 @@ Identical to Meetings and Events, and for the same reason: the page reads an uns
 
 Every server action in `app/tasks/actions.ts` re-checks too, because a server action is its own entry point and can be invoked directly.
 
+**One narrow exception (2026-10-19):** `loadTaskRecord` also returns a **Marketing Memo** task to **its owner**, one task at a time, so the teaser can upload the memo document from My Dashboard. It checks on the server that the sub-type is Marketing Memo and the owner is one of the caller's CRM ids. No list, no Edit. See [Marketing Memo document](#marketing-memo-document-2026-10-19).
+
 The nav entry is gated by `canSeeCrmNav`, which requires **both** `role === "super_user"` **and** `canAccessRoute`. For a non-super-user the whole CRM block is absent from the DOM — no item, no divider. Covered by `lib/nav-crm.test.ts`, which asserts the rule for every role in the system and for every item in the block.
 
 **Verified against the running app:** unauthenticated → `307` to `/login`; super_user → `200`; and `user`, `logistics`, `client_manager` and `associate` (through View-as) all → `307`. The `/tasks` link and the "CRM" label appear once for a super-user and zero times for a scoped user.
@@ -129,6 +131,22 @@ The task card (drawer — CRM → Tasks, My Dashboard, Feedback Reports) has a *
   - **Dynamics-origin (pre-cutover):** **only the dashboard-owned sidecar** — `closed_by_id`, `closed_by_name`, `closed_at` (the 2026-10-07 columns the sync never writes). The task stays Open in the mirror; the card shows a green *Closed by … · Dynamics update at cutover* pill, and **My Dashboard treats it as closed** (Other Open Tasks, Reports · Open / Claimed and the nav badge leave it out — `loadSidecarClosedTaskIds`). CRM → Tasks still lists it as Open until cutover.
 - **Afterwards:** a toast, the page refreshes (the originating list drops it, counts update), and the card reloads showing its closed state.
 - **Cutover step — native write-through:** flip `TASK_CLOSE_WRITE_THROUGH_DYNAMICS` in `lib/tasks/close.ts` so Dynamics-origin closes also write the native completion fields, and write through the ones closed before the flip: `origin = 'dynamics' AND state_label = 'Open' AND closed_at IS NOT NULL`.
+
+### Marketing Memo document (2026-10-19)
+
+A **Marketing Memo** task's drawer has a **Memo document** field at the top. The task's owner (the teaser) uploads the memo's Word document there, and it's pushed to SharePoint.
+
+- **Who:** the task's **owner** (`owner_id` ∈ your CRM ids) or a **Super User / Admin**, never in "View as" (`canUploadMemo`, `lib/tasks/memo-file.ts`). Everyone else who can open the task sees the link read-only. Works on dashboard- **and** Dynamics-origin memo tasks; it writes only dashboard-owned columns.
+- **Owners can now open their memo tasks.** The task drawer was super-user only; `loadTaskRecord` now also lets in the **owner of a Marketing Memo task**, so a teaser without CRM → Tasks access can click the task in **My Dashboard → Other Open Tasks** (`TaskItem.ownMemo`) and upload. That owner-only view has **no Edit** (`can_edit` false; `updateTask` is still CRM-writer only). Every other task and loader is unchanged.
+- **File:** **.doc / .docx only**, **4 MB** max, checked in the browser and again on the server. The file keeps **its own extension** (a `.doc` renamed `.docx` wouldn't open).
+- **Name:** the **task name** (subject), sanitized for SharePoint (`memoFileName`): `" * : < > ? / \ | # %` and control characters become `-`, repeated spaces and dashes collapse, a leading `~$` and trailing dots / spaces are dropped, and it's capped at 200 characters. Example: *Marketing Memo – ZVZZT - Boston - 10-6, 10-7.docx*.
+- **Where:** the **Documents library root** of `https://rosecoglobal.sharepoint.com/sites/CRMDocuments` (folder constant `CRM_DOCUMENTS_FOLDER` in `lib/graph/sharepoint.ts`, "" = root).
+- **Re-upload / name clash:** a re-upload on the **same task** writes a **new version** of its stored file (by item id; the SharePoint name is kept even if the subject changed since). If that file was deleted in SharePoint, it uploads afresh. A **first** upload whose name is already taken by another file is **auto-renamed** by SharePoint (*name 1.docx*), so another task's memo is never overwritten.
+- **Stored on the task:** `memo_file_item_id`, `memo_file_web_url`, `memo_file_name`, `memo_file_uploaded_at`, `memo_file_uploaded_by_id` / `_name`, from **`sql/patches/2026-10-19_task_memo_file.sql` (run it first)**. Until it's run the field says *"Document upload isn't switched on yet"* and the upload refuses before sending anything. After upload the field shows the file as a link (opens in SharePoint) with who uploaded it and when. Audited (`/tasks · Marketing Memo upload`).
+- **Errors are shown, never swallowed** (toast + inline): a Graph **401 / 403** says the SharePoint permission isn't granted yet (below); 404 = site / library not found; 409 / 423 = the file is locked or checked out; 5xx = try again; missing Graph credentials say so. If the upload worked but saving the link failed, the message says the file *is* in SharePoint.
+- **Graph permission it needs:** write access to the CRMDocuments site for the Graph app, `Sites.Selected` plus a site grant. See [05 — Sync & Integrations → Graph permissions](05-sync-and-integrations.md#graph-permissions).
+- **Size limit plumbing:** server actions default to a 1 MB body; `next.config.ts` raises it to 4.5 MB (`experimental.serverActions.bodySizeLimit`), which is also Vercel's request cap. Larger memos would need a Graph upload session (not built).
+- Code: `app/tasks/memo-upload-actions.ts` (`uploadMarketingMemo`), `app/tasks/task-record-pane.tsx` (`MemoDocumentField`), `lib/tasks/memo-file.ts` (pure rules, unit-tested), `lib/tasks/memo-file-server.ts`, `lib/graph/sharepoint.ts`.
 
 ## Saved views and filters
 

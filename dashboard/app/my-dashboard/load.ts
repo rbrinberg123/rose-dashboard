@@ -2,6 +2,7 @@ import { getSupabaseServer } from "@/lib/supabase"
 import { canAccessRoute, hasSuperUserPrivileges } from "@/lib/access-control"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
+import { MEMO_SUBTYPE_LABEL } from "@/lib/tasks/memo-file"
 import {
   TEAM_ROLES,
   resolveAccountTeamScope,
@@ -154,6 +155,9 @@ export type TaskItem = {
   role: string | null
   due: string | null
   href: string | null
+  /** A Marketing Memo the viewer owns — opens the task drawer even without
+   *  CRM → Tasks access, to upload the memo document (loadTaskRecord allows it). */
+  ownMemo: boolean
 }
 
 export type MarketingItem = {
@@ -489,7 +493,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
       .limit(C)
   })()
 
-  const TASK_COLS = "task_id, subject, client_account_id, client_account_name, client_ticker, owner_id, owner_name, due_date"
+  const TASK_COLS = "task_id, subject, client_account_id, client_account_name, client_ticker, owner_id, owner_name, due_date, task_subtype_label"
   const myTasksQ = ids.length
     ? sb
         .from("v_admin_tasks_all")
@@ -738,6 +742,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
     task_id: string; subject: string | null; client_account_id: string | null
     client_account_name: string | null; client_ticker: string | null
     owner_id: string | null; owner_name: string | null; due_date: string | null
+    task_subtype_label: string | null
   }
   const taskHref = (accountId: string | null) =>
     or("/tasks", "/tasks?client=" + (accountId ?? ""), accountId)
@@ -753,6 +758,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
       role: null,
       due: storedDay(t.due_date),
       href: taskHref(t.client_account_id),
+      ownMemo: t.task_subtype_label === MEMO_SUBTYPE_LABEL,
     }))
   const seen = new Set(tasks.map((t) => t.key))
   for (const t of rowsOf<TaskRow>(teamTasksRes)) {
@@ -770,6 +776,7 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
       role: roles.join(", "),
       due: storedDay(t.due_date),
       href: taskHref(t.client_account_id),
+      ownMemo: false,
     })
   }
   // Overdue first: one list by due date (oldest first, dateless last); the

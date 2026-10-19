@@ -127,16 +127,19 @@ function ItemTarget({
   data,
   taskId = null,
   meetingId = null,
+  ownMemo = false,
   href,
   children,
 }: {
   data: MyDashboardData
   taskId?: string | null
   meetingId?: string | null
+  /** The viewer's own Marketing Memo: its drawer opens without CRM → Tasks access (memo upload). */
+  ownMemo?: boolean
   href: string | null
   children: React.ReactNode
 }) {
-  if (taskId && data.canOpenTasks) return <OpenTaskRow taskId={taskId}>{children}</OpenTaskRow>
+  if (taskId && (data.canOpenTasks || ownMemo)) return <OpenTaskRow taskId={taskId}>{children}</OpenTaskRow>
   // Meeting rows open for every viewer: the drawer's loader only returns a
   // meeting the viewer hosts (loadHostedMeetingRecord).
   if (meetingId) return <OpenMeetingRow meetingId={meetingId}>{children}</OpenMeetingRow>
@@ -568,7 +571,7 @@ function TasksCard({ data, tone }: { data: MyDashboardData; tone: Tone }) {
         const tTone = dueTone(t.due, data.today)
         const due = t.due ? <DueText day={t.due} today={data.today} /> : "No date"
         return (
-          <ItemTarget key={t.key} data={data} taskId={t.taskId} href={t.href}>
+          <ItemTarget key={t.key} data={data} taskId={t.taskId} ownMemo={t.ownMemo} href={t.href}>
             <Line
               critical={isCritical(t.due, data.today)}
               edge={tTone}
