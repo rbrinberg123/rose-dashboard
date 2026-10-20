@@ -53,6 +53,7 @@ import {
   MEETING_TYPE_LIVE,
   MEETING_TYPE_OPTIONS,
   NEW_MEETING_TEST_DEFAULT,
+  defaultProfileCode,
   validateMeetingRequired,
   type MeetingChoiceOptions,
   type MeetingFieldErrors,
@@ -213,8 +214,17 @@ function MeetingFormDialog({
       initial?.onBehalfOfId ?? null,
       initial?.feedbackId ?? null,
     ]).then((r) => (r.ok ? setUsers(r.data) : setError(r.error)))
-    loadMeetingChoiceOptions().then((r) => (r.ok ? setChoices(r.data) : setError(r.error)))
-  }, [open, clients, initial])
+    loadMeetingChoiceOptions().then((r) => {
+      if (!r.ok) return setError(r.error)
+      setChoices(r.data)
+      // NEW meetings: show Profile pre-set to "New" (still changeable). Once,
+      // on load — never on edit, never over a value already chosen.
+      if (!editId) {
+        const code = defaultProfileCode(r.data.profile)
+        setForm((f) => (f.profileCode == null ? { ...f, profileCode: code } : f))
+      }
+    })
+  }, [open, clients, initial, editId])
 
   // Institution search, debounced.
   React.useEffect(() => {

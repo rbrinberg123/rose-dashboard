@@ -11,6 +11,32 @@
 /** Whether the form's "Test record" toggle starts ON. TEST PHASE: true. */
 export const NEW_MEETING_TEST_DEFAULT = true
 
+/**
+ * The Profile stage a NEW meeting starts at (2026-10-20). Matched by LABEL
+ * against the live profile options (codes come from the mirror, never
+ * hard-coded); if no option is labelled this, there is simply no default.
+ * New meetings only — edits and existing rows are untouched.
+ */
+export const NEW_MEETING_PROFILE_DEFAULT = "New"
+
+/** The option code for NEW_MEETING_PROFILE_DEFAULT, or null when absent. */
+export function defaultProfileCode(options: readonly ChoiceOption[]): number | null {
+  return options.find((o) => o.label.trim() === NEW_MEETING_PROFILE_DEFAULT)?.code ?? null
+}
+
+/**
+ * The profile stages the drawer's one-click "Mark … →" button walks through,
+ * in order (2026-10-20). Real option LABELS — "Created/Under Review" is ONE
+ * Dynamics option. "Not Needed" is a side exit, not a step: no advance from it.
+ */
+export const PROFILE_ADVANCE_ORDER = ["New", "Created/Under Review", "Approved", "Sent"] as const
+
+/** The stage after `current`, or null at Sent / off the sequence / blank. */
+export function nextProfileStage(current: string | null | undefined): string | null {
+  const i = (PROFILE_ADVANCE_ORDER as readonly string[]).indexOf((current ?? "").trim())
+  return i >= 0 && i < PROFILE_ADVANCE_ORDER.length - 1 ? PROFILE_ADVANCE_ORDER[i + 1] : null
+}
+
 /** bcs_meetingtype. "Live" is what makes is_in_person true (see mapMeeting). */
 export const MEETING_TYPE_OPTIONS = [
   { code: 755860000, label: "Virtual" },

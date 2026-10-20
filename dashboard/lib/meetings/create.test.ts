@@ -1,7 +1,16 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { MEETING_EVENT_STAGES, MEETING_TYPE_LIVE, validateMeetingRequired } from "./create.ts"
+import { MEETING_EVENT_STAGES, MEETING_TYPE_LIVE, nextProfileStage, validateMeetingRequired } from "./create.ts"
+
+test("profile advance: New → Created/Under Review → Approved → Sent, then stop", () => {
+  assert.equal(nextProfileStage("New"), "Created/Under Review")
+  assert.equal(nextProfileStage("Created/Under Review"), "Approved")
+  assert.equal(nextProfileStage("Approved"), "Sent")
+  assert.equal(nextProfileStage("Sent"), null)
+  assert.equal(nextProfileStage("Not Needed"), null)
+  assert.equal(nextProfileStage(null), null)
+})
 
 test("required: client, type, institution, investor", () => {
   const ok = { clientAccountId: "a", typeCode: 755860000, institutionId: "i", investor: "J. Smith" }

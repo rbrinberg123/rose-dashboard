@@ -4,6 +4,7 @@ import { getSupabaseServer } from "@/lib/supabase"
 import { getEffectiveIdentity } from "@/lib/effective-identity"
 import { resolveMeetingScope, filterVisibleMeetingIds } from "@/lib/access/data-scope"
 import { NoMeetingsAssigned } from "@/components/scoped-empty"
+import { canUseCrmForms } from "@/lib/crm-write"
 import type { ProfileUpcomingRow } from "@/lib/types"
 import { ProfilesView } from "./profiles-view"
 
@@ -111,7 +112,14 @@ export default async function ProfilesPage() {
 
   return (
     <PageShell title="Profiles" hideHeader canvas>
-      <ProfilesView rows={visible} weekMondays={businessWeekMondays()} today={todayUtcISO()} />
+      <ProfilesView
+        rows={visible}
+        weekMondays={businessWeekMondays()}
+        today={todayUtcISO()}
+        // Bulk stage checkboxes only for viewers who can edit meetings (Edit+ or
+        // super/admin). bulkUpdateProfileStage re-checks everything server-side.
+        canBulkEdit={await canUseCrmForms("/meetings")}
+      />
     </PageShell>
   )
 }

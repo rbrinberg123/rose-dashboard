@@ -227,6 +227,7 @@ export function MeetingRecordPane({
   crmBase,
   onClose,
   onEdit,
+  topSlot,
 }: {
   /** The open record, or null when the drawer is closed. */
   record: MeetingRecord | null
@@ -238,6 +239,8 @@ export function MeetingRecordPane({
   onClose: () => void
   /** Opens the edit form — shown only for origin='dashboard' records. */
   onEdit?: () => void
+  /** Optional host content above the sections once loaded (Profiles: stage picker). */
+  topSlot?: React.ReactNode
 }) {
   const open = loading || error !== null || record !== null
   const clientHref = record?.client_account_id
@@ -341,6 +344,7 @@ export function MeetingRecordPane({
               <div className="mt-1 text-muted-foreground">{error}</div>
             </div>
           )}
+          {record && !loading && !error && topSlot}
           {record &&
             !loading &&
             !error &&

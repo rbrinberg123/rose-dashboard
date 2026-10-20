@@ -13,6 +13,8 @@ import {
   TEAL,
 } from "@/lib/design"
 import type { ProfileUpcomingRow } from "@/lib/types"
+import { ProfileMeetingDrawerHost, useOpenProfileMeeting } from "./profile-meeting-drawer"
+import { BulkStageBar, ProfileSelectionProvider, RowSelectBox, SelectAllBox } from "./bulk-stage-bar"
 
 const NAVY_DEEP = "#1E2858"
 const ALL = "__all__"
@@ -82,19 +84,45 @@ export function ProfilesView({
   rows,
   weekMondays,
   today,
+  canBulkEdit,
 }: {
   rows: ProfileUpcomingRow[]
   weekMondays: string[]
   today: string
+  /** Show the bulk stage checkboxes + action row (Edit+ on Meetings). */
+  canBulkEdit: boolean
 }) {
+  // Bulk stage selection (meeting ids). Actions only ever apply to selected
+  // cards that are still visible under the filters (see BulkStageBar).
+  const [selected, setSelected] = React.useState<Set<string>>(() => new Set())
+  const selection = React.useMemo(
+    () => ({
+      selected,
+      setMany: (ids: string[], on: boolean) =>
+        setSelected((prev) => {
+          const next = new Set(prev)
+          for (const id of ids) {
+            if (on) next.add(id)
+            else next.delete(id)
+          }
+          return next
+        }),
+    }),
+    [selected],
+  )
+
   // Every known stage always gets a toggle (in pipeline order), even when no
   // meeting in the window currently has that stage — so Approved and Not Needed
   // are always visible. Any unexpected stage value in the data is appended last.
-  const toggleStages = React.useMemo(() => {
-    const present = new Set(rows.map((r) => r.profile_label))
-    const extras = Array.from(present).filter((s) => !STAGE_ORDER.includes(s))
-    return [...STAGE_ORDER, ...extras]
-  }, [rows])
+  // Keyed on the extra stage NAMES, not the rows array, so a refresh after a
+  // drawer stage change doesn't re-seed (reset) the user's stage toggles.
+  const extrasKey = Array.from(new Set(rows.map((r) => r.profile_label)))
+    .filter((s) => !STAGE_ORDER.includes(s))
+    .join("\u0000")
+  const toggleStages = React.useMemo(
+    () => [...STAGE_ORDER, ...(extrasKey ? extrasKey.split("\u0000") : [])],
+    [extrasKey],
+  )
 
   // Default: every stage ON except "Sent" and "Not Needed" (the two hidden by
   // default).
@@ -220,8 +248,15 @@ export function ProfilesView({
     setSecondaryAM(ALL)
   }
 
+  // Event names for the drawer header (the event isn't on public.meetings).
+  const eventNames = React.useMemo(
+    () => new Map(rows.map((r) => [r.meeting_id, r.event_name])),
+    [rows],
+  )
+
   return (
-    <>
+    <ProfileSelectionProvider value={canBulkEdit ? selection : null}>
+    <ProfileMeetingDrawerHost eventNames={eventNames}>
       <div className="mb-4">
         <ListTitleCard
           title="Profiles"
@@ -348,6 +383,8 @@ export function ProfilesView({
         </div>
       </div>
 
+      {canBulkEdit && <BulkStageBar visibleRows={filtered} onDone={() => setSelected(new Set())} />}
+
       <Legend />
 
       {/* Board: three fixed business-week columns. */}
@@ -357,7 +394,8 @@ export function ProfilesView({
           return <WeekColumn key={monday} monday={monday} items={items} today={today} />
         })}
       </div>
-    </>
+    </ProfileMeetingDrawerHost>
+    </ProfileSelectionProvider>
   )
 }
 
@@ -390,7 +428,9 @@ function WeekColumn({
   return (
     <div className={`flex flex-col overflow-hidden ${CARD_CLASS}`}>
       <div className="flex items-center justify-between gap-2 border-b px-3 py-2.5">
-        <span className="text-sm font-semibold" style={{ color: NAVY_DEEP }}>
+        <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: NAVY_DEEP }}>
+          {/* Select every VISIBLE card in this week (items are already filtered). */}
+          <SelectAllBox ids={items.map((r) => r.meeting_id)} label={`Select all in ${fmtWeekOf(monday)}`} />
           {fmtWeekOf(monday)}
         </span>
         <span className="inline-flex h-[22px] min-w-[22px] shrink-0 items-center justify-center rounded-full bg-[#1E2858] px-2 text-[13px] font-semibold tabular-nums text-white">
@@ -445,12 +485,25 @@ function MeetingCard({ row, today }: { row: ProfileUpcomingRow; today: string })
   // field is populated. To hide-when-empty instead, change the null branch below
   // to render `null`.
   const sharepointUrl = row.event_sharepoint_url?.trim()
+  // The whole card opens its meeting in the drawer (the SharePoint link below
+  // stops propagation so it still just opens the document).
+  const openMeeting = useOpenProfileMeeting()
   return (
     <div
-      className="rounded-md border border-[#EDEFF3] bg-white px-2.5 py-1.5 shadow-sm"
+      role="button"
+      tabIndex={0}
+      onClick={() => openMeeting?.(row.meeting_id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault()
+          openMeeting?.(row.meeting_id)
+        }
+      }}
+      className="cursor-pointer rounded-md border border-[#EDEFF3] bg-white px-2.5 py-1.5 shadow-sm transition-colors hover:bg-[#F7F8FA] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0355A7]/40"
       style={{ borderLeft: `3px solid ${accent}` }}
     >
       <div className="flex items-start justify-between gap-2">
+        <RowSelectBox id={row.meeting_id} label={row.client_account_name || "meeting"} />
         <div
           className="min-w-0 flex-1 truncate text-sm font-medium leading-tight"
           style={{ color: NAVY_DEEP }}
@@ -485,6 +538,8 @@ function MeetingCard({ row, today }: { row: ProfileUpcomingRow; today: string })
               href={sharepointUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
               title="Open event document"
               aria-label="Open event document"
               className="text-muted-foreground transition-colors hover:text-[#1E2858]"

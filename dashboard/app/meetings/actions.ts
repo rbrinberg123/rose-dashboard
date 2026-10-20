@@ -36,6 +36,9 @@ import {
   MEETING_EVENT_STAGES,
   MEETING_STATUS_OPTIONS,
   canAddMeetingFromEvent,
+  defaultProfileCode,
+  nextProfileStage,
+  PROFILE_ADVANCE_ORDER,
   validateMeetingRequired,
   MEETING_TYPE_LIVE,
   MEETING_TYPE_OPTIONS,
@@ -55,6 +58,8 @@ import {
   type FilterOptions,
 } from "@/lib/meetings/query"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { resolveMeetingScope, filterVisibleMeetingIds } from "@/lib/access/data-scope"
+import { protectedFieldViolation } from "@/lib/access/crm-levels-policy"
 
 /**
  * Load ONE meeting's full record for the Meetings drawer.
@@ -200,7 +205,199 @@ export async function loadHostedMeetingRecord(
   return readMeetingRecord(meetingId)
 }
 
-/** UNGATED body shared by the two loaders above — never export it. */
+/**
+ * May the viewer reach this meeting from the Profiles board? The same two
+ * checks the page itself applies: page access to /profiles, and the Level-2
+ * meeting scope (Booker / Host / Feedback + account-team meetings). Fails
+ * closed — an unresolved scope or a scope-fetch error denies.
+ */
+async function canSeeProfileMeeting(meetingId: string): Promise<boolean> {
+  if (!meetingId || !(await canReadCrmPage("/profiles"))) return false
+  const scope = await resolveMeetingScope(await getEffectiveIdentity())
+  if (scope.mode === "all") return true
+  if (scope.mode === "none") return false
+  return (await filterVisibleMeetingIds(scope, [meetingId])).has(meetingId)
+}
+
+/** The meeting drawer for the Profiles board — only a meeting on the viewer's board. */
+export async function loadProfileMeetingRecord(
+  meetingId: string,
+): Promise<ActionResult<MeetingRecord>> {
+  // ---- GATE (must stay first) ----
+  if (!(await canSeeProfileMeeting(meetingId))) return fail("Not authorised.")
+  return readMeetingRecord(meetingId)
+}
+
+/**
+ * The profile-stage choices for the Profiles drawer, in pipeline (code) order.
+ * Offered only to viewers who can edit meetings (Edit+ on /meetings, or super
+ * users / admins) — a refusal here is what hides the stage picker.
+ */
+export async function loadProfileStageOptions(): Promise<ActionResult<ChoiceOption[]>> {
+  if (!(await canUseCrmForms("/meetings")) || !(await canReadCrmPage("/profiles"))) {
+    return fail("Not authorised.")
+  }
+  const res = await meetingChoiceOptions()
+  if (!res.ok) return fail(res.error)
+  return ok([...res.data.profile].sort((a, b) => a.code - b.code))
+}
+
+/**
+ * Change ONE meeting's profile stage from the Profiles drawer. Gated like any
+ * meeting edit — Edit+ on /meetings and the ORIGIN FENCE (updateDashboardRow
+ * refuses Dynamics rows until cutover; it also writes the audit entry) — plus
+ * the Profiles row scope, so only a meeting on the viewer's board can change.
+ */
+export async function updateMeetingProfileStage(
+  meetingId: string,
+  profileCode: number,
+): Promise<ActionResult<{ changed: number }>> {
+  if (!(await canSeeProfileMeeting(meetingId))) return fail("Not authorised.")
+  const optsRes = await meetingChoiceOptions()
+  if (!optsRes.ok) return fail(optsRes.error)
+  const stage = optsRes.data.profile.find((o) => o.code === profileCode)
+  if (!stage) return fail("Unknown profile stage.")
+  const res = await updateDashboardRow({
+    table: "meetings",
+    pk: "meeting_id",
+    id: meetingId,
+    patch: { profile_code: stage.code, profile_label: stage.label },
+    path: "/profiles",
+    context: "/profiles · Change profile stage",
+    verb: "editing meetings",
+  })
+  if (res.ok) revalidatePath("/meetings")
+  return res
+}
+
+/** A Profiles-page bulk stage change: one fixed stage, or one step forward each. */
+export type BulkProfileStageRequest = { mode: "set"; stage: string } | { mode: "advance" }
+
+/**
+ * BULK profile-stage update from the Profiles board (2026-10-20). PROFILE STAGE
+ * ONLY — profile_code / profile_label (+ modified_*), nothing else.
+ *
+ * Same rules as a single stage edit, applied to the set at once:
+ *   - Edit+ on /meetings (requireCrmLevel; refuses in "View as") + /profiles
+ *     page access + the protected-fields check;
+ *   - row scope: only meetings on the viewer's board (resolveMeetingScope);
+ *   - ORIGIN FENCE: only origin='dashboard' rows, in the read AND in the
+ *     UPDATE's own WHERE — Dynamics rows are skipped until cutover.
+ * Anything not eligible is SKIPPED silently and counted. Batched, not
+ * row-by-row: "set" is one UPDATE; "advance" is one UPDATE per destination
+ * stage (≤ 3), each guarded on the source stage so a row that moved meanwhile
+ * is skipped, not double-advanced. (Chunked at 150 ids only to stay under the
+ * URL limit.) One audit entry per meeting actually changed.
+ */
+export async function bulkUpdateProfileStage(
+  meetingIds: string[],
+  req: BulkProfileStageRequest,
+): Promise<ActionResult<{ updated: number; skipped: number }>> {
+  // ---- GATE (must stay first) ----
+  if (!(await canReadCrmPage("/profiles"))) return fail("Not authorised.")
+  const gate = await requireCrmLevel("/meetings", "edit", "editing meetings")
+  if (!gate.ok) return fail(gate.error)
+  const blocked = protectedFieldViolation("/meetings", ["profile_code", "profile_label"], gate.level, gate.isSuper)
+  if (blocked) return fail(blocked)
+
+  const ids = [...new Set(meetingIds)].filter(isUuid)
+  if (ids.length === 0) return fail("Nothing selected.")
+  if (ids.length > 1000) return fail("Select at most 1,000 meetings at a time.")
+  if (req.mode === "set" && !(PROFILE_ADVANCE_ORDER as readonly string[]).includes(req.stage)) {
+    return fail("Unknown profile stage.")
+  }
+
+  const optsRes = await meetingChoiceOptions()
+  if (!optsRes.ok) return fail(optsRes.error)
+  const byLabel = new Map(optsRes.data.profile.map((o) => [o.label.trim(), o]))
+  if (req.mode === "set" && !byLabel.has(req.stage)) return fail("Unknown profile stage.")
+
+  // Row scope: only meetings on this viewer's board.
+  const scope = await resolveMeetingScope(await getEffectiveIdentity())
+  if (scope.mode === "none") return ok({ updated: 0, skipped: ids.length })
+  const visible = scope.mode === "all" ? new Set(ids) : await filterVisibleMeetingIds(scope, ids)
+  const inScope = ids.filter((id) => visible.has(id))
+
+  const sb = getSupabaseServer()
+  const CHUNK = 150
+  const chunks = (list: string[]) =>
+    Array.from({ length: Math.ceil(list.length / CHUNK) }, (_, i) => list.slice(i * CHUNK, (i + 1) * CHUNK))
+
+  // Current stage of the in-scope DASHBOARD rows (the fence, first pass).
+  type Cur = { meeting_id: string; profile_code: number | null; profile_label: string | null; is_test: boolean | null }
+  const current = new Map<string, Cur>()
+  for (const chunk of chunks(inScope)) {
+    const { data, error } = await sb
+      .from("meetings")
+      .select("meeting_id, profile_code, profile_label, is_test")
+      .in("meeting_id", chunk)
+      .eq("origin", "dashboard")
+    if (error) return fail(describeError(error))
+    for (const r of (data ?? []) as Cur[]) current.set(r.meeting_id, r)
+  }
+
+  // Plan: destination stage → { the source stage to guard on, ids }.
+  const plan = new Map<string, { to: ChoiceOption; from: string | null; ids: string[] }>()
+  for (const r of current.values()) {
+    const fromLabel = r.profile_label?.trim() || null
+    const toLabel = req.mode === "set" ? req.stage : nextProfileStage(fromLabel)
+    const to = toLabel ? byLabel.get(toLabel) : undefined
+    if (!to || to.label.trim() === fromLabel) continue // nothing to change → skipped
+    const key = to.label.trim()
+    const group = plan.get(key) ?? { to, from: req.mode === "advance" ? fromLabel : null, ids: [] }
+    group.ids.push(r.meeting_id)
+    plan.set(key, group)
+  }
+
+  const now = new Date().toISOString()
+  const changed: string[] = []
+  for (const group of plan.values()) {
+    for (const chunk of chunks(group.ids)) {
+      let q = sb
+        .from("meetings")
+        .update({
+          profile_code: group.to.code,
+          profile_label: group.to.label,
+          modified_on: now,
+          modified_by_id: gate.userId,
+          modified_by_name: gate.name,
+        })
+        .in("meeting_id", chunk)
+        .eq("origin", "dashboard")
+      if (group.from) q = q.eq("profile_label", group.from)
+      const { data, error } = await q.select("meeting_id")
+      if (error) return fail(describeError(error))
+      for (const r of (data ?? []) as { meeting_id: string }[]) changed.push(r.meeting_id)
+    }
+  }
+
+  const toById = new Map<string, ChoiceOption>()
+  for (const g of plan.values()) for (const id of g.ids) toById.set(id, g.to)
+  await Promise.all(
+    changed.map((id) => {
+      const before = current.get(id)!
+      const to = toById.get(id)!
+      return recordAudit({
+        action: "update",
+        entity: "meetings",
+        recordId: id,
+        changes: {
+          profile_code: { old: before.profile_code, new: to.code },
+          profile_label: { old: before.profile_label, new: to.label },
+        },
+        context: `/profiles · Bulk ${req.mode === "set" ? `set stage → ${to.label}` : "advance stage"} · dashboard row${before.is_test === true ? " · test" : ""}`,
+      })
+    }),
+  )
+
+  if (changed.length) {
+    revalidatePath("/profiles")
+    revalidatePath("/meetings")
+  }
+  return ok({ updated: changed.length, skipped: ids.length - changed.length })
+}
+
+/** UNGATED body shared by the loaders above — never export it. */
 async function readMeetingRecord(meetingId: string): Promise<ActionResult<MeetingRecord>> {
   if (!meetingId) return fail("No meeting id.")
 
@@ -698,6 +895,14 @@ export async function createMeeting(
       return fail("Adding meetings from a Dynamics event is available at cutover.")
     }
     allowEventId = opts.fromEventId
+  }
+
+  // Profile defaults to "New" on create when none was picked — here, not just
+  // in the form, so every create entry point gets it (lib/meetings/create.ts).
+  if (input.profileCode == null) {
+    const optsRes = await meetingChoiceOptions()
+    if (!optsRes.ok) return fail(optsRes.error)
+    input = { ...input, profileCode: defaultProfileCode(optsRes.data.profile) }
   }
 
   const built = await buildMeetingColumns(input, allowEventId)
