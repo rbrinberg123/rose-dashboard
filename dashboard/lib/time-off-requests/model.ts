@@ -206,4 +206,29 @@ export type TimeOffRecord = TimeOffListRow & {
   reviewBlockedReason: string | null
   /** True when the viewer may edit / delete it (super_user, not in View as). */
   canEdit: boolean
+  /**
+   * Reviewer context, PENDING dashboard requests only (else null): the
+   * requester's APPROVED Vacation this calendar year, NOT counting this request.
+   */
+  vacationYtd: VacationYtd | null
+}
+
+/** One approved Vacation entry in the reviewer's context panel. */
+export type VacationYtdEntry = {
+  id: string
+  source: "Dynamics" | "Dashboard"
+  start_date: string
+  end_date: string
+  /** Days falling in `year` only (a New Year straddle counts its in-year part). */
+  days: number
+  is_test: boolean
+}
+
+/** The requester's approved Vacation in `year`, excluding the request under review. */
+export type VacationYtd = {
+  year: number
+  entries: VacationYtdEntry[]
+  total: number
+  /** Set when the read failed — the panel says so instead of showing 0. */
+  error: string | null
 }

@@ -327,6 +327,19 @@ function requestDays(req: OooRequest, start: Ymd, end: Ymd): Map<number, number>
 }
 
 /**
+ * The days ONE request contributes to `year` — the tally's own arithmetic
+ * (requestDays), so a request straddling New Year counts only its days in that
+ * year. Used by the Time Off reviewer's "Vacation this year" panel. 0 when a
+ * date is missing or inverted.
+ */
+export function requestDaysInYear(req: OooRequest, year: number): number {
+  const start = dateKey(req.start_date)
+  const end = dateKey(req.end_date)
+  if (!start || !end || end < start) return 0
+  return requestDays(req, start, end).get(year) ?? 0
+}
+
+/**
  * One individual request, as the click-to-detail side pane renders it. This is
  * the per-request view of the same arithmetic the tally aggregates, so the pane
  * and the table can never disagree.

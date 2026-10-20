@@ -1,11 +1,11 @@
 # 23 — Time Off (requests & approvals)
 
-> **Status: built, local only.** Needs `sql/patches/2026-09-24_time_off_requests.sql` run in Supabase before the page loads. **Since 2026-10-09 the page is open to every signed-in user, row-scoped** (see *Who sees which requests* below). Creating / editing / deleting are still super-user only.
+> **Status: built, local only.** Needs `sql/patches/2026-09-24_time_off_requests.sql` run in Supabase before the page loads. **Since 2026-10-09 the page is open to every signed-in user, row-scoped** (see *Who sees which requests* below). **Since 2026-10-20 any staff member can submit their own request** (see *Staff self-submit* below); super users / admins can submit for anyone. Editing / deleting are still super-user only.
 
 **Where it lives (2026-10-11).** The requests table is no longer a standalone **CRM** nav item. It is reached from the Logistics **Time Off** page (`/time-off`), whose header now has two actions:
 
 - **Manage Time Off** (secondary, for everyone) opens this table, `/time-off-requests`. The route, its row scoping (own ∪ approver-for ∪ super-user all) and the drawer are unchanged.
-- **New Time Off Request** (primary) opens the existing create form (`NewTimeOffButton`; active Rose & Co personnel only, full days only). It is shown only to whoever `createTimeOffRequest` accepts: an effective super user, not in "View as". Creating stays super-user only on the server.
+- **New Time Off Request** (primary) opens the existing create form (`NewTimeOffButton`; active Rose & Co personnel only, full days only). It is shown to whoever `createTimeOffRequest` accepts: any signed-in user with a role, not in "View as" (since 2026-10-20 — staff for themselves, super users / admins for anyone).
 
 The Logistics calendar itself is unchanged. The nav's quick-add menu still opens the form on this table (`/time-off-requests?new=1`).
 
@@ -66,7 +66,7 @@ Not to be confused with **Logistics → Time Off** (`/time-off`), the who's-out 
 |---|---|---|
 | Open the page | any signed-in user with a role — **rows scoped** (own ∪ approver-for ∪ super-user all; see above) | `ALWAYS_ALLOWED_ROUTES`; `resolveTimeOffVisibility` in the page query; `canViewTimeOffRequest` in `loadTimeOffRecord` |
 | Open the reviewers admin page | super_user | proxy (`ADMIN_ONLY_ROUTES`) and its actions |
-| Create a request | super_user, not in "View as" | `createTimeOffRequest` → `requireCrmWriter` |
+| Create a request | **super_user / admin: for anyone. Any other signed-in user with a role: for themselves only** (since 2026-10-20). Never in "View as" | `createTimeOffRequest` → `requireTimeOffSubmitter` |
 | **Edit / delete** a dashboard request (any status) | **super_user only**, not in "View as" | `updateTimeOffRequest` / `deleteTimeOffRequest` → `requireCrmWriter` |
 | Approve / deny | **any signed-in user with a role** (since 2026-10-08; was super-user only), not in "View as", **on the requester's reviewing team right now** — the designated approver; being a super user alone grants nothing — not the requester, request still Pending. Reachable from CRM → Time Off (super users) and from My Dashboard's Time Off Approvals drawer (any reviewer) | `reviewTimeOffRequest` |
 | Change reviewing teams | super_user, not in "View as" | `app/admin/time-off-reviewers/actions.ts` |
@@ -91,6 +91,32 @@ A request is a date range **plus one `time_off_days` row per counted day**, each
 ### Dynamics rows
 
 Dynamics has no usable day count (`duration` is minutes, and 0 for a one-day request) and no half-day field. The Time Off list shows the **same number the OOO Summary computes** for them: business days, with the comment-based half-day rule (see [11 — OOO Summary](11-ooo-summary.md)). Dynamics never fills its request status, so every synced request shows as **Approved** (the same rule as `v_time_off`). Its Reviewing Team is the Dynamics team name ("Time Off Requests").
+
+### Staff self-submit (2026-10-20)
+
+Any staff member (any signed-in user with a role) can now submit a time-off request **for themselves**. Super users and admins keep submitting for **anyone**.
+
+- **Where:** the same three buttons, now shown to staff too — **New Time Off Request** on the Time Off calendar header, **Add New Time Off** on the Manage Time Off header, and **New Time Off** in the nav "+" quick-add. (Because Time Off is in the "+" menu for everyone, staff with no CRM pages now see the small CRM "+" in the nav.)
+- **The form:** the same form. For staff, **Requested by** is locked to them ("Name (you)"), not a picker; the reviewing team shown is their own. Super users / admins keep the full picker.
+- **The server rule** (`requireTimeOffSubmitter` in `app/time-off-requests/actions.ts`): a role is required, "View as" is refused for everyone, and a non-privileged user who sets Requested By to anyone else gets **"Not authorised."** Their duplicate CRM records count as themselves. They must still be Rose & Co active personnel (`requireActivePersonnel`).
+- **Unchanged:** the Test record default (still ticked), full days only, approvals and who can review, and edit / delete / purge (super-user only). No SQL.
+
+### Reviewer context: "Vacation in {year}" (2026-10-20)
+
+When a **Pending** dashboard request is opened in the drawer (Manage Time Off, or My Dashboard's Time Off Approvals drawer), the **Awaiting review** box shows a small panel above Approve / Deny so the reviewer sees how much vacation the person has already taken:
+
+- **The list** — each of the requester's **approved Vacation** entries this calendar year (Jan 1 – Dec 31, Eastern), oldest first, with its dates and day count. Both sources are included: Dynamics history and dashboard requests. Test requests carry the TEST badge.
+- **The YTD total** — the sum of those entries, e.g. **8 days YTD**.
+- **Not counting this request.** The request being reviewed is never in the list or the total. When it is itself a Vacation request inside this year, the note adds what the total would become, e.g. "(3 days → 11 days if approved)".
+
+What counts:
+
+- **Vacation only.** Request type exactly `Vacation` — Sick Leave, Remote Work, Personal, Jury Duty and Other are left out. (This is narrower than the OOO Summary's *Time Off* column, which also lumps in Personal and Other.)
+- **Approved only.** Other Pending requests and Denied requests are left out. Dynamics rows count as Approved (Dynamics never fills its status — the same rule as everywhere else).
+- **Days are counted exactly as on the OOO Summary** (`requestDaysInYear` in `lib/ooo-summary/compute.ts`): business days only (Mon–Fri, not an NYSE holiday); dashboard requests by their day rows; Dynamics requests by the comment-based half-day rule. A request straddling New Year counts only its days inside this year.
+- **Duplicate CRM records** are merged — the person's requests under any of their user ids are included.
+
+Who sees it: whoever can open the drawer — the same people who can already see all of this person's requests on the list. Nothing new is exposed. If the history can't be read, the panel says so in red rather than showing 0. Code: `loadVacationYtd` (`app/time-off-requests/actions.ts`) → `VacationYtdPanel` (`time-off-requests-view.tsx`). No SQL.
 
 ---
 

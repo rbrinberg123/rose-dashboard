@@ -5,7 +5,9 @@
  * edit, delete, approve / deny, and the test-data purge.
  *
  * ══ WHO MAY DO WHAT (enforced HERE, never by hiding buttons) ═══════════════
- *   create          super_user, not in "View as"        (requireCrmWriter)
+ *   create          super_user / admin for ANYONE; any other signed-in user
+ *                   with a role for THEMSELVES only (2026-10-20); never in
+ *                   "View as"                           (requireTimeOffSubmitter)
  *   edit / delete   super_user, not in "View as"        (requireCrmWriter)
  *                   — dashboard rows only, in ANY status. Being the REQUESTER
  *                   grants nothing: a requester can never edit or delete a
@@ -64,6 +66,8 @@ import {
   type TimeOffListRow,
   type TimeOffPortion,
   type TimeOffRecord,
+  type VacationYtd,
+  type VacationYtdEntry,
 } from "@/lib/time-off-requests/model"
 import {
   idsForEmail,
@@ -72,6 +76,8 @@ import {
   reviewerNamesFor,
 } from "@/lib/time-off-requests/reviewers"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { requestDaysInYear } from "@/lib/ooo-summary/compute"
+import { easternToday } from "@/app/clients/alerts/alerts-policy"
 
 const TABLE = "time_off_requests"
 const PATH = "/time-off-requests"
@@ -222,10 +228,46 @@ export async function loadTimeOffUserOptions(keepId: string | null = null): Prom
   return loadPersonnelOptions([keepId])
 }
 
+/**
+ * Who may SUBMIT a request (2026-10-20: staff self-submit). Any signed-in user
+ * with a role, not in "View as". `privileged` (super_user / admin) may submit
+ * for ANYONE; everyone else only for THEMSELVES — `selfIds` is every user_id
+ * that is the actor (duplicate CRM records included), checked by
+ * createTimeOffRequest.
+ */
+async function requireTimeOffSubmitter(): Promise<
+  | { ok: true; privileged: boolean; userId: string | null; name: string | null; selfIds: string[] }
+  | { ok: false; error: string }
+> {
+  const [role, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
+  if (!role) return { ok: false, error: "Not authorised." }
+  if (identity.impersonated) return { ok: false, error: "Exit “View as” before creating time off requests." }
+  const privileged = hasSuperUserPrivileges(role)
+  const selfIds = [...new Set([...(await idsForEmail(identity.email)), identity.userId ?? ""])].filter(Boolean)
+  if (!privileged && (!identity.userId || selfIds.length === 0)) {
+    return { ok: false, error: "Your sign-in isn't matched to a CRM user." }
+  }
+  return { ok: true, privileged, userId: identity.userId, name: identity.name, selfIds }
+}
+
+/**
+ * The form's Requested By mode: `canChoose` (super_user / admin) = the full
+ * picker; otherwise the field is locked to `selfName`. Display only — the
+ * server enforces it in createTimeOffRequest.
+ */
+export async function loadTimeOffRequesterMode(): Promise<
+  ActionResult<{ canChoose: boolean; selfName: string | null }>
+> {
+  const gate = await requireTimeOffSubmitter()
+  if (!gate.ok) return fail(gate.error)
+  return ok({ canChoose: gate.privileged, selfName: gate.name })
+}
+
 /** The chosen person's reviewing team, resolved live — shown on the form. */
 export async function loadReviewingTeam(personId: string | null): Promise<ActionResult<string[]>> {
   const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // Staff (self-submit) may read only their OWN team: personId blank = you.
+  if (!hasSuperUserPrivileges(role) && (!role || personId)) return fail("Not authorised.")
   let id = personId
   if (!id) id = (await getEffectiveIdentity()).userId
   if (!id || !isUuid(id)) return ok([])
@@ -234,13 +276,20 @@ export async function loadReviewingTeam(personId: string | null): Promise<Action
 
 /* ------------------------------------------------------------------ create */
 
-/** "New Time Off" — a Pending request plus one day row per counted day. */
+/**
+ * "New Time Off" — a Pending request plus one day row per counted day.
+ * super_user / admin: for anyone. Any other signed-in user: for THEMSELVES only
+ * (blank Requested By = you; any other person is refused). Never in View as.
+ */
 export async function createTimeOffRequest(
   input: TimeOffInput,
 ): Promise<ActionResult<{ id: string; totalDays: number }>> {
   // ---- GATE (must stay first) ----
-  const gate = await requireCrmWriter("creating time off requests")
+  const gate = await requireTimeOffSubmitter()
   if (!gate.ok) return fail(gate.error)
+  if (!gate.privileged && input.requestedById && !gate.selfIds.includes(input.requestedById)) {
+    return fail("Not authorised.")
+  }
 
   const built = await buildRequest(input, gate.userId)
   if (!built.ok) return fail(built.error)
@@ -355,6 +404,74 @@ export async function loadTimeOffApprovalRecord(id: string): Promise<ActionResul
   return readTimeOffRecord(id, "Dashboard")
 }
 
+/**
+ * Reviewer context for a pending request: the requester's APPROVED "Vacation"
+ * (not Sick Leave, Remote Work or any other type) in the current Eastern
+ * calendar year, from both sources, EXCLUDING the request under review. Days
+ * use the OOO Summary's arithmetic (requestDaysInYear): dashboard rows by their
+ * time_off_days, Dynamics rows by business days + the half-day rule, and only
+ * the days inside this year. UNGATED — called only from readTimeOffRecord,
+ * whose callers already proved the viewer may see this person's requests.
+ */
+async function loadVacationYtd(requesterId: string, excludeId: string): Promise<VacationYtd> {
+  const year = Number(easternToday().slice(0, 4))
+  const empty = (error: string | null): VacationYtd => ({ year, entries: [], total: 0, error })
+  const sb = getSupabaseServer()
+  const { data, error } = await sb
+    .from("v_admin_time_off_all")
+    .select("id, source, start_date, end_date, request_type, status, description, is_test")
+    .in("requested_by_id", await idsForUser(requesterId))
+    .lte("start_date", `${year}-12-31`)
+    .gte("end_date", `${year}-01-01`)
+  if (error) return empty(describeError(error))
+  const rows = (
+    (data ?? []) as (Pick<TimeOffListRow, "id" | "source" | "start_date" | "end_date" | "request_type" | "status" | "description" | "is_test">)[]
+  ).filter(
+    (r) => r.id !== excludeId && r.request_type?.trim() === "Vacation" && r.status === "Approved",
+  )
+
+  const dashboardIds = rows.filter((r) => r.source === "Dashboard").map((r) => r.id)
+  const daysById = new Map<string, { date: string; portion: string }[]>()
+  if (dashboardIds.length) {
+    const daysRes = await sb.from("time_off_days").select("request_id, off_date, portion").in("request_id", dashboardIds)
+    if (daysRes.error) return empty(describeError(daysRes.error))
+    for (const d of (daysRes.data ?? []) as { request_id: string; off_date: string; portion: string }[]) {
+      const list = daysById.get(d.request_id) ?? []
+      list.push({ date: d.off_date, portion: d.portion })
+      daysById.set(d.request_id, list)
+    }
+  }
+
+  const entries: VacationYtdEntry[] = []
+  for (const r of rows) {
+    if (!r.start_date || !r.end_date) continue
+    const days = requestDaysInYear(
+      {
+        ooo_id: r.id,
+        requested_by_id: requesterId,
+        requested_by_name: null,
+        start_date: r.start_date,
+        end_date: r.end_date,
+        request_type_label: r.request_type,
+        description_comments: r.description,
+        days: r.source === "Dashboard" ? (daysById.get(r.id) ?? []) : null,
+      },
+      year,
+    )
+    if (days === 0) continue
+    entries.push({
+      id: r.id,
+      source: r.source,
+      start_date: r.start_date,
+      end_date: r.end_date,
+      days,
+      is_test: r.is_test === true,
+    })
+  }
+  entries.sort((a, b) => a.start_date.localeCompare(b.start_date))
+  return { year, entries, total: entries.reduce((s, e) => s + e.days, 0), error: null }
+}
+
 /** UNGATED body shared by the two loaders above — never export it. */
 async function readTimeOffRecord(
   id: string,
@@ -382,10 +499,11 @@ async function readTimeOffRecord(
       canReview: false,
       reviewBlockedReason: null,
       canEdit: false,
+      vacationYtd: null,
     })
   }
 
-  const [daysRes, reviewers, review, identity] = await Promise.all([
+  const [daysRes, reviewers, review, identity, vacationYtd] = await Promise.all([
     getSupabaseServer()
       .from("time_off_days")
       .select("off_date, portion")
@@ -394,6 +512,9 @@ async function readTimeOffRecord(
     row.requested_by_id ? reviewerNamesFor(row.requested_by_id) : Promise.resolve([]),
     reviewState(row),
     getEffectiveIdentity(),
+    row.status === "Pending" && row.requested_by_id
+      ? loadVacationYtd(row.requested_by_id, row.id)
+      : Promise.resolve(null),
   ])
   const days = ((daysRes.data ?? []) as { off_date: string; portion: string }[]).map((d) => ({
     date: d.off_date,
@@ -409,6 +530,7 @@ async function readTimeOffRecord(
     // Hides the buttons only — updateTimeOffRequest / deleteTimeOffRequest
     // re-check this server-side.
     canEdit: hasSuperUserPrivileges(role) && !identity.impersonated,
+    vacationYtd,
   })
 }
 

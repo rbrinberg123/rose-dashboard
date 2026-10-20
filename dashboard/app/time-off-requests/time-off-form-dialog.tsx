@@ -57,6 +57,7 @@ import {
   createTimeOffRequest,
   loadReviewingTeam,
   loadTimeOffForEdit,
+  loadTimeOffRequesterMode,
   loadTimeOffUserOptions,
   purgeTestTimeOff,
   updateTimeOffRequest,
@@ -177,17 +178,27 @@ function TimeOffFormDialog({
   const router = useRouter()
   const [form, setForm] = React.useState<TimeOffInput>(() => initial ?? emptyForm())
   const [users, setUsers] = React.useState<UserOption[] | null>(null)
+  // Requested By: the full picker for super users / admins (edit is super-user
+  // only, so always the picker); locked to "you" for staff self-submit.
+  const [mode, setMode] = React.useState<{ canChoose: boolean; selfName: string | null } | null>(
+    editId ? { canChoose: true, selfName: null } : null,
+  )
   const [team, setTeam] = React.useState<{ person: string | null; names: string[] } | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [pending, startTransition] = React.useTransition()
 
   React.useEffect(() => {
-    if (!open || users) return
+    if (!open || mode) return
+    loadTimeOffRequesterMode().then((r) => (r.ok ? setMode(r.data) : setError(r.error)))
+  }, [open, mode])
+
+  React.useEffect(() => {
+    if (!open || users || !mode?.canChoose) return
     // Rose & Co active personnel; an edited request keeps its requester listed.
     loadTimeOffUserOptions(initial?.requestedById ?? null).then((r) =>
       r.ok ? setUsers(r.data) : setError(r.error),
     )
-  }, [open, users, initial])
+  }, [open, users, initial, mode])
 
   // The reviewing team follows the chosen person, resolved live on the server.
   React.useEffect(() => {
@@ -246,12 +257,22 @@ function TimeOffFormDialog({
         <form onSubmit={onSubmit} className="grid max-h-[72vh] gap-3 overflow-y-auto pr-1">
           <div className="grid gap-1.5">
             <Label>Requested by</Label>
-            <UserCombobox
-              options={users ?? []}
-              value={form.requestedById}
-              onChange={(v) => setForm((f) => ({ ...f, requestedById: v }))}
-              placeholder={users ? "Me (default)" : "Loading people…"}
-            />
+            {mode?.canChoose ? (
+              <UserCombobox
+                options={users ?? []}
+                value={form.requestedById}
+                onChange={(v) => setForm((f) => ({ ...f, requestedById: v }))}
+                placeholder={users ? "Me (default)" : "Loading people…"}
+              />
+            ) : (
+              <div className="rounded-md border border-[#E4E9F4] bg-[#F4F6FB] px-2.5 py-1.5 text-sm">
+                {mode ? (
+                  `${mode.selfName ?? "You"} (you)`
+                ) : (
+                  <span className="text-muted-foreground">Loading…</span>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="grid gap-1.5">

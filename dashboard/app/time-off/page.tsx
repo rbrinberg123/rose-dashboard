@@ -23,11 +23,12 @@ export default async function TimeOffPage() {
   } = await supabase.auth.getUser()
   const userEmail = user?.email ?? undefined
   const isSuperUser = hasSuperUserPrivileges(await getUserRole(userEmail))
-  // "New Time Off Request" is offered only to whoever createTimeOffRequest
-  // accepts — the same rule as requireCrmWriter: effective super user, not in
-  // "View as". Everyone gets "Manage Time Off" (that table is row-scoped).
+  // "New Time Off Request" is offered to whoever createTimeOffRequest accepts:
+  // any signed-in user with a role, not in "View as" (2026-10-20: staff submit
+  // for themselves; super users / admins for anyone). Everyone gets "Manage
+  // Time Off" (that table is row-scoped).
   const [effectiveRole, identity] = await Promise.all([getEffectiveRole(), getEffectiveIdentity()])
-  const canCreateRequest = hasSuperUserPrivileges(effectiveRole) && !identity.impersonated
+  const canCreateRequest = !!effectiveRole && !identity.impersonated
 
   // ~400 approved time-off rows — comfortably under the PostgREST 1,000-row cap,
   // so a single fetch is enough (no pagination like the Scheduler needs).

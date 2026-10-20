@@ -116,12 +116,15 @@ export function TimeOffRequestsView({
   rows,
   truncated,
   seesAll,
+  canCreate,
   scopeError,
 }: {
   rows: TimeOffListRow[]
   truncated: boolean
   /** Super user: every request, plus create / purge. Otherwise the scoped set. */
   seesAll: boolean
+  /** Staff: may submit their OWN request (not in View as). */
+  canCreate: boolean
   /** Set when the approver lookup failed and only own requests are shown. */
   scopeError: string | null
 }) {
@@ -211,12 +214,15 @@ export function TimeOffRequestsView({
               : "Your own time-off requests, plus those of anyone you approve for — every status. The team-wide “who's out” view is the Workflows → Time Off calendar."
           }
           rightSlot={
-            // Creating / purging stays super-user only (requireCrmWriter).
+            // Purging stays super-user only (requireCrmWriter). Creating: super
+            // users for anyone; staff for themselves (createTimeOffRequest).
             seesAll ? (
               <div className="flex items-center gap-2">
                 <PurgeTestTimeOffButton />
                 <NewTimeOffButton />
               </div>
+            ) : canCreate ? (
+              <NewTimeOffButton />
             ) : undefined
           }
         />
@@ -601,6 +607,19 @@ export function TimeOffPane({
               {record.source === "Dashboard" && record.status === "Pending" && (
                 <section className="mb-5 rounded-md border border-[#F3E2BF] bg-[#FCF4E6] p-3">
                   <div className="mb-2 text-[12px] font-semibold text-[#92600B]">Awaiting review</div>
+                  {record.vacationYtd && (
+                    <VacationYtdPanel
+                      ytd={record.vacationYtd}
+                      person={record.requested_by_name ?? "This person"}
+                      thisRequestDays={
+                        record.request_type === "Vacation" &&
+                        record.start_date?.startsWith(`${record.vacationYtd.year}-`) &&
+                        record.end_date?.startsWith(`${record.vacationYtd.year}-`)
+                          ? record.total_days
+                          : null
+                      }
+                    />
+                  )}
                   <ReviewControls
                     id={record.id}
                     disabledReason={record.canReview ? null : record.reviewBlockedReason}
@@ -690,6 +709,72 @@ export function TimeOffPane({
         />
       )}
     </>
+  )
+}
+
+/** "Mar 2 – Mar 6" / "Mar 2" for YYYY-MM-DD days — no zone shift. */
+function shortRange(start: string, end: string): string {
+  const fmt = (ymd: string) =>
+    new Date(`${ymd}T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" })
+  return start === end ? fmt(start) : `${fmt(start)} – ${fmt(end)}`
+}
+
+/**
+ * Reviewer context: the requester's APPROVED Vacation this calendar year and
+ * its total, NOT counting the request under review (loadVacationYtd in
+ * ./actions.ts). `thisRequestDays` is set only when this request is Vacation,
+ * for the "if approved" line.
+ */
+function VacationYtdPanel({
+  ytd,
+  person,
+  thisRequestDays,
+}: {
+  ytd: NonNullable<TimeOffRecord["vacationYtd"]>
+  person: string
+  thisRequestDays: number | null
+}) {
+  return (
+    <div className="mb-3 rounded-md border border-[#E4E9F4] bg-white p-2.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-[#5B6472]">
+          Vacation in {ytd.year}
+        </div>
+        {!ytd.error && (
+          <div className="text-[13px] text-[#1A2233]">
+            <span className="text-[17px] font-semibold tabular-nums text-[#1E2858]">
+              {Number(ytd.total.toFixed(1))}
+            </span>{" "}
+            day{ytd.total === 1 ? "" : "s"} YTD
+          </div>
+        )}
+      </div>
+      <div className="mt-0.5 text-[11px] text-[#9AA1AD]">
+        {person}&apos;s approved vacation · not counting this request
+        {thisRequestDays != null && !ytd.error &&
+          ` (${formatDays(thisRequestDays)} → ${formatDays(ytd.total + thisRequestDays)} if approved)`}
+      </div>
+      {ytd.error ? (
+        <div className="mt-2 text-[12px] text-[#B42318]">Could not load vacation history: {ytd.error}</div>
+      ) : ytd.entries.length === 0 ? (
+        <div className="mt-2 text-[12px] text-[#5B6472]">No approved vacation yet this year.</div>
+      ) : (
+        <div className="mt-2 overflow-hidden rounded-md border border-[#E4E9F4]">
+          {ytd.entries.map((e) => (
+            <div
+              key={`${e.source}-${e.id}`}
+              className="flex items-center justify-between gap-2 border-b bg-[#F4F6FB] px-2.5 py-1 text-[13px] last:border-b-0"
+            >
+              <span className="flex items-center gap-1.5 tabular-nums text-[#1A2233]">
+                {shortRange(e.start_date, e.end_date)}
+                {e.is_test && <TestBadge />}
+              </span>
+              <span className="tabular-nums text-[#5B6472]">{formatDays(e.days)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

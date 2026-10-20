@@ -15,6 +15,18 @@ export const metadata: Metadata = { title: "Time Off Reviewers" }
 const PATCH = "sql/patches/2026-09-24_time_off_requests.sql"
 
 /**
+ * Same-name DUPLICATE CRM accounts hidden from this page's roster only
+ * (2026-10-20, user-confirmed). Each person keeps the account shown in the
+ * comment. Approval checks already treat same-name accounts as one person
+ * (lib/time-off-requests/reviewers.ts), so hiding a twin loses nothing.
+ */
+const HIDDEN_DUPLICATE_IDS = new Set([
+  "6aaa104f-dd0b-ee11-8f6e-0022482a4e0c", // blair.mutschler@ — keep blair@
+  "68aa104f-dd0b-ee11-8f6e-0022482a4e0c", // simon.rose@ — keep simon@
+  "b5f90f22-c40b-ee11-8f6e-0022482a4b51", // brian.smith@ — keep bsmith@
+])
+
+/**
  * Admin → Time Off Reviewers. For each person, the small team who may approve
  * or deny their time off (public.time_off_reviewers). That team is the
  * "Reviewing Team" on the Time Off page and decides who sees a request on
@@ -56,7 +68,7 @@ export default async function TimeOffReviewersPage() {
   // Active, real people — the same roster rule as Admin → Account Teams
   // (drops hashed/disabled rows, tags and removes shared mailboxes).
   const roster: ReviewerPerson[] = buildIdentityIndex(all.filter((u) => u.is_active))
-    .roster.filter((r) => !r.service)
+    .roster.filter((r) => !r.service && !HIDDEN_DUPLICATE_IDS.has(r.userId))
     .map((r) => ({ userId: r.userId, name: r.name, email: r.email }))
 
   const assignments = (mapRes.data ?? []) as ReviewerAssignment[]

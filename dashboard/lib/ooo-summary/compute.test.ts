@@ -11,6 +11,7 @@ import {
   computeOooSummary,
   isHalfDay,
   pivotByPerson,
+  requestDaysInYear,
   type OooRequest,
 } from "./compute.ts"
 
@@ -83,6 +84,32 @@ test("a request straddling New Year splits across both years", () => {
     [2025, 3],
     [2026, 1],
   ])
+})
+
+test("requestDaysInYear counts only that year's days, with the half-day and exact-day rules", () => {
+  const base: OooRequest = {
+    ooo_id: "x",
+    requested_by_id: "p",
+    requested_by_name: "P",
+    start_date: "2025-12-29",
+    end_date: "2026-01-02",
+    request_type_label: "Vacation",
+    description_comments: null,
+  }
+  assert.equal(requestDaysInYear(base, 2025), 3)
+  assert.equal(requestDaysInYear(base, 2026), 1)
+  // Half-day comment: the LAST business day (Jan 2) is the half.
+  assert.equal(requestDaysInYear({ ...base, description_comments: "half day" }, 2026), 0.5)
+  // Dashboard days replace the range walk.
+  const days = [
+    { date: "2026-03-02", portion: "Full" },
+    { date: "2026-03-03", portion: "AM" },
+  ]
+  assert.equal(
+    requestDaysInYear({ ...base, start_date: "2026-03-02", end_date: "2026-03-03", days }, 2026),
+    1.5,
+  )
+  assert.equal(requestDaysInYear({ ...base, end_date: null }, 2026), 0)
 })
 
 test("an inverted range yields nothing rather than looping", () => {

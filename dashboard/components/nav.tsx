@@ -441,10 +441,13 @@ const MyDashboardCountContext = React.createContext(0)
  */
 const QuickAddContext = React.createContext<readonly QuickAddKind[]>([])
 
-/** The "+" menu's entries, in menu order. Time Off create stays super-user only. */
+/**
+ * The "+" menu's entries, in menu order. Time Off: anyone with a role
+ * (2026-10-20 — staff submit for themselves; createTimeOffRequest enforces it).
+ */
 function useQuickAddEntities(role: ViewAsRole | null): CrmEntity[] {
   const kinds = React.useContext(QuickAddContext) as readonly string[]
-  return QUICK_ADD_ORDER.filter((e) => (e === "time_off" ? hasSuperUserPrivileges(role) : kinds.includes(e)))
+  return QUICK_ADD_ORDER.filter((e) => (e === "time_off" ? role != null : kinds.includes(e)))
 }
 
 /**

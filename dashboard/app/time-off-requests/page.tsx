@@ -3,7 +3,7 @@ import { redirect } from "next/navigation"
 
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
-import { getEffectiveRole } from "@/lib/effective-identity"
+import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { resolveTimeOffVisibility } from "@/lib/time-off-requests/visibility"
 import { dynamicsTotalDays, type TimeOffListRow } from "@/lib/time-off-requests/model"
 import { TimeOffRequestsView } from "./time-off-requests-view"
@@ -42,6 +42,9 @@ export default async function TimeOffRequestsPage() {
   const role = await getEffectiveRole()
   if (!role) redirect("/no-access")
   const visibility = await resolveTimeOffVisibility()
+  // Staff self-submit (2026-10-20): createTimeOffRequest's own rule — a role,
+  // not in "View as". Display only; the action re-checks.
+  const canCreate = !(await getEffectiveIdentity()).impersonated
 
   let q = getSupabaseServer()
     .from("v_admin_time_off_all")
@@ -85,6 +88,7 @@ export default async function TimeOffRequestsPage() {
         rows={rows}
         truncated={rows.length >= ROW_CAP}
         seesAll={visibility.all}
+        canCreate={canCreate}
         scopeError={visibility.error}
       />
     </PageShell>
