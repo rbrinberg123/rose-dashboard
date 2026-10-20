@@ -18,7 +18,12 @@
  * (raise-only, like the additive page grants). The resolver is
  * lib/access/crm-levels.ts; the write gate is requireCrmLevel (lib/crm-write.ts).
  *
- * Tasks / Touchpoints / Notes are NOT here — still super-user only.
+ * Tasks / Touchpoints / Notes joined 2026-10-20 with the same four levels.
+ * Their ROWS stay filtered by the Actions row scoping
+ * (lib/access/actions-scope.ts) — a level never widens which rows are
+ * visible, and every write also requires the row to be visible. Their special
+ * actions (task Close, feedback claim / review / sent, Memo upload, the
+ * Onboarding page's touchpoint cells) keep their own rules, not these levels.
  */
 
 export const CRM_LEVELS = ["none", "view", "edit", "manage"] as const
@@ -31,8 +36,17 @@ export const CRM_LEVEL_LABELS: Record<CrmLevel, string> = {
   manage: "Manage",
 }
 
-/** The four routes that carry a level (must stay the grantable CRM list pages). */
-export const CRM_LEVEL_ROUTES = ["/accounts", "/events", "/meetings", "/contacts"] as const
+/** The routes that carry a level (must stay the grantable CRM list pages). */
+export const CRM_LEVEL_ROUTES = [
+  "/accounts",
+  "/events",
+  "/meetings",
+  "/contacts",
+  // 2026-10-20 — rows row-scoped (lib/access/actions-scope.ts).
+  "/tasks",
+  "/touchpoints",
+  "/notes",
+] as const
 export type CrmLevelRoute = (typeof CRM_LEVEL_ROUTES)[number]
 
 /** Mirror table → its route, for the shared write helpers in lib/crm-write.ts. */
@@ -41,6 +55,9 @@ export const CRM_LEVEL_TABLE_ROUTE: Readonly<Record<string, CrmLevelRoute>> = {
   events: "/events",
   meetings: "/meetings",
   contacts: "/contacts",
+  tasks: "/tasks",
+  touchpoints: "/touchpoints",
+  client_notes: "/notes",
 }
 
 export function isCrmLevelRoute(route: string): route is CrmLevelRoute {
@@ -119,12 +136,18 @@ export const PROTECTED_CLIENT_FIELDS: readonly string[] = []
 export const PROTECTED_EVENT_FIELDS: readonly string[] = []
 export const PROTECTED_MEETING_FIELDS: readonly string[] = []
 export const PROTECTED_CONTACT_FIELDS: readonly string[] = []
+export const PROTECTED_TASK_FIELDS: readonly string[] = []
+export const PROTECTED_TOUCHPOINT_FIELDS: readonly string[] = []
+export const PROTECTED_NOTE_FIELDS: readonly string[] = []
 
 export const PROTECTED_FIELDS: Readonly<Record<CrmLevelRoute, readonly string[]>> = {
   "/accounts": PROTECTED_CLIENT_FIELDS,
   "/events": PROTECTED_EVENT_FIELDS,
   "/meetings": PROTECTED_MEETING_FIELDS,
   "/contacts": PROTECTED_CONTACT_FIELDS,
+  "/tasks": PROTECTED_TASK_FIELDS,
+  "/touchpoints": PROTECTED_TOUCHPOINT_FIELDS,
+  "/notes": PROTECTED_NOTE_FIELDS,
 }
 
 /**
@@ -141,4 +164,30 @@ export function protectedFieldViolation(
   if (isSuper || levelAtLeast(level, "manage")) return null
   const hit = changed.filter((c) => protectedFields[route].includes(c))
   return hit.length ? `Changing ${hit.join(", ")} needs Manage access.` : null
+}
+
+/* ---------------------------------------------------------------------------
+ * QUICK ADD (2026-10-20) — the "+" menus (nav, Client Detail, Onboarding).
+ * Each record type is offered only at MANAGE on the table it creates on (or to
+ * super users / admins) — the same bar as that table's create action, which
+ * re-checks it server-side (requireCrmLevel(route, "create")). A menu with no
+ * type left is not drawn at all.
+ * ------------------------------------------------------------------------ */
+export const QUICK_ADD_CREATE_ROUTE = {
+  client: "/accounts",
+  meeting: "/meetings",
+  event: "/events",
+  task: "/tasks",
+  touch: "/touchpoints",
+  note: "/notes",
+  contact: "/contacts",
+} as const satisfies Record<string, CrmLevelRoute>
+
+export type QuickAddKind = keyof typeof QUICK_ADD_CREATE_ROUTE
+
+/** The quick-add types this viewer may create, in QUICK_ADD_CREATE_ROUTE order. */
+export function quickAddKinds(levels: Readonly<Record<CrmLevelRoute, CrmLevel>>, isSuper: boolean): QuickAddKind[] {
+  return (Object.keys(QUICK_ADD_CREATE_ROUTE) as QuickAddKind[]).filter(
+    (k) => isSuper || levels[QUICK_ADD_CREATE_ROUTE[k]] === "manage",
+  )
 }

@@ -13,7 +13,8 @@ import type {
   ClientDetailTouchpointRow,
   MarketingCalendarRow,
 } from "@/lib/types"
-import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { getEffectiveCrmLevels, getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { quickAddKinds } from "@/lib/access/crm-levels-policy"
 import { resolveClientScope } from "@/lib/access/data-scope"
 import { canSeeFinancials } from "@/lib/access/financials"
 import {
@@ -306,6 +307,7 @@ export default async function ClientDetailPage({
         meetingDatesByEvent={meetingDatesByEvent}
         confirmedMeetingsByEvent={confirmedMeetingsByEvent}
         crmLists={crmLists}
+        quickAdd={quickAddKinds(await getEffectiveCrmLevels(), hasSuperUserPrivileges(role))}
       />
     </PageShell>
   )

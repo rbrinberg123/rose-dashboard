@@ -5,8 +5,10 @@
  * export, the saved-view writes and the filter-dropdown options.
  *
  * ══ SECURITY ═══════════════════════════════════════════════════════════════
- * Every function here re-checks that the EFFECTIVE role is super_user before it
- * builds a query. `v_admin_notes_all` is unscoped and read with the service-role
+ * Every function here re-checks access before it builds a query — since
+ * 2026-10-20 the CRM LEVEL on /notes (View to read, Edit to edit, Manage to
+ * create / purge; super users / admins always), AND the Actions row scope
+ * (lib/access/actions-scope.ts) on every read and every write. `v_admin_notes_all` is unscoped and read with the service-role
  * key (RLS bypassed), so a successful call hands back every client's notes —
  * the firm's candid internal assessment of each relationship, which makes this
  * the most sensitive of the five CRM tables. The page gate and the proxy gate are
@@ -37,7 +39,8 @@ import {
   isIsoDate,
   loadActiveAccountOptions,
   purgeTestRows,
-  requireCrmWriter,
+  canReadCrmPage,
+  requireCrmLevel,
   loadPersonnelOptions,
   requireActivePersonnel,
   resolveUser,
@@ -48,7 +51,6 @@ import {
 } from "@/lib/crm-write"
 import { validateNoteRequired, type NewNoteInput } from "@/lib/notes/create"
 import type { AccountOption, UserOption } from "@/lib/types"
-import { getEffectiveRole } from "@/lib/effective-identity"
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { availableColumns, fetchAllRows, loadFilterOptionGroups } from "@/lib/table-views/query"
 import type { QuickFilterOptions } from "@/components/table-views/quick-filters"
@@ -69,8 +71,7 @@ import {
 } from "@/lib/notes/filters"
 import type { NoteRecord } from "@/lib/notes/record"
 import type { AdminNoteRow } from "@/lib/types"
-import { hasSuperUserPrivileges } from "@/lib/access-control"
-import { actionsScopeFilter, canSeeActionsRow } from "@/lib/access/actions-scope"
+import { actionsScopeFilter, canSeeActionsRow, visibleActionsIds } from "@/lib/access/actions-scope"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -119,8 +120,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  * returning part of the rows. Neither side may drop the btrim on its own.
  */
 export async function loadNoteFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/notes"))) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(getSupabaseServer(), NOTES_SPEC, "note_count")
   return ok({
@@ -147,8 +147,7 @@ export async function loadNoteRowsForExport(input: {
   config: unknown
   quick?: NoteQuickFilters
 }): Promise<ActionResult<AdminNoteRow[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/notes"))) return fail("Not authorised.")
 
   const parsed = parseConfig(NOTES_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -216,8 +215,7 @@ const RECORD_COLUMNS = [
 
 export async function loadNoteRecord(noteId: string): Promise<ActionResult<NoteRecord>> {
   // ---- GATE (must stay first) ----
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/notes"))) return fail("Not authorised.")
 
   if (!noteId) return fail("No note id.")
   // ROW SCOPE — the same rule as the list (lib/access/actions-scope.ts).
@@ -334,7 +332,7 @@ async function buildNoteColumns(
  */
 export async function createNote(input: NewNoteInput): Promise<ActionResult<{ noteId: string }>> {
   // ---- GATE (must stay first) ----
-  const gate = await requireCrmWriter("creating or deleting notes")
+  const gate = await requireCrmLevel("/notes", "create", "creating notes")
   if (!gate.ok) return fail(gate.error)
 
   const built = await buildNoteColumns(input, gate.userId)
@@ -402,7 +400,7 @@ export async function loadNoteForEdit(id: string): Promise<ActionResult<NewNoteI
 
 /** Edit a DASHBOARD note. The origin guard lives in updateDashboardRow. */
 export async function updateNote(id: string, input: NewNoteInput): Promise<ActionResult<{ changed: number }>> {
-  const gate = await requireCrmWriter("editing notes")
+  const gate = await requireCrmLevel("/notes", "edit", "editing notes")
   if (!gate.ok) return fail(gate.error)
   if (!(await canSeeActionsRow("notes", id))) return fail("Not authorised.")
   // The owner already on the note may stay even if no longer active personnel.
@@ -428,7 +426,7 @@ export async function updateNote(id: string, input: NewNoteInput): Promise<Actio
 
 /** How many test notes the purge would remove — for the confirm prompt. */
 export async function countTestNotes(): Promise<ActionResult<number>> {
-  return countTestRows("client_notes", "note_id")
+  return countTestRows("client_notes", "note_id", (ids) => visibleActionsIds("notes", ids))
 }
 
 /** Delete every dashboard-created TEST note (see purgeTestRows). */
@@ -439,5 +437,7 @@ export async function purgeTestNotes(): Promise<ActionResult<{ deleted: number }
     snapshot: "client_account_name, note_date, name, status_text, created_on, created_by_name",
     path: "/notes",
     context: "/notes · Delete test notes",
+    // Row scope: only the test rows this viewer can see.
+    restrict: (ids) => visibleActionsIds("notes", ids),
   })
 }

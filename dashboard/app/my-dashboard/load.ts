@@ -234,9 +234,9 @@ export type MyDashboardData = {
   /** Meetings the viewer hosts today or tomorrow — for the "Needs you now" pill. */
   hostSoon: number
   /**
-   * May the viewer open the CRM task drawer? Same gate as CRM → Tasks
-   * (loadTaskRecord is super-user only) — never loosened here. Everyone else
-   * keeps the item's normal link.
+   * May the viewer open the CRM task drawer? Same gate as CRM → Tasks (View+
+   * on /tasks since 2026-10-20; loadTaskRecord re-checks it plus the row
+   * scope). Everyone else keeps the item's normal link.
    */
   canOpenTasks: boolean
   /**

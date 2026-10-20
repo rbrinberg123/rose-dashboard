@@ -58,7 +58,9 @@ A separate per-person tick-box on **Admin → Users** (next to Financials), **of
 
 ### Who sees which Tasks, Touchpoints and Notes (2026-10-20)
 
-On the Actions tables, you see a row only if you're on that client's **core team** (Primary, Secondary, Associate or Logistics), or it's **yours** (a task you own, created, or are currently assigned; a touchpoint you created; a note you own or created). Super Users and Admins see everything. **Feedback-report tasks and Data Upload tasks are visible to everyone.** This is about which rows you see, not which pages you can open — today those three pages are still Super User / Admin only. It also trims My Dashboard's **Team tasks** card to clients where you're on the core team. Client pages (Client Detail's Touches timeline, Portfolio's recent note, etc.) are not affected. Detail: [Technical → Actions row scoping](#actions-row-scoping--tasks--touchpoints--notes-2026-10-20).
+On the Actions tables, you see a row only if you're on that client's **core team** (Primary, Secondary, Associate or Logistics), or it's **yours** (a task you own, created, or are currently assigned; a touchpoint you created; a note you own or created). Super Users and Admins see everything. **Feedback-report tasks and Data Upload tasks are visible to everyone.** This is about which rows you see; which pages you can open is the access level below. It also trims My Dashboard's **Team tasks** card to clients where you're on the core team. Client pages (Client Detail's Touches timeline, Portfolio's recent note, etc.) are not affected. Detail: [Technical → Actions row scoping](#actions-row-scoping--tasks--touchpoints--notes-2026-10-20).
+
+**Access levels on Tasks, Touchpoints and Notes (2026-10-20).** These three now take the same **None / View / Edit / Manage** level as Clients, Events, Meetings and Contacts, set in the Roles matrix or per person. **View** opens the page; **Edit** lets you change records you can see; **Manage** also lets you create records and delete test records. The two layers stack: the level decides *what you may do*, the row rule above decides *which rows you can do it to* — a level never shows you more rows. Nobody below Super User / Admin has a level yet, so nothing changes until one is set. Closing a task, the feedback actions, the Marketing Memo upload and the Onboarding page's touchpoint cells keep their own rules. The **Quick add "+"** menus (nav, Client Detail, Onboarding) now list only the record types you hold **Manage** on, and disappear if there are none.
 
 ### "View as" — see the app as any person
 
@@ -89,7 +91,7 @@ The panel lists the pages grouped like the sidebar:
 
 What a grant can and can't do:
 - **It only opens the page.** What the person can *do* there is unchanged: saving, admin buttons and which clients or meetings they see still follow their role and data scopes.
-- **Some pages can never be granted**, and the panel doesn't list them: the CRM Tasks / Touchpoints / Notes tables, Client Health, everything in the Admin section (Users, Roles, Sync, Reconciliation, Database, Docs …), and retired pages. Only a super user can see those.
+- **Some pages can never be granted**, and the panel doesn't list them: Client Health, everything in the Admin section (Users, Roles, Sync, Reconciliation, Database, Docs …), and retired pages. Only a super user can see those.
 - **Super users, admins and people with no role** have no Pages button. The first two already reach every grantable page, and a person with no role can't use a grant.
 - Only a **super user** can grant or revoke, and every change is recorded in the Audit Log.
 
@@ -350,6 +352,16 @@ The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx
 
 ### The CRM block in the nav rail
 
+> **2026-10-20 — Tasks, Touchpoints and Notes join the access levels; quick-add per type.** Supersedes the "Tasks, Touchpoints and Notes … still super-user only" lines below.
+>
+> - **Same machinery, no parallel system.** `/tasks`, `/touchpoints`, `/notes` were added to `CRM_LEVEL_ROUTES` and their tables (`tasks`, `touchpoints`, `client_notes`) to `CRM_LEVEL_TABLE_ROUTE` (`lib/access/crm-levels-policy.ts`); they left `ADMIN_ONLY_ROUTES`. The Roles matrix and the Users → Pages panel pick them up from those lists — same dropdowns, same raise-only rule, same `role_page_access` / `user_page_grants` columns. Their specs gained `route`, so personal saved views follow page access.
+> - **Semantics** — identical to the other four: None = no page; **View** = page, list, filters, export, saved views, drawer; **Edit** = edit dashboard-created records; **Manage** = + create + purge test rows. Super users / admins are always Manage.
+> - **Layered on row scoping** ([Actions row scoping](#actions-row-scoping--tasks--touchpoints--notes-2026-10-20)). Every read stays row-scoped, so **View never widens which rows show**. Every write needs BOTH the level AND a visible row: `updateTask/Touch/Note` = `requireCrmLevel(route, "edit")` + `canSeeActionsRow`; create = `requireCrmLevel(route, "create")`; the test-row purge (and its count) = Manage, limited to the test rows the viewer can see (`visibleActionsIds` via the new `restrict` option on `purgeTestRows` / `countTestRows`). Reads (`load*FilterOptions`, exports, drawers, touch contacts) = `canReadCrmPage(route)` + the row scope.
+> - **Buttons.** New + Purge show at Manage, the drawer's Edit at Edit+ (`canEdit` / `canManage` from the page, as on Contacts; the task drawer's `can_edit` follows the level). Cosmetic — the server re-checks.
+> - **Not governed by the levels (unchanged):** task **Close** (owner / admin, `decideTaskClose`; Feedback-type tasks hand off to the feedback close actions; the Data Upload "client required before close" guard); the feedback actions (claim / release / reassign, submit-for-review, mark-sent, `close-guard`, `review-owner`) — they write `tasks` directly, never through `updateDashboardRow`; the Marketing Memo upload (owner / admin); the Onboarding page's touchpoint cells (they pass their own `actor` to `updateDashboardRow`, which skips the level). Completing a Feedback task through the Edit form still runs its feedback close check, on top of Edit.
+> - **Quick add, per type.** `quickAddKinds(levels, isSuper)` (`crm-levels-policy.ts`) lists the types the viewer holds **Manage** on (Client → /accounts, Meeting, Event, Task, Touchpoint, Note, Contact). The nav "+" (root layout → `Sidebar quickAdd`), Client Detail's Quick Add and Onboarding's (task / touch only) show only those, and are hidden when the list is empty. New Time Off stays super-user / admin only (its create is). Every create action re-checks Manage server-side (`requireCrmLevel(route, "create")`).
+> - **Conservative seed — no SQL.** On 2026-10-20 `role_page_access` and `user_page_grants` held **no rows** for the three routes (checked read-only), so leaving `ADMIN_ONLY_ROUTES` opens them to nobody: effectively super-user / admin only until levels are set in the matrix.
+
 > **2026-10-16 (later) — CRM access levels: None / View / Edit / Manage.** Each of the four CRM tables (**Clients**, **Events**, **Meetings**, **Contacts**) now takes a **level** instead of a yes/no page box. It's set per **role** in the Roles matrix and per **person** in Users → Pages, through the same grant tables (no parallel system).
 >
 > | Level | What it allows |
@@ -370,11 +382,11 @@ The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx
 >   - Create (`createX`) needs **Manage**.
 >   - Purge test rows (`countTestRows` / `purgeTestRows`) needs **Manage**.
 >   - The event drawer's **Add Meeting** needs **Meetings Manage**.
->   - The nav's quick-add "+" menu stays super-user / admin only; Manage holders use each page's own **New** button.
+>   - The nav's quick-add "+" menu stays super-user / admin only; Manage holders use each page's own **New** button. *(Superseded 2026-10-20: per type, by Manage — see above.)*
 > - **Protected fields: hook only, shipped empty.** `PROTECTED_CLIENT_FIELDS`, `PROTECTED_EVENT_FIELDS`, `PROTECTED_MEETING_FIELDS` and `PROTECTED_CONTACT_FIELDS` in `lib/access/crm-levels-policy.ts` are all **empty** `[]`. `updateDashboardRow` already enforces them: changing a listed column needs Manage or super-user. Today nothing beyond create / delete is restricted. To protect a field, add its column name to the right list.
 > - **Conservative seed:** `sql/patches/2026-10-16b_crm_access_levels.sql` adds the two columns and maps **every existing grant to View**. It seeds **no Edit or Manage** for any role or person, so on deploy nobody but super users / admins can write, exactly as before. Until it runs, every grant reads as View, and Edit / Manage refuse to save (with a message saying why).
 > - **Unchanged:**
->   - Tasks, Touchpoints and Notes (still super-user only, no level).
+>   - Tasks, Touchpoints and Notes (still super-user only, no level). *(Superseded 2026-10-20 — see above.)*
 >   - The Dynamics origin fence: Dynamics-synced rows stay read-only for everyone.
 >   - Client deactivate / reactivate (super user or the client's primary manager).
 >   - The feedback capabilities and the feedback-report split/move actions.
@@ -385,7 +397,7 @@ The Admin hub also has a **Hidden Pages** section (`dashboard/app/admin/page.tsx
 > - **Doesn't open:** create / edit / delete / purge stay super-user only (`requireCrmWriter`, unchanged), and the New / Purge / Edit buttons are hidden from non-super viewers. Shared (system) saved views stay super-user only. In the Events drawer, the Meetings / feedback-report panel stays super-user only (`showFeedbackReports`), as on My Dashboard.
 > - **Raw Dynamics record:** the Client and Contact drawers no longer send `_raw` (the unfiltered Dynamics record) to anyone without super-user privileges. `loadAccountRecord` / `loadContactRecord` check `hasSuperUserPrivileges` on the effective (View-as-aware) role and leave `_raw` off the payload; it isn't even read from the database for them. Super users and admins still get it as before. `is_test` and `origin` go to everyone, and every mapped drawer column is unchanged. Nothing renders `_raw`, so the drawer looks the same. This also covers the Key Contacts strip on Client Detail, which uses the same contact loader.
 - **Unchanged:** Client Detail keeps its account-team scoping (`resolveClientScope`). A Clients-list viewer who isn't on a client's team still can't open that profile.
-> - **Still super-user only:** Tasks, Touchpoints and Notes. They stay in `ADMIN_ONLY_ROUTES` and are not in the registry.
+> - **Still super-user only:** Tasks, Touchpoints and Notes. They stay in `ADMIN_ONLY_ROUTES` and are not in the registry. *(Superseded 2026-10-20: grantable with a level, row-scoped — see above.)*
 >
 > `canSeeCrmNav` lost its super-user floor. The block now draws exactly the CRM items `canAccessRoute` allows, so a person granted only Contacts sees a CRM block holding just Contacts. **No SQL is needed:** `role_page_access` and `user_page_grants` store free-text routes, so the grants are just new ticks. The paragraphs below describe the earlier, super-user-only design.
 
@@ -619,7 +631,7 @@ Wired into: **Profiles** (`/profiles`, `v_profiles_upcoming` — filtered; a sco
 
 A task with no client is visible only under (b), (c) or (d).
 
-**Row visibility only.** Who may *open* these pages is unchanged — `/tasks`, `/touchpoints`, `/notes` are still in `ADMIN_ONLY_ROUTES`, so today only super users / admins open them and the rule is a no-op there. It takes effect the moment a page or drawer is reachable by anyone else, and it already applies to the shared surfaces below.
+**Row visibility only.** Who may *open* these pages, and what they may do there, is the CRM access level (since 2026-10-20 — see "The CRM block in the nav rail"). The two layers stack: every read is row-scoped whatever the level, and every write needs the level AND a visible row.
 
 **Code.** Rules: `lib/access/actions-scope-policy.ts` (pure, unit-tested — `actions-scope-policy.test.ts`). Resolver: `lib/access/actions-scope.ts` — `resolveActionsScope()` (per-request memo), `actionsScopeFilter(entity)` (a `fetchRows` / `countRows` `extra`), `canSeeActionsRow(entity, id)` (single-row check, same predicate). Team membership reuses `resolveAccountTeamScope` narrowed to the four core roles; identity reuses `loadIdentity` (unioned duplicate CRM records).
 

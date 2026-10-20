@@ -15,6 +15,7 @@ import { NewTaskForClientDialog } from "@/app/tasks/new-task-dialog"
 import { NewTouchForClientDialog } from "@/app/touchpoints/new-touch-dialog"
 import { NewNoteForClientDialog } from "@/app/notes/new-note-dialog"
 import { NewContactForClientDialog } from "@/app/contacts/new-contact-dialog"
+import type { QuickAddKind } from "@/lib/access/crm-levels-policy"
 
 type Kind = "event" | "task" | "touch" | "note" | "contact"
 
@@ -29,10 +30,11 @@ const ITEMS: { kind: Kind; label: string }[] = [
 /**
  * Client Detail masthead "+" — opens one of the five EXISTING CRM create forms
  * with this client pre-filled. Each form saves through its own server action
- * (requireCrmWriter: super_user, not in "View as"), then router.refresh()es,
- * so the page's Events / Tasks / Touchpoints / Key Contacts reflect the record.
- * The caller renders this only for super users (the same audience as the CRM
- * pages); the server gate is what actually enforces it.
+ * (requireCrmLevel(route, "create"): Manage on that table, not in "View as"),
+ * then router.refresh()es, so the page's Events / Tasks / Touchpoints / Key
+ * Contacts reflect the record. Since 2026-10-20 the caller passes `kinds` =
+ * the types the viewer holds MANAGE on (quickAddKinds) and renders nothing
+ * when that is empty; the server gate is what actually enforces it.
  *
  * Also used on Onboarding (2026-10-17) with `accountId={null}` and
  * `kinds={["task", "touch"]}`: general New Task / New Touchpoint, no client
@@ -44,8 +46,9 @@ export function ClientQuickAdd({
   kinds,
 }: {
   accountId: string | null
-  /** Which menu items to offer (default: all five, in ITEMS order). */
-  kinds?: readonly Kind[]
+  /** Which menu items to offer (default: all five, in ITEMS order). Types
+   *  outside the five are ignored. */
+  kinds?: readonly QuickAddKind[]
 }) {
   const [kind, setKind] = React.useState<Kind | null>(null)
   const close = React.useCallback(() => setKind(null), [])

@@ -188,6 +188,8 @@ export function TouchpointsView({
   activeConfig,
   viewCounts,
   canManageSystemViews,
+  canEdit,
+  canManage,
   readOnlyViews,
   availableColumns,
   quickFilters,
@@ -203,6 +205,9 @@ export function TouchpointsView({
   activeConfig: ViewConfig
   viewCounts: Record<string, number | null>
   canManageSystemViews: boolean
+  /** CRM level (2026-10-20): Edit+ shows the drawer's Edit; Manage shows New + Purge. Cosmetic — the server re-checks. */
+  canEdit: boolean
+  canManage: boolean
   readOnlyViews: boolean
   availableColumns: string[] | null
   quickFilters: TouchpointQuickFilters
@@ -466,8 +471,12 @@ export function TouchpointsView({
           subtitle="Every logged client contact in the CRM — calls, virtual meetings, emails, in-person."
           rightSlot={
             <div className="flex items-center gap-2">
-              <PurgeTestTouchesButton />
-              <NewTouchButton />
+              {canManage && (
+                <>
+                  <PurgeTestTouchesButton />
+                  <NewTouchButton />
+                </>
+              )}
             </div>
           }
         />
@@ -722,7 +731,7 @@ export function TouchpointsView({
       {/* Rendered as a SIBLING of the list, never wrapping it, so opening a
           record cannot remount the table. */}
       <TouchpointRecordPane
-        onEdit={openId ? () => setEditId(openId) : undefined}
+        onEdit={canEdit && openId ? () => setEditId(openId) : undefined}
         record={record}
         loading={openId !== null && record === null && recordError === null}
         error={recordError}

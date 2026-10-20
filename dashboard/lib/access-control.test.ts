@@ -228,6 +228,8 @@ test("the grantable set is exactly the registry minus strict, hidden, always-all
     "/cost-assumptions", "/overhead-overrides", "/quarterly-overhead", "/salary-schedule", "/exceptions",
     // CRM list pages, grantable since 2026-10-16.
     "/accounts", "/events", "/meetings", "/contacts",
+    // Tasks / Touchpoints / Notes, grantable (row-scoped) since 2026-10-20.
+    "/tasks", "/touchpoints", "/notes",
   ])
 })
 

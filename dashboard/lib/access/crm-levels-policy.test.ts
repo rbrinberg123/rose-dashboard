@@ -12,15 +12,17 @@ import {
   levelFromRoleRow,
   maxLevel,
   protectedFieldViolation,
+  quickAddKinds,
 } from "./crm-levels-policy.ts"
 import { isGrantableRoute } from "../access-control.ts"
 import { PAGE_REGISTRY } from "../page-registry.ts"
 
-test("the four level-gated routes are exactly the grantable CRM list pages", () => {
-  assert.deepEqual([...CRM_LEVEL_ROUTES], ["/accounts", "/events", "/meetings", "/contacts"])
+test("the level-gated routes are exactly the grantable CRM list pages", () => {
+  assert.deepEqual([...CRM_LEVEL_ROUTES], ["/accounts", "/events", "/meetings", "/contacts", "/tasks", "/touchpoints", "/notes"])
   for (const r of CRM_LEVEL_ROUTES) assert.equal(isGrantableRoute(r, PAGE_REGISTRY), true)
-  // Tasks / Touchpoints / Notes stay out — still super-user only.
-  for (const r of ["/tasks", "/touchpoints", "/notes"]) assert.equal(isCrmLevelRoute(r), false)
+  // Tasks / Touchpoints / Notes joined 2026-10-20 (row-scoped); notes' table is client_notes.
+  for (const r of ["/tasks", "/touchpoints", "/notes"]) assert.equal(isCrmLevelRoute(r), true)
+  assert.equal(CRM_LEVEL_TABLE_ROUTE.client_notes, "/notes")
   assert.deepEqual(Object.values(CRM_LEVEL_TABLE_ROUTE).sort(), [...CRM_LEVEL_ROUTES].sort())
 })
 
@@ -76,4 +78,12 @@ test("protected fields hook: when a field IS listed, Edit is refused, Manage / s
   assert.equal(protectedFieldViolation("/accounts", ["name"], "manage", false, listed), null)
   assert.equal(protectedFieldViolation("/accounts", ["name"], "none", true, listed), null)
   assert.equal(levelAtLeast("manage", "edit"), true)
+})
+
+test("quick add: each type needs Manage on its own table; super users / admins get all", () => {
+  const none = Object.fromEntries(CRM_LEVEL_ROUTES.map((r) => [r, "none"])) as Record<(typeof CRM_LEVEL_ROUTES)[number], "none" | "view" | "edit" | "manage">
+  assert.deepEqual(quickAddKinds(none, false), [])
+  assert.deepEqual(quickAddKinds({ ...none, "/tasks": "manage", "/notes": "edit", "/meetings": "view" }, false), ["task"])
+  assert.deepEqual(quickAddKinds({ ...none, "/accounts": "manage", "/touchpoints": "manage" }, false), ["client", "touch"])
+  assert.deepEqual(quickAddKinds(none, true), ["client", "meeting", "event", "task", "touch", "note", "contact"])
 })

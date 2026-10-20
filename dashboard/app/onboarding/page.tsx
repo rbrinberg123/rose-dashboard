@@ -1,7 +1,8 @@
 import type { Metadata } from "next"
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
-import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { getEffectiveCrmLevels, getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { quickAddKinds } from "@/lib/access/crm-levels-policy"
 import { resolveClientScope } from "@/lib/access/data-scope"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
 import { NoClientsAssigned } from "@/components/scoped-empty"
@@ -62,9 +63,14 @@ export default async function OnboardingPage() {
       hideHeader
       canvas
     >
-      {/* Quick Add shows to the CRM task/touch creators (requireCrmWriter:
-          super users / admins); the server action still enforces it. */}
-      <OnboardingTable rows={rows} canQuickAdd={hasSuperUserPrivileges(await getEffectiveRole())} />
+      {/* Quick Add offers New Task / New Touchpoint to whoever holds MANAGE on
+          that table (or super users / admins); the create actions re-check it. */}
+      <OnboardingTable
+        rows={rows}
+        quickAdd={quickAddKinds(await getEffectiveCrmLevels(), hasSuperUserPrivileges(await getEffectiveRole())).filter(
+          (k) => k === "task" || k === "touch",
+        )}
+      />
     </PageShell>
   )
 }

@@ -511,6 +511,8 @@ export const TOUCHPOINTS_SPEC: EntitySpec = {
   defaultSort: TOUCHPOINT_DEFAULT_SORT,
   builtins: TOUCHPOINT_BUILTIN_VIEWS,
   savedViewsTable: "touchpoint_saved_views",
+  // Grantable list page (2026-10-20) — saved views follow page access.
+  route: "/touchpoints",
   optionsView: "v_admin_touchpoints_filter_options",
 }
 

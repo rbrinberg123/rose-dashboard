@@ -49,6 +49,7 @@ import type { MeetingRecord } from "@/lib/meeting-record"
 import { BUILTIN_PREFIX } from "@/lib/table-views/types"
 import { KeyContactsStrip } from "./key-contacts-strip"
 import { ClientQuickAdd } from "./client-quick-add"
+import type { QuickAddKind } from "@/lib/access/crm-levels-policy"
 import type { ClientCrmLists } from "./crm-lists"
 import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
 import { type PillVariant } from "@/lib/gradients"
@@ -587,8 +588,11 @@ export function ClientDetailView({
   meetingDatesByEvent,
   confirmedMeetingsByEvent,
   crmLists,
+  quickAdd,
   showFinancials,
 }: {
+  /** Quick Add types the viewer holds MANAGE on (quickAddKinds) — empty hides the menu. */
+  quickAdd: readonly QuickAddKind[]
   /** Events / Tasks / Contacts block — null (not shown) unless super user. */
   crmLists: ClientCrmLists | null
   allClients: ClientDetailSummaryRow[]
@@ -1011,7 +1015,9 @@ export function ClientDetailView({
               onNext={goNext}
               ariaLabel="Select client"
             />
-            {canOpenCrm && <ClientQuickAdd key={selected.account_id} accountId={selected.account_id} />}
+            {quickAdd.length > 0 && (
+              <ClientQuickAdd key={selected.account_id} accountId={selected.account_id} kinds={quickAdd} />
+            )}
             </div>
           }
         />

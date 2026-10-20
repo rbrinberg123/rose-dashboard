@@ -189,6 +189,8 @@ export function NotesView({
   activeConfig,
   viewCounts,
   canManageSystemViews,
+  canEdit,
+  canManage,
   readOnlyViews,
   availableColumns,
   quickFilters,
@@ -204,6 +206,9 @@ export function NotesView({
   activeConfig: ViewConfig
   viewCounts: Record<string, number | null>
   canManageSystemViews: boolean
+  /** CRM level (2026-10-20): Edit+ shows the drawer's Edit; Manage shows New + Purge. Cosmetic — the server re-checks. */
+  canEdit: boolean
+  canManage: boolean
   readOnlyViews: boolean
   availableColumns: string[] | null
   quickFilters: NoteQuickFilters
@@ -471,8 +476,12 @@ export function NotesView({
           subtitle="Every client-review note in the CRM — status, risk driver and agreed actions, one record per client per monthly cycle."
           rightSlot={
             <div className="flex items-center gap-2">
-              <PurgeTestNotesButton />
-              <NewNoteButton />
+              {canManage && (
+                <>
+                  <PurgeTestNotesButton />
+                  <NewNoteButton />
+                </>
+              )}
             </div>
           }
         />
@@ -725,7 +734,7 @@ export function NotesView({
       {/* Rendered as a SIBLING of the list, never wrapping it, so opening a
           record cannot remount the table. */}
       <NoteRecordPane
-        onEdit={openId ? () => setEditId(openId) : undefined}
+        onEdit={canEdit && openId ? () => setEditId(openId) : undefined}
         record={record}
         loading={openId !== null && record === null && recordError === null}
         error={recordError}

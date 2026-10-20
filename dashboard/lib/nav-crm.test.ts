@@ -30,8 +30,9 @@ const EVERY_ROLE: (Role | null)[] = [
 
 const NON_SUPER = EVERY_ROLE.filter((r) => r !== "super_user")
 
-const GRANTABLE_CRM = ["/accounts", "/events", "/meetings", "/contacts"]
-const SUPER_ONLY_CRM = ["/tasks", "/touchpoints", "/notes"]
+// Every CRM table is grantable since 2026-10-20 (Tasks / Touchpoints / Notes
+// joined, row-scoped — lib/access/actions-scope.ts).
+const GRANTABLE_CRM = ["/accounts", "/events", "/meetings", "/tasks", "/touchpoints", "/notes", "/contacts"]
 
 test("super_user sees the CRM block, with every item", () => {
   assert.equal(canSeeCrmNav("super_user", []), true)
@@ -50,14 +51,14 @@ test("with no grant, no non-super_user sees the CRM block — item or divider", 
   }
 })
 
-test("a grant of the four list pages shows exactly those four — never Tasks / Touchpoints / Notes", () => {
+test("a grant of every CRM page shows exactly those pages", () => {
   const granted = CRM_NAV_ITEMS.map((i) => i.href)
   for (const role of NON_SUPER) {
     if (role === null) continue
     assert.equal(canSeeCrmNav(role, granted), true)
     assert.deepEqual(
       visibleCrmNavItems(role, granted).map((i) => i.href),
-      ["/accounts", "/events", "/meetings", "/contacts"],
+      ["/accounts", "/events", "/meetings", "/tasks", "/touchpoints", "/notes", "/contacts"],
     )
   }
   // A single grant shows a single item.
@@ -66,21 +67,12 @@ test("a grant of the four list pages shows exactly those four — never Tasks / 
   assert.deepEqual(visibleCrmNavItems(null, granted), [])
 })
 
-test("the four list pages are grantable; the other CRM tables are not", () => {
+test("every CRM list page is grantable, and needs the grant", () => {
   for (const route of GRANTABLE_CRM) {
     assert.equal(isGrantableRoute(route, PAGE_REGISTRY), true, `${route} should be grantable`)
     assert.equal(canAccessRoute("associate", route, [route]), true)
     assert.equal(canAccessRoute("associate", `${route}/anything`, [route]), true)
     assert.equal(canAccessRoute("associate", route, []), false, `${route} needs a grant`)
-  }
-  for (const route of SUPER_ONLY_CRM) {
-    assert.equal(isGrantableRoute(route, PAGE_REGISTRY), false)
-    for (const role of NON_SUPER) {
-      // Granted explicitly, and STILL denied.
-      assert.equal(canAccessRoute(role, route, [route]), false, `${route} must stay super-user only`)
-      assert.equal(canAccessRoute(role, `${route}/anything`, [route]), false)
-    }
-    assert.equal(canAccessRoute("super_user", route, []), true)
   }
 })
 

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation"
 
 import { PageShell } from "@/components/page-shell"
 import { getSupabaseServer } from "@/lib/supabase"
-import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { getEffectiveAllowedRoutes, getEffectiveCrmLevels, getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import type { AdminTouchpointRow } from "@/lib/types"
 import { ROW_CAP, availableColumns, countRows, fetchRows } from "@/lib/table-views/query"
 import { decodeConfig, resolveActiveView } from "@/lib/table-views/config"
@@ -16,7 +16,8 @@ import {
 } from "@/lib/touchpoints/filters"
 import { listSavedViews } from "./actions"
 import { TouchpointsView } from "./touchpoints-view"
-import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { canAccessRoute, hasSuperUserPrivileges } from "@/lib/access-control"
+import { levelAtLeast } from "@/lib/access/crm-levels-policy"
 import { actionsScopeFilter } from "@/lib/access/actions-scope"
 
 export const dynamic = "force-dynamic"
@@ -77,7 +78,11 @@ export default async function TouchpointsPage({
 }) {
   // ---- GATE (must stay first — nothing above this line may touch data) ----
   const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) redirect("/no-access")
+  // 2026-10-20: PAGE ACCESS (View or above — role / per-user level), not
+  // super-user; supersedes the super-user notes above. Rows stay row-scoped
+  // (actionsScopeFilter below), so View never widens which rows show.
+  if (!canAccessRoute(role, "/touchpoints", await getEffectiveAllowedRoutes())) redirect("/no-access")
+  const crmLevels = await getEffectiveCrmLevels()
 
   const sp = await searchParams
   const requestedId = typeof sp.view === "string" ? sp.view : null
@@ -189,6 +194,8 @@ export default async function TouchpointsPage({
         activeConfig={effectiveConfig}
         viewCounts={viewCounts}
         canManageSystemViews={hasSuperUserPrivileges(role)}
+        canEdit={levelAtLeast(crmLevels["/touchpoints"], "edit")}
+        canManage={crmLevels["/touchpoints"] === "manage"}
         /* Writes are refused while impersonating (saved-views invariant 4); the
            UI hides the save controls rather than offering a doomed click. */
         readOnlyViews={identity.impersonated}

@@ -5,8 +5,11 @@
  * export, the saved-view writes and the filter-dropdown options.
  *
  * ══ SECURITY ═══════════════════════════════════════════════════════════════
- * Every function here re-checks that the EFFECTIVE role is super_user before it
- * builds a query. `v_admin_tasks_all` is unscoped and read with the service-role
+ * Every function here re-checks access before it builds a query — since
+ * 2026-10-20 the CRM LEVEL on /tasks (View to read, Edit to edit, Manage to
+ * create / purge; super users / admins always), AND the Actions row scope
+ * (lib/access/actions-scope.ts) on every read and every write. Task Close,
+ * the Memo upload and the feedback actions keep their own rules. `v_admin_tasks_all` is unscoped and read with the service-role
  * key (RLS bypassed), so a successful call hands back every client's tasks. The
  * page gate and the proxy gate are not enough on their own: a server action is
  * its own entry point and can be invoked directly.
@@ -18,7 +21,8 @@
  */
 
 import { getSupabaseServer } from "@/lib/supabase"
-import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { getEffectiveCrmLevels, getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
+import { levelAtLeast } from "@/lib/access/crm-levels-policy"
 import { idsForEmail } from "@/lib/time-off-requests/reviewers"
 import { closeMode, decideTaskClose } from "@/lib/tasks/close"
 import { clientRequiredToClose } from "@/lib/data-upload/rules"
@@ -41,7 +45,8 @@ import {
   loadPersonnelOptions,
   purgeTestRows,
   requireActivePersonnel,
-  requireCrmWriter,
+  canReadCrmPage,
+  requireCrmLevel,
   updateDashboardRow,
   loadDashboardRowForEdit,
   asText,
@@ -88,7 +93,7 @@ async function closeActor() {
 }
 import type { AdminTaskRow } from "@/lib/types"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
-import { actionsScopeFilter, canSeeActionsRow } from "@/lib/access/actions-scope"
+import { actionsScopeFilter, canSeeActionsRow, visibleActionsIds } from "@/lib/access/actions-scope"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -134,8 +139,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  * rather than by scanning 3,920 rows into the server process.
  */
 export async function loadTaskFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/tasks"))) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(getSupabaseServer(), TASKS_SPEC, "task_count")
   return ok({
@@ -162,8 +166,7 @@ export async function loadTaskRowsForExport(input: {
   config: unknown
   quick?: TaskQuickFilters
 }): Promise<ActionResult<AdminTaskRow[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/tasks"))) return fail("Not authorised.")
 
   const parsed = parseConfig(TASKS_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -245,13 +248,17 @@ const RECORD_COLUMNS = [
 
 export async function loadTaskRecord(taskId: string): Promise<ActionResult<TaskRecord>> {
   // ---- GATE (must stay first) ----
-  // Super users — or (2026-10-19) the OWNER of a Marketing Memo task, so the
-  // teaser can open it from My Dashboard and upload the memo document. That
-  // owner-only view gets no Edit (can_edit false; updateTask stays CRM-writer).
+  // View+ on /tasks (2026-10-20; super users / admins always) — or
+  // (2026-10-19) the OWNER of a Marketing Memo task, so the teaser can open it
+  // from My Dashboard and upload the memo document. Edit follows the level.
   if (!taskId || !isUuid(taskId)) return fail("No task id.")
-  const { identity, actor } = await closeActor()
+  const [{ identity, actor }, canRead, crmLevels] = await Promise.all([
+    closeActor(),
+    canReadCrmPage("/tasks"),
+    getEffectiveCrmLevels(),
+  ])
   const sb = getSupabaseServer()
-  if (!actor.isAdmin) {
+  if (!actor.isAdmin && !canRead) {
     const { data: own } = await sb
       .from("tasks")
       .select("owner_id, bcs_task_subtype_label")
@@ -316,7 +323,7 @@ export async function loadTaskRecord(taskId: string): Promise<ActionResult<TaskR
   return ok({
     ...rec,
     ...memo,
-    can_edit: actor.isAdmin,
+    can_edit: actor.isAdmin || (canRead && levelAtLeast(crmLevels["/tasks"], "edit")),
     is_test: flag?.is_test === true,
     origin: (flag?.origin as string | undefined) ?? null,
     feedback_received_date: (flag?.crdfa_feedback_received_date as string | undefined) ?? null,
@@ -642,7 +649,7 @@ async function buildTaskColumns(
  */
 export async function createTask(input: NewTaskInput): Promise<ActionResult<{ taskId: string }>> {
   // ---- GATE (must stay first) ----
-  const gate = await requireCrmWriter("creating or deleting tasks")
+  const gate = await requireCrmLevel("/tasks", "create", "creating tasks")
   if (!gate.ok) return fail(gate.error)
 
   const built = await buildTaskColumns(input, gate.userId)
@@ -727,7 +734,7 @@ export async function loadTaskForEdit(id: string): Promise<ActionResult<NewTaskI
 
 /** Edit a DASHBOARD task. The origin guard lives in updateDashboardRow. */
 export async function updateTask(id: string, input: NewTaskInput): Promise<ActionResult<{ changed: number }>> {
-  const gate = await requireCrmWriter("editing tasks")
+  const gate = await requireCrmLevel("/tasks", "edit", "editing tasks")
   if (!gate.ok) return fail(gate.error)
   if (!(await canSeeActionsRow("tasks", id))) return fail("Not authorised.")
   // The people already on the task may stay even if no longer active personnel.
@@ -795,7 +802,7 @@ export async function updateTask(id: string, input: NewTaskInput): Promise<Actio
 }
 
 export async function countTestTasks(): Promise<ActionResult<number>> {
-  return countTestRows("tasks", "task_id")
+  return countTestRows("tasks", "task_id", (ids) => visibleActionsIds("tasks", ids))
 }
 
 export async function purgeTestTasks(): Promise<ActionResult<{ deleted: number }>> {
@@ -805,5 +812,7 @@ export async function purgeTestTasks(): Promise<ActionResult<{ deleted: number }
     snapshot: "subject, bcs_account_name, bcs_task_type_label, scheduled_end, created_on, created_by_name",
     path: "/tasks",
     context: "/tasks · Delete test tasks",
+    // Row scope: only the test rows this viewer can see.
+    restrict: (ids) => visibleActionsIds("tasks", ids),
   })
 }

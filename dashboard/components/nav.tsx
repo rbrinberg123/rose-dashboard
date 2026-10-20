@@ -51,6 +51,7 @@ import {
   addNewHref,
   type CrmEntity,
 } from "@/components/crm-add-new"
+import type { QuickAddKind } from "@/lib/access/crm-levels-policy"
 import {
   MY_DASHBOARD_ROUTE,
   canAccessRoute,
@@ -164,8 +165,8 @@ const sections: NavSection[] = [
   {
     // The "Actions" group (2026-10-17), moved up from the bottom CRM block:
     // parent → the Tasks CRM table, children = the same three CRM tables it
-    // held there. All ADMIN_ONLY, so canAccessRoute shows it to super users /
-    // admins only.
+    // held there. Grantable with a level since 2026-10-20, so canAccessRoute
+    // shows each child to whoever holds View or above on it.
     label: "Actions",
     icon: Layers,
     href: "/tasks",
@@ -329,7 +330,7 @@ function groupCrmItems(crm: CrmItem[]): CrmEntry[] {
  * (addNewHref), which opens the page's own Add New form — the same form, server
  * action and gates as the page button. See components/crm-add-new.tsx.
  */
-function CrmQuickAdd({ variant }: { variant: "sidebar" | "rail" }) {
+function CrmQuickAdd({ variant, entities }: { variant: "sidebar" | "rail"; entities: readonly CrmEntity[] }) {
   const { open, triggerProps, panelProps } = useFlyout("bottom")
   const menuId = React.useId()
 
@@ -372,7 +373,7 @@ function CrmQuickAdd({ variant }: { variant: "sidebar" | "rail" }) {
             style={{ backgroundImage: RAIL_ACCENT_UNDERLINE }}
           />
           <ul className="space-y-0.5">
-            {QUICK_ADD_ORDER.map((entity) => (
+            {entities.map((entity) => (
               <li key={entity}>
                 <button
                   type="button"
@@ -432,6 +433,19 @@ const AlertCountContext = React.createContext(0)
  * at 0. Same bubble (rail) / pill (labels) as Alerts.
  */
 const MyDashboardCountContext = React.createContext(0)
+
+/**
+ * The quick-add record types this viewer may create (2026-10-20: Manage on each
+ * type's table, or super user / admin — quickAddKinds, computed server-side in
+ * the root layout). Read by the CRM block's "+" menu.
+ */
+const QuickAddContext = React.createContext<readonly QuickAddKind[]>([])
+
+/** The "+" menu's entries, in menu order. Time Off create stays super-user only. */
+function useQuickAddEntities(role: ViewAsRole | null): CrmEntity[] {
+  const kinds = React.useContext(QuickAddContext) as readonly string[]
+  return QUICK_ADD_ORDER.filter((e) => (e === "time_off" ? hasSuperUserPrivileges(role) : kinds.includes(e)))
+}
 
 /**
  * Red badges cap their DISPLAY at "9+" so a three-digit number can't stretch
@@ -853,6 +867,7 @@ function NavContents({
 }) {
   const visible = visibleSections(role, allowedRoutes)
   const crm = crmItemsFor(role, allowedRoutes)
+  const quickAdd = useQuickAddEntities(role)
 
   return (
     <>
@@ -869,9 +884,9 @@ function NavContents({
           the containing <nav> to be a flex column, which is why both navs carry
           `flex flex-col`. Renders nothing at all for a non-super-user: no
           divider, no label, no item. */}
-      {crm.length > 0 || hasSuperUserPrivileges(role) ? (
+      {crm.length > 0 || quickAdd.length > 0 || hasSuperUserPrivileges(role) ? (
         <div className="mt-auto pt-1">
-          <CrmDivider quickAdd={hasSuperUserPrivileges(role)} />
+          <CrmDivider quickAdd={quickAdd} />
           {groupCrmItems(crm).map((entry) =>
             entry.kind === "group" ? (
               <CrmNavGroup
@@ -898,10 +913,9 @@ function NavContents({
 /** The section break above the CRM block: a hairline rule with a small "CRM"
  *  caption sitting on it, so the block reads as its own area rather than as one
  *  more reporting section. */
-/** quickAdd: the "+" menu lists every entity — super users / admins only (2026-10-16:
- *  the CRM block opens to page grantees, and creating is level-gated; a Manage
- *  holder creates from that page's own New button). */
-function CrmDivider({ quickAdd }: { quickAdd: boolean }) {
+/** quickAdd: the "+" menu's entries (useQuickAddEntities) — each type only at
+ *  Manage on its table, or for super users / admins (2026-10-20). Empty = no "+". */
+function CrmDivider({ quickAdd }: { quickAdd: readonly CrmEntity[] }) {
   return (
     <div className="mx-3 mb-1 flex items-center gap-2">
       <span
@@ -921,7 +935,7 @@ function CrmDivider({ quickAdd }: { quickAdd: boolean }) {
         className="h-px flex-1"
         style={{ backgroundColor: CRM_TEAL, opacity: 0.35 }}
       />
-      {quickAdd && <CrmQuickAdd variant="sidebar" />}
+      {quickAdd.length > 0 && <CrmQuickAdd variant="sidebar" entities={quickAdd} />}
     </div>
   )
 }
@@ -1643,6 +1657,7 @@ function RailContents({
   allowedRoutes: readonly string[]
 }) {
   const crm = crmItemsFor(role, allowedRoutes)
+  const quickAdd = useQuickAddEntities(role)
   const dashCount = React.useContext(MyDashboardCountContext)
 
   return (
@@ -1670,9 +1685,9 @@ function RailContents({
       {/* CRM, pinned to the bottom of the rail — same gate, same treatment, just
           the icon and a 3-letter caption at 58px wide. Nothing renders here for
           a non-super-user. */}
-      {crm.length > 0 || hasSuperUserPrivileges(role) ? (
+      {crm.length > 0 || quickAdd.length > 0 || hasSuperUserPrivileges(role) ? (
         <div className="mt-auto pt-2">
-          <RailCrmDivider quickAdd={hasSuperUserPrivileges(role)} />
+          <RailCrmDivider quickAdd={quickAdd} />
           {groupCrmItems(crm).map((entry) =>
             entry.kind === "group" ? (
               <RailCrmGroup
@@ -1698,13 +1713,13 @@ function RailContents({
  *  rail is only 58px wide, so the label sits below the rule rather than inside
  *  it — three letters still fit comfortably. */
 /** quickAdd: see CrmDivider. */
-function RailCrmDivider({ quickAdd }: { quickAdd: boolean }) {
+function RailCrmDivider({ quickAdd }: { quickAdd: readonly CrmEntity[] }) {
   return (
     <div className="px-2 pb-1">
       {/* No "CRM" caption on the collapsed rail (2026-10-11), and no teal rule
           above the quick-add either (removed 2026-10-17, by request). */}
       <div className="mt-1.5 flex justify-center">
-        {quickAdd && <CrmQuickAdd variant="rail" />}
+        {quickAdd.length > 0 && <CrmQuickAdd variant="rail" entities={quickAdd} />}
       </div>
     </div>
   )
@@ -2054,6 +2069,7 @@ export function Sidebar({
   defaultCollapsed = true,
   alertCount = 0,
   myDashboardCount = 0,
+  quickAdd = [],
 }: {
   userEmail?: string | null
   role?: ViewAsRole | null
@@ -2069,6 +2085,9 @@ export function Sidebar({
   /** Critical rows on My Dashboard for THIS viewer, from the root layout. 0
    *  hides the badge. See app/my-dashboard/critical-count.ts. */
   myDashboardCount?: number
+  /** Quick-add types this viewer may create (Manage per table), from the root
+   *  layout. Empty hides the CRM "+" menu. */
+  quickAdd?: readonly QuickAddKind[]
 }) {
   const pathname = usePathname() || "/"
   const [mobileOpen, setMobileOpen] = React.useState(false)
@@ -2130,6 +2149,7 @@ export function Sidebar({
     // RailContents, Section and RailSection as a prop nothing between them uses.
     <AlertCountContext.Provider value={alertCount}>
     <MyDashboardCountContext.Provider value={myDashboardCount}>
+    <QuickAddContext.Provider value={quickAdd}>
       {/* Mobile top bar — visible below md */}
       <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-[#EDEFF3] bg-white px-3 md:hidden">
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -2263,6 +2283,7 @@ export function Sidebar({
           </div>
         )}
       </aside>
+    </QuickAddContext.Provider>
     </MyDashboardCountContext.Provider>
     </AlertCountContext.Provider>
   )

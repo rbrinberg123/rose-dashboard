@@ -37,6 +37,7 @@ import type { ClientOnboardingRow } from "@/lib/types"
 import type { OnboardingTouchKind } from "@/lib/onboarding/touch-link"
 import { OnboardingTouchHost, type OnboardingTouchTarget } from "./touch-cell"
 import { ClientQuickAdd } from "@/app/client-detail/client-quick-add"
+import type { QuickAddKind } from "@/lib/access/crm-levels-policy"
 
 const NAVY = "#1E2858"
 // The app-wide "complete / positive" green — the same value carried as GREEN or
@@ -447,11 +448,11 @@ function LegendItem({ swatch, text }: { swatch: React.ReactNode; text: string })
 
 export function OnboardingTable({
   rows,
-  canQuickAdd = false,
+  quickAdd = [],
 }: {
   rows: ClientOnboardingRow[]
-  /** Super users / admins (the CRM create gate) — shows the masthead Quick Add. */
-  canQuickAdd?: boolean
+  /** Quick Add types the viewer holds MANAGE on (task / touch) — empty hides it. */
+  quickAdd?: readonly QuickAddKind[]
 }) {
   // Onboarding Call / Teach-in cell clicks → the touchpoint form or drawer.
   const [touchTarget, setTouchTarget] = React.useState<OnboardingTouchTarget | null>(null)
@@ -517,7 +518,7 @@ export function OnboardingTable({
           rightSlot={
             // General New Task / New Touchpoint — the same create forms as
             // /tasks and /touchpoints, no client or type forced.
-            canQuickAdd ? <ClientQuickAdd accountId={null} kinds={["task", "touch"]} /> : undefined
+            quickAdd.length > 0 ? <ClientQuickAdd accountId={null} kinds={quickAdd} /> : undefined
           }
         />
       </div>

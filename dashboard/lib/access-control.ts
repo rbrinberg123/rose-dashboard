@@ -172,7 +172,9 @@ export const ALWAYS_ALLOWED_ROUTES = [
  * grant opens the whole list (NO row scoping), its filters / export / saved
  * views and the read-only row drawers (canReadCrmPage, lib/crm-write.ts).
  * Create / edit / delete stay super-user only (requireCrmWriter), and Client
- * Detail keeps its account-team scoping. Tasks / Touchpoints / Notes stay here.
+ * Detail keeps its account-team scoping. (2026-10-20) Tasks / Touchpoints /
+ * Notes left too, with the same four levels — their ROWS are row-scoped
+ * (lib/access/actions-scope.ts), so a grant never shows every row.
  *
  * Checked AFTER the super_user backstop, so a super_user still passes, and
  * BEFORE the matrix lookup, so an accidental (or malicious) role_page_access row
@@ -180,9 +182,7 @@ export const ALWAYS_ALLOWED_ROUTES = [
  */
 export const ADMIN_ONLY_ROUTES = [
   // (/meetings, /events, /contacts, /accounts left 2026-10-16 — grantable list pages.)
-  "/tasks",
-  "/touchpoints",
-  "/notes",
+  // (/tasks, /touchpoints, /notes left 2026-10-20 — grantable, row-scoped.)
   // Admin -> Account Teams. NOT a CRM data table (deliberately absent from
   // CRM_NAV_ITEMS); listed here so the Roles matrix can never delegate it.
   // Adding a NEW route here changes no existing page's behaviour.

@@ -5,8 +5,10 @@
  * export, the saved-view writes and the filter-dropdown options.
  *
  * ══ SECURITY ═══════════════════════════════════════════════════════════════
- * Every function here re-checks that the EFFECTIVE role is super_user before it
- * builds a query. `v_admin_touchpoints_all` is unscoped and read with the
+ * Every function here re-checks access before it builds a query — since
+ * 2026-10-20 the CRM LEVEL on /touchpoints (View to read, Edit to edit, Manage
+ * to create / purge; super users / admins always), AND the Actions row scope
+ * (lib/access/actions-scope.ts) on every read and every write. `v_admin_touchpoints_all` is unscoped and read with the
  * service-role key (RLS bypassed), so a successful call hands back every client's
  * touchpoints — including the free-text call notes, which are the most sensitive
  * thing on the record. The page gate and the proxy gate are not enough on their
@@ -31,11 +33,12 @@ import {
   isUuid,
   loadActiveAccountOptions,
   purgeTestRows,
-  requireCrmWriter,
+  canReadCrmPage,
+  canUseCrmForms,
+  requireCrmLevel,
 } from "@/lib/crm-write"
 import type { NewTouchInput, TouchContact } from "@/lib/touchpoints/create"
 import type { AccountOption } from "@/lib/types"
-import { getEffectiveRole } from "@/lib/effective-identity"
 import { fail, ok, type ActionResult } from "@/lib/actions"
 import { availableColumns, fetchAllRows, loadFilterOptionGroups } from "@/lib/table-views/query"
 import type { QuickFilterOptions } from "@/components/table-views/quick-filters"
@@ -63,8 +66,7 @@ import {
   readTouchRecord,
   updateTouchRow,
 } from "@/lib/touchpoints/write"
-import { hasSuperUserPrivileges } from "@/lib/access-control"
-import { actionsScopeFilter, canSeeActionsRow } from "@/lib/access/actions-scope"
+import { actionsScopeFilter, canSeeActionsRow, visibleActionsIds } from "@/lib/access/actions-scope"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -114,8 +116,7 @@ export async function deleteSavedView(input: { id: string }): Promise<ActionResu
  * lib/touchpoints/filters.ts.
  */
 export async function loadTouchpointFilterOptions(): Promise<ActionResult<QuickFilterOptions>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/touchpoints"))) return fail("Not authorised.")
 
   const groups = await loadFilterOptionGroups(
     getSupabaseServer(),
@@ -146,8 +147,7 @@ export async function loadTouchpointRowsForExport(input: {
   config: unknown
   quick?: TouchpointQuickFilters
 }): Promise<ActionResult<AdminTouchpointRow[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/touchpoints"))) return fail("Not authorised.")
 
   const parsed = parseConfig(TOUCHPOINTS_SPEC, input.config)
   if (!parsed.ok) return fail(parsed.error)
@@ -179,8 +179,7 @@ export async function loadTouchpointRecord(
   touchpointId: string,
 ): Promise<ActionResult<TouchpointRecord>> {
   // ---- GATE (must stay first) ----
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/touchpoints"))) return fail("Not authorised.")
   // ROW SCOPE — the same rule as the list (lib/access/actions-scope.ts).
   if (!(await canSeeActionsRow("touchpoints", touchpointId))) return fail("Not authorised.")
   return readTouchRecord(touchpointId)
@@ -205,8 +204,7 @@ export async function loadTouchClientOptions(includeAccountId?: string | null): 
 
 /** The drawer's Client Contacts list (any origin; always empty for Dynamics rows). */
 export async function loadTouchContacts(touchpointId: string): Promise<ActionResult<TouchContact[]>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canReadCrmPage("/touchpoints"))) return fail("Not authorised.")
   if (!isUuid(touchpointId)) return fail("Unknown touchpoint.")
   if (!(await canSeeActionsRow("touchpoints", touchpointId))) return fail("Not authorised.")
   return readTouchContacts(touchpointId)
@@ -215,22 +213,21 @@ export async function loadTouchContacts(touchpointId: string): Promise<ActionRes
 /** "Add New Touch" — insert ONE dashboard-authored touchpoint (see insertTouch). */
 export async function createTouch(input: NewTouchInput): Promise<ActionResult<{ touchpointId: string }>> {
   // ---- GATE (must stay first) ----
-  const gate = await requireCrmWriter("creating or deleting touchpoints")
+  const gate = await requireCrmLevel("/touchpoints", "create", "creating touchpoints")
   if (!gate.ok) return fail(gate.error)
   return insertTouch(input, gate, "/touchpoints · Add New Touch")
 }
 
 /** A DASHBOARD touch, as form input — Dynamics rows are refused. */
 export async function loadTouchForEdit(id: string): Promise<ActionResult<NewTouchInput>> {
-  const role = await getEffectiveRole()
-  if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canUseCrmForms("/touchpoints"))) return fail("Not authorised.")
   if (!(await canSeeActionsRow("touchpoints", id))) return fail("Not authorised.")
   return readTouchForEdit(id)
 }
 
 /** Edit a DASHBOARD touch. The origin guard lives in updateDashboardRow. */
 export async function updateTouch(id: string, input: NewTouchInput): Promise<ActionResult<{ changed: number }>> {
-  const gate = await requireCrmWriter("editing touchpoints")
+  const gate = await requireCrmLevel("/touchpoints", "edit", "editing touchpoints")
   if (!gate.ok) return fail(gate.error)
   if (!(await canSeeActionsRow("touchpoints", id))) return fail("Not authorised.")
   return updateTouchRow(id, input, gate, "/touchpoints · Edit touch")
@@ -238,7 +235,7 @@ export async function updateTouch(id: string, input: NewTouchInput): Promise<Act
 
 /** How many test touches the purge would remove — for the confirm prompt. */
 export async function countTestTouches(): Promise<ActionResult<number>> {
-  return countTestRows("touchpoints", "touchpoint_id")
+  return countTestRows("touchpoints", "touchpoint_id", (ids) => visibleActionsIds("touchpoints", ids))
 }
 
 /** Delete every dashboard-created TEST touch (see purgeTestRows). */
@@ -249,5 +246,7 @@ export async function purgeTestTouches(): Promise<ActionResult<{ deleted: number
     snapshot: "client_account_name, subject, scheduled_start, touchpoint_type_label, created_on, created_by_name",
     path: "/touchpoints",
     context: "/touchpoints · Delete test touches",
+    // Row scope: only the test rows this viewer can see.
+    restrict: (ids) => visibleActionsIds("touchpoints", ids),
   })
 }

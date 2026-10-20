@@ -90,6 +90,33 @@ export async function actionsScopeFilter(entity: ActionsEntity): Promise<ExtraFi
 }
 
 /**
+ * Of `ids`, the ones the effective viewer may see — for multi-row writes (the
+ * test-row purge). null = no restriction (super users / admins). Any error →
+ * [] (fail closed).
+ */
+export async function visibleActionsIds(entity: ActionsEntity, ids: string[]): Promise<string[] | null> {
+  const scope = await resolveActionsScope()
+  if (scope.mode === "all") return null
+  if (ids.length === 0) return []
+  const rule = ACTIONS_SCOPE_RULES[entity]
+  const clause = actionsScopeOrClause(entity, scope, await viewColumns(entity))
+  const out: string[] = []
+  for (let i = 0; i < ids.length; i += 150) {
+    const { data, error } = await getSupabaseServer()
+      .from(SPECS[entity].viewName)
+      .select(rule.idColumn)
+      .in(rule.idColumn, ids.slice(i, i + 150))
+      .or(clause)
+    if (error) {
+      console.error(`[actions-scope] ${entity} id check failed — denying (fail-closed):`, error.message)
+      return []
+    }
+    for (const r of (data ?? []) as unknown as Record<string, unknown>[]) out.push(String(r[rule.idColumn]))
+  }
+  return out
+}
+
+/**
  * May the effective viewer see this ONE row? Checked against the entity's view
  * with the very same predicate as the list. Any error → false.
  */

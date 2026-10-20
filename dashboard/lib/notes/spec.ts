@@ -454,6 +454,8 @@ export const NOTES_SPEC: EntitySpec = {
   defaultSort: NOTE_DEFAULT_SORT,
   builtins: NOTE_BUILTIN_VIEWS,
   savedViewsTable: "note_saved_views",
+  // Grantable list page (2026-10-20) — saved views follow page access.
+  route: "/notes",
   optionsView: "v_admin_notes_filter_options",
 }
 

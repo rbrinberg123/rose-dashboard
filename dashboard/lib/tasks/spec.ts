@@ -513,6 +513,8 @@ export const TASKS_SPEC: EntitySpec = {
   defaultSort: TASK_DEFAULT_SORT,
   builtins: TASK_BUILTIN_VIEWS,
   savedViewsTable: "task_saved_views",
+  // Grantable list page (2026-10-20) — saved views follow page access.
+  route: "/tasks",
   optionsView: "v_admin_tasks_filter_options",
 }
 

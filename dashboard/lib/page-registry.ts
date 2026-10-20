@@ -127,13 +127,12 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   { route: "/events", label: "Events (CRM list — all rows)", section: "CRM" },
   { route: "/meetings", label: "Meetings (CRM list — all rows)", section: "CRM" },
   { route: "/contacts", label: "Contacts (CRM list — all rows)", section: "CRM" },
-  // Tasks / Touchpoints / Notes (2026-10-17): listed so the nav's CRM pill marks
-  // them (and Actions, which lands on Tasks). Still ADMIN_ONLY — isGrantableRoute
-  // rejects them, so their matrix checkboxes have no effect, like the other
-  // "(super-user only)" rows.
-  { route: "/tasks", label: "Tasks (CRM list — super-user only)", section: "CRM" },
-  { route: "/touchpoints", label: "Touchpoints (CRM list — super-user only)", section: "CRM" },
-  { route: "/notes", label: "Notes (CRM list — super-user only)", section: "CRM" },
+  // Tasks / Touchpoints / Notes — grantable with the same four levels since
+  // 2026-10-20 (they left ADMIN_ONLY_ROUTES). Unlike the four above, their ROWS
+  // are scoped: own + core account team + exempt types (lib/access/actions-scope.ts).
+  { route: "/tasks", label: "Tasks (CRM list — row-scoped)", section: "CRM" },
+  { route: "/touchpoints", label: "Touchpoints (CRM list — row-scoped)", section: "CRM" },
+  { route: "/notes", label: "Notes (CRM list — row-scoped)", section: "CRM" },
 
   // ---- Admin ----
   { route: "/admin", label: "Admin Hub", section: "Admin" },

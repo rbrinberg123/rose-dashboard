@@ -11,9 +11,10 @@ import { loadCriticalAlertCount } from "@/app/clients/alerts/critical-count"
 import { loadMyDashboardCriticalCount } from "@/app/my-dashboard/critical-count"
 import { getSupabaseServerAuth } from "@/lib/supabase/server"
 import { getRealRole } from "@/lib/user-role"
-import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, effectiveAccessEmail, isHiddenRoute, viewAsLabel } from "@/lib/access-control"
+import { VIEW_AS_COOKIE, VIEW_AS_USER_COOKIE, effectiveAccessEmail, hasSuperUserPrivileges, isHiddenRoute, viewAsLabel } from "@/lib/access-control"
 import { resolveEffective } from "@/lib/impersonation"
-import { getAllowedRoutes } from "@/lib/page-access"
+import { getAllowedRoutes, getCrmLevels } from "@/lib/page-access"
+import { quickAddKinds } from "@/lib/access/crm-levels-policy"
 import { SIDEBAR_COLLAPSED_COOKIE, isSidebarCollapsed } from "@/lib/sidebar"
 import {
   IDENTITY_HEADER,
@@ -119,14 +120,18 @@ export default async function RootLayout({
   // The My Dashboard badge (critical rows on that page) rides in the same batch,
   // for anyone with a role (the page sends role-less users to /no-access).
   // Fail-soft: the badge must never be able to break a page.
-  const [teamInitials, alertCount, myDashboardCount] = userEmail
+  // The nav "+" quick-add offers each record type only at MANAGE on its table
+  // (quickAddKinds) — the effective person's levels, so "View as" previews it.
+  const [teamInitials, alertCount, myDashboardCount, crmLevels] = userEmail
     ? await Promise.all([
         loadTeamInitialsMap(),
         // Alerts is retired (hidden, no nav entry) — skip its badge query while hidden.
         isHiddenRoute("/clients/alerts") ? 0 : loadCriticalAlertCount(effectiveEmail),
         role ? loadMyDashboardCriticalCount(effectiveEmail).catch(() => 0) : 0,
+        getCrmLevels(role, effectiveAccessEmail(userEmail, { person, roleView })),
       ])
-    : [{}, 0, 0]
+    : [{}, 0, 0, null]
+  const quickAdd = crmLevels ? quickAddKinds(crmLevels, hasSuperUserPrivileges(role)) : []
 
   // Banner label: PERSON mode names the person + their real role ("No role" when
   // they have none); ROLE mode names the abstract role. Only super-users ever
@@ -153,6 +158,7 @@ export default async function RootLayout({
               defaultCollapsed={sidebarCollapsed}
               alertCount={alertCount}
               myDashboardCount={myDashboardCount}
+              quickAdd={quickAdd}
             />
             <main className="flex-1 overflow-x-hidden">
               {/* Sectional nav strip — the ONE mount point. It renders itself

@@ -174,6 +174,8 @@ export function TasksView({
   activeConfig,
   viewCounts,
   canManageSystemViews,
+  canEdit,
+  canManage,
   readOnlyViews,
   availableColumns,
   quickFilters,
@@ -189,6 +191,9 @@ export function TasksView({
   activeConfig: ViewConfig
   viewCounts: Record<string, number | null>
   canManageSystemViews: boolean
+  /** CRM level (2026-10-20): Edit+ shows the drawer's Edit; Manage shows New + Purge. Cosmetic — the server re-checks. */
+  canEdit: boolean
+  canManage: boolean
   readOnlyViews: boolean
   availableColumns: string[] | null
   quickFilters: TaskQuickFilters
@@ -448,8 +453,12 @@ export function TasksView({
           subtitle="Every task in the CRM — all types, all states."
           rightSlot={
             <div className="flex items-center gap-2">
-              <PurgeTestTasksButton />
-              <NewTaskButton />
+              {canManage && (
+                <>
+                  <PurgeTestTasksButton />
+                  <NewTaskButton />
+                </>
+              )}
             </div>
           }
         />
@@ -704,7 +713,7 @@ export function TasksView({
       {/* Rendered as a SIBLING of the list, never wrapping it, so opening a
           record cannot remount the table. */}
       <TaskRecordPane
-        onEdit={openId ? () => setEditId(openId) : undefined}
+        onEdit={canEdit && openId ? () => setEditId(openId) : undefined}
         onClosed={openId ? () => afterEdit(openId) : undefined}
         record={record}
         loading={openId !== null && record === null && recordError === null}
