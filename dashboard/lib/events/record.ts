@@ -41,6 +41,12 @@ export type EventRecord = {
   is_test?: boolean
   /** bcs_paused — the lifecycle Pause toggle. Read off the table (the view lacks it). */
   paused?: boolean | null
+  /** Prep checklist (EVENT_PREP_TOGGLES, lib/events/create.ts) — dashboard-owned, read off the table. */
+  assigned_to_run?: boolean
+  targeting_run?: boolean
+  sent_to_client_manager?: boolean
+  client_manager_reviewed?: boolean
+  coverage_assigned?: boolean
   /**
    * The CLIENT's current account team, read live off its accounts lookups
    * (the drawer's account-team icons). Distinct from the event's own role

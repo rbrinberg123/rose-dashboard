@@ -748,6 +748,7 @@ export function EventsView({
         preloaded={drawerExtras?.eventId === openId ? drawerExtras : null}
         onMeetingsChange={onMeetingsChange}
         editPending={editId !== null}
+        canEditPrep={canEdit}
         record={record}
         loading={openId !== null && record === null && recordError === null}
         error={recordError}

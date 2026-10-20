@@ -48,6 +48,8 @@ import {
   EVENT_STATE_OPTIONS,
   EVENT_URGENCY_OPTIONS,
   EVENT_TASK_DATE_SUBTYPES,
+  EVENT_PREP_TOGGLES,
+  isEventPrepColumn,
   validateEventRequired,
   type EventRepresentative,
   type EventTaskDateKey,
@@ -78,6 +80,7 @@ import { applyEventQuickFilters, type EventQuickFilters } from "@/lib/events/fil
 import type { EventRecord } from "@/lib/events/record"
 import type { AdminEventRow } from "@/lib/types"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { protectedFieldViolation } from "@/lib/access/crm-levels-policy"
 import { loadEventMeetings, type EventMeetingRow } from "@/lib/event-meetings"
 import { canViewEvent, dashboardEventInScope } from "@/lib/events/view-gate"
 
@@ -274,7 +277,14 @@ async function readEventRecord(eventId: string): Promise<ActionResult<EventRecor
   // view lacks it) are independent reads: run them together (2026-10-16 perf).
   const [{ data, error }, { data: flag }] = await Promise.all([
     sb.from(EVENTS_SPEC.viewName).select(RECORD_COLUMNS).eq("event_id", eventId).maybeSingle(),
-    sb.from("events").select("is_test, origin, mining, paused").eq("event_id", eventId).maybeSingle(),
+    sb
+      .from("events")
+      // + the five prep-checklist columns (EVENT_PREP_TOGGLES)
+      .select(
+        "is_test, origin, mining, paused, assigned_to_run, targeting_run, sent_to_client_manager, client_manager_reviewed, coverage_assigned",
+      )
+      .eq("event_id", eventId)
+      .maybeSingle(),
   ])
 
   if (error) return fail(describeError(error))
@@ -300,6 +310,9 @@ async function readEventRecord(eventId: string): Promise<ActionResult<EventRecor
     origin: (flag?.origin as string | undefined) ?? null,
     mining: (flag?.mining as boolean | null | undefined) ?? null,
     paused: (flag?.paused as boolean | null | undefined) ?? null,
+    ...Object.fromEntries(
+      EVENT_PREP_TOGGLES.map((t) => [t.column, (flag as Record<string, unknown> | null)?.[t.column] === true]),
+    ),
     client_team: clientTeam,
   })
 }
@@ -584,6 +597,14 @@ async function buildEventColumns(input: NewEventInput): Promise<ActionResult<Rec
     launch: input.launch === true,
     outreach_complete: input.outreachComplete === true,
     paused: input.paused === true,
+    // Prep checklist — only the keys the form sent, so a caller without them
+    // never clears them.
+    ...Object.fromEntries(
+      EVENT_PREP_TOGGLES.filter((t) => input.prep?.[t.column] !== undefined).map((t) => [
+        t.column,
+        input.prep![t.column] === true,
+      ]),
+    ),
   })
 }
 
@@ -703,7 +724,8 @@ export async function loadEventForEdit(id: string): Promise<
     "events",
     "event_id",
     id,
-    "client_account_id, dates, event_location, event_start_actual, event_end_actual, of_slots, event_notes, tbc, team, mining, leads_codes, event_parameters, urgency_code, proposed_launch_date, teaser_not_required, profile_link, targeting_notes, launch, outreach_complete, paused, event_state_label",
+    "client_account_id, dates, event_location, event_start_actual, event_end_actual, of_slots, event_notes, tbc, team, mining, leads_codes, event_parameters, urgency_code, proposed_launch_date, teaser_not_required, profile_link, targeting_notes, launch, outreach_complete, paused, event_state_label, " +
+      EVENT_PREP_TOGGLES.map((t) => t.column).join(", "),
   )
   if (!res.ok) return fail(res.error)
   const r = res.data
@@ -737,6 +759,7 @@ export async function loadEventForEdit(id: string): Promise<
     launch: r.launch === true,
     outreachComplete: r.outreach_complete === true,
     paused: r.paused === true,
+    prep: Object.fromEntries(EVENT_PREP_TOGGLES.map((t) => [t.column, r[t.column] === true])),
     isTest: r.is_test === true,
   } })
 }
@@ -769,6 +792,60 @@ export async function updateEvent(id: string, input: NewEventInput): Promise<Act
   if (!reps.ok) return fail(`Changes saved, but representatives were not: ${reps.error}`)
   revalidatePath("/events")
   return ok({ changed: (updated.data?.changed ?? 0) + reps.data!.added + reps.data!.removed })
+}
+
+/**
+ * The drawer's prep-checklist toggle (Targeting & Other Prep tab): set ONE of
+ * the five dashboard-owned EVENT_PREP_TOGGLES columns, on an event of EITHER
+ * origin — the sync never writes them (sql/patches/2026-10-20b). Same gate as
+ * updateEvent (Edit+ on /events; super users / admins always). Only that one
+ * column is written: no modified_on / modified_by, which on a Dynamics row are
+ * the sync's. Audited.
+ */
+export async function setEventPrepFlag(
+  eventId: string,
+  column: string,
+  value: boolean,
+): Promise<ActionResult<{ changed: number }>> {
+  // ---- GATE (must stay first) ----
+  const gate = await requireCrmLevel("/events", "edit", "editing events")
+  if (!gate.ok) return fail(gate.error)
+  if (!isUuid(eventId)) return fail("Unknown event.")
+  if (!isEventPrepColumn(column)) return fail("Unknown field.")
+  if (typeof value !== "boolean") return fail("Invalid value.")
+
+  const sb = getSupabaseServer()
+  const { data: before, error: readErr } = await sb
+    .from("events")
+    .select(`event_id, origin, is_test, ${column}`)
+    .eq("event_id", eventId)
+    .maybeSingle()
+  if (readErr) return fail(describeError(readErr))
+  if (!before) return fail("Event not found.")
+  const prior = (before as unknown as Record<string, unknown>)[column] === true
+  if (prior === value) return ok({ changed: 0 }) // nothing to save — no write, no audit
+
+  const blocked = protectedFieldViolation("/events", [column], gate.level, gate.isSuper)
+  if (blocked) return fail(blocked)
+
+  const { data: updated, error: updErr } = await sb
+    .from("events")
+    .update({ [column]: value })
+    .eq("event_id", eventId)
+    .select("event_id")
+  if (updErr) return fail(describeError(updErr))
+  if (!updated || updated.length !== 1) return fail("Event not found.")
+
+  const b = before as unknown as { origin?: string | null; is_test?: boolean | null }
+  await recordAudit({
+    action: "update",
+    entity: "events",
+    recordId: eventId,
+    changes: { [column]: { old: prior, new: value } },
+    context: `/events · Prep checklist · ${b.origin ?? "unknown"} row${b.is_test === true ? " · test" : ""}`,
+  })
+  revalidatePath("/events")
+  return ok({ changed: 1 })
 }
 
 export async function countTestEvents(): Promise<ActionResult<number>> {

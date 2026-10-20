@@ -127,6 +127,26 @@ export const EVENT_FEEDBACK_TEAMS = [
 ] as const
 
 /**
+ * The PREP CHECKLIST — five Yes / No toggles on the Targeting & Other Prep tab
+ * (drawer + Edit Event form), in display order. DASHBOARD-OWNED events columns
+ * (sql/patches/2026-10-20b_event_prep_toggles.sql) the sync never writes, so
+ * they are settable on Dynamics-origin events too (setEventPrepFlag).
+ */
+export const EVENT_PREP_TOGGLES = [
+  { column: "assigned_to_run", label: "Assigned to run" },
+  { column: "targeting_run", label: "Targeting run" },
+  { column: "sent_to_client_manager", label: "Sent to client manager" },
+  { column: "client_manager_reviewed", label: "Client manager reviewed" },
+  { column: "coverage_assigned", label: "Coverage assigned" },
+] as const
+
+export type EventPrepColumn = (typeof EVENT_PREP_TOGGLES)[number]["column"]
+export type EventPrepFlags = Record<EventPrepColumn, boolean>
+
+export const isEventPrepColumn = (c: unknown): c is EventPrepColumn =>
+  EVENT_PREP_TOGGLES.some((t) => t.column === c)
+
+/**
  * THE event-name rule: "TICKER - Location - Dates", single spaces, blank parts
  * dropped (the clean form of Dynamics' "TICKER - Place - dates"). TICKER is the
  * client's ticker (its name when it has none); Dates is the free-text Dates
@@ -185,6 +205,8 @@ export type NewEventInput = {
   outreachComplete: boolean
   /** Overrides everything → "Pause"; un-pausing resumes the computed stage. */
   paused: boolean
+  /** The prep checklist (EVENT_PREP_TOGGLES). Only the keys present are written. */
+  prep?: Partial<EventPrepFlags>
   /** Company representatives — existing contacts, saved to event_contacts. */
   representatives: EventRepresentative[]
   isTest: boolean

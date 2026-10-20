@@ -36,9 +36,16 @@ import {
   type EventTabKey,
   type PreloadedEventMeetings,
 } from "./event-meetings-tabs"
-import { loadEventRepresentatives } from "./actions"
+import { toast } from "sonner"
+import { YesNo } from "@/components/crm-form-kit"
+import { loadEventRepresentatives, setEventPrepFlag } from "./actions"
 import type { EventMeetingRow } from "@/lib/event-meetings"
-import type { EventRepresentative } from "@/lib/events/create"
+import {
+  EVENT_PREP_TOGGLES,
+  type EventPrepColumn,
+  type EventPrepFlags,
+  type EventRepresentative,
+} from "@/lib/events/create"
 import { isAutomationOrigin } from "@/lib/feedback-reports/policy"
 import { BRAND_BLUE, KPI_CARD_CLASS, STATUS_PILL_LIGHT } from "@/lib/design"
 import { ACCOUNT_TEAM_ROLE_META } from "@/lib/account-teams/roles"
@@ -516,6 +523,50 @@ const ALL_FIELDS = EVENT_SECTIONS.flatMap((s) => s.fields)
 const pickFields = (keys: (keyof EventRecord)[]) =>
   keys.map((k) => ALL_FIELDS.find((f) => f.sourceKey === k)).filter((f): f is EventFieldDef => !!f)
 
+/**
+ * The PREP CHECKLIST (Targeting tab) — five dashboard-owned Yes / No toggles,
+ * settable on events of EITHER origin. Editable (`canEdit`) → the form kit's
+ * YesNo, saved on click via setEventPrepFlag (which re-checks Edit+ on
+ * /events); otherwise the drawer's usual read-only Yes / No field.
+ */
+function PrepChecklist({ record, canEdit }: { record: EventRecord; canEdit: boolean }) {
+  // Saved values on top of the loaded record. The caller keys this on the event
+  // and its stored values, so a re-read record starts it fresh.
+  const [flags, setFlags] = React.useState<Partial<EventPrepFlags>>({})
+  const [busy, setBusy] = React.useState<EventPrepColumn | null>(null)
+  const value = (c: EventPrepColumn) => flags[c] ?? record[c] === true
+
+  async function toggle(column: EventPrepColumn, v: boolean) {
+    setBusy(column)
+    const r = await setEventPrepFlag(record.event_id, column, v)
+    setBusy(null)
+    if (!r.ok) return toast.error(r.error)
+    setFlags((f) => ({ ...f, [column]: v }))
+  }
+
+  return (
+    <section className="mb-6">
+      <SectionHeader title="Prep checklist" />
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+        {EVENT_PREP_TOGGLES.map((t) =>
+          canEdit ? (
+            <div key={t.column} className={cn(busy === t.column && "pointer-events-none opacity-60")}>
+              <YesNo label={t.label} checked={value(t.column)} onChange={(v) => toggle(t.column, v)} />
+            </div>
+          ) : (
+            <Field
+              key={t.column}
+              def={{ label: t.label, sourceKey: t.column, type: "toggle" }}
+              record={{ ...record, [t.column]: value(t.column) }}
+              clientAccountId={record.client_account_id}
+            />
+          ),
+        )}
+      </div>
+    </section>
+  )
+}
+
 function FieldSection({ title, fields, record }: { title: string; fields: EventFieldDef[]; record: EventRecord }) {
   if (fields.length === 0) return null
   return (
@@ -543,6 +594,7 @@ export function EventRecordPane({
   preloaded = null,
   onMeetingsChange,
   editPending = false,
+  canEditPrep = false,
 }: {
   record: EventRecord | null
   loading: boolean
@@ -584,6 +636,11 @@ export function EventRecordPane({
   onMeetingsChange?: (eventId: string, rows: EventMeetingRow[]) => void
   /** The edit form is opening — Edit is disabled so repeat clicks queue nothing. */
   editPending?: boolean
+  /**
+   * May the viewer set the Targeting tab's prep checklist (Edit+ on /events)?
+   * Any origin — the columns are dashboard-owned. Default off (read-only).
+   */
+  canEditPrep?: boolean
 }) {
   // Tab + meeting-list reload, both reset per event (tab back to the initial one).
   const eventId = record?.event_id ?? null
@@ -777,7 +834,14 @@ export function EventRecordPane({
                 ))}
 
               {tab === "targeting" && (
-                <FieldSection title="Targeting" fields={pickFields(TARGETING_KEYS)} record={record} />
+                <>
+                  <FieldSection title="Targeting" fields={pickFields(TARGETING_KEYS)} record={record} />
+                  <PrepChecklist
+                    key={`${record.event_id}-${EVENT_PREP_TOGGLES.map((t) => (record[t.column] ? 1 : 0)).join("")}`}
+                    record={record}
+                    canEdit={canEditPrep}
+                  />
+                </>
               )}
 
               <p className="pt-4 text-[11px] text-muted-foreground">

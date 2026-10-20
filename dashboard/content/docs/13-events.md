@@ -119,12 +119,29 @@ The header and the capacity stat row stay above the tabs. The body is split into
 |---|---|---|
 | **Details** | Account team strip, company representatives, General + Planning fields (minus Targeting ones; Feedback Team / Feedback Report stay here) | Client, location, dates, meetings start/end, slots, notes · Lifecycle toggles · General · Planning (parameters, urgency, launch week) · Test toggle (create) · Company representatives |
 | **Meetings & Reports** · badge | **Dashboard events:** the combined panel (below). **Dynamics events:** the read-only list (below) | The combined panel. Edit only |
-| **Targeting & Other Prep** | Targeting date / URL, profile link, targeting & memo not-required, memo date, last data upload, shareholder report, targeting notes | Memo date, last data upload (looked up), profile link, targeting notes, memo not required |
+| **Targeting & Other Prep** | Targeting date / URL, profile link, targeting & memo not-required, memo date, last data upload, shareholder report, targeting notes · **Prep checklist** (below) | Memo date, last data upload (looked up), profile link, targeting notes, memo not required · **Prep checklist** |
 
 - **Badge:** the event's active, non-cancelled meetings.
 - **Fixed size:** the drawer is a full-height column, and the dialog is a fixed `h-[min(92vh,880px)]`, sized for Details, the tallest tab. The header, stat row / generated name, and tab strip never move. Only the active tab's body scrolls, so switching tabs never resizes or jumps the card. The combined panel no longer has its own height cap; the tab scrolls instead.
 - **Form tabs:** create mode has **Details** and **Targeting & Other Prep** only, because Meetings & Reports needs a saved event. Every panel stays mounted (just hidden), so switching tabs never loses typing or a split/move draft. A failed save with missing required fields jumps back to Details, where all required fields are. The generated **Event name** (grey, read-only) sits above the form's tabs, under the stepper.
 - **Add Meeting:** **drawer** — only at the top-right of the Meetings & Reports panel header (the drawer-header copy was removed 2026-10-14); **Edit Event dialog** — the panel's top-right **and** the dialog header's upper-right (edit only, left of its close button). It is the shared CRM primary button **`AddNewButton`** (`components/crm-add-new.tsx`, the "+ Add New …" masthead button on every CRM page), filled with **`RAIL_ACCENT_FILL`** (`lib/design.ts`, the blue→teal gradient), one size smaller (`px-2.5 py-1 text-xs`). No colour is hard-coded. After a save, the meeting lists reload.
+
+### Prep checklist (2026-10-20)
+Five Yes / No toggles under **Prep checklist** on the Targeting & Other Prep tab, in this order:
+
+| Toggle | Column on `public.events` |
+|---|---|
+| Assigned to run | `assigned_to_run` |
+| Targeting run | `targeting_run` |
+| Sent to client manager | `sent_to_client_manager` |
+| Client manager reviewed | `client_manager_reviewed` |
+| Coverage assigned | `coverage_assigned` |
+
+- **Dashboard-owned.** All five are `boolean NOT NULL DEFAULT false` (`sql/patches/2026-10-20b_event_prep_toggles.sql` — **run it before the code deploys**, or the drawer and Edit form fail to load). The sync's `mapEvent` never writes them, so they work on **Dynamics-origin events too**. The drawer reads them off `public.events` with `is_test` / `origin` / `paused`, so no view changed. The list is defined once: `EVENT_PREP_TOGGLES` in `lib/events/create.ts`.
+- **Who can set them:** whoever can edit events — Edit or Manage on `/events`, and super users / admins always (`requireCrmLevel("/events", "edit")`). Others see read-only Yes / No.
+- **Drawer:** each toggle (the form kit's `YesNo` checkbox) **saves on click**, on either origin, through `setEventPrepFlag` (`app/events/actions.ts`). It writes only that one column, never `modified_on` / `modified_by` (on a Dynamics row those belong to the sync). Offered on the CRM Events page (`canEditPrep`); other hosts of the drawer show it read-only.
+- **Edit / Add New Event form** (dashboard events): the same five toggles, saved with the rest of the form by `createEvent` / `updateEvent` (`NewEventInput.prep`).
+- **Audited:** every change writes an `audit_log` row (`entity = events`; drawer context `/events · Prep checklist · <origin> row`; form saves are in the usual Edit event diff).
 
 ### Combined Meetings & Reports + feedback (dashboard events, 2026-10-14)
 `MeetingsReportsPanel` (`app/events/meetings-reports-panel.tsx`) is now the **one** panel for dashboard-origin events in both the drawer and the dialog. It replaces the drawer's old *Feedback reports* section (`feedback-reports-panel.tsx`, now unused). Meetings are grouped under Report A / B / C, plus *Not in a report* and a collapsed *Cancelled / inactive* group:

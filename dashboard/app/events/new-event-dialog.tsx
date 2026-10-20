@@ -34,6 +34,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
   EVENT_LEAD_OPTIONS,
+  EVENT_PREP_TOGGLES,
   EVENT_URGENCY_OPTIONS,
   NEW_EVENT_TEST_DEFAULT,
   buildEventName,
@@ -152,6 +153,7 @@ function emptyForm(): NewEventInput {
     launch: false,
     outreachComplete: false,
     paused: false,
+    prep: Object.fromEntries(EVENT_PREP_TOGGLES.map((t) => [t.column, false])),
     representatives: [],
     isTest: NEW_EVENT_TEST_DEFAULT,
   }
@@ -588,6 +590,19 @@ function EventFormDialog({
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <YesNo label="Memo Not Required" checked={form.memoNotRequired} onChange={(v) => set({ memoNotRequired: v })} />
+                </div>
+              </FormSection>
+              {/* Prep checklist — dashboard-owned (lib/events/create.ts EVENT_PREP_TOGGLES). */}
+              <FormSection title="Prep checklist">
+                <div className="grid grid-cols-2 gap-2">
+                  {EVENT_PREP_TOGGLES.map((t) => (
+                    <YesNo
+                      key={t.column}
+                      label={t.label}
+                      checked={form.prep?.[t.column]}
+                      onChange={(v) => set({ prep: { ...form.prep, [t.column]: v } })}
+                    />
+                  ))}
                 </div>
               </FormSection>
             </div>
