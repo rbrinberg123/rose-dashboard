@@ -192,6 +192,23 @@ export const AUTOMATIONS: readonly Automation[] = [
     where: ["app/api/sync-dynamics/route.ts", "lib/sync/run.ts", "app/admin/sync/actions.ts"],
   },
   {
+    id: "data-crm-mail-poll",
+    name: "data-crm@ mailbox → Data Upload tasks",
+    kind: "Scheduled job",
+    trigger: "Runs inside the Dynamics sync (every 10 min, 11:00–22:00 UTC, Mon–Fri; plus Admin → Sync “Run now”).",
+    effect:
+      "Reads new email in the data-crm@roseandco.com Inbox (Microsoft Graph) and creates ONE unassigned Outreach / Data Upload task per new thread, due in 7 days, titled from the subject plus the matched client. Replies in a thread are recorded and skipped.",
+    scope: "New mail after the watermark only; one task per conversationId (idempotent).",
+    applicability: "All records",
+    status: "Active",
+    where: [
+      "lib/data-upload/poll.ts",
+      "lib/data-upload/rules.ts",
+      "app/api/sync-dynamics/route.ts",
+      "sql/patches/2026-10-19b_data_crm_mail.sql",
+    ],
+  },
+  {
     id: "deletion-reconcile",
     name: "Deletion reconciliation sweep",
     kind: "Scheduled job",

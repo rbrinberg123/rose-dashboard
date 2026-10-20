@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { runSync } from "@/lib/sync/run"
+import { pollDataCrmMailbox } from "@/lib/data-upload/poll"
 
 /**
  * Dynamics → Supabase sync.
@@ -16,6 +17,10 @@ import { runSync } from "@/lib/sync/run"
  *     attaches `Authorization: Bearer ${CRON_SECRET}`.
  *   - The admin "Run sync now" button (POST), via a server action that adds
  *     the same header server-side (the secret never reaches the browser).
+ *
+ * After the Dynamics pull, the same run polls the data-crm@ shared mailbox and
+ * creates Data Upload tasks (lib/data-upload/poll.ts); its outcome is the
+ * `mailPoll` key of the response.
  *
  * This route handles its own auth, so it is excluded from the Supabase auth
  * proxy (see proxy.ts matcher). Without a valid CRON_SECRET it returns 401.
@@ -50,13 +55,18 @@ async function handle(request: NextRequest): Promise<NextResponse> {
 
   try {
     const result = await runSync()
-    const anyError = result.entities.some((e) => e.status === "error")
-    return NextResponse.json(result, { status: anyError ? 207 : 200 })
+    // The data-crm@ mailbox poll rides the same cadence as its own step. It
+    // never throws, so the Dynamics sync and the poll cannot fail each other.
+    const mailPoll = await pollDataCrmMailbox()
+    const anyError =
+      result.entities.some((e) => e.status === "error") || mailPoll.status === "error" || mailPoll.status === "partial"
+    return NextResponse.json({ ...result, mailPoll }, { status: anyError ? 207 : 200 })
   } catch (err) {
     // runSync swallows per-entity failures; reaching here means something
-    // unexpected (e.g. Supabase client misconfigured).
+    // unexpected (e.g. Supabase client misconfigured). Still poll the mailbox.
     const message = err instanceof Error ? err.message : String(err)
-    return NextResponse.json({ error: message }, { status: 500 })
+    const mailPoll = await pollDataCrmMailbox()
+    return NextResponse.json({ error: message, mailPoll }, { status: 500 })
   }
 }
 

@@ -8,7 +8,7 @@ The **sync** is the job that copies Dynamics into Supabase. It runs on a schedul
 - It **adds or updates** rows; it never deletes. (A separate "reconciliation" sweep handles deletions — safely, with human review.)
 - Each entity syncs independently, so if one fails the others still succeed.
 
-Separately, the **Microsoft Graph** integration reads calendars (free/busy) for the Host Calendar and Conference Rooms. Crucially, Graph and Dynamics use **two different Azure app registrations** — a distinction that has broken the sync before, so it's guarded carefully.
+Separately, the **Microsoft Graph** integration reads calendars (free/busy) for the Host Calendar and Conference Rooms. The same sync run also **polls the data-crm@ shared mailbox** and turns each new email thread into a Data Upload task (see [data-crm@ mailbox poll](#data-crm-mailbox-poll--data-upload-tasks-2026-10-19)). Crucially, Graph and Dynamics use **two different Azure app registrations** — a distinction that has broken the sync before, so it's guarded carefully.
 
 ## Technical
 
@@ -231,6 +231,7 @@ The Graph app is **"Rose IQ Calendar Integration"**, app-only (client credential
 |---|---|---|
 | `Calendars.ReadBasic.All` | `getSchedule` (host busy, conference rooms) | Granted |
 | `Mail.Send` | `sendMail` (the email digests), limited by the Exchange Application Access Policy to `dashboards@roseandco.com` | Granted |
+| `Mail.Read` | `listInboxMessages` (`lib/graph/mailbox.ts`): the data-crm@ mailbox poll ([below](#data-crm-mailbox-poll--data-upload-tasks-2026-10-19)). Limited by the same Access Policy, so **data-crm@ must be in its scope** | Granted (consent); **blocked by the Access Policy until data-crm@ is added** (403 checked 2026-10-19) |
 | **`Sites.Selected`** + **write** on the CRMDocuments site | `uploadToCrmDocuments` (`lib/graph/sharepoint.ts`): the Marketing Memo document upload ([14 — Tasks](14-tasks.md#marketing-memo-document-2026-10-19)) | **Needs granting** |
 
 **To grant the SharePoint access (an Azure / SharePoint admin, no env change):**
@@ -244,3 +245,53 @@ The Graph app is **"Rose IQ Calendar Integration"**, app-only (client credential
 The broader alternative is `Sites.ReadWrite.All`: one checkbox, but write access to **every** site in the tenant. `Sites.Selected` limits the app to this one site. The Exchange Application Access Policy doesn't apply to SharePoint, and uploads show in SharePoint as modified by the app, not the person (who uploaded is stored on the task). Until the grant is in place, an upload fails with *"SharePoint upload isn't enabled yet…"*, never silently.
 
 Calls used: `GET /sites/{host}:/sites/CRMDocuments` → site id; `GET /sites/{siteId}/drive` → the Documents library (both cached per warm instance); `PUT /drives/{driveId}/root:/{name}:/content?@microsoft.graph.conflictBehavior=rename` (new file) or `PUT /drives/{driveId}/items/{itemId}/content` (new version). Simple upload only, which suits files of 4 MB and under.
+
+### data-crm@ mailbox poll → Data Upload tasks (2026-10-19)
+
+**Plain language:** when someone emails **data-crm@roseandco.com**, a **Data Upload** task appears on **Tools → Data Uploads** within about ten minutes (weekdays, during the sync window). One task per email **thread**: replies don't make more tasks. The task is unassigned, due in 7 days, and whoever marks it complete becomes its owner.
+
+**When it runs:** inside the Dynamics sync cron, `/api/sync-dynamics` (every 10 min, 11:00–22:59 UTC, Mon–Fri; also Admin → Sync "Run now"). It is a **separate step after `runSync()`** and never throws, so the Dynamics sync and the poll cannot fail each other. Its outcome is the `mailPoll` key of the route's JSON (`status`, `fetched`, `tasksCreated`, `replies`, `failed`, `watermark`, `message`); `error` / `partial` make the route return 207. Mail that arrives outside the window waits for the next run. **Locally** the poll runs too if you call the route, but the 403 below applies until the policy is fixed.
+
+**Graph:** `GET /users/data-crm@roseandco.com/mailFolders/Inbox/messages?$filter=receivedDateTime ge {watermark − 10 min}&$orderby=receivedDateTime asc&$select=id,internetMessageId,conversationId,subject,from,receivedDateTime,webLink,bodyPreview,hasAttachments`, 50 per page, at most 10 pages per run (the rest follows next run). App-only as **Rose IQ Calendar Integration** via `graphFetch`; the full body is never fetched.
+
+> **Needs an Exchange admin before it works (checked 2026-10-19):** the app's token has `Mail.Read`, but the read returns **403 "Blocked by tenant configured AppOnly AccessPolicy settings"** because the Application Access Policy is `RestrictAccess`-scoped to the dashboards@ group. Add **data-crm@roseandco.com** to that group, then check with `Test-ApplicationAccessPolicy -Identity data-crm@roseandco.com -AppId <GRAPH_CLIENT_ID>` (expect `Granted`). Allow up to ~1 hour to propagate. Side effect: the same app may then also `Mail.Send` as data-crm@ (the policy is per app, not per permission). Until then every poll records `last_status = 'error'` with the 403 in `mail_poll_state.last_error`, and nothing else happens.
+
+**Per message** (`lib/data-upload/poll.ts`):
+
+| Case | Recorded as | Task |
+|---|---|---|
+| `internet_message_id` already in `data_crm_mail_messages` | (skipped, nothing written) | — |
+| Sent **by** data-crm@ itself | `skip_reason = 'own_mail'` | — |
+| **First** message seen in its `conversationId` | `task_id` set | **one new Data Upload task** |
+| Any later message in that conversation | `skip_reason = 'reply'` | — |
+
+Reply detection is **`conversationId` only**, with no "RE:" subject collapsing, because generic subjects ("Data upload") would merge separate submissions. If an original email arrived before go-live, its first reply creates the task.
+
+**Idempotency:** three dashboard-owned tables (`sql/patches/2026-10-19b_data_crm_mail.sql`, **run it first**):
+
+- `mail_poll_state`: the **watermark** per mailbox (`last_received_at`) plus the last run's status, error and counts. The **first run initialises it to now, with no backfill**. To backfill, move `last_received_at` back by hand (the patch shows how).
+- `data_crm_mail_conversations`: PK `conversation_id`. The first message **claims** the conversation (insert-or-ignore) and its `task_id` is chosen **at claim time**. The task is then inserted with that id (insert-or-ignore), so a retry after a crash can never create a second task. `task_created_at` marks the insert.
+- `data_crm_mail_messages`: PK `internet_message_id` (the Graph `id` changes when a message is moved, so it is kept as `graph_message_id` only). This row is written **last**, so a crash anywhere earlier just reprocesses that message next run.
+
+The **watermark** advances to the newest message processed. If any message failed, it holds at the earliest failure (never moving backwards), so the failed message is retried. Every read re-covers the last 10 minutes, and the message-id dedup absorbs that overlap. RLS is on with no policies (service role only).
+
+**The task** (`lib/data-upload/rules.ts`, unit-tested in `rules.test.ts`): Outreach / **Data Upload** (the existing `755860003` / `755860000` pair), `origin = 'dashboard'`, `created_by_name = 'Data CRM mailbox'` (this is how the page and Mark complete recognise mailbox tasks), Open / Not Started, **no owner**, created now, **due = Eastern today + 7 days** (Eastern midnight, `scheduled_end`). The description holds the sender, received time, original subject, client match and the email's preview. Every create is audited (`context = automation:data-upload:mailbox`).
+
+**Title and client match (revised 2026-10-19):** `Data Upload – <client> – <subject>` (RE:/FW: stripped, max 200 characters). The client part is the ticker (or name) of the matched client, added **only for a single confident match**, and left out when the subject already shows it. With no subject the title is `Data Upload – from <sender>`.
+
+**Where it looks:** the **subject**, the **attachment file names** (names only, via `GET …/messages/{id}/attachments?$select=name,isInline`; inline images skipped, no content ever fetched) and the **plain-text body** (`GET …/messages/{id}?$select=body` with `Prefer: outlook.body-content-type="text"`, first 20,000 characters, used for matching only and never stored). These two extra reads happen only for the **first email of a thread**. If either read fails, matching uses what it has and the message row records `match_source = 'none:subject-only'`; the message never fails because of it. Matching is against **active** clients only (`state_label = 'Active'`).
+
+**Rules** (`findClientCandidates` / `matchClient` in `lib/data-upload/rules.ts`, unit-tested):
+
+1. **Ticker:** an UPPERCASE **whole word** equal to a client's **base** ticker, 2+ characters, never a partial match. `ticker_symbol` is stored with a country suffix for almost every client (`ADT-US`, `WDS-AU`; 105 of 108 active accounts on 2026-10-19), so the suffix is dropped first (`tickerBase`), and "ADT" or "ADT-US" both match `ADT-US`. File names split on `_`, `-`, spaces and dots, so `SNX - batch.xlsx` and `ADT.xlsx` give SNX / ADT. A blocklist of common words that are also tickers (ON, IT, OR, ALL, ARE, NEW, US, PDF, CSV…) never matches.
+2. **Name:** the client name with legal suffixes stripped (Inc, Corp, LLC, Ltd, Co, PLC, Holdings, Group, …), giving two **fragments**: the whole remaining name, and its first word. Each counts only if it is **4+ characters** and **not a generic word** (a blocklist: data, upload, report, email, energy, gold, capital, first, global, great, …). A fragment matches **case-insensitively as a substring starting at a word boundary**, so "Woodside's" matches, but "ePayPal" doesn't.
+   - **In the body, only the full name counts.** A first word alone is too weak in prose: the real case was "had a *great* weekend" against Great-West Lifeco.
+   - A name hit that is only part of another client's longer or full-name hit is ignored. So "Acme Bank" is Acme Bank, not also Acme Corp.
+3. **Single match only:** everything found across the subject, attachment names and body is pooled. **Exactly one distinct client** means it is set on the task (`bcs_account_id`, `bcs_account_name` and Regarding). **Two or more** means none is set (`match_source = 'ambiguous:<n>'`). The poll never guesses.
+4. **Sender domain (fallback, only when the text names nobody):** the sender's domain equals exactly one client's `website_url` or `email` domain. roseandco.com and free-mail domains never count.
+
+`data_crm_mail_messages.match_source` records how the client was set, as `<rule>:<where>` (e.g. `ticker:attachment`, `name:body`, `sender_domain:sender`), or why not (`ambiguous:2`, `none:subject-only`). The card shows this under the Client field.
+
+**Measured on the real data-crm@ Inbox (2026-10-19, 8 messages):** 7 resolved to the right client and 1 test email to none. The planning thread → TD Synnex, from "SNX" in the body or attachment name and "TD Synnex" in the signature. The automated IHS Markit execution report → SNX, from its attachment names. "…for ADT" → ADT. The analyst-meeting thread → Leidos, from "LDOS" in the Cc. Before the body guard, the planning thread was wrongly ambiguous because of "Great-West Lifeco".
+
+A completed Data Upload task with a client moves that client's dashboard events' **Last Data Upload** date through the existing `event-last-data-upload` trigger ([06 — Automations](06-automations.md)). So a wrong match matters, which is why the matcher prefers no client over a guess, and the client must be confirmed before close ([14 — Tasks](14-tasks.md#data-upload-tasks-from-data-crm-2026-10-19)).

@@ -208,6 +208,9 @@ const sections: NavSection[] = [
       // and Contract Management to the Clients group (2026-10-16). Time Off
       // stays here; its page carries the "Manage Time Off" button.
       { href: "/time-off", label: "Time Off" },
+      // Open Data Upload tasks from the data-crm@ mailbox (2026-10-19).
+      // Super-user by default, grantable via Admin → Roles.
+      { href: "/data-uploads", label: "Data Uploads" },
       // FB Coming Soon (/fb-coming-soon) was removed from the nav 2026-10-12.
       // The route, page and its ADMIN_ONLY_ROUTES gate are unchanged — it is
       // simply unlinked (reachable by URL, super-user only).

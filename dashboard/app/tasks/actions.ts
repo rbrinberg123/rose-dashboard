@@ -21,6 +21,7 @@ import { getSupabaseServer } from "@/lib/supabase"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
 import { idsForEmail } from "@/lib/time-off-requests/reviewers"
 import { closeMode, decideTaskClose } from "@/lib/tasks/close"
+import { clientRequiredToClose } from "@/lib/data-upload/rules"
 import { assignReviewTaskToAssociate } from "@/lib/feedback-reports/review-owner"
 import { checkFeedbackTaskClose, checkSentTaskClose, isFeedbackCloseSubtype } from "@/lib/feedback-claims/close-guard"
 import { closeFeedbackReview, closeFeedbackTask } from "@/app/feedback-manager/actions"
@@ -361,7 +362,7 @@ export async function closeTask(taskId: string): Promise<ActionResult<{ mode: "n
   const sb = getSupabaseServer()
   const { data: t, error } = await sb
     .from("tasks")
-    .select("task_id, origin, state_label, owner_id, closed_at, subject, is_test, bcs_task_subtype_label")
+    .select("task_id, origin, state_label, owner_id, closed_at, subject, is_test, bcs_task_subtype_label, created_by_name, bcs_account_id")
     .eq("task_id", taskId)
     .maybeSingle()
   if (error) return fail(describeError(error))
@@ -369,8 +370,17 @@ export async function closeTask(taskId: string): Promise<ActionResult<{ mode: "n
   const task = t as {
     task_id: string; origin: string | null; state_label: string | null; owner_id: string | null
     closed_at: string | null; subject: string | null; is_test: boolean | null
-    bcs_task_subtype_label: string | null
+    bcs_task_subtype_label: string | null; created_by_name: string | null; bcs_account_id: string | null
   }
+  // A mailbox Data Upload task needs its client before it can be closed (the
+  // same rule as Tools → Data Uploads' Mark complete).
+  const needsClient = clientRequiredToClose({
+    origin: task.origin,
+    subtypeLabel: task.bcs_task_subtype_label,
+    createdByName: task.created_by_name,
+    clientId: task.bcs_account_id,
+  })
+  if (needsClient) return fail(needsClient)
   // Feedback-type tasks: the feedback close actions decide and write.
   if (isFeedbackCloseSubtype(task.bcs_task_subtype_label)) {
     const res =
@@ -716,7 +726,7 @@ export async function updateTask(id: string, input: NewTaskInput): Promise<Actio
   // The people already on the task may stay even if no longer active personnel.
   const { data: cur, error: curErr } = await getSupabaseServer()
     .from("tasks")
-    .select("owner_id, bcs_claimed_by_id, bcs_current_assignment_id, state_label, bcs_task_subtype_label")
+    .select("owner_id, bcs_claimed_by_id, bcs_current_assignment_id, state_label, bcs_task_subtype_label, origin, created_by_name")
     .eq("task_id", id)
     .maybeSingle()
   if (curErr) return fail(describeError(curErr))
@@ -726,6 +736,8 @@ export async function updateTask(id: string, input: NewTaskInput): Promise<Actio
     bcs_current_assignment_id?: string | null
     state_label?: string | null
     bcs_task_subtype_label?: string | null
+    origin?: string | null
+    created_by_name?: string | null
   }
   const people = new Set(
     [c.owner_id, c.bcs_claimed_by_id, c.bcs_current_assignment_id].filter((v): v is string => !!v),
@@ -739,6 +751,17 @@ export async function updateTask(id: string, input: NewTaskInput): Promise<Actio
   // stored one), so changing the sub-type in the same save can't dodge it.
   const subtype = (built.data.bcs_task_subtype_label as string | null | undefined) ?? c.bcs_task_subtype_label ?? null
   const completing = c.state_label === "Open" && built.data.state_label === "Completed"
+  // REQUIRED CLIENT: a mailbox Data Upload task can't be completed client-less
+  // (judged on the stored sub-type, so an edit can't dodge it by re-typing).
+  if (completing) {
+    const needsClient = clientRequiredToClose({
+      origin: c.origin ?? null,
+      subtypeLabel: c.bcs_task_subtype_label ?? null,
+      createdByName: c.created_by_name ?? null,
+      clientId: (built.data.bcs_account_id as string | null | undefined) ?? null,
+    })
+    if (needsClient) return fail(needsClient)
+  }
   if (completing && (isFeedbackCloseSubtype(subtype) || isFeedbackCloseSubtype(c.bcs_task_subtype_label))) {
     const check =
       subtype === "Feedback" || c.bcs_task_subtype_label === "Feedback"

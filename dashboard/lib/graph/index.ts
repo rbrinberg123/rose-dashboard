@@ -8,6 +8,7 @@
  * Stage 2: getSchedule (calendar free/busy).
  * Stage 3: sendMail (send an HTML email as the dashboards@ mailbox).
  * Stage 4: uploadToCrmDocuments (SharePoint file upload — Marketing Memo documents).
+ * Stage 5: listInboxMessages (read the data-crm@ shared mailbox — Data Upload tasks).
  */
 
 export { getGraphAccessToken, clearGraphTokenCache } from "./token"
@@ -30,3 +31,5 @@ export { sendMail, MAIL_SENDER } from "./mail"
 export type { SendMailOptions } from "./mail"
 export { uploadToCrmDocuments, CRM_DOCUMENTS_SITE, CRM_DOCUMENTS_FOLDER } from "./sharepoint"
 export type { UploadedDriveItem } from "./sharepoint"
+export { listInboxMessages, getMessageBodyText, listAttachmentNames } from "./mailbox"
+export type { InboxMessage } from "./mailbox"

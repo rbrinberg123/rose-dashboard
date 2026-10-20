@@ -95,6 +95,10 @@ export const PAGE_REGISTRY: readonly PageEntry[] = [
   { route: "/feedback", label: "Feedback (redirect → Collection)", section: "Logistics" },
   { route: "/onboarding", label: "Onboarding", section: "Logistics" },
   { route: "/time-off", label: "Time Off", section: "Logistics" },
+  // Tools → Data Uploads (2026-10-19): open Data Upload tasks from the data-crm@
+  // mailbox. No role is granted by default (super user / admin only); tick a
+  // role here to open it. Anyone who can open it may Mark complete.
+  { route: "/data-uploads", label: "Data Uploads", section: "Logistics" },
   // Super-user-only for now (ADMIN_ONLY_ROUTES) — work in progress.
   { route: "/fb-coming-soon", label: "FB Coming Soon (WIP, super-user only)", section: "Logistics" },
   { route: "/pipeline", label: "Upcoming Meetings (hidden)", section: "Logistics" },

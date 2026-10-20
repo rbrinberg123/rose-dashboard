@@ -222,7 +222,7 @@ test("the grantable set is exactly the registry minus strict, hidden, always-all
     "/institutions", "/institution-detail", "/institution-style", "/relationships",
     "/people-statistics", "/productivity", "/productivity-detail", "/capacity",
     "/planning-v2", "/planning", "/calendar", "/scheduler", "/live-outreach", "/profiles",
-    "/feedback-manager", "/feedback-collection", "/onboarding", "/time-off",
+    "/feedback-manager", "/feedback-collection", "/onboarding", "/time-off", "/data-uploads",
     "/pipeline", "/conference-rooms", "/ooo-summary",
     "/contract-management", "/renewals", "/margin", "/revenue-overrides", "/direct-costs",
     "/cost-assumptions", "/overhead-overrides", "/quarterly-overhead", "/salary-schedule", "/exceptions",
