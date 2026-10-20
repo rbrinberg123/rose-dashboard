@@ -70,6 +70,7 @@ import {
 import type { NoteRecord } from "@/lib/notes/record"
 import type { AdminNoteRow } from "@/lib/types"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { actionsScopeFilter, canSeeActionsRow } from "@/lib/access/actions-scope"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -153,9 +154,10 @@ export async function loadNoteRowsForExport(input: {
   if (!parsed.ok) return fail(parsed.error)
 
   const sb = getSupabaseServer()
-  const [available, aliasGroups] = await Promise.all([
+  const [available, aliasGroups, scoped] = await Promise.all([
     availableColumns(sb, NOTES_SPEC),
     loadUserAliasGroups(sb),
+    actionsScopeFilter("notes"),
   ])
   const quick = input.quick ?? {}
 
@@ -165,7 +167,7 @@ export async function loadNoteRowsForExport(input: {
     parsed.config,
     new Date(),
     available,
-    ((q: unknown) => applyNoteQuickFilters(q, quick, aliasGroups)) as <Q>(q: Q) => Q,
+    ((q: unknown) => scoped(applyNoteQuickFilters(q, quick, aliasGroups))) as <Q>(q: Q) => Q,
   )
   if (error) return fail(error)
   return ok(rows)
@@ -218,6 +220,8 @@ export async function loadNoteRecord(noteId: string): Promise<ActionResult<NoteR
   if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
 
   if (!noteId) return fail("No note id.")
+  // ROW SCOPE — the same rule as the list (lib/access/actions-scope.ts).
+  if (!(await canSeeActionsRow("notes", noteId))) return fail("Not authorised.")
 
   const sb = getSupabaseServer()
   const { data, error } = await sb
@@ -373,6 +377,7 @@ export async function createNote(input: NewNoteInput): Promise<ActionResult<{ no
 
 /** A DASHBOARD note, as form input — Dynamics rows are refused. */
 export async function loadNoteForEdit(id: string): Promise<ActionResult<NewNoteInput>> {
+  if (!(await canSeeActionsRow("notes", id))) return fail("Not authorised.")
   const res = await loadDashboardRowForEdit(
     "client_notes",
     "note_id",
@@ -399,6 +404,7 @@ export async function loadNoteForEdit(id: string): Promise<ActionResult<NewNoteI
 export async function updateNote(id: string, input: NewNoteInput): Promise<ActionResult<{ changed: number }>> {
   const gate = await requireCrmWriter("editing notes")
   if (!gate.ok) return fail(gate.error)
+  if (!(await canSeeActionsRow("notes", id))) return fail("Not authorised.")
   // The owner already on the note may stay even if no longer active personnel.
   const { data: cur, error: curErr } = await getSupabaseServer()
     .from("client_notes")

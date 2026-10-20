@@ -405,6 +405,9 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
 
   const { memberRoles, memberName } = teamMembersOf(book, myIds)
   const memberIds = [...memberRoles.keys()]
+  // Team tasks: CORE team clients only — the Actions row rule
+  // (lib/access/actions-scope.ts); Feedback Report / Memo roles don't count.
+  const coreBookIds = bookIds.filter((id) => reviewAccountIds.includes(id))
 
   // Accounts where I am the ACCOUNT MANAGER (Primary) — the Profiles to-do.
   const managedIds = book
@@ -505,13 +508,13 @@ export async function loadMyDashboard(): Promise<MyDashboardData> {
         .limit(C)
     : skip
   const teamTasksQ =
-    bookIds.length && memberIds.length
+    coreBookIds.length && memberIds.length
       ? sb
           .from("v_admin_tasks_all")
           .select(TASK_COLS)
           .eq("state_label", "Open")
           .or(NOT_FEEDBACK)
-          .in("client_account_id", bookIds)
+          .in("client_account_id", coreBookIds)
           .in("owner_id", memberIds)
           .order("due_date", { ascending: true, nullsFirst: false })
           .limit(C)

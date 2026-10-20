@@ -64,6 +64,7 @@ import {
   updateTouchRow,
 } from "@/lib/touchpoints/write"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { actionsScopeFilter, canSeeActionsRow } from "@/lib/access/actions-scope"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -152,9 +153,10 @@ export async function loadTouchpointRowsForExport(input: {
   if (!parsed.ok) return fail(parsed.error)
 
   const sb = getSupabaseServer()
-  const [available, aliasGroups] = await Promise.all([
+  const [available, aliasGroups, scoped] = await Promise.all([
     availableColumns(sb, TOUCHPOINTS_SPEC),
     loadUserAliasGroups(sb),
+    actionsScopeFilter("touchpoints"),
   ])
   const quick = input.quick ?? {}
 
@@ -164,7 +166,7 @@ export async function loadTouchpointRowsForExport(input: {
     parsed.config,
     new Date(),
     available,
-    ((q: unknown) => applyTouchpointQuickFilters(q, quick, aliasGroups)) as <Q>(q: Q) => Q,
+    ((q: unknown) => scoped(applyTouchpointQuickFilters(q, quick, aliasGroups))) as <Q>(q: Q) => Q,
   )
   if (error) return fail(error)
   return ok(rows)
@@ -179,6 +181,8 @@ export async function loadTouchpointRecord(
   // ---- GATE (must stay first) ----
   const role = await getEffectiveRole()
   if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  // ROW SCOPE — the same rule as the list (lib/access/actions-scope.ts).
+  if (!(await canSeeActionsRow("touchpoints", touchpointId))) return fail("Not authorised.")
   return readTouchRecord(touchpointId)
 }
 
@@ -204,6 +208,7 @@ export async function loadTouchContacts(touchpointId: string): Promise<ActionRes
   const role = await getEffectiveRole()
   if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
   if (!isUuid(touchpointId)) return fail("Unknown touchpoint.")
+  if (!(await canSeeActionsRow("touchpoints", touchpointId))) return fail("Not authorised.")
   return readTouchContacts(touchpointId)
 }
 
@@ -219,6 +224,7 @@ export async function createTouch(input: NewTouchInput): Promise<ActionResult<{ 
 export async function loadTouchForEdit(id: string): Promise<ActionResult<NewTouchInput>> {
   const role = await getEffectiveRole()
   if (!hasSuperUserPrivileges(role)) return fail("Not authorised.")
+  if (!(await canSeeActionsRow("touchpoints", id))) return fail("Not authorised.")
   return readTouchForEdit(id)
 }
 
@@ -226,6 +232,7 @@ export async function loadTouchForEdit(id: string): Promise<ActionResult<NewTouc
 export async function updateTouch(id: string, input: NewTouchInput): Promise<ActionResult<{ changed: number }>> {
   const gate = await requireCrmWriter("editing touchpoints")
   if (!gate.ok) return fail(gate.error)
+  if (!(await canSeeActionsRow("touchpoints", id))) return fail("Not authorised.")
   return updateTouchRow(id, input, gate, "/touchpoints · Edit touch")
 }
 

@@ -18,6 +18,7 @@ import {
 import { listSavedViews } from "./actions"
 import { TasksView } from "./tasks-view"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { actionsScopeFilter } from "@/lib/access/actions-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -120,7 +121,10 @@ export default async function TasksPage({
   const effectiveConfig = workingOverride ?? active.config
   const identity = await getEffectiveIdentity()
 
-  const extra = ((q: unknown) => applyTaskQuickFilters(q, quick, aliasGroups)) as <Q>(q: Q) => Q
+  // ROW SCOPE (lib/access/actions-scope.ts): applied to the list, every view
+  // count and the capped-row count alike, so no number counts unseen rows.
+  const scoped = await actionsScopeFilter("tasks")
+  const extra = ((q: unknown) => scoped(applyTaskQuickFilters(q, quick, aliasGroups))) as <Q>(q: Q) => Q
 
   const {
     rows,
@@ -147,7 +151,7 @@ export default async function TasksPage({
   // happens to be under the current dropdown selection.
   const counts = await Promise.all(
     views.map(
-      async (v) => [v.id, await countRows(sb, TASKS_SPEC, v.config, now, available)] as const,
+      async (v) => [v.id, await countRows(sb, TASKS_SPEC, v.config, now, available, scoped)] as const,
     ),
   )
   const viewCounts = Object.fromEntries(counts) as Record<string, number | null>

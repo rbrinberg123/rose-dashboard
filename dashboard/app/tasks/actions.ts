@@ -88,6 +88,7 @@ async function closeActor() {
 }
 import type { AdminTaskRow } from "@/lib/types"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { actionsScopeFilter, canSeeActionsRow } from "@/lib/access/actions-scope"
 
 /* ---------------------------------------------------------------- saved views */
 
@@ -168,9 +169,10 @@ export async function loadTaskRowsForExport(input: {
   if (!parsed.ok) return fail(parsed.error)
 
   const sb = getSupabaseServer()
-  const [available, aliasGroups] = await Promise.all([
+  const [available, aliasGroups, scoped] = await Promise.all([
     availableColumns(sb, TASKS_SPEC),
     loadOwnerAliasGroups(sb),
+    actionsScopeFilter("tasks"),
   ])
   const quick = input.quick ?? {}
 
@@ -180,7 +182,7 @@ export async function loadTaskRowsForExport(input: {
     parsed.config,
     new Date(),
     available,
-    ((q: unknown) => applyTaskQuickFilters(q, quick, aliasGroups)) as <Q>(q: Q) => Q,
+    ((q: unknown) => scoped(applyTaskQuickFilters(q, quick, aliasGroups))) as <Q>(q: Q) => Q,
   )
   if (error) return fail(error)
   return ok(rows)
@@ -260,6 +262,8 @@ export async function loadTaskRecord(taskId: string): Promise<ActionResult<TaskR
       return fail("Not authorised.")
     }
   }
+  // ROW SCOPE — the same rule as the list (lib/access/actions-scope.ts).
+  if (!(await canSeeActionsRow("tasks", taskId))) return fail("Not authorised.")
 
   const { data, error } = await sb
     .from(TASKS_SPEC.viewName)
@@ -358,6 +362,7 @@ export async function closeTask(taskId: string): Promise<ActionResult<{ mode: "n
   if (!role) return fail("Not authorised.")
   if (identity.impersonated) return fail("Exit “View as” before closing a task.")
   if (!isUuid(taskId)) return fail("Unknown task.")
+  if (!(await canSeeActionsRow("tasks", taskId))) return fail("Not authorised.")
 
   const sb = getSupabaseServer()
   const { data: t, error } = await sb
@@ -679,6 +684,7 @@ export async function createTask(input: NewTaskInput): Promise<ActionResult<{ ta
 
 /** A DASHBOARD task, as form input — Dynamics rows are refused. */
 export async function loadTaskForEdit(id: string): Promise<ActionResult<NewTaskInput>> {
+  if (!(await canSeeActionsRow("tasks", id))) return fail("Not authorised.")
   const res = await loadDashboardRowForEdit(
     "tasks",
     "task_id",
@@ -723,6 +729,7 @@ export async function loadTaskForEdit(id: string): Promise<ActionResult<NewTaskI
 export async function updateTask(id: string, input: NewTaskInput): Promise<ActionResult<{ changed: number }>> {
   const gate = await requireCrmWriter("editing tasks")
   if (!gate.ok) return fail(gate.error)
+  if (!(await canSeeActionsRow("tasks", id))) return fail("Not authorised.")
   // The people already on the task may stay even if no longer active personnel.
   const { data: cur, error: curErr } = await getSupabaseServer()
     .from("tasks")

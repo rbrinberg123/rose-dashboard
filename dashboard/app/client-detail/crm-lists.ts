@@ -2,6 +2,8 @@ import "server-only"
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import { actionsScopeFilter } from "@/lib/access/actions-scope"
+
 /**
  * Client Detail → the Events / Tasks block (two small, capped reads — ≤ 10 rows
  * + an exact count each) and the top card's Key Contacts strip. All off the
@@ -86,6 +88,9 @@ export async function loadClientCrmLists(
   sb: SupabaseClient,
   accountId: string,
 ): Promise<ClientCrmLists> {
+  // Tasks carry the Actions row scope (lib/access/actions-scope.ts), so the card
+  // and its count show only the tasks this viewer may see.
+  const scoped = await actionsScopeFilter("tasks")
   const [eventsRes, tasksRes, contactsRes] = await Promise.all([
     // Most recent first: by meetings start, then by when the event was created.
     sb
@@ -97,11 +102,13 @@ export async function loadClientCrmLists(
       .limit(CRM_LIST_CAP),
     // Open tasks, overdue first: ascending due date puts every overdue task
     // ahead of the rest; undated last.
-    sb
-      .from("v_admin_tasks_all")
-      .select("task_id, subject, task_type_label, due_date", { count: "exact" })
-      .eq("client_account_id", accountId)
-      .eq("state_label", "Open")
+    scoped(
+      sb
+        .from("v_admin_tasks_all")
+        .select("task_id, subject, task_type_label, due_date", { count: "exact" })
+        .eq("client_account_id", accountId)
+        .eq("state_label", "Open"),
+    )
       .order("due_date", { ascending: true, nullsFirst: false })
       .limit(CRM_LIST_CAP),
     // ALL active contacts (a client has a handful — capped generously), so

@@ -62,6 +62,8 @@ export const loadMyDashboardCriticalCount = cache(async (effectiveEmail: string 
   const bookIds = book.map((a) => a.account_id)
   const { memberRoles } = teamMembersOf(book, myIds)
   const memberIds = [...memberRoles.keys()]
+  // Team tasks: CORE team clients only, exactly as the card (load.ts).
+  const coreBookIds = bookIds.filter((id) => reviewAccountIds.includes(id))
 
   const HEAD = { count: "exact" as const, head: true }
   const zero = Promise.resolve({ count: 0 })
@@ -97,13 +99,13 @@ export const loadMyDashboardCriticalCount = cache(async (effectiveEmail: string 
           .lt("due_date", dueCut)
           .not("task_id", "in", NOT_SIDECAR_CLOSED ?? "()")
       : zero,
-    bookIds.length && memberIds.length
+    coreBookIds.length && memberIds.length
       ? sb
           .from("v_admin_tasks_all")
           .select("task_id, owner_id, client_account_id")
           .eq("state_label", "Open")
           .or(NOT_FEEDBACK)
-          .in("client_account_id", bookIds)
+          .in("client_account_id", coreBookIds)
           .in("owner_id", memberIds)
           .lt("due_date", dueCut)
           .limit(500)

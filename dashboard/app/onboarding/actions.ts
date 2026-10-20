@@ -31,6 +31,7 @@ import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity
 import { getEffectiveAllowedRoutes } from "@/lib/effective-identity"
 import { canAccessRoute } from "@/lib/access-control"
 import { resolveClientScope } from "@/lib/access/data-scope"
+import { canSeeActionsRow } from "@/lib/access/actions-scope"
 import { isUuid, readActiveAccountOptions } from "@/lib/crm-write"
 import {
   insertTouch,
@@ -93,6 +94,8 @@ async function gateTouch(
   if (!ONBOARDING_TOUCH_TYPE_LABELS.includes(row.touchpoint_type_label ?? "")) {
     return { ok: false, error: "Only Onboarding Call and Teach-in touchpoints open from this page." }
   }
+  // ROW SCOPE — the same rule as CRM → Touchpoints (lib/access/actions-scope.ts).
+  if (!(await canSeeActionsRow("touchpoints", touchpointId))) return { ok: false, error: "Not authorised." }
   const g = await gateClient(row.client_account_id, write)
   if (!g.ok) return g
   return { ...g, clientAccountId: row.client_account_id!, origin: row.origin }

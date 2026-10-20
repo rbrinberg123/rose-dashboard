@@ -17,6 +17,7 @@ import {
 import { listSavedViews } from "./actions"
 import { TouchpointsView } from "./touchpoints-view"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { actionsScopeFilter } from "@/lib/access/actions-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -126,7 +127,10 @@ export default async function TouchpointsPage({
   const effectiveConfig = workingOverride ?? active.config
   const identity = await getEffectiveIdentity()
 
-  const extra = ((q: unknown) => applyTouchpointQuickFilters(q, quick, aliasGroups)) as <Q>(
+  // ROW SCOPE (lib/access/actions-scope.ts): applied to the list, every view
+  // count and the capped-row count alike, so no number counts unseen rows.
+  const scoped = await actionsScopeFilter("touchpoints")
+  const extra = ((q: unknown) => scoped(applyTouchpointQuickFilters(q, quick, aliasGroups))) as <Q>(
     q: Q,
   ) => Q
 
@@ -164,7 +168,7 @@ export default async function TouchpointsPage({
   // happens to be under the current dropdown selection.
   const counts = await Promise.all(
     views.map(
-      async (v) => [v.id, await countRows(sb, TOUCHPOINTS_SPEC, v.config, now, available)] as const,
+      async (v) => [v.id, await countRows(sb, TOUCHPOINTS_SPEC, v.config, now, available, scoped)] as const,
     ),
   )
   const viewCounts = Object.fromEntries(counts) as Record<string, number | null>

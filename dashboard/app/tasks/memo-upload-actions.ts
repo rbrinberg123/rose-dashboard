@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
+import { canSeeActionsRow } from "@/lib/access/actions-scope"
 import { recordAudit } from "@/lib/audit"
 import { isUuid } from "@/lib/crm-write"
 import { getEffectiveIdentity, getEffectiveRole } from "@/lib/effective-identity"
@@ -47,6 +48,7 @@ export async function uploadMarketingMemo(formData: FormData): Promise<ActionRes
 
   const taskId = String(formData.get("taskId") ?? "")
   if (!isUuid(taskId)) return fail("Unknown task.")
+  if (!(await canSeeActionsRow("tasks", taskId))) return fail("Not authorised.")
   const file = formData.get("file")
   if (!(file instanceof File)) return fail("Choose a file to upload.")
 

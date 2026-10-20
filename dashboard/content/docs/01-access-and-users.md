@@ -56,6 +56,10 @@ The **AI client summary** is a separate matter: there is only **one** summary pe
 
 A separate per-person tick-box on **Admin → Users** (next to Financials), **off** by default. It lets a person **Claim** unclaimed Feedback tasks on Feedback Reports and release their own. Super Users always have it, and can also release, reassign and close any task. It doesn't change which pages or rows anyone sees. Stored as `user_data_scopes.claim_feedback` (patch `sql/patches/2026-10-07_feedback_claims.sql`). Full detail: [14 — Tasks → Feedback claiming](14-tasks.md#feedback-claiming-feedback-reports--claim--release--reassign--close).
 
+### Who sees which Tasks, Touchpoints and Notes (2026-10-20)
+
+On the Actions tables, you see a row only if you're on that client's **core team** (Primary, Secondary, Associate or Logistics), or it's **yours** (a task you own, created, or are currently assigned; a touchpoint you created; a note you own or created). Super Users and Admins see everything. **Feedback-report tasks and Data Upload tasks are visible to everyone.** This is about which rows you see, not which pages you can open — today those three pages are still Super User / Admin only. It also trims My Dashboard's **Team tasks** card to clients where you're on the core team. Client pages (Client Detail's Touches timeline, Portfolio's recent note, etc.) are not affected. Detail: [Technical → Actions row scoping](#actions-row-scoping--tasks--touchpoints--notes-2026-10-20).
+
 ### "View as" — see the app as any person
 
 **Viewing-as is done per person, from Admin → Users.** Each row has a small **"View as"** button; it previews the app as *that specific person*, using **their** real role. Most people have no role yet, so viewing as them correctly shows the "no access" experience — which is a valid, useful test. It is super-user-only and invisible to everyone else.
@@ -601,6 +605,38 @@ Wired into: **Profiles** (`/profiles`, `v_profiles_upcoming` — filtered; a sco
 > FROM public.role_page_access WHERE route = '/feedback-manager'
 > ON CONFLICT (role, route) DO NOTHING;
 > ```
+
+#### Actions row scoping — Tasks / Touchpoints / Notes (2026-10-20)
+
+**Rule.** A Task, Touchpoint or Note row is visible iff ANY of:
+
+| | Condition | Columns (on `v_admin_*_all`) |
+|---|---|---|
+| a | Viewer is on the row's client's **core** team — Primary, Secondary, Associate, Logistics (Feedback Report / Memo do **not** count) | `client_account_id` ∈ accounts where `sales_lead_primary_id` / `secondary_manager_id` / `associate_id` / `logistics_coordinator_id` is the viewer |
+| b | Viewer **owns** it | task: `owner_id`, `created_by_id`, `current_assignment_id` · touchpoint: `created_by_id` (its `owner_id` is a client-named team, never a person) · note: `owner_id`, `created_by_id` |
+| c | Viewer has super-user privileges (`hasSuperUserPrivileges` — super_user OR admin) | — sees every row |
+| d | **Exempt type** — visible to all | tasks with sub-type `Feedback` (755860017), `Feedback Report Sent` (755860028) or `Data Upload` (755860000, the whole sub-type, mailbox-created or not) |
+
+A task with no client is visible only under (b), (c) or (d).
+
+**Row visibility only.** Who may *open* these pages is unchanged — `/tasks`, `/touchpoints`, `/notes` are still in `ADMIN_ONLY_ROUTES`, so today only super users / admins open them and the rule is a no-op there. It takes effect the moment a page or drawer is reachable by anyone else, and it already applies to the shared surfaces below.
+
+**Code.** Rules: `lib/access/actions-scope-policy.ts` (pure, unit-tested — `actions-scope-policy.test.ts`). Resolver: `lib/access/actions-scope.ts` — `resolveActionsScope()` (per-request memo), `actionsScopeFilter(entity)` (a `fetchRows` / `countRows` `extra`), `canSeeActionsRow(entity, id)` (single-row check, same predicate). Team membership reuses `resolveAccountTeamScope` narrowed to the four core roles; identity reuses `loadIdentity` (unioned duplicate CRM records).
+
+**View as.** The bypass reads the EFFECTIVE role (`getEffectiveRole`); team and ownership read the EFFECTIVE identity (`getEffectiveIdentity`). View as {person} → exactly that person's rows. View as {role} → that role's bypass, but team / ownership are your own account (a role is not a person).
+
+**Fails closed.** Team can't be resolved → own rows + exempt types. Identity can't be resolved (no match, ambiguous, resolver error) → exempt types only. A column the deployed view lacks is dropped from the predicate (fewer rows, never more); with nothing left to match, the clause is `<id> IS NULL` (no rows) — never "unfiltered". A single-row check that errors denies.
+
+**Surfaces it covers (query layer, not UI hiding):**
+- CRM Tasks / Touchpoints / Notes: list, saved-view counts, "first N of M" count, Excel export.
+- Record drawers, edit loads, edits, Close (`loadTaskRecord`, `closeTask`, `loadTaskForEdit`, `updateTask`, Marketing Memo upload; `loadTouchpointRecord`, `loadTouchContacts`, `loadTouchForEdit`, `updateTouch`; `loadNoteRecord`, `loadNoteForEdit`, `updateNote`).
+- Client Detail → Tasks card (`app/client-detail/crm-lists.ts`).
+- Onboarding page's touchpoint drawer / edit (`gateTouch` in `app/onboarding/actions.ts`).
+- My Dashboard → Team tasks card and the nav badge's team-task count: narrowed from six team roles to the four core roles (`coreBookIds`). "My tasks" (owner) was already inside the rule.
+
+**Deliberately NOT scoped:** the client-context displays — Client Detail's Touches timeline and Recent Note, Portfolio's recent-note column, Client To-Do's touch cell, the AI client summary. They are already gated by Level-2 client scope; the only extra viewers are people with the All data scope, for whom a client's timeline is the point. Also untouched: everything feedback (Feedback Reports, Collection, `v_feedback_pipeline`, claims, FB Coming Soon) and Data Uploads — those rows are exempt — and internal reads that show no rows (event task dates, automations, Client Margin, Client Health).
+
+**SQL.** `sql/patches/2026-10-20_tasks_current_assignment.sql` appends `current_assignment_id` to `v_admin_tasks_all`. Until it is run, the assignment check is simply left out.
 
 ### Roles matrix (Admin → **live**)
 
