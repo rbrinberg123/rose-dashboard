@@ -25,6 +25,7 @@ import { NoClientsAssigned, ClientNotInScope } from "@/components/scoped-empty"
 import { loadConfirmedMeetingsByEvent } from "@/lib/event-meetings"
 import { ClientDetailView } from "./client-detail-view"
 import { loadClientCrmLists } from "./crm-lists"
+import { loadActionStepLinks } from "./action-step-links"
 import { loadDeactivationState } from "@/lib/accounts/deactivation-gate"
 import { DeactivatedClientNotice } from "./deactivated-notice"
 import { hasSuperUserPrivileges } from "@/lib/access-control"
@@ -255,11 +256,14 @@ export default async function ClientDetailPage({
   // Runs alongside the Events / Tasks block + Key Contacts — super users only, as
   // the three CRM pages and their record drawers are (see crm-lists.ts) — so
   // that block adds no extra round trip.
-  const [confirmedMeetingsByEvent, crmLists] = await Promise.all([
+  // Also the "＋ Task" links for the displayed note's action steps (that note
+  // only; fail-soft to none).
+  const [confirmedMeetingsByEvent, crmLists, actionStepLinks] = await Promise.all([
     loadConfirmedMeetingsByEvent(marketingEvents.map((e) => e.event_id)),
     hasSuperUserPrivileges(role)
       ? loadClientCrmLists(sb, selected.account_id)
       : Promise.resolve(null),
+    loadActionStepLinks(sb, (recentNoteRes.data?.note_id ?? null) as string | null),
   ])
   // The chip count and the bucketing dates are both derived from that same set,
   // so there is only ever one read behind all three.
@@ -300,6 +304,7 @@ export default async function ClientDetailPage({
         topHosts={(topHostsRes.data ?? []) as ClientDetailTopHostRow[]}
         recentMeetings={(recentRes.data ?? []) as ClientDetailRecentMeetingRow[]}
         recentNote={(recentNoteRes.data ?? null) as ClientDetailRecentNoteRow | null}
+        actionStepLinks={actionStepLinks}
         healthRating={healthRating}
         touchpoints={(touchpointsRes.data ?? []) as ClientDetailTouchpointRow[]}
         marketingEvents={marketingEvents}

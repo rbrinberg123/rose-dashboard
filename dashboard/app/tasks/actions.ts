@@ -33,6 +33,7 @@ import { describeError, fail, ok, type ActionResult } from "@/lib/actions"
 import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
 import { recordAudit } from "@/lib/audit"
+import type { ActionStepRef } from "@/lib/tasks/action-step-links"
 import {
   DASHBOARD_ROW_BASE,
   cleanText,
@@ -647,7 +648,11 @@ async function buildTaskColumns(
  *
  * NOT FILTERED ANYWHERE. Containment is the ZVZZT test client.
  */
-export async function createTask(input: NewTaskInput): Promise<ActionResult<{ taskId: string }>> {
+export async function createTask(
+  input: NewTaskInput,
+  /** Set by Client Detail's "＋ Task": link the saved task to that note step. */
+  fromActionStep?: ActionStepRef | null,
+): Promise<ActionResult<{ taskId: string }>> {
   // ---- GATE (must stay first) ----
   const gate = await requireCrmLevel("/tasks", "create", "creating tasks")
   if (!gate.ok) return fail(gate.error)
@@ -685,8 +690,47 @@ export async function createTask(input: NewTaskInput): Promise<ActionResult<{ ta
     context: "/tasks · Add New Task",
   })
 
+  // Only now — the task is saved — record which note action step it came
+  // from. Fail-soft: the task stands even if the link can't be written (e.g.
+  // sql/patches/2026-10-21_action_step_tasks.sql not run yet).
+  if (fromActionStep) await linkTaskToActionStep(row.task_id, fromActionStep, gate.userId, gate.name)
+
   revalidatePath("/tasks")
   return ok({ taskId: row.task_id })
+}
+
+async function linkTaskToActionStep(
+  taskId: string,
+  ref: ActionStepRef,
+  userId: string | null,
+  userName: string | null,
+): Promise<void> {
+  const stepText = typeof ref.stepText === "string" ? ref.stepText.trim() : ""
+  if (!isUuid(ref.noteId) || !Number.isInteger(ref.stepIndex) || ref.stepIndex < 0 || !stepText) return
+  const sb = getSupabaseServer()
+  const { data: note } = await sb.from("client_notes").select("note_id").eq("note_id", ref.noteId).maybeSingle()
+  if (!note) return
+  const link = {
+    id: randomUUID(),
+    note_id: ref.noteId,
+    step_index: ref.stepIndex,
+    step_text: stepText,
+    task_id: taskId,
+    created_by_id: userId,
+    created_by_name: userName,
+  }
+  const { error } = await sb.from("action_step_tasks").insert(link)
+  if (error) {
+    console.error("action_step_tasks link not written:", describeError(error))
+    return
+  }
+  await recordAudit({
+    action: "create",
+    entity: "action_step_tasks",
+    recordId: link.id,
+    changes: link,
+    context: "/client-detail · ＋ Task from action step",
+  })
 }
 
 /** A DASHBOARD task, as form input — Dynamics rows are refused. */

@@ -34,8 +34,12 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { addDays, format } from "date-fns"
 import {
+  actionStepSubject,
   NEW_TASK_TEST_DEFAULT,
+  TASK_SUBTYPE_REMINDER_GENERAL_CODE,
+  TASK_TYPE_REMINDER_CODE,
   TASK_OUTREACH_STATUS_OPTIONS,
   TASK_PRIORITY_OPTIONS,
   TASK_STATUS_OPTIONS,
@@ -44,6 +48,7 @@ import {
   type NewTaskInput,
   type TaskFieldErrors,
 } from "@/lib/tasks/create"
+import type { ActionStepRef } from "@/lib/tasks/action-step-links"
 import type { AccountOption, UserOption } from "@/lib/types"
 import {
   countTestTasks,
@@ -110,12 +115,15 @@ function TaskFormDialog({
   initial,
   editId,
   onSaved,
+  fromActionStep = null,
 }: {
   open: boolean
   setOpen: (o: boolean) => void
   initial: NewTaskInput | null
   editId: string | null
   onSaved: () => void
+  /** Create only: the note action step this task comes from — linked on save. */
+  fromActionStep?: ActionStepRef | null
 }) {
   const router = useRouter()
   const [form, setForm] = React.useState<NewTaskInput>(() => initial ?? emptyForm())
@@ -166,7 +174,7 @@ function TaskFormDialog({
       return setError("Fill in the required fields marked below.")
     }
     startTransition(async () => {
-      const r = editId ? await updateTask(editId, form) : await createTask(form)
+      const r = editId ? await updateTask(editId, form) : await createTask(form, fromActionStep)
       if (!r.ok) {
         setError(r.error)
         return
@@ -642,6 +650,49 @@ export function NewTaskForClientDialog({
       initial={initial}
       editId={null}
       onSaved={() => {}}
+    />
+  )
+}
+
+/**
+ * Client Detail's "＋ Task" on a note action step — this same create form,
+ * pre-filled as a Reminder / General about the client (no event), due in 7
+ * days, subject derived from the step, description = the full step. Owner is
+ * left blank = "Me (default)" (the server defaults it to the caller). Test
+ * record starts OFF here. Every field stays editable; save is createTask,
+ * which also links the saved task to `from` (action_step_tasks) — on save
+ * only, never on open or cancel.
+ */
+export function NewTaskFromActionStepDialog({
+  clientAccountId,
+  from,
+  onClose,
+}: {
+  clientAccountId: string
+  from: ActionStepRef
+  onClose: () => void
+}) {
+  const step = from.stepText
+  const [initial] = React.useState<NewTaskInput>(() => ({
+    ...emptyForm(),
+    clientAccountId,
+    subject: actionStepSubject(step),
+    description: step,
+    typeCode: TASK_TYPE_REMINDER_CODE,
+    subtypeCode: TASK_SUBTYPE_REMINDER_GENERAL_CODE,
+    dueDate: format(addDays(new Date(), 7), "yyyy-MM-dd"),
+    isTest: false,
+  }))
+  return (
+    <TaskFormDialog
+      open
+      setOpen={(o) => {
+        if (!o) onClose()
+      }}
+      initial={initial}
+      editId={null}
+      onSaved={() => {}}
+      fromActionStep={from}
     />
   )
 }

@@ -49,13 +49,14 @@ import type { MeetingRecord } from "@/lib/meeting-record"
 import { BUILTIN_PREFIX } from "@/lib/table-views/types"
 import { KeyContactsStrip } from "./key-contacts-strip"
 import { ClientQuickAdd } from "./client-quick-add"
+import { ActionStepsList } from "./action-steps-list"
+import type { ActionStepLink } from "@/lib/tasks/action-step-links"
 import type { QuickAddKind } from "@/lib/access/crm-levels-policy"
 import type { ClientCrmLists } from "./crm-lists"
 import { EntityMasthead, MastheadSelector } from "@/components/page-masthead"
 import { type PillVariant } from "@/lib/gradients"
 import { clientStatusLabel, clientStatusStyle, clientStatusVariant } from "@/lib/client-status"
 import {
-  BADGE_GRADIENT,
   CARD_CLASS,
   EVENT_STAGE_PILL,
   EVENT_STAGE_PILL_FALLBACK,
@@ -578,6 +579,7 @@ export function ClientDetailView({
   topHosts,
   recentMeetings,
   recentNote,
+  actionStepLinks,
   healthRating,
   touchpoints,
   accountTeam,
@@ -613,6 +615,8 @@ export function ClientDetailView({
   topHosts: ClientDetailTopHostRow[]
   recentMeetings: ClientDetailRecentMeetingRow[]
   recentNote: ClientDetailRecentNoteRow | null
+  /** Tasks already created from recentNote's action steps (action_step_tasks). */
+  actionStepLinks: ActionStepLink[]
   /** Effective Client Health rating (override ?? AI) — the headline status pill. */
   healthRating: string | null
   touchpoints: ClientDetailTouchpointRow[]
@@ -889,6 +893,10 @@ export function ClientDetailView({
         .filter(Boolean),
     [recentNote?.action_step]
   )
+  // "＋ Task" per step → the task create form pre-filled from that step. Shown
+  // to the same viewers as Quick Add → New Task (Manage on tasks); createTask's
+  // server gate is what enforces it.
+  const canCreateTask = quickAdd.includes("task")
   // Trimmed, so a whitespace-only field reads as absent instead of rendering an
   // empty chip / blank line.
   const actionOwner = recentNote?.action_owner?.trim() ?? ""
@@ -1258,23 +1266,13 @@ export function ClientDetailView({
               >
                 Action Steps
               </div>
-              <ul className="space-y-0.5">
-                {actionSteps.map((step, i) => (
-                  <li key={`${i}-${step}`} className="flex items-start gap-2">
-                    <span
-                      className="mt-[6px] size-1.5 shrink-0 rounded-full"
-                      style={{ background: BADGE_GRADIENT }}
-                      aria-hidden="true"
-                    />
-                    <span
-                      className="min-w-0 break-words text-xs leading-relaxed"
-                      style={{ color: NAVY_DEEP }}
-                    >
-                      {step}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <ActionStepsList
+                steps={actionSteps}
+                noteId={recentNote.note_id}
+                clientAccountId={selected.account_id}
+                links={actionStepLinks}
+                canCreateTask={canCreateTask}
+              />
             </div>
           )}
           {(actionOwner || actionDeadline) && (

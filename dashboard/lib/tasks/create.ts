@@ -55,6 +55,24 @@ export const TASK_TYPE_OPTIONS = [
   { code: 755860005, label: "Reminder", subtypes: [{ code: 755860030, label: "General" }] },
 ] as const
 
+/** Reminder / General — the pre-fill for a task made from a note action step. */
+export const TASK_TYPE_REMINDER_CODE = 755860005
+export const TASK_SUBTYPE_REMINDER_GENERAL_CODE = 755860030
+
+/**
+ * A concise subject from a note action step: its first sentence, cut at a
+ * word boundary to ≤ 80 chars (with "…") when still longer. Pure.
+ */
+export function actionStepSubject(step: string, max = 80): string {
+  const text = step.replace(/\s+/g, " ").trim()
+  const sentence = text.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? text
+  const s = sentence.replace(/[.!?]$/, "")
+  if (s.length <= max) return s
+  const cut = s.slice(0, max - 1)
+  const space = cut.lastIndexOf(" ")
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:–-]+$/, "")}…`
+}
+
 /** Rose's own priority (bcs_taskpriority). The stock Dynamics priority is always "Normal". */
 export const TASK_PRIORITY_OPTIONS = [
   { code: 755860002, label: "High" },
